@@ -326,6 +326,68 @@ describe("HomeDashboardPage task-first workbench", () => {
     expect(screen.getByText("客户交付复盘审核", { selector: "h3" })).toBeInTheDocument();
   });
 
+  it("keeps the dashboard task list bounded and opens the full real task center", async () => {
+    const items = Array.from({ length: 8 }, (_, index) =>
+      task({
+        task_ref: `task-${index}`,
+        object_name: `待办资料 ${index + 1}`,
+      }),
+    );
+    vi.mocked(fetchWorkbenchOverview).mockResolvedValue(
+      overview({
+        task_center: {
+          ...overview().task_center,
+          summary: { needs_action: 8, running: 1, attention: 1, completed_today: 1 },
+          my_tasks: items,
+        },
+      }),
+    );
+    renderPage();
+
+    expect(await screen.findByText("显示 1–6 / 8")).toBeInTheDocument();
+    expect(screen.queryByText("待办资料 7")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    expect(screen.getByText("待办资料 7")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "查看全部" }));
+    expect(screen.getByRole("heading", { name: "任务中心" })).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/?task_group=my_tasks");
+  });
+
+  it("clamps the current task page when refreshed data becomes shorter", async () => {
+    const items = Array.from({ length: 8 }, (_, index) =>
+      task({
+        task_ref: `refresh-task-${index}`,
+        object_name: `刷新前待办 ${index + 1}`,
+      }),
+    );
+    const longOverview = overview({
+      task_center: {
+        ...overview().task_center,
+        summary: { needs_action: 8, running: 1, attention: 1, completed_today: 1 },
+        my_tasks: items,
+      },
+    });
+    const shortOverview = overview({
+      task_center: {
+        ...overview().task_center,
+        summary: { needs_action: 1, running: 1, attention: 1, completed_today: 1 },
+        my_tasks: [task({ task_ref: "refreshed-task", object_name: "刷新后待办" })],
+      },
+    });
+    vi.mocked(fetchWorkbenchOverview)
+      .mockResolvedValueOnce(longOverview)
+      .mockResolvedValueOnce(shortOverview);
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "下一页" }));
+    expect(within(screen.getByRole("tabpanel")).getByText("刷新前待办 7")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+
+    await waitFor(() => expect(fetchWorkbenchOverview).toHaveBeenCalledTimes(2));
+    expect(within(screen.getByRole("tabpanel")).getByText("刷新后待办")).toBeInTheDocument();
+    expect(screen.queryByLabelText("任务列表分页")).not.toBeInTheDocument();
+  });
+
   it("uses the real migration and markdown backfill task type labels", async () => {
     const migration = task({
       task_ref: "migration-safe-ref",

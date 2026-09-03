@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import io
+import sys
 from types import SimpleNamespace
 
+import pytest
 from PIL import Image
 
-from app.services import ocr
+from app.services import ocr, ocr_raster_worker
 from app.services.extraction import ExtractionPage, ExtractionResult
 
 
@@ -63,3 +65,86 @@ def test_local_ocr_low_confidence_is_not_success(monkeypatch):
 
     assert result.status == "low_confidence"
     assert result.error_type == "ocr_low_confidence"
+
+
+def test_ocr_rejects_documents_over_page_limit_before_invoking_engine(monkeypatch):
+    settings = ocr.get_settings()
+    monkeypatch.setattr(
+        ocr,
+        "get_settings",
+        lambda: settings.model_copy(update={"ocr_max_pages": 1}),
+    )
+    extraction = ExtractionResult(
+        text="",
+        status="ocr_required",
+        error_type=None,
+        error_message=None,
+        char_count=0,
+        pages=(
+            ExtractionPage(1, "", "ocr_required"),
+            ExtractionPage(2, "", "ocr_required"),
+        ),
+        source_kind="pdf",
+    )
+    with pytest.raises(ocr.OCRError) as caught:
+        ocr.recognize(b"ignored", extraction)
+    assert caught.value.code == "ocr_resource_limit"
+
+
+def test_ocr_rejects_image_pixel_expansion(monkeypatch):
+    settings = ocr.get_settings()
+    monkeypatch.setattr(
+        ocr,
+        "get_settings",
+        lambda: settings.model_copy(update={"ocr_max_rendered_pixels": 100}),
+    )
+    with pytest.raises(ocr.OCRError) as caught:
+        ocr._image_bytes(_image(), source_kind="image", page_number=1)
+    assert caught.value.code == "ocr_resource_limit"
+
+
+def test_pdf_pixel_limit_is_checked_before_pixmap_allocation(monkeypatch):
+    pixmap_called = False
+
+    class Rect:
+        x0 = 0
+        y0 = 0
+        x1 = 100
+        y1 = 100
+
+        def __mul__(self, matrix):
+            return SimpleNamespace(
+                x0=self.x0 * matrix.x,
+                y0=self.y0 * matrix.y,
+                x1=self.x1 * matrix.x,
+                y1=self.y1 * matrix.y,
+            )
+
+    class Page:
+        rect = Rect()
+
+        def get_pixmap(self, **_kwargs):
+            nonlocal pixmap_called
+            pixmap_called = True
+            raise AssertionError("pixmap allocation must not be attempted")
+
+    class Document:
+        page_count = 1
+
+        def load_page(self, _index):
+            return Page()
+
+        def close(self):
+            pass
+
+    fake_fitz = SimpleNamespace(
+        open=lambda **_kwargs: Document(),
+        Matrix=lambda x, y: SimpleNamespace(x=x, y=y),
+    )
+    monkeypatch.setitem(sys.modules, "fitz", fake_fitz)
+
+    with pytest.raises(ocr_raster_worker._RasterError) as caught:
+        ocr_raster_worker._rasterize(b"pdf", source_kind="pdf", page_number=1, max_image_pixels=100)
+
+    assert caught.value.code == "ocr_structure_limit"
+    assert pixmap_called is False

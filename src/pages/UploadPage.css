@@ -1172,6 +1172,214 @@
   color: #8f1d16;
 }
 
+/* Upload uses the same pale carrier / dark work-surface contrast as "我的工作".
+   The rows remain compact because a large folder upload is operational work, not
+   a document catalogue. */
+.upload77-local-workspace,
+.upload77-local-queue,
+.upload77-wecom {
+  position: relative;
+  overflow: hidden;
+  border-color: #d2ddec;
+  border-radius: 12px;
+  background: linear-gradient(112deg, rgba(255, 255, 255, 0.9), rgba(233, 240, 249, 0.9)), #eaf0f8;
+  box-shadow: 0 12px 30px rgba(32, 55, 91, 0.08);
+}
+
+.upload77-local-queue::before,
+.upload77-wecom::before {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 87% 0%, rgba(213, 181, 97, 0.17), transparent 31%),
+    linear-gradient(130deg, #102746, #17345c 58%, #122b4d);
+  content: "";
+}
+
+.upload77-local-queue > *,
+.upload77-wecom > * {
+  position: relative;
+  z-index: 1;
+}
+
+.upload77-local-queue .upload77-section-head,
+.upload77-wecom .upload77-section-head {
+  border-bottom-color: rgba(191, 211, 238, 0.22);
+}
+
+.upload77-local-queue .upload77-section-head h2,
+.upload77-wecom .upload77-section-head h2 {
+  color: #f6f8ff;
+}
+
+.upload77-local-queue .upload77-section-head p,
+.upload77-wecom .upload77-section-head p,
+.upload77-wecom .upload77-selection-reason {
+  color: #b9c9df;
+}
+
+.upload77-local-queue .upload77-icon-button,
+.upload77-wecom .upload77-icon-button,
+.upload77-local-queue .btn-secondary,
+.upload77-wecom .btn-secondary {
+  color: #eaf1ff;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(210, 225, 249, 0.3);
+}
+
+.upload77-local-queue .upload77-icon-button:hover:not(:disabled),
+.upload77-wecom .upload77-icon-button:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.15);
+  border-color: #d8b768;
+}
+
+.upload77-list-tools,
+.upload77-list-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  color: #b9c9df;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.upload77-list-tools > div,
+.upload77-list-pager > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.upload77-list-tools button,
+.upload77-list-pager button {
+  min-height: 26px;
+  padding: 4px 9px;
+  color: #dce7fa;
+  font: inherit;
+  font-size: 10px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(200, 219, 246, 0.22);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.upload77-list-tools button.is-active {
+  color: #fff6db;
+  background: rgba(211, 174, 89, 0.19);
+  border-color: #d5b15e;
+}
+
+.upload77-list-pager button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.upload77-local-queue .upload77-queue-summary {
+  grid-template-columns: repeat(7, minmax(86px, 1fr));
+  padding: 0 16px;
+}
+
+.upload77-local-queue .upload77-queue-summary > div {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(204, 221, 247, 0.17);
+}
+
+.upload77-local-queue .upload77-queue-summary dt {
+  color: #aebfda;
+}
+
+.upload77-local-queue .upload77-queue-summary dd {
+  color: #f4f7ff;
+}
+
+.upload77-local-queue .upload77-table-wrap,
+.upload77-wecom .upload77-table-wrap {
+  margin: 0 10px;
+  border: 1px solid rgba(204, 221, 247, 0.17);
+  border-radius: 7px;
+  background: rgba(8, 27, 55, 0.34);
+}
+
+.upload77-local-queue .upload77-table,
+.upload77-wecom .upload77-table {
+  color: #e5edf9;
+  font-size: 12px;
+}
+
+.upload77-local-queue .upload77-table th,
+.upload77-wecom .upload77-table th {
+  color: #abc1df;
+  background: rgba(6, 23, 48, 0.34);
+  border-bottom-color: rgba(204, 221, 247, 0.16);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+
+.upload77-local-queue .upload77-table td,
+.upload77-wecom .upload77-table td {
+  border-bottom-color: rgba(204, 221, 247, 0.13);
+}
+
+.upload77-local-queue .upload77-table tbody tr:hover,
+.upload77-wecom .upload77-table tbody tr:hover {
+  background: linear-gradient(90deg, rgba(114, 157, 218, 0.16), transparent);
+}
+
+.upload77-wecom .upload77-task-select {
+  color: #f2f6ff;
+}
+
+.upload77-pending-file-meta {
+  display: block;
+  margin-top: 3px;
+  color: #aebfda;
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.upload77-wecom .upload77-status {
+  color: #dce7fa;
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(204, 221, 247, 0.24);
+}
+
+.upload77-wecom .upload77-state {
+  color: #bdcce1;
+}
+
+.upload77-wecom .upload77-state strong {
+  color: #f5f8ff;
+}
+
+@media (max-width: 1280px) {
+  .upload77-local-queue .upload77-queue-summary {
+    grid-template-columns: repeat(4, minmax(110px, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .upload77-list-tools,
+  .upload77-list-pager {
+    align-items: flex-start;
+    flex-direction: column;
+    padding-inline: 12px;
+  }
+
+  .upload77-local-queue .upload77-queue-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding-inline: 12px;
+  }
+}
+
 .upload77-table-wrap {
   overflow-x: auto;
   max-width: 100%;

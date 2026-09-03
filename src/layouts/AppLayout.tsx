@@ -60,7 +60,7 @@ const navGroups: NavGroup[] = [
         end: true,
         cap: can.viewHome,
       },
-      { to: "/upload", label: "资产化确认", icon: FileCheck2, cap: can.viewUpload },
+      { to: "/upload", label: "上传文件", icon: FileCheck2, cap: can.viewUpload },
       { to: "/review", label: "升级审核", icon: ShieldCheck, cap: can.viewReview },
       {
         to: "/original-access",
@@ -149,7 +149,7 @@ const moduleTitles: Array<[prefix: string, title: string]> = [
   ["/knowledge", "知识资产库"],
   ["/my/knowledge", "个人知识"],
   ["/my/workbuddy", "WorkBuddy 接入"],
-  ["/upload", "资产化确认"],
+  ["/upload", "上传文件"],
   ["/review", "升级审核"],
   ["/original-access", "原文访问"],
   ["/admin/ingest", "入库管理"],

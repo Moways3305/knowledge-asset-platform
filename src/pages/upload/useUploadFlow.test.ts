@@ -840,10 +840,14 @@ describe("useUploadFlow model selection (PBC-38)", () => {
   });
 
   it("单条上传失败不阻塞后续文件，并可单独重试", async () => {
+    let resolveRetry!: (value: { ingest_task_id: string }) => void;
+    const retryRequest = new Promise<{ ingest_task_id: string }>((resolve) => {
+      resolveRetry = resolve;
+    });
     ingest.createIngestUpload
       .mockRejectedValueOnce(new Error("network"))
       .mockResolvedValueOnce({ ingest_task_id: "t2" })
-      .mockResolvedValueOnce({ ingest_task_id: "t1-retry" });
+      .mockImplementationOnce(() => retryRequest);
     const { result } = renderHook(() => useUploadFlow());
     await waitFor(() => expect(auth.fetchAuthMe).toHaveBeenCalled());
     act(() =>
@@ -864,10 +868,139 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       status: "failed",
       error: "上传失败，请稍后重试",
     });
-    act(() => result.current.retryLocalUpload(result.current.localUploadQueue[0].id));
+    let retryCompletion!: Promise<void>;
+    act(() => {
+      retryCompletion = result.current.retryLocalUpload(result.current.localUploadQueue[0].id);
+    });
+    let retrySettled = false;
+    void retryCompletion.then(() => {
+      retrySettled = true;
+    });
+    await waitFor(() => expect(ingest.createIngestUpload).toHaveBeenCalledTimes(3));
+    expect(retrySettled).toBe(false);
+    await act(async () => {
+      resolveRetry({ ingest_task_id: "t1-retry" });
+      await retryCompletion;
+    });
+    expect(retrySettled).toBe(true);
     await waitFor(() =>
       expect(result.current.localUploadQueue[0]?.status).toBe("awaiting_confirmation"),
     );
+  });
+
+  it("生产重试入口会合并同项调用并串行执行不同文件", async () => {
+    let resolveFirstRetry!: (value: { ingest_task_id: string }) => void;
+    let resolveSecondRetry!: (value: { ingest_task_id: string }) => void;
+    const firstRetryRequest = new Promise<{ ingest_task_id: string }>((resolve) => {
+      resolveFirstRetry = resolve;
+    });
+    const secondRetryRequest = new Promise<{ ingest_task_id: string }>((resolve) => {
+      resolveSecondRetry = resolve;
+    });
+    ingest.createIngestUpload
+      .mockRejectedValueOnce(new Error("network-a"))
+      .mockRejectedValueOnce(new Error("network-b"))
+      .mockImplementationOnce(() => firstRetryRequest)
+      .mockImplementationOnce(() => secondRetryRequest);
+    const { result } = renderHook(() => useUploadFlow());
+    await waitFor(() => expect(auth.fetchAuthMe).toHaveBeenCalled());
+    act(() =>
+      result.current.handleFileSelect({
+        target: {
+          files: [
+            new File(["a"], "first.pdf", { type: "application/pdf" }),
+            new File(["b"], "second.pdf", { type: "application/pdf" }),
+          ],
+          value: "",
+        },
+      } as unknown as ChangeEvent<HTMLInputElement>),
+    );
+    await waitFor(() =>
+      expect(result.current.localUploadQueue.map((item) => item.status)).toEqual([
+        "failed",
+        "failed",
+      ]),
+    );
+
+    let first!: Promise<void>;
+    let duplicateFirst!: Promise<void>;
+    let second!: Promise<void>;
+    act(() => {
+      first = result.current.retryLocalUpload(result.current.localUploadQueue[0].id);
+      duplicateFirst = result.current.retryLocalUpload(result.current.localUploadQueue[0].id);
+      second = result.current.retryLocalUpload(result.current.localUploadQueue[1].id);
+    });
+
+    expect(duplicateFirst).toBe(first);
+    await waitFor(() => expect(ingest.createIngestUpload).toHaveBeenCalledTimes(3));
+    expect(ingest.createIngestUpload).toHaveBeenCalledTimes(3);
+
+    await act(async () => {
+      resolveFirstRetry({ ingest_task_id: "first-retry" });
+      await first;
+    });
+    await waitFor(() => expect(ingest.createIngestUpload).toHaveBeenCalledTimes(4));
+
+    await act(async () => {
+      resolveSecondRetry({ ingest_task_id: "second-retry" });
+      await second;
+    });
+  });
+
+  it("旧上传 worker 已运行时重试 Promise 会等待同一轮队列排空", async () => {
+    let resolveSecondUpload!: (value: { ingest_task_id: string }) => void;
+    let resolveRetryUpload!: (value: { ingest_task_id: string }) => void;
+    const secondUpload = new Promise<{ ingest_task_id: string }>((resolve) => {
+      resolveSecondUpload = resolve;
+    });
+    const retryUpload = new Promise<{ ingest_task_id: string }>((resolve) => {
+      resolveRetryUpload = resolve;
+    });
+    ingest.createIngestUpload
+      .mockRejectedValueOnce(new Error("first failed"))
+      .mockImplementationOnce(() => secondUpload)
+      .mockImplementationOnce(() => retryUpload);
+    const { result } = renderHook(() => useUploadFlow());
+    await waitFor(() => expect(auth.fetchAuthMe).toHaveBeenCalled());
+    act(() =>
+      result.current.handleFileSelect({
+        target: {
+          files: [
+            new File(["a"], "first.pdf", { type: "application/pdf" }),
+            new File(["b"], "second.pdf", { type: "application/pdf" }),
+          ],
+          value: "",
+        },
+      } as unknown as ChangeEvent<HTMLInputElement>),
+    );
+    await waitFor(() => {
+      expect(result.current.localUploadQueue[0]?.status).toBe("failed");
+      expect(result.current.localUploadQueue[1]?.status).toBe("uploading");
+    });
+
+    let retryCompletion!: Promise<void>;
+    let retrySettled = false;
+    await act(async () => {
+      retryCompletion = result.current.retryLocalUpload(result.current.localUploadQueue[0].id);
+      void retryCompletion.then(() => {
+        retrySettled = true;
+      });
+      await Promise.resolve();
+    });
+    expect(retrySettled).toBe(false);
+
+    await act(async () => {
+      resolveSecondUpload({ ingest_task_id: "second-upload" });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(ingest.createIngestUpload).toHaveBeenCalledTimes(3));
+    expect(retrySettled).toBe(false);
+
+    await act(async () => {
+      resolveRetryUpload({ ingest_task_id: "first-retry" });
+      await retryCompletion;
+    });
+    expect(retrySettled).toBe(true);
   });
 
   it("混合选择时仅有效文件进入上传，非法文件保留各自安全失败原因", async () => {

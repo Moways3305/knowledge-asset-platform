@@ -100,7 +100,7 @@ const SECTIONS: HelpSection[] = [
   },
   {
     id: "ingest",
-    title: "上传与入库",
+    title: "上传文件",
     intro: "两条路径共享同一「AI 预览 → 人工校正 → 入库 / 审核分流」模型。",
     items: [
       {

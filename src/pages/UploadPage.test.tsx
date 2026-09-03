@@ -53,7 +53,7 @@ describe("UploadPage reference workflow", () => {
   it("starts with the local upload workspace and switches source through the flow", () => {
     renderPage();
 
-    expect(screen.getByRole("heading", { name: "上传与入库" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "上传文件" })).toBeInTheDocument();
     expect(screen.getByText("本地文件上传区")).toBeInTheDocument();
     expect(screen.queryByText("企微待确认列表")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "企微微盘待确认" }));

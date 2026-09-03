@@ -60,8 +60,8 @@ export default function UploadPage() {
     <ProductPage className="upload-page upload77-page">
       <PageHeader
         eyebrow="内容资产化"
-        title="上传与入库"
-        description="选择资料来源，处理完成后核对内容建议并确认入库。"
+        title="上传文件"
+        description="选择资料来源，上传后核对内容建议并确认入库。"
         status={
           <StatusBadge
             tone={confirmationOpen ? "warning" : taskId ? "info" : "neutral"}

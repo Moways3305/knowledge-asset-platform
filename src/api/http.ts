@@ -30,6 +30,45 @@ export class ApiError extends Error {
   }
 }
 
+const SAFE_VALIDATION_FIELDS: Record<string, string> = {
+  session_id: "上传会话标识",
+  manifest: "文件清单",
+  total_transport_batches: "批次计划",
+  file_name: "文件名",
+  file_size: "文件大小",
+  transport_batch_index: "批次序号",
+  item_ids: "批次文件清单",
+};
+
+function safeValidationDetail(detail: unknown): { message: string; fields: string[] } | null {
+  if (!Array.isArray(detail)) return null;
+  const fields = Array.from(
+    new Set(
+      detail
+        .map((item) => {
+          if (!item || typeof item !== "object") return null;
+          const loc = (item as { loc?: unknown }).loc;
+          if (!Array.isArray(loc)) return null;
+          return [...loc]
+            .reverse()
+            .find((part) => typeof part === "string" && part in SAFE_VALIDATION_FIELDS) as
+            | string
+            | undefined;
+        })
+        .filter((field): field is string => Boolean(field)),
+    ),
+  );
+  const labels = fields.map((field) => SAFE_VALIDATION_FIELDS[field]);
+  return {
+    // Never surface FastAPI's original message/input, which may contain filenames
+    // or other submitted values.  The whitelist is deliberately small and stable.
+    message: labels.length
+      ? `提交信息有误：请检查${labels.join("、")}后重试。`
+      : "提交信息不符合要求，请检查文件清单和批次计划后重试。",
+    fields,
+  };
+}
+
 export function devHeaders(extra: Record<string, string> = {}): Record<string, string> {
   const headers: Record<string, string> = { ...extra };
   if (DEV_USER_ID) headers["X-Dev-User-Id"] = DEV_USER_ID;
@@ -106,7 +145,12 @@ export async function handleResponse<T>(resp: Response): Promise<T> {
     try {
       const body = await resp.json();
       const detail = body?.detail;
-      if (detail && typeof detail === "object") {
+      const validation = safeValidationDetail(detail);
+      if (validation) {
+        deniedReason = "validation_error";
+        message = validation.message;
+        detailObj = { validation_fields: validation.fields };
+      } else if (detail && typeof detail === "object") {
         deniedReason = detail.denied_reason;
         message = detail.message ?? message;
         detailObj = detail as Record<string, unknown>;

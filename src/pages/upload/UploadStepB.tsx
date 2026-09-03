@@ -1,5 +1,5 @@
 import { ChevronDown, FileText, FolderOpen, RefreshCw, UploadCloud, X } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { commandErrorMessage, retryIngestTask } from "./pendingBatchCommands";
 import { extractionLabel, flowLabel, formatFileSize, pendingStatusLabel } from "./uploadConstants";
 import BatchTaskProgress from "./BatchTaskProgress";
@@ -31,6 +31,93 @@ const PROCESSING_STAGE_LABELS: Partial<Record<IngestTaskStage, string>> = {
   content_result_persistence_failed: "内容生成结果保存失败",
   processing_state_persistence_failed: "处理状态保存失败",
 };
+
+function queueFailureReason(
+  error: string | null,
+  stage?: IngestTaskStage,
+  errorCode?: string | null,
+): string {
+  const code = errorCode?.trim().toLowerCase();
+  if (code) {
+    if (code === "extraction_password_protected") return "文件受密码保护，请解锁后重新上传";
+    if (
+      code === "extraction_format_mismatch" ||
+      code === "file_format_unsupported" ||
+      code === "unsupported_file_type"
+    )
+      return "文件格式不符合处理要求，请检查后重新上传";
+    if (
+      code === "extraction_structure_limit" ||
+      code === "extraction_archive_limit" ||
+      code === "ocr_resource_limit"
+    )
+      return "文件页数、图像或版面过于复杂，请拆分文件后重试";
+    if (
+      code === "file_parse_failed" ||
+      code === "extraction_corrupt" ||
+      code === "ocr_source_invalid"
+    )
+      return "文件可能损坏或无法解析，请确认扩展名后重新上传";
+    if (code === "processing_timeout" || code === "ocr_timeout") return "处理超时，稍后可重试";
+    if (code === "source_file_unavailable") return "原文件暂时不可用，请重新选择原文件";
+  }
+
+  const value = `${stage ?? ""} ${error ?? ""}`.toLowerCase();
+  if (
+    value.includes("password") ||
+    value.includes("encrypt") ||
+    value.includes("密码") ||
+    value.includes("加密") ||
+    value.includes("受保护")
+  )
+    return "文件受密码保护，请解锁后重新上传";
+  if (value.includes("confidence") || value.includes("置信度"))
+    return "OCR 识别置信度不足，请上传更清晰的文件或改为人工校对";
+  if (
+    stage === "ocr_too_complex" ||
+    value.includes("too_complex") ||
+    value.includes("too complex") ||
+    value.includes("解压后体积异常") ||
+    value.includes("过于复杂") ||
+    value.includes("复杂度")
+  )
+    return "文件页数、图像或版面过于复杂，请拆分文件后重试";
+  if (value.includes("timeout") || value.includes("超时")) return "处理超时，稍后可重试";
+  if (stage === "source_unavailable" || value.includes("原文件"))
+    return "原文件暂时不可用，请重新选择原文件";
+  if (
+    value.includes("unsupported") ||
+    value.includes("不支持") ||
+    value.includes("格式不符") ||
+    value.includes("扩展名不匹配")
+  )
+    return "文件格式不符合处理要求，请检查后重新上传";
+  if (
+    value.includes("corrupt") ||
+    value.includes("damaged") ||
+    value.includes("损坏") ||
+    value.includes("无法读取") ||
+    value.includes("无法解析")
+  )
+    return "文件可能损坏或无法解析，请确认扩展名后重新上传";
+  if (
+    value.includes("network") ||
+    value.includes("interrupted") ||
+    value.includes("传输失败") ||
+    value.includes("连接中断") ||
+    value.includes("网关") ||
+    value.includes("上传失败")
+  )
+    return "文件传输失败，请检查网络后重试";
+  if (
+    value.includes("temporarily unavailable") ||
+    value.includes("service_unavailable") ||
+    value.includes("暂时不可用") ||
+    value.includes("服务不可用")
+  )
+    return "处理服务暂时不可用，请稍后重试";
+  return "本文件暂未完成处理，请按操作重试或重新选择原文件";
+}
 
 export default function UploadStepB({ flow }: { flow: UploadFlow }) {
   const {
@@ -77,6 +164,11 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
   const [isDragging, setIsDragging] = useState(false);
   const [isQueueCollapsed, setIsQueueCollapsed] = useState(false);
   const [isPendingCollapsed, setIsPendingCollapsed] = useState(false);
+  const [queueFilter, setQueueFilter] = useState<"all" | "active" | "failed" | "ready">("all");
+  const [queuePage, setQueuePage] = useState(0);
+  const [pendingPage, setPendingPage] = useState(0);
+  const [batchRetrying, setBatchRetrying] = useState(false);
+  const [retryingUploadIds, setRetryingUploadIds] = useState<Set<string>>(() => new Set());
   const [pendingRetryId, setPendingRetryId] = useState<string | null>(null);
   const [pendingRetryError, setPendingRetryError] = useState<Record<string, string>>({});
   const retryPending = async (id: string) => {
@@ -110,7 +202,74 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
     ["queued", "uploading", "processing", "failed"].includes(item.status),
   );
   const uploadQueueCompleted = localUploadQueue.length > 0 && !hasActiveUploadQueue;
-  const completedQueueNotice = localUploadQueue.find((item) => item.error)?.error ?? null;
+  const completedQueueNotice = localUploadQueue.find(
+    (item) => item.status === "failed" && item.error,
+  );
+  const filteredQueue = useMemo(
+    () =>
+      localUploadQueue.filter((item) => {
+        if (queueFilter === "active")
+          return ["queued", "uploading", "processing"].includes(item.status);
+        if (queueFilter === "failed") return item.status === "failed";
+        if (queueFilter === "ready") return item.status === "awaiting_confirmation";
+        return true;
+      }),
+    [localUploadQueue, queueFilter],
+  );
+  const queuePageSize = 8;
+  const safeQueuePage = Math.min(
+    queuePage,
+    Math.max(0, Math.ceil(filteredQueue.length / queuePageSize) - 1),
+  );
+  const visibleQueue = filteredQueue.slice(
+    safeQueuePage * queuePageSize,
+    (safeQueuePage + 1) * queuePageSize,
+  );
+  const pendingPageSize = 8;
+  const safePendingPage = Math.min(
+    pendingPage,
+    Math.max(0, Math.ceil(localPendingTasks.length / pendingPageSize) - 1),
+  );
+  const visiblePendingTasks = localPendingTasks.slice(
+    safePendingPage * pendingPageSize,
+    (safePendingPage + 1) * pendingPageSize,
+  );
+  const hasItemRetryInFlight = retryingUploadIds.size > 0;
+  const retryUploadItem = async (id: string) => {
+    setRetryingUploadIds((current) => new Set(current).add(id));
+    try {
+      await retryLocalUpload(id);
+    } finally {
+      setRetryingUploadIds((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
+  const retryFailedUploadsSequentially = async () => {
+    if (batchRetrying || hasItemRetryInFlight) return;
+    const retryIds = localUploadQueue
+      .filter((item) => item.status === "failed" && item.retryable !== false)
+      .map((item) => item.id);
+    if (retryIds.length === 0) return;
+    setBatchRetrying(true);
+    try {
+      // Each retry returns an authoritative upload-session snapshot. Applying
+      // them serially prevents an older concurrent response from overwriting a
+      // later item's recovered state.
+      for (const id of retryIds) {
+        try {
+          await retryLocalUpload(id);
+        } catch {
+          // Per-item recovery remains independent; continue with the remaining
+          // snapshot after a single retry cannot be started.
+        }
+      }
+    } finally {
+      setBatchRetrying(false);
+    }
+  };
   const extractionStatusText =
     /\.ppt$/i.test(fileName) && extraction?.status === "unsupported"
       ? "当前 .ppt 格式暂不支持自动提取，已保存文件，请人工补全内容"
@@ -315,12 +474,18 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
           <span>，规范文本已生成；{localPendingTasks.length} 项待人工确认，尚未进入检索。</span>
           <a href="#local-pending-title">前往待确认入库</a>
           {completedQueueNotice && (
-            <span className="upload77-upload-complete-note">{completedQueueNotice}</span>
+            <span className="upload77-upload-complete-note">
+              {queueFailureReason(
+                completedQueueNotice.error,
+                completedQueueNotice.processingStage,
+                completedQueueNotice.errorCode,
+              )}
+            </span>
           )}
         </section>
       )}
 
-      {!hasFile && hasActiveUploadQueue && (
+      {!hasFile && localUploadQueue.length > 0 && (
         <section className="upload77-local-queue" aria-labelledby="local-upload-queue-title">
           <div className="upload77-section-head">
             <div>
@@ -329,9 +494,24 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
             </div>
             <div className="upload77-section-actions">
               {localUploadQueue.some((item) => item.status === "failed") && (
-                <button className="btn-secondary" onClick={removeFailedLocalUploads} type="button">
-                  清理全部失败项
-                </button>
+                <>
+                  <button
+                    className="btn-secondary"
+                    disabled={batchRetrying || hasItemRetryInFlight}
+                    onClick={() => void retryFailedUploadsSequentially()}
+                    type="button"
+                  >
+                    {batchRetrying ? "正在重试失败项…" : "重试可恢复失败项"}
+                  </button>
+                  <button
+                    className="btn-secondary"
+                    disabled={batchRetrying || hasItemRetryInFlight}
+                    onClick={removeFailedLocalUploads}
+                    type="button"
+                  >
+                    清理全部失败项
+                  </button>
+                </>
               )}
               <button
                 aria-controls="local-upload-queue-body"
@@ -385,9 +565,41 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                     {uploadSession.uploaded_batches ?? 0}/{uploadSession.total_batches} 批
                   </dd>
                 </div>
+                <div>
+                  <dt>当前批次</dt>
+                  <dd>
+                    {uploadSession.current_batch_number
+                      ? `第 ${uploadSession.current_batch_number}/${uploadSession.total_batches} 批`
+                      : "批次已结束"}
+                  </dd>
+                </div>
               </dl>
             )}
-            <div className="upload77-table-wrap">
+            <div className="upload77-list-tools" aria-label="上传队列筛选">
+              <div>
+                {[
+                  ["all", "全部"],
+                  ["active", "传输/处理中"],
+                  ["ready", "待确认"],
+                  ["failed", "失败"],
+                ].map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={queueFilter === value ? "is-active" : ""}
+                    aria-pressed={queueFilter === value}
+                    onClick={() => {
+                      setQueueFilter(value as "all" | "active" | "failed" | "ready");
+                      setQueuePage(0);
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <span>{filteredQueue.length} 项</span>
+            </div>
+            <div className="upload77-table-wrap upload77-queue-table-wrap">
               <table className="upload77-table">
                 <thead>
                   <tr>
@@ -399,7 +611,7 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {localUploadQueue.map((item) => {
+                  {visibleQueue.map((item) => {
                     const processingLabel = item.processingStage
                       ? PROCESSING_STAGE_LABELS[item.processingStage]
                       : undefined;
@@ -433,8 +645,14 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                             {item.lastAttemptAt && (
                               <span>最近尝试 {formatBeijingTime(item.lastAttemptAt)}</span>
                             )}
-                            {item.error && (
-                              <span className="upload77-queue-error">{item.error}</span>
+                            {item.status === "failed" && item.error && (
+                              <span className="upload77-queue-error">
+                                {queueFailureReason(
+                                  item.error,
+                                  item.processingStage,
+                                  item.errorCode,
+                                )}
+                              </span>
                             )}
                           </div>
                         </td>
@@ -444,14 +662,16 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                               {item.retryable !== false && (
                                 <button
                                   className="upload77-retry-link"
-                                  onClick={() => retryLocalUpload(item.id)}
+                                  disabled={batchRetrying || retryingUploadIds.has(item.id)}
+                                  onClick={() => void retryUploadItem(item.id)}
                                   type="button"
                                 >
-                                  重试处理
+                                  {retryingUploadIds.has(item.id) ? "正在重试…" : "重试处理"}
                                 </button>
                               )}
                               <button
                                 className="upload77-retry-link"
+                                disabled={batchRetrying || hasItemRetryInFlight}
                                 onClick={() => removeLocalUpload(item.id)}
                                 type="button"
                               >
@@ -465,7 +685,35 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                   })}
                 </tbody>
               </table>
+              {filteredQueue.length === 0 && (
+                <div className="upload77-state">当前筛选下没有文件</div>
+              )}
             </div>
+            {filteredQueue.length > queuePageSize && (
+              <div className="upload77-list-pager" aria-label="上传队列分页">
+                <span>
+                  显示 {safeQueuePage * queuePageSize + 1}–
+                  {Math.min((safeQueuePage + 1) * queuePageSize, filteredQueue.length)} /{" "}
+                  {filteredQueue.length}
+                </span>
+                <div>
+                  <button
+                    type="button"
+                    disabled={safeQueuePage === 0}
+                    onClick={() => setQueuePage((page) => Math.max(0, page - 1))}
+                  >
+                    上一页
+                  </button>
+                  <button
+                    type="button"
+                    disabled={(safeQueuePage + 1) * queuePageSize >= filteredQueue.length}
+                    onClick={() => setQueuePage((page) => page + 1)}
+                  >
+                    下一页
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </section>
       )}
@@ -563,7 +811,7 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {localPendingTasks.map((task) => {
+                    {visiblePendingTasks.map((task) => {
                       const selected = taskId === task.id;
                       const loadingThis = selected && flowState === "processing";
                       const itemStatus = batchStatus[task.id];
@@ -629,6 +877,13 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                             >
                               {task.source_file_name}
                             </button>
+                            <small className="upload77-pending-file-meta">
+                              {task.source_file_name.split(".").pop()?.toUpperCase() ?? "未知类型"}{" "}
+                              ·{" "}
+                              {task.source_file_size == null
+                                ? "大小未提供"
+                                : formatFileSize(task.source_file_size)}
+                            </small>
                           </td>
                           <td>
                             <span className={`upload77-status upload77-status-${task.status}`}>
@@ -696,6 +951,33 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                     })}
                   </tbody>
                 </table>
+                {localPendingTasks.length > pendingPageSize && (
+                  <div className="upload77-list-pager" aria-label="待确认入库分页">
+                    <span>
+                      显示 {safePendingPage * pendingPageSize + 1}–
+                      {Math.min((safePendingPage + 1) * pendingPageSize, localPendingTasks.length)}{" "}
+                      / {localPendingTasks.length}
+                    </span>
+                    <div>
+                      <button
+                        type="button"
+                        disabled={safePendingPage === 0}
+                        onClick={() => setPendingPage((page) => Math.max(0, page - 1))}
+                      >
+                        上一页
+                      </button>
+                      <button
+                        type="button"
+                        disabled={
+                          (safePendingPage + 1) * pendingPageSize >= localPendingTasks.length
+                        }
+                        onClick={() => setPendingPage((page) => page + 1)}
+                      >
+                        下一页
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

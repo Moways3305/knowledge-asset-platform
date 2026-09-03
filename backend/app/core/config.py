@@ -97,7 +97,11 @@ class Settings(BaseSettings):
 
     # 入库业务租约。worker 进程被 OOM/SIGKILL 时 Python finally 不会执行，因此由
     # default 队列上的扫描任务按 heartbeat 判定孤儿，并做有限指数退避恢复。
-    ingest_lease_timeout_seconds: int = 900
+    # A heartbeat older than three minutes means the worker is no longer making
+    # observable progress.  Individual extract/OCR subprocesses are bounded far
+    # below this value, so this catches a lost container without overlapping a
+    # healthy long-running document.
+    ingest_lease_timeout_seconds: int = 180
     ingest_recovery_scan_seconds: int = 60
     ingest_recovery_base_delay_seconds: int = 60
     ingest_recovery_max_attempts: int = 3

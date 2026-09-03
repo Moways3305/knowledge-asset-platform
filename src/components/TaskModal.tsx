@@ -1,4 +1,5 @@
 import { useId, useRef, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { useDialogSurface } from "./useDialogSurface";
 
@@ -15,6 +16,7 @@ export interface TaskModalProps {
   eyebrow?: ReactNode;
   leadingIcon?: ReactNode;
   panelClassName?: string;
+  portal?: boolean;
 }
 
 export default function TaskModal({
@@ -30,6 +32,7 @@ export default function TaskModal({
   eyebrow,
   leadingIcon,
   panelClassName = "",
+  portal = false,
 }: TaskModalProps) {
   const titleId = useId();
   const descriptionId = useId();
@@ -37,7 +40,7 @@ export default function TaskModal({
   const { onKeyDown } = useDialogSurface(open, panelRef, onClose, busy);
 
   if (!open) return null;
-  return (
+  const modal = (
     <div className="experience-overlay" onMouseDown={() => !busy && onClose()}>
       <section
         ref={panelRef}
@@ -73,4 +76,5 @@ export default function TaskModal({
       </section>
     </div>
   );
+  return portal && typeof document !== "undefined" ? createPortal(modal, document.body) : modal;
 }

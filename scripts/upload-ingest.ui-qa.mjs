@@ -152,7 +152,7 @@ function assertResult(result) {
     result.overflowX > 2 ||
     result.shellOverlap > 1 ||
     result.clippedActions > 0 ||
-    result.pageTitle !== "上传与入库" ||
+    result.pageTitle !== "上传文件" ||
     result.fakeFeatureVisible ||
     result.sensitiveTextVisible ||
     !result.retiredInputsAbsent ||
@@ -163,7 +163,7 @@ function assertResult(result) {
     return result.canonicalGenerating && Boolean(result.canonicalScreenshot);
   if (result.scenario === "local-queue")
     return (
-      result.compactCompletionVisible &&
+      result.queueOrderValid &&
       result.localPendingRefreshed &&
       result.longPendingLayoutValid &&
       result.pendingScrollContainerValid &&

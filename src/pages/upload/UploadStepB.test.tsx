@@ -211,7 +211,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
     expect(screen.getByLabelText("全选当前可处理的待确认项")).toBeDisabled();
   });
 
-  it("replaces a completed upload queue with a compact link to pending confirmation", () => {
+  it("keeps completed queue items visible alongside the pending-confirmation link", () => {
     const queue = [
       {
         id: "queue-complete",
@@ -227,15 +227,217 @@ describe("UploadStepB folder drop and batch rejection", () => {
     ];
     render(<UploadStepB flow={flowFixture({ localUploadQueue: queue })} />);
 
-    expect(screen.queryByRole("heading", { name: "本次上传队列" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "本次上传队列" })).toBeInTheDocument();
     expect(screen.getByText(/本次上传 1 项派生处理已完成/)).toBeInTheDocument();
     expect(screen.getByText(/规范文本已生成；2 项待人工确认，尚未进入检索/)).toBeInTheDocument();
-    expect(screen.getByText("内容建议暂不可用，请人工核对后继续")).toBeInTheDocument();
+    expect(screen.getByText("done.pdf")).toBeInTheDocument();
+    expect(
+      screen.queryByText("本文件暂未完成处理，请按操作重试或重新选择原文件"),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "前往待确认入库" })).toHaveAttribute(
       "href",
       "#local-pending-title",
     );
     expect(screen.getByRole("heading", { name: "待确认入库" })).toBeInTheDocument();
+  });
+
+  it("paginates a large queue without hiding the batch totals or failed-file recovery", async () => {
+    const queue = Array.from({ length: 10 }, (_, index) => ({
+      id: `queue-${index}`,
+      file: null,
+      fileName: `file-${index}.pdf`,
+      fileSize: 1024,
+      fileType: "PDF",
+      status: index === 9 ? ("failed" as const) : ("processing" as const),
+      error: index === 9 ? "upload timeout" : null,
+      ingestTaskId: null,
+      pollAttempts: 0,
+      retryable: index === 9,
+    }));
+    const retryLocalUpload = vi.fn().mockResolvedValue(undefined);
+    render(
+      <UploadStepB
+        flow={flowFixture({
+          localUploadQueue: queue,
+          retryLocalUpload,
+          uploadSession: {
+            total_files: 10,
+            completed_files: 0,
+            processing_files: 9,
+            waiting_files: 0,
+            failed_files: 1,
+            uploaded_files: 10,
+            uploaded_batches: 1,
+            total_batches: 1,
+            current_batch_number: 1,
+          },
+        })}
+      />,
+    );
+
+    expect(screen.getByLabelText("上传会话进度")).toHaveTextContent("总数10");
+    expect(screen.getByText("显示 1–8 / 10")).toBeInTheDocument();
+    expect(screen.queryByText("file-9.pdf")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    expect(screen.getByText("file-9.pdf")).toBeInTheDocument();
+    expect(screen.getByText("处理超时，稍后可重试")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "重试可恢复失败项" }));
+    await waitFor(() => expect(retryLocalUpload).toHaveBeenCalledWith("queue-9"));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "重试可恢复失败项" })).toBeEnabled(),
+    );
+  });
+
+  it("retries failed upload-session items serially", async () => {
+    const releases: Array<() => void> = [];
+    const retryLocalUpload = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          releases.push(resolve);
+        }),
+    );
+    const queue = Array.from({ length: 3 }, (_, index) => ({
+      id: `serial-retry-${index}`,
+      file: null,
+      fileName: `failed-${index}.pdf`,
+      fileSize: 1024,
+      fileType: "PDF",
+      status: "failed" as const,
+      error: "传输失败",
+      ingestTaskId: null,
+      pollAttempts: 0,
+      retryable: true,
+    }));
+    render(<UploadStepB flow={flowFixture({ localUploadQueue: queue, retryLocalUpload })} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "重试可恢复失败项" }));
+    expect(retryLocalUpload).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "正在重试失败项…" })).toBeDisabled();
+
+    await act(async () => releases[0]());
+    await waitFor(() => expect(retryLocalUpload).toHaveBeenCalledTimes(2));
+    await act(async () => releases[1]());
+    await waitFor(() => expect(retryLocalUpload).toHaveBeenCalledTimes(3));
+    await act(async () => releases[2]());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "重试可恢复失败项" })).toBeEnabled(),
+    );
+  });
+
+  it("disables item and batch removal while a single upload retry is running", async () => {
+    let releaseRetry!: () => void;
+    const retryLocalUpload = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseRetry = resolve;
+        }),
+    );
+    const removeLocalUpload = vi.fn();
+    const removeFailedLocalUploads = vi.fn();
+    render(
+      <UploadStepB
+        flow={flowFixture({
+          localUploadQueue: [
+            {
+              id: "single-retry",
+              file: null,
+              fileName: "failed.pdf",
+              fileSize: 1024,
+              fileType: "PDF",
+              status: "failed",
+              error: "传输失败",
+              ingestTaskId: null,
+              pollAttempts: 0,
+              retryable: true,
+            },
+          ],
+          retryLocalUpload,
+          removeLocalUpload,
+          removeFailedLocalUploads,
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "重试处理" }));
+
+    expect(screen.getByRole("button", { name: "正在重试…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "移除" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "清理全部失败项" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "移除" }));
+    fireEvent.click(screen.getByRole("button", { name: "清理全部失败项" }));
+    expect(removeLocalUpload).not.toHaveBeenCalled();
+    expect(removeFailedLocalUploads).not.toHaveBeenCalled();
+
+    await act(async () => releaseRetry());
+    await waitFor(() => expect(screen.getByRole("button", { name: "移除" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "移除" }));
+    expect(removeLocalUpload).toHaveBeenCalledWith("single-retry");
+  });
+
+  it("recognizes Chinese protected-file errors and keeps OCR complexity distinct from confidence", () => {
+    const failures = [
+      {
+        id: "queue-protected",
+        fileName: "protected.pdf",
+        error: "文件已加密，需要密码",
+      },
+      {
+        id: "queue-complex",
+        fileName: "complex.pdf",
+        error: "文件版面过于复杂",
+        processingStage: "ocr_too_complex" as const,
+      },
+      {
+        id: "queue-confidence",
+        fileName: "low-confidence.pdf",
+        error: "OCR 置信度不足",
+        processingStage: "ocr_failed" as const,
+      },
+    ].map((item) => ({
+      file: null,
+      fileSize: 1024,
+      fileType: "PDF",
+      status: "failed" as const,
+      ingestTaskId: null,
+      pollAttempts: 0,
+      retryable: true,
+      ...item,
+    }));
+
+    render(<UploadStepB flow={flowFixture({ localUploadQueue: failures })} />);
+
+    expect(screen.getByText("文件受密码保护，请解锁后重新上传")).toBeInTheDocument();
+    expect(screen.getByText("文件页数、图像或版面过于复杂，请拆分文件后重试")).toBeInTheDocument();
+    expect(
+      screen.getByText("OCR 识别置信度不足，请上传更清晰的文件或改为人工校对"),
+    ).toBeInTheDocument();
+  });
+
+  it("maps backend extraction error codes to stable actionable failure reasons", () => {
+    const failures = [
+      ["format", "extraction_format_mismatch", "文件已加密"],
+      ["structure", "extraction_structure_limit", "格式不支持"],
+      ["archive", "extraction_archive_limit", "文件无法解析"],
+      ["parse", "file_parse_failed", "文件过于复杂"],
+    ].map(([id, errorCode, error]) => ({
+      id,
+      file: null,
+      fileName: `${id}.pdf`,
+      fileSize: 1024,
+      fileType: "PDF",
+      status: "failed" as const,
+      error,
+      errorCode,
+      ingestTaskId: null,
+      pollAttempts: 0,
+      retryable: true,
+    }));
+
+    render(<UploadStepB flow={flowFixture({ localUploadQueue: failures })} />);
+
+    expect(screen.getByText("文件格式不符合处理要求，请检查后重新上传")).toBeInTheDocument();
+    expect(screen.getAllByText("文件页数、图像或版面过于复杂，请拆分文件后重试")).toHaveLength(2);
+    expect(screen.getByText("文件可能损坏或无法解析，请确认扩展名后重新上传")).toBeInTheDocument();
   });
 
   it("shows canonical Markdown generation as a distinct asynchronous stage", () => {

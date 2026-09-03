@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import logging
+import zipfile
 
 from app.services.extraction import MAX_EXTRACT_CHARS, extract_text
 
@@ -208,7 +209,7 @@ def test_extract_corrupt_pptx_fails_without_logging_content_or_path(caplog):
     with caplog.at_level(logging.WARNING):
         r = extract_text(secret.encode(), file_name="broken.pptx", mime=None)
     assert r.status == "failed"
-    assert r.error_type == "extraction_failed"
+    assert r.error_type == "extraction_format_mismatch"
     assert secret not in caplog.text
     assert "C:\\Users\\private" not in (r.error_message or "")
 
@@ -273,6 +274,65 @@ def test_extract_empty_pdf():
 def test_extract_corrupt_pdf_failed():
     r = extract_text(b"not a real pdf at all", file_name="broken.pdf", mime="application/pdf")
     assert r.status == "failed"
-    assert r.error_type == "extraction_failed"
+    assert r.error_type == "extraction_format_mismatch"
     # 错误信息不得包含敏感路径 / 引用。
     assert "internal://" not in (r.error_message or "")
+
+
+def test_extract_encrypted_pdf_is_rejected_without_password_prompt():
+    from pypdf import PdfWriter
+
+    writer = PdfWriter()
+    writer.add_blank_page(width=100, height=100)
+    writer.encrypt("never-send-this")
+    buf = io.BytesIO()
+    writer.write(buf)
+    result = extract_text(buf.getvalue(), file_name="protected.pdf", mime="application/pdf")
+    assert result.status == "failed"
+    assert result.error_type == "extraction_password_protected"
+    assert "密码" in (result.error_message or "")
+    assert "never-send-this" not in (result.error_message or "")
+
+
+def test_extract_encrypted_office_container_is_rejected():
+    result = extract_text(
+        b"\xd0\xcf\x11\xe0" + b"encrypted-office", file_name="protected.docx", mime=None
+    )
+    assert result.status == "failed"
+    assert result.error_type == "extraction_password_protected"
+
+
+def test_extract_zip_expansion_risk_is_rejected_before_office_parser():
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", "x")
+        archive.writestr("word/document.xml", "x")
+        archive.writestr("word/media/repeated.bin", b"0" * (2 * 1024 * 1024))
+    result = extract_text(buf.getvalue(), file_name="risk.docx", mime=None)
+    assert result.status == "failed"
+    assert result.error_type == "extraction_archive_limit"
+
+
+def test_extract_empty_file_has_distinct_safe_error():
+    result = extract_text(b"", file_name="empty.txt", mime="text/plain")
+    assert result.status == "empty"
+    assert result.error_type == "extraction_empty"
+
+
+def test_text_extension_cannot_disguise_a_binary_document():
+    result = extract_text(_make_pdf("hidden"), file_name="disguised.txt", mime="text/plain")
+    assert result.status == "failed"
+    assert result.error_type == "extraction_format_mismatch"
+
+
+def test_extension_is_authoritative_over_conflicting_text_mime():
+    result = extract_text(b"plain text", file_name="disguised.pdf", mime="text/plain")
+    assert result.status == "failed"
+    assert result.error_type == "extraction_format_mismatch"
+
+
+def test_parser_wall_clock_timeout_is_safe(monkeypatch):
+    monkeypatch.setattr("app.services.extraction.EXTRACTION_TIMEOUT_SECONDS", 0.001)
+    result = extract_text(b"content", file_name="slow.txt", mime="text/plain")
+    assert result.status == "failed"
+    assert result.error_type == "extraction_timeout"
