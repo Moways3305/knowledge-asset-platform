@@ -1215,6 +1215,15 @@
   z-index: 1;
 }
 
+/* PendingBatchActions mounts its modal as a direct child of the upload section.
+   Keep the section's dark-surface layering for normal content, but never let
+   that broad child rule demote the fixed modal behind the pending table. */
+.upload77-local-queue > .experience-overlay,
+.upload77-wecom > .experience-overlay {
+  position: fixed;
+  z-index: var(--z-modal, 80);
+}
+
 .upload77-local-queue .upload77-section-head,
 .upload77-wecom .upload77-section-head {
   border-bottom-color: rgba(191, 211, 238, 0.22);
