@@ -712,7 +712,9 @@ async def test_confirm_writes_three_layer_summaries(client, monkeypatch):
 async def test_confirm_with_suggested_subject_yields_clean_asset_title(client, monkeypatch):
     """端到端：AI 主题建议 → 人工沿用提交，不回流旧完整命名串。"""
     _enable_llm(monkeypatch, FakeLLM(mode="ok"))
-    task_id = await _upload(client, file_name="企业级AI应用案例研究报告.docx")
+    # The fixture bytes are plain text; use a matching extension so the strict
+    # extraction preflight does not reject the intentionally synthetic upload.
+    task_id = await _upload(client, file_name="企业级AI应用案例研究报告.txt")
     ai = (
         await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
     ).json()
