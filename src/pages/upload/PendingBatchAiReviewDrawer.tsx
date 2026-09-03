@@ -7,9 +7,10 @@ type Props = {
   review: PendingBatchAiReviewController;
   duplicate?: UploadDuplicateDTO | null;
   onSave: () => void;
+  portal?: boolean;
 };
 
-export default function PendingBatchAiReviewDrawer({ review, duplicate, onSave }: Props) {
+export default function PendingBatchAiReviewDrawer({ review, duplicate, onSave, portal }: Props) {
   const { task, result, form, setForm, busy, error } = review;
 
   return (
@@ -18,6 +19,7 @@ export default function PendingBatchAiReviewDrawer({ review, duplicate, onSave }
       title="AI 提取核对"
       description={task?.source_file_name}
       busy={busy}
+      portal={portal}
       onClose={() => {
         if (!busy) review.cancel();
       }}

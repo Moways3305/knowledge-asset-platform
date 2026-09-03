@@ -182,6 +182,7 @@ export default function PendingBatchActions({
               : "关闭批量命名核对"
             : undefined
         }
+        portal
         onCancel={requestCloseReview}
         onConfirm={stage === "target" ? () => void advanceTarget() : submitBatchReview}
       >
@@ -277,6 +278,7 @@ export default function PendingBatchActions({
             : null
         }
         onSave={saveAiReviewDraft}
+        portal
       />
       <PendingBatchDecisionDialogs
         fallbackDirectoryTaskId={fallbackDirectoryTaskId}
@@ -305,6 +307,7 @@ export default function PendingBatchActions({
         selectedRejectTasks={selectedRejectTasks}
         flow={flow}
         onCancelReject={() => setRejectOpen(false)}
+        portal
       />
     </>
   );

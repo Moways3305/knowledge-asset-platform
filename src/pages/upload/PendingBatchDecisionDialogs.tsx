@@ -30,6 +30,7 @@ type Props = {
   selectedRejectTasks: PendingIngestItemDTO[];
   flow: UploadFlow;
   onCancelReject: () => void;
+  portal?: boolean;
 };
 
 export default function PendingBatchDecisionDialogs(props: Props) {
@@ -48,6 +49,7 @@ export default function PendingBatchDecisionDialogs(props: Props) {
           !props.formalDirectories.some((item) => item.directory_key === props.fallbackDirectoryKey)
         }
         onCancel={props.onCancelFallback}
+        portal={props.portal}
         onConfirm={() => {
           if (!props.fallbackDirectoryTaskId || !props.fallbackDirectoryKey) return;
           props.onSaveFallback(props.fallbackDirectoryTaskId, {
@@ -79,6 +81,7 @@ export default function PendingBatchDecisionDialogs(props: Props) {
         description="存在未保存修改或仍在进行的本地预览。关闭后将清理这些状态，已选择的待确认资料不会被删除。"
         confirmText="放弃修改并关闭"
         onCancel={props.onCancelCloseGuard}
+        portal={props.portal}
         onConfirm={props.onConfirmCloseGuard}
       />
 
@@ -96,6 +99,7 @@ export default function PendingBatchDecisionDialogs(props: Props) {
         busyText="正在确认入库"
         busy={props.confirmingTaskId !== null}
         onCancel={props.onCancelConfirm}
+        portal={props.portal}
         onConfirm={props.onConfirmOne}
       >
         {props.confirmCandidate && notices.length > 0 && (
@@ -117,6 +121,7 @@ export default function PendingBatchDecisionDialogs(props: Props) {
         busyText="正在永久删除"
         busy={props.deletingTaskId !== null}
         onCancel={props.onCancelDelete}
+        portal={props.portal}
         onConfirm={props.onConfirmDelete}
       />
 
@@ -128,6 +133,7 @@ export default function PendingBatchDecisionDialogs(props: Props) {
         busyText="正在逐条拒绝"
         busy={props.flow.batchBusy && props.flow.batchOperation === "reject"}
         onCancel={props.onCancelReject}
+        portal={props.portal}
         onConfirm={() => {
           props.onCancelReject();
           void props.flow.handleBatchReject(props.selectedRejectTasks);

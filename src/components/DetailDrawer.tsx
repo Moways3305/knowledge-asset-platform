@@ -1,4 +1,5 @@
 import { useId, useRef, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { useDialogSurface } from "./useDialogSurface";
 
@@ -10,6 +11,7 @@ interface DetailDrawerProps {
   footer?: ReactNode;
   onClose: () => void;
   busy?: boolean;
+  portal?: boolean;
 }
 
 export default function DetailDrawer({
@@ -20,12 +22,13 @@ export default function DetailDrawer({
   footer,
   onClose,
   busy = false,
+  portal = false,
 }: DetailDrawerProps) {
   const titleId = useId();
   const drawerRef = useRef<HTMLElement>(null);
   const { onKeyDown } = useDialogSurface(open, drawerRef, onClose, busy);
   if (!open) return null;
-  return (
+  const drawer = (
     <div className="experience-overlay is-drawer" onMouseDown={() => !busy && onClose()}>
       <aside
         ref={drawerRef}
@@ -52,4 +55,5 @@ export default function DetailDrawer({
       </aside>
     </div>
   );
+  return portal && typeof document !== "undefined" ? createPortal(drawer, document.body) : drawer;
 }

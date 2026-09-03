@@ -21,6 +21,7 @@ interface ConfirmDialogProps {
   icon?: ReactNode;
   panelClassName?: string;
   closeButtonLabel?: string;
+  portal?: boolean;
 }
 
 export default function ConfirmDialog({
@@ -41,6 +42,7 @@ export default function ConfirmDialog({
   icon,
   panelClassName,
   closeButtonLabel,
+  portal = false,
 }: ConfirmDialogProps) {
   return (
     <TaskModal
@@ -52,6 +54,7 @@ export default function ConfirmDialog({
       size="small"
       panelClassName={panelClassName}
       closeLabel={closeButtonLabel ?? "关闭确认弹窗"}
+      portal={portal}
       leadingIcon={
         <span
           className={`confirm-dialog-icon ${danger ? "is-danger" : "is-governance"}`}

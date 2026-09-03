@@ -19,6 +19,7 @@ export interface NamingReviewWorkspaceProps {
   children?: ReactNode;
   panelClassName?: string;
   closeButtonLabel?: string;
+  portal?: boolean;
 }
 
 export default function NamingReviewWorkspace({
@@ -37,6 +38,7 @@ export default function NamingReviewWorkspace({
   children,
   panelClassName = "",
   closeButtonLabel = "关闭批量命名核对",
+  portal = false,
 }: NamingReviewWorkspaceProps) {
   return (
     <TaskModal
@@ -48,6 +50,7 @@ export default function NamingReviewWorkspace({
       size="large"
       panelClassName={`naming-review-workspace ${panelClassName}`.trim()}
       closeLabel={closeButtonLabel}
+      portal={portal}
       leadingIcon={<ClipboardCheck size={20} aria-hidden="true" />}
       footer={
         <>

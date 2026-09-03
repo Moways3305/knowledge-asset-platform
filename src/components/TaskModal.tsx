@@ -16,6 +16,7 @@ export interface TaskModalProps {
   eyebrow?: ReactNode;
   leadingIcon?: ReactNode;
   panelClassName?: string;
+  portal?: boolean;
 }
 
 export default function TaskModal({
@@ -31,6 +32,7 @@ export default function TaskModal({
   eyebrow,
   leadingIcon,
   panelClassName = "",
+  portal = false,
 }: TaskModalProps) {
   const titleId = useId();
   const descriptionId = useId();
@@ -74,5 +76,5 @@ export default function TaskModal({
       </section>
     </div>
   );
-  return typeof document === "undefined" ? modal : createPortal(modal, document.body);
+  return portal && typeof document !== "undefined" ? createPortal(modal, document.body) : modal;
 }
