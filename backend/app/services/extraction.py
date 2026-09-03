@@ -422,7 +422,7 @@ def extract_text(content: bytes, *, file_name: str | None, mime: str | None) -> 
                 "文件内容无法解析（可能已损坏或与扩展名不符），请重新上传或人工补全",
                 0,
             )
-        if kind == "result":
+        if kind == "result" and isinstance(payload, ExtractionResult):
             return payload
         if kind == "controlled":
             code, message = payload

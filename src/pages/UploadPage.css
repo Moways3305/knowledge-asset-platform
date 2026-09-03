@@ -1186,6 +1186,14 @@
   box-shadow: 0 12px 30px rgba(32, 55, 91, 0.08);
 }
 
+/* PendingBatchActions renders its modal inside this section. Raise the whole
+   section while a modal is open so the section's z-indexed content cannot
+   intercept clicks on the fixed overlay. */
+.upload77-local-queue:has(.experience-overlay),
+.upload77-wecom:has(.experience-overlay) {
+  z-index: var(--z-modal, 80);
+}
+
 .upload77-local-queue::before,
 .upload77-wecom::before {
   position: absolute;
