@@ -19,6 +19,7 @@ export interface LocalUploadQueueItem {
   fileType: string;
   status: LocalUploadQueueState;
   error: string | null;
+  errorCode?: string | null;
   ingestTaskId: string | null;
   pollAttempts: number;
   batchNumber?: number;

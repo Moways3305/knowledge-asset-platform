@@ -68,12 +68,14 @@ export function useUploadIntake({
   const [folderDropNotice, setFolderDropNotice] = useState<string | null>(null);
   const [intakeFeedback, setIntakeFeedback] = useState<UploadIntakeFeedback | null>(null);
   const localUploadQueueRef = useRef<LocalUploadQueueItem[]>([]);
-  const localUploadWorkerRef = useRef(false);
+  const localUploadWorkerRef = useRef<Promise<void> | null>(null);
   const localStatusPollingRef = useRef(false);
   const localStatusPollRunRef = useRef(0);
   const localUploadSequenceRef = useRef(0);
   const directoryReadRunRef = useRef(0);
   const transportPlanRef = useRef<TransportPlan | null>(null);
+  const localRetryChainRef = useRef<Promise<void>>(Promise.resolve());
+  const localRetryByItemRef = useRef<Map<string, Promise<void>>>(new Map());
   const fileRef = useRef<HTMLInputElement>(null);
   const folderRef = useRef<HTMLInputElement>(null);
 
@@ -129,6 +131,7 @@ export function useUploadIntake({
               : waitingForBytes && file === null
                 ? "未完成上传，请重新选择原文件"
                 : null,
+        errorCode: item.error_code,
         ingestTaskId: null,
         pollAttempts: 0,
         batchNumber: item.batch_number,
@@ -324,10 +327,9 @@ export function useUploadIntake({
     [setLocalPendingTasks, updateLocalUploadQueue],
   );
 
-  const processLocalUploadQueue = useCallback(async () => {
-    if (localUploadWorkerRef.current) return;
-    localUploadWorkerRef.current = true;
-    try {
+  const processLocalUploadQueue = useCallback((): Promise<void> => {
+    if (localUploadWorkerRef.current) return localUploadWorkerRef.current;
+    const run = (async () => {
       while (true) {
         const item = localUploadQueueRef.current.find((candidate) => candidate.status === "queued");
         if (!item) break;
@@ -368,9 +370,12 @@ export function useUploadIntake({
           );
         }
       }
-    } finally {
-      localUploadWorkerRef.current = false;
-    }
+    })();
+    const tracked = run.finally(() => {
+      localUploadWorkerRef.current = null;
+    });
+    localUploadWorkerRef.current = tracked;
+    return tracked;
   }, [updateLocalUploadQueue]);
 
   const reconcileLocalUploadQueue = useCallback(async () => {
@@ -695,8 +700,8 @@ export function useUploadIntake({
     [applyUploadSession, continueTransportPlan, processLocalUploadQueue, updateLocalUploadQueue],
   );
 
-  const retryLocalUpload = useCallback(
-    (id: string) => {
+  const performRetryLocalUpload = useCallback(
+    async (id: string): Promise<void> => {
       const sessionItem = uploadSession?.items.find((item) => item.id === id);
       const localItem = localUploadQueueRef.current.find((item) => item.id === id);
       if (uploadSession && sessionItem && !sessionItem.bytes_available) {
@@ -715,58 +720,58 @@ export function useUploadIntake({
             item.id === id ? { ...item, status: "uploading", error: null } : item,
           ),
         );
-        void replaceUploadSessionItemBytes({
-          sessionId: uploadSession.id,
-          itemId: id,
-          file: localItem.file,
-        })
-          .then(async (value) => {
-            applyUploadSession(value);
-            const plan = transportPlanRef.current;
-            if (!plan?.blockedBatch) return;
-            plan.blockedBatch.itemIds = plan.blockedBatch.itemIds.filter((itemId) => itemId !== id);
-            if (plan.blockedBatch.itemIds.length > 0) return;
-            const blocked = plan.blockedBatch;
-            await recordUploadTransportFailure(
-              uploadSession.id,
-              blocked.allItemIds,
-              "network_interrupted",
-              { id: blocked.id, index: blocked.index },
-            );
-            plan.blockedBatch = null;
-            await continueTransportPlan();
-          })
-          .catch((error) => {
-            updateLocalUploadQueue((items) =>
-              items.map((item) =>
-                item.id === id
-                  ? {
-                      ...item,
-                      status: "failed",
-                      retryable: true,
-                      error: error instanceof ApiError ? error.message : "文件重传失败，请重试",
-                    }
-                  : item,
-              ),
-            );
+        try {
+          const value = await replaceUploadSessionItemBytes({
+            sessionId: uploadSession.id,
+            itemId: id,
+            file: localItem.file,
           });
+          applyUploadSession(value);
+          const plan = transportPlanRef.current;
+          if (!plan?.blockedBatch) return;
+          plan.blockedBatch.itemIds = plan.blockedBatch.itemIds.filter((itemId) => itemId !== id);
+          if (plan.blockedBatch.itemIds.length > 0) return;
+          const blocked = plan.blockedBatch;
+          await recordUploadTransportFailure(
+            uploadSession.id,
+            blocked.allItemIds,
+            "network_interrupted",
+            { id: blocked.id, index: blocked.index },
+          );
+          plan.blockedBatch = null;
+          await continueTransportPlan();
+        } catch (error) {
+          updateLocalUploadQueue((items) =>
+            items.map((item) =>
+              item.id === id
+                ? {
+                    ...item,
+                    status: "failed",
+                    retryable: true,
+                    error: error instanceof ApiError ? error.message : "文件重传失败，请重试",
+                  }
+                : item,
+            ),
+          );
+        }
         return;
       }
       if (sessionItem && uploadSession) {
-        void retryUploadSessionItem(uploadSession.id, id)
-          .then(applyUploadSession)
-          .catch((error) => {
-            updateLocalUploadQueue((items) =>
-              items.map((item) =>
-                item.id === id
-                  ? {
-                      ...item,
-                      error: error instanceof ApiError ? error.message : "重试失败，请稍后再试",
-                    }
-                  : item,
-              ),
-            );
-          });
+        try {
+          const value = await retryUploadSessionItem(uploadSession.id, id);
+          applyUploadSession(value);
+        } catch (error) {
+          updateLocalUploadQueue((items) =>
+            items.map((item) =>
+              item.id === id
+                ? {
+                    ...item,
+                    error: error instanceof ApiError ? error.message : "重试失败，请稍后再试",
+                  }
+                : item,
+            ),
+          );
+        }
         return;
       }
       updateLocalUploadQueue((items) =>
@@ -782,7 +787,7 @@ export function useUploadIntake({
             : item,
         ),
       );
-      void processLocalUploadQueue();
+      await processLocalUploadQueue();
     },
     [
       applyUploadSession,
@@ -791,6 +796,27 @@ export function useUploadIntake({
       updateLocalUploadQueue,
       uploadSession,
     ],
+  );
+
+  const retryLocalUpload = useCallback(
+    (id: string): Promise<void> => {
+      const existing = localRetryByItemRef.current.get(id);
+      if (existing) return existing;
+
+      const queued = localRetryChainRef.current.then(
+        () => performRetryLocalUpload(id),
+        () => performRetryLocalUpload(id),
+      );
+      const tracked = queued.finally(() => {
+        localRetryByItemRef.current.delete(id);
+      });
+      localRetryByItemRef.current.set(id, tracked);
+      // Keep the queue usable even if a future retry branch starts propagating
+      // errors instead of converting them to per-row feedback.
+      localRetryChainRef.current = tracked.catch(() => undefined);
+      return tracked;
+    },
+    [performRetryLocalUpload],
   );
 
   const removeLocalUpload = useCallback(

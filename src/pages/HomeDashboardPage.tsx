@@ -153,6 +153,7 @@ export default function HomeDashboardPage() {
   const [drawerTaskRef, setDrawerTaskRef] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [refractVersion, setRefractVersion] = useState(0);
+  const [taskPage, setTaskPage] = useState(0);
 
   const taskCenterStatus: UiSectionStatus =
     overview?.task_center.status ?? (state === "loading" ? "loading" : "error");
@@ -179,12 +180,31 @@ export default function HomeDashboardPage() {
     [groups.my_tasks],
   );
   const activeItems = activeTab === "my_tasks" ? actionableItems : groups[activeTab];
+  // The dashboard is an orientation surface, not a second task center. Keep the
+  // first view deliberately short while leaving the complete, deep-linkable list
+  // in TaskCenterDrawer.
+  const dashboardTaskLimit = 6;
+  const taskPageCount = Math.max(1, Math.ceil(activeItems.length / dashboardTaskLimit));
+  const safeTaskPage = Math.min(taskPage, taskPageCount - 1);
+  const visibleTaskItems = activeItems.slice(
+    safeTaskPage * dashboardTaskLimit,
+    (safeTaskPage + 1) * dashboardTaskLimit,
+  );
   const needsActionCount = center?.summary.needs_action ?? actionableItems.length;
   const focusItem = actionableItems[0] ?? null;
+
+  useEffect(() => {
+    setTaskPage((page) => Math.min(page, taskPageCount - 1));
+  }, [taskPageCount]);
 
   const handleRefresh = () => {
     setRefractVersion((version) => version + 1);
     void refresh();
+  };
+
+  const selectTab = (tab: WorkTab) => {
+    setActiveTab(tab);
+    setTaskPage(0);
   };
 
   const openTask = (group: TaskCenterGroup, taskRef: string | null = null) => {
@@ -333,7 +353,7 @@ export default function HomeDashboardPage() {
                   role="tab"
                   aria-selected={activeTab === tab.key}
                   className={activeTab === tab.key ? "is-active" : ""}
-                  onClick={() => setActiveTab(tab.key)}
+                  onClick={() => selectTab(tab.key)}
                 >
                   {tab.label}
                   {tab.key !== "recent_completed" && (
@@ -352,7 +372,7 @@ export default function HomeDashboardPage() {
             </div>
             <div className="workbench-task-list" role="tabpanel" aria-live="polite">
               {taskCenterStatus === "available" && activeItems.length > 0 ? (
-                activeItems.map((item) => (
+                visibleTaskItems.map((item) => (
                   <TaskRow key={item.task_ref} item={item} group={activeTab} onOpen={openTask} />
                 ))
               ) : (
@@ -370,6 +390,34 @@ export default function HomeDashboardPage() {
                 />
               )}
             </div>
+            {taskCenterStatus === "available" && activeItems.length > dashboardTaskLimit && (
+              <div className="workbench-task-pager" aria-label="任务列表分页">
+                <span>
+                  显示 {safeTaskPage * dashboardTaskLimit + 1}–
+                  {Math.min((safeTaskPage + 1) * dashboardTaskLimit, activeItems.length)} /{" "}
+                  {activeItems.length}
+                </span>
+                <div>
+                  <button
+                    type="button"
+                    disabled={safeTaskPage === 0}
+                    onClick={() => setTaskPage(Math.max(0, safeTaskPage - 1))}
+                  >
+                    上一页
+                  </button>
+                  <button
+                    type="button"
+                    disabled={safeTaskPage >= taskPageCount - 1}
+                    onClick={() => setTaskPage(Math.min(taskPageCount - 1, safeTaskPage + 1))}
+                  >
+                    下一页
+                  </button>
+                  <button type="button" onClick={() => openTask(activeTab)}>
+                    查看全部
+                  </button>
+                </div>
+              </div>
+            )}
             {groups.attention_items.length > 0 && (
               <button
                 type="button"
@@ -390,7 +438,7 @@ export default function HomeDashboardPage() {
                     type="button"
                     className={`${activeTab === tab.key ? "is-active " : ""}is-${tab.key}`}
                     aria-pressed={activeTab === tab.key}
-                    onClick={() => setActiveTab(tab.key)}
+                    onClick={() => selectTab(tab.key)}
                   >
                     <span>
                       <small>{tab.label}</small>

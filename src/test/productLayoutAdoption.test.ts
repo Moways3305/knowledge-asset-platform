@@ -20,6 +20,14 @@ describe("product layout and route contract", () => {
     expect(read("src/layouts/AppLayout.tsx")).not.toContain("运营中枢");
   });
 
+  it("uses the upload page name consistently in the application shell", () => {
+    const layout = read("src/layouts/AppLayout.tsx");
+    expect(layout).toContain('{ to: "/upload", label: "上传文件"');
+    expect(layout).toContain('["/upload", "上传文件"]');
+    expect(layout).not.toContain('label: "资产化确认"');
+    expect(layout).not.toContain('["/upload", "资产化确认"]');
+  });
+
   it("shares the product page primitive across representative user and admin routes", () => {
     expect(read("src/pages/KnowledgeListPage.tsx")).toContain("<ProductPage");
     for (const page of [
@@ -158,7 +166,7 @@ describe("product layout and route contract", () => {
     const page = read("src/pages/UploadPage.tsx");
     const localUpload = read("src/pages/upload/UploadStepB.tsx");
     const confirmation = read("src/pages/upload/UploadConfirmPanel.tsx");
-    expect(page).toContain('title="上传与入库"');
+    expect(page).toContain('title="上传文件"');
     expect(page).not.toContain("UploadNamingCard");
     expect(localUpload).toContain('className="upload-dropzone upload77-dropzone"');
     expect(localUpload).toContain("className={`upload-inline-info");
