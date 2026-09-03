@@ -8,7 +8,9 @@ import pytest
 from sqlalchemy import select
 
 from app.models.identity import Project
+from app.models.naming import NamingRuleRevision
 from app.seed.dev_seed import PROJECT_ALPHA, USER_BOSS, USER_CONSULTANT, USER_PROJECT_MANAGER
+from app.services.directories import default_directory_config
 
 
 def _hdr(user_id: uuid.UUID) -> dict[str, str]:
@@ -263,3 +265,42 @@ async def test_legacy_category_input_is_read_only_and_does_not_rewrite_project_c
     center = await client.get("/api/v1/admin/naming-rules", headers=_hdr(USER_BOSS))
     assert center.status_code == 200
     assert center.json()["published"]["config"]["categories"] == []
+
+
+async def test_rule_center_reads_repaired_17_directory_published_and_draft_history(
+    client, db_session
+):
+    repaired_directories = default_directory_config()
+    config = {
+        "schema_version": 2,
+        "enforced": True,
+        "project_codes": [],
+        "categories": [],
+        "directories": repaired_directories,
+    }
+    db_session.add_all(
+        [
+            NamingRuleRevision(
+                version=100,
+                status="published",
+                base_published_version=99,
+                config=config,
+            ),
+            NamingRuleRevision(
+                version=101,
+                status="draft",
+                base_published_version=100,
+                config=config,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    response = await client.get("/api/v1/admin/naming-rules", headers=_hdr(USER_BOSS))
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert len(payload["published"]["config"]["directories"]) == 17
+    assert len(payload["draft"]["config"]["directories"]) == 17
+    assert payload["published"]["config"]["directories"][0]["naming_code"] == "公司介绍"
+    assert payload["draft"]["config"]["directories"][0]["default_confidentiality"] == "L2"
