@@ -861,6 +861,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
         },
       } as unknown as ChangeEvent<HTMLInputElement>),
     );
+    act(() => result.current.confirmPendingSelection());
     await waitFor(() =>
       expect(result.current.localUploadQueue[1]?.status).toBe("awaiting_confirmation"),
     );
@@ -915,6 +916,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
         },
       } as unknown as ChangeEvent<HTMLInputElement>),
     );
+    act(() => result.current.confirmPendingSelection());
     await waitFor(() =>
       expect(result.current.localUploadQueue.map((item) => item.status)).toEqual([
         "failed",
@@ -973,6 +975,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
         },
       } as unknown as ChangeEvent<HTMLInputElement>),
     );
+    act(() => result.current.confirmPendingSelection());
     await waitFor(() => {
       expect(result.current.localUploadQueue[0]?.status).toBe("failed");
       expect(result.current.localUploadQueue[1]?.status).toBe("uploading");
@@ -1019,6 +1022,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
         },
       } as unknown as ChangeEvent<HTMLInputElement>),
     );
+    act(() => result.current.confirmPendingSelection());
     await waitFor(() => expect(ingest.createIngestUpload).toHaveBeenCalledTimes(1));
     await waitFor(() =>
       expect(result.current.localUploadQueue.map((item) => item.status)).toEqual([

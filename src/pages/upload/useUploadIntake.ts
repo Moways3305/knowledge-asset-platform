@@ -9,6 +9,7 @@ import {
 import { ApiError, createClientUuid } from "../../api/http";
 import {
   appendUploadSessionBatch,
+  cancelUploadSession,
   completeUploadSession,
   createIngestUpload,
   createUploadSession,
@@ -50,6 +51,7 @@ interface TransportPlan {
   batches: TransportPlanItem[][];
   nextIndex: number;
   blockedBatch: { id: string; index: number; itemIds: string[]; allItemIds: string[] } | null;
+  cancelled: boolean;
 }
 
 interface UploadIntakeOptions {
@@ -67,6 +69,11 @@ export function useUploadIntake({
   const [uploadSession, setUploadSession] = useState<UploadSessionDTO | null>(null);
   const [folderDropNotice, setFolderDropNotice] = useState<string | null>(null);
   const [intakeFeedback, setIntakeFeedback] = useState<UploadIntakeFeedback | null>(null);
+  const [pendingSelection, setPendingSelection] = useState<{
+    items: Array<File | DroppedFileCandidate>;
+    source: "files" | "folder" | "drop";
+  } | null>(null);
+  const [isCancellingUpload, setIsCancellingUpload] = useState(false);
   const localUploadQueueRef = useRef<LocalUploadQueueItem[]>([]);
   const localUploadWorkerRef = useRef<Promise<void> | null>(null);
   const localStatusPollingRef = useRef(false);
@@ -74,6 +81,7 @@ export function useUploadIntake({
   const localUploadSequenceRef = useRef(0);
   const directoryReadRunRef = useRef(0);
   const transportPlanRef = useRef<TransportPlan | null>(null);
+  const transportAbortRef = useRef<AbortController | null>(null);
   const localRetryChainRef = useRef<Promise<void>>(Promise.resolve());
   const localRetryByItemRef = useRef<Map<string, Promise<void>>>(new Map());
   const fileRef = useRef<HTMLInputElement>(null);
@@ -180,8 +188,9 @@ export function useUploadIntake({
 
   const continueTransportPlan = useCallback(async () => {
     const plan = transportPlanRef.current;
-    if (!plan || plan.blockedBatch) return;
+    if (!plan || plan.blockedBatch || plan.cancelled) return;
     for (let index = plan.nextIndex; index < plan.batches.length; index += 1) {
+      if (plan.cancelled) return;
       const batch = plan.batches[index];
       const batchId = `${plan.sessionId}:${index}`;
       updateLocalUploadQueue((items) =>
@@ -192,13 +201,18 @@ export function useUploadIntake({
         ),
       );
       try {
+        const controller = new AbortController();
+        transportAbortRef.current = controller;
         const value = await appendUploadSessionBatch({
           sessionId: plan.sessionId,
           batchId,
           batchIndex: index,
           itemIds: batch.map((item) => item.itemId),
           files: batch.map((item) => item.file),
+          signal: controller.signal,
         });
+        if (transportAbortRef.current === controller) transportAbortRef.current = null;
+        if (plan.cancelled) return;
         plan.nextIndex = index + 1;
         applyUploadSession(value);
         setIntakeFeedback(() => ({
@@ -211,6 +225,8 @@ export function useUploadIntake({
           message: `已上传 ${value.uploaded_files ?? 0} / ${value.total_files} 项，第 ${index + 1} / ${plan.batches.length} 批`,
         }));
       } catch (error) {
+        if (plan.cancelled || (error instanceof DOMException && error.name === "AbortError"))
+          return;
         const errorCode =
           error instanceof ApiError && error.status === 413
             ? "proxy_rejected"
@@ -264,11 +280,70 @@ export function useUploadIntake({
         return;
       }
     }
+    if (plan.cancelled) return;
     const completed = await completeUploadSession(plan.sessionId);
     transportPlanRef.current = null;
     applyUploadSession(completed);
     void loadLocalPending();
   }, [applyUploadSession, loadLocalPending, updateLocalUploadQueue]);
+
+  const cancelCurrentUpload = useCallback(async () => {
+    const sessionId = transportPlanRef.current?.sessionId ?? uploadSession?.id;
+    if (transportPlanRef.current) transportPlanRef.current.cancelled = true;
+    transportAbortRef.current?.abort();
+    transportAbortRef.current = null;
+    localStatusPollRunRef.current += 1;
+    if (!sessionId) {
+      updateLocalUploadQueue((items) =>
+        items.map((item) =>
+          ["queued", "uploading", "processing"].includes(item.status)
+            ? { ...item, status: "cancelled", error: null }
+            : item,
+        ),
+      );
+      setIntakeFeedback({
+        kind: "cancelled",
+        total: 0,
+        accepted: 0,
+        rejected: 0,
+        waitingBatches: 0,
+        batchSizes: [],
+        message: "本次待传输文件已取消。",
+      });
+      return;
+    }
+    setIsCancellingUpload(true);
+    try {
+      const value = await cancelUploadSession(sessionId);
+      transportPlanRef.current = null;
+      applyUploadSession(value);
+      setIntakeFeedback({
+        kind: "cancelled",
+        total: value.total_files,
+        accepted: value.completed_files,
+        rejected: 0,
+        waitingBatches: 0,
+        batchSizes: [],
+        message: "本批未完成上传已取消；已完成项目保持不变。",
+      });
+      void loadLocalPending();
+    } catch (error) {
+      setIntakeFeedback((current) => ({
+        kind: "network_error",
+        total: current?.total ?? 0,
+        accepted: current?.accepted ?? 0,
+        rejected: current?.rejected ?? 0,
+        waitingBatches: current?.waitingBatches ?? 0,
+        batchSizes: current?.batchSizes ?? [],
+        message:
+          error instanceof ApiError
+            ? `取消上传失败：${error.message}`
+            : "取消上传失败，请刷新后重试。",
+      }));
+    } finally {
+      setIsCancellingUpload(false);
+    }
+  }, [applyUploadSession, loadLocalPending, updateLocalUploadQueue, uploadSession]);
 
   useEffect(() => {
     if (activePath !== "b") return;
@@ -655,6 +730,7 @@ export function useUploadIntake({
           ),
           nextIndex: initialized.uploaded_batches ?? 0,
           blockedBatch: null,
+          cancelled: false,
         };
         await continueTransportPlan();
       } catch (error) {
@@ -699,6 +775,56 @@ export function useUploadIntake({
     },
     [applyUploadSession, continueTransportPlan, processLocalUploadQueue, updateLocalUploadQueue],
   );
+
+  const stageLocalFiles = useCallback(
+    (files: Iterable<File | DroppedFileCandidate>, source: "files" | "folder" | "drop") => {
+      const items = Array.from(files);
+      if (!items.length) {
+        setIntakeFeedback({
+          kind: "cancelled",
+          total: 0,
+          accepted: 0,
+          rejected: 0,
+          waitingBatches: 0,
+          batchSizes: [],
+          message:
+            source === "folder" ? "未选择文件夹，本次操作已取消。" : "未选择文件，本次操作已取消。",
+        });
+        return;
+      }
+      setPendingSelection({ items, source });
+      setIntakeFeedback({
+        kind: "checking",
+        total: items.length,
+        accepted: 0,
+        rejected: 0,
+        waitingBatches: 0,
+        batchSizes: [],
+        message: `已选择 ${items.length} 个文件，请确认后加入上传队列。`,
+      });
+    },
+    [],
+  );
+
+  const confirmPendingSelection = useCallback(() => {
+    if (!pendingSelection) return;
+    const selection = pendingSelection;
+    setPendingSelection(null);
+    void enqueueLocalFiles(selection.items);
+  }, [enqueueLocalFiles, pendingSelection]);
+
+  const discardPendingSelection = useCallback(() => {
+    setPendingSelection(null);
+    setIntakeFeedback({
+      kind: "cancelled",
+      total: 0,
+      accepted: 0,
+      rejected: 0,
+      waitingBatches: 0,
+      batchSizes: [],
+      message: "已取消本次选择，文件尚未上传。",
+    });
+  }, []);
 
   const performRetryLocalUpload = useCallback(
     async (id: string): Promise<void> => {
@@ -871,44 +997,20 @@ export function useUploadIntake({
   const handleFileSelect = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       setFolderDropNotice(null);
-      if (e.target.files?.length) {
-        void enqueueLocalFiles(e.target.files);
-      } else {
-        setIntakeFeedback({
-          kind: "cancelled",
-          total: 0,
-          accepted: 0,
-          rejected: 0,
-          waitingBatches: 0,
-          batchSizes: [],
-          message: "未选择文件，本次操作已取消。",
-        });
-      }
+      stageLocalFiles(e.target.files ?? [], "files");
       // Selecting the same file again must still enqueue a new, independent task.
       e.target.value = "";
     },
-    [enqueueLocalFiles],
+    [stageLocalFiles],
   );
 
   const handleFolderSelect = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       setFolderDropNotice(null);
-      if (e.target.files?.length) {
-        void enqueueLocalFiles(e.target.files);
-      } else {
-        setIntakeFeedback({
-          kind: "cancelled",
-          total: 0,
-          accepted: 0,
-          rejected: 0,
-          waitingBatches: 0,
-          batchSizes: [],
-          message: "未选择文件夹，本次操作已取消。",
-        });
-      }
+      stageLocalFiles(e.target.files ?? [], "folder");
       e.target.value = "";
     },
-    [enqueueLocalFiles],
+    [stageLocalFiles],
   );
 
   const handleFileDrop = useCallback(
@@ -951,12 +1053,17 @@ export function useUploadIntake({
     folderDropNotice,
     setFolderDropNotice,
     intakeFeedback,
+    pendingSelection,
+    confirmPendingSelection,
+    discardPendingSelection,
+    isCancellingUpload,
     setIntakeFeedback,
     fileRef,
     folderRef,
     retryLocalUpload,
     removeLocalUpload,
     removeFailedLocalUploads,
+    cancelCurrentUpload,
     handleFileSelect,
     handleFolderSelect,
     handleFileDrop,

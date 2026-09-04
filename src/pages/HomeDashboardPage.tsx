@@ -10,6 +10,7 @@ import WorkbuddyStatusPanel from "../components/WorkbuddyStatusPanel";
 import { ProductPage } from "../components/ProductLayout";
 import type { WorkbenchSectionStatus, WorkbenchTaskItemDTO } from "../types/workbench";
 import { formatBeijingTime } from "../utils/time";
+import PagePagination from "../components/PagePagination";
 import { useWorkbench } from "../workbench/WorkbenchContext";
 import "./HomeDashboardPage.css";
 
@@ -391,31 +392,23 @@ export default function HomeDashboardPage() {
               )}
             </div>
             {taskCenterStatus === "available" && activeItems.length > dashboardTaskLimit && (
-              <div className="workbench-task-pager" aria-label="任务列表分页">
-                <span>
-                  显示 {safeTaskPage * dashboardTaskLimit + 1}–
-                  {Math.min((safeTaskPage + 1) * dashboardTaskLimit, activeItems.length)} /{" "}
-                  {activeItems.length}
-                </span>
-                <div>
-                  <button
-                    type="button"
-                    disabled={safeTaskPage === 0}
-                    onClick={() => setTaskPage(Math.max(0, safeTaskPage - 1))}
-                  >
-                    上一页
-                  </button>
-                  <button
-                    type="button"
-                    disabled={safeTaskPage >= taskPageCount - 1}
-                    onClick={() => setTaskPage(Math.min(taskPageCount - 1, safeTaskPage + 1))}
-                  >
-                    下一页
-                  </button>
-                  <button type="button" onClick={() => openTask(activeTab)}>
-                    查看全部
-                  </button>
-                </div>
+              <div className="workbench-task-pager">
+                <PagePagination
+                  ariaLabel="任务列表分页"
+                  page={safeTaskPage + 1}
+                  totalPages={taskPageCount}
+                  onPageChange={(nextPage) => setTaskPage(nextPage - 1)}
+                  summary={
+                    <>
+                      显示 {safeTaskPage * dashboardTaskLimit + 1}–
+                      {Math.min((safeTaskPage + 1) * dashboardTaskLimit, activeItems.length)} /{" "}
+                      {activeItems.length}
+                    </>
+                  }
+                />
+                <button type="button" onClick={() => openTask(activeTab)}>
+                  查看全部
+                </button>
               </div>
             )}
             {groups.attention_items.length > 0 && (

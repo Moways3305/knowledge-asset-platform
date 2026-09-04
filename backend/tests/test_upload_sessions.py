@@ -163,6 +163,46 @@ async def test_failed_transport_context_survives_and_row_bytes_can_be_reselected
     assert completed.json()["upload_completed"] is True
 
 
+async def test_cancel_upload_session_removes_unfinished_bytes_and_hides_items(client, db_session):
+    session_id = uuid.uuid4()
+    initialized = await client.post(
+        "/api/v1/ingest/upload-sessions/init",
+        headers=_headers(USER_CONSULTANT),
+        json={
+            "session_id": str(session_id),
+            "total_transport_batches": 1,
+            "manifest": [
+                {
+                    "client_file_key": "cancel-me",
+                    "file_name": "cancel-me.txt",
+                    "file_size": 7,
+                    "transport_batch_index": 0,
+                }
+            ],
+        },
+    )
+    item_id = initialized.json()["items"][0]["id"]
+    uploaded = await client.post(
+        f"/api/v1/ingest/upload-sessions/{session_id}/batches",
+        headers=_headers(USER_CONSULTANT),
+        data={"batch_id": "batch-0", "batch_index": "0", "item_ids": f'["{item_id}"]'},
+        files={"files": ("cancel-me.txt", b"cancel!", "text/plain")},
+    )
+    assert uploaded.status_code == 200
+    item = await db_session.get(UploadSessionItem, uuid.UUID(item_id))
+    assert item is not None and item.ingest_task_id is not None
+    task_id = item.ingest_task_id
+
+    cancelled = await client.post(
+        f"/api/v1/ingest/upload-sessions/{session_id}/cancel",
+        headers=_headers(USER_CONSULTANT),
+    )
+    assert cancelled.status_code == 200
+    assert cancelled.json()["items"] == []
+    assert await db_session.get(IngestTask, task_id) is None
+    assert not any(path.is_file() for path in client._kap_storage.root.rglob("*"))
+
+
 async def test_upload_session_persists_all_items_and_separates_same_name_from_hash(client):
     response = await client.post(
         "/api/v1/ingest/upload-sessions",

@@ -183,6 +183,36 @@
   gap: 6px;
 }
 
+.upload77-selection-review {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border: 1px solid #c8d8ef;
+  border-left: 3px solid #d2a94f;
+  border-radius: 6px;
+  background: #f7fbff;
+}
+
+.upload77-selection-review strong,
+.upload77-selection-review span {
+  display: block;
+}
+
+.upload77-selection-review span {
+  margin-top: 3px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.upload77-selection-review-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
 .upload77-selected-workspace {
   padding: 20px;
   border: 1px solid var(--color-border);

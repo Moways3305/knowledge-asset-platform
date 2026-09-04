@@ -7,6 +7,7 @@ import LoadingError from "../components/LoadingError";
 import { PageHeader, ProductPage } from "../components/ProductLayout";
 import StatusBadge from "../components/StatusBadge";
 import { useAuth } from "../auth/AuthContext";
+import { HistoryBackButton } from "../routing/SafeNavigation";
 import { ApiError } from "../api/http";
 import {
   addProjectMember,
@@ -595,9 +596,12 @@ export default function ProjectSettingsPage() {
         }
         actions={
           <>
-            <Link className="product-button is-secondary" to={`/project/${projectId}/knowledge`}>
+            <HistoryBackButton
+              className="product-button is-secondary"
+              fallback={`/project/${projectId}/knowledge`}
+            >
               返回项目知识库
-            </Link>
+            </HistoryBackButton>
             {switchProjects.length > 1 && (
               <label className="ps74-project-switcher">
                 <span>切换项目</span>

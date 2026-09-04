@@ -4,8 +4,6 @@ import {
   BadgeCheck,
   BookOpenCheck,
   BriefcaseBusiness,
-  ChevronLeft,
-  ChevronRight,
   ClipboardCheck,
   Database,
   Eye,
@@ -39,6 +37,7 @@ import {
   type PersonalKbDTO,
 } from "../api/personal";
 import ConfirmDialog from "../components/ConfirmDialog";
+import PagePagination from "../components/PagePagination";
 import { BulkSelectionRail, SelectionCheckbox } from "../components/BulkSelection";
 import ModelAdvancedSettings from "../components/ModelAdvancedSettings";
 import PublicationNamingFields, {
@@ -985,31 +984,19 @@ export default function MyKnowledgePage() {
           </div>
         )}
         {!forbidden && loadState === "ready" && total > 0 && (
-          <div className="mk83-pagination">
-            <span>
-              第 {page} 页 · 共 {total} 条
-            </span>
-            <div>
-              <button
-                type="button"
-                aria-label="上一页"
-                className="btn-small"
-                disabled={page === 1}
-                onClick={() => setPage((value) => Math.max(1, value - 1))}
-              >
-                <ChevronLeft size={16} />
-              </button>
-              <button
-                type="button"
-                aria-label="下一页"
-                className="btn-small"
-                disabled={!hasNext}
-                onClick={() => setPage((value) => value + 1)}
-              >
-                <ChevronRight size={16} />
-              </button>
-            </div>
-          </div>
+          <PagePagination
+            className="mk83-pagination"
+            ariaLabel="个人知识分页"
+            page={page}
+            totalPages={Math.max(1, Math.ceil(total / PAGE_SIZE))}
+            hasNext={hasNext}
+            onPageChange={setPage}
+            summary={
+              <>
+                第 {page} 页 · 共 {total} 条
+              </>
+            }
+          />
         )}
       </PageSection>
 

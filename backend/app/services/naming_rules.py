@@ -282,6 +282,21 @@ def _extension(file_name: str) -> str:
     return ""
 
 
+def _source_name_stem(file_name: str) -> str:
+    """Return the original upload name (without its extension) for canonical naming.
+
+    AI-derived topics are useful search/display metadata, but they must never
+    replace the source filename in a governed file name: users need a direct,
+    deterministic correspondence between an original file and its Markdown or
+    normalized derivative.
+    """
+    safe_name = (file_name or "file").replace("\\", "/").rsplit("/", 1)[-1]
+    # Preserve the user's original basename verbatim (apart from a harmless
+    # leading/trailing trim); this is the traceability contract.
+    stem = PurePath(safe_name).stem.strip()
+    return stem or "file"
+
+
 def _project_subject_aliases(project: Project, config: NamingRuleConfig) -> list[str]:
     """Return aliases only for the already-authorized target project."""
     aliases = [" ".join(project.name.strip().split())]
@@ -417,7 +432,10 @@ async def render(
             else (f"{category.primary}-{category.secondary}")
         )
     project_code: str | None = None
-    rendered_subject = naming.subject
+    # Canonical names always retain the source filename.  ``naming.subject``
+    # is intentionally kept in the request contract for compatibility and as
+    # a display/search suggestion, but it is not a file-renaming instruction.
+    rendered_subject = _source_name_stem(task.source_file_name)
     subject_has_business_name = False
     if scope == KnowledgeScope.project.value:
         if request.target_project_id is None:
@@ -432,7 +450,7 @@ async def render(
             raise _denied(409, "project_naming_code_unavailable", "目标项目尚未启用项目代码")
         project_code = project.project_code
         rendered_subject, subject_has_business_name = _deidentify_project_subject(
-            naming.subject,
+            rendered_subject,
             _project_subject_aliases(project, config),
         )
         bracket = f"{project_code}-{naming.formed_on.year}-{naming_code}"
@@ -445,7 +463,7 @@ async def render(
             raise _denied(422, "naming_applicable_to_required", "公司资料必须填写适用对象")
         bracket = naming_code
         stem = (
-            f"【{bracket}】{naming.subject}_{naming.applicable_to}_"
+            f"【{bracket}】{rendered_subject}_{naming.applicable_to}_"
             f"{naming.formed_on:%Y%m%d}_{naming.version}_{request.confidentiality_level.value}"
         )
     canonical = f"{stem}{_extension(task.source_file_name)}"

@@ -460,6 +460,68 @@ async def remove_item(
     )
 
 
+async def cancel_session(
+    session: AsyncSession,
+    caller: CallerContext,
+    session_id: uuid.UUID,
+    *,
+    storage: LocalFileStorage,
+) -> UploadSessionResponse:
+    """Cancel unfinished work in a caller-owned upload session.
+
+    The task rows are locked before removal.  This lets an already-running
+    worker finish first, while a later broker delivery safely sees no task.
+    Confirmed assets are deliberately outside the cancellation scope.
+    """
+    value = await _load_owned_session(session, caller, session_id, lock=True)
+    task_ids = [item.ingest_task_id for item in value.items if item.ingest_task_id]
+    tasks = (
+        {
+            task.id: task
+            for task in (
+                await session.execute(
+                    select(IngestTask).where(IngestTask.id.in_(task_ids)).with_for_update()
+                )
+            ).scalars()
+        }
+        if task_ids
+        else {}
+    )
+    for item in value.items:
+        task = tasks.get(item.ingest_task_id) if item.ingest_task_id else None
+        if (
+            task is not None
+            and task.result_asset_id is None
+            and task.status
+            in {
+                IngestStatus.pending.value,
+                IngestStatus.processing.value,
+            }
+        ):
+            storage.delete(task.source_file_ref)
+            await session.delete(task)
+            item.ingest_task_id = None
+            item.status = "cancelled"
+            item.safe_error_code = None
+            item.safe_error_message = None
+        elif task is None and item.status in {"waiting_upload", "waiting"}:
+            item.status = "cancelled"
+            item.safe_error_code = None
+            item.safe_error_message = None
+    value.status = (
+        "completed"
+        if all(candidate.status in _TERMINAL_ITEM_STATES for candidate in value.items)
+        else "active"
+    )
+    await session.commit()
+    return await _response(
+        session,
+        caller,
+        await _load_owned_session(session, caller, session_id),
+        storage=storage,
+    )
+
+
 async def remove_failed_items(
     session: AsyncSession,
     caller: CallerContext,

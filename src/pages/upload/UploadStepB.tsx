@@ -9,6 +9,7 @@ import PendingSelectAll, {
   pendingSelectionReason,
 } from "./PendingSelectAll";
 import { formatBeijingTime } from "../../utils/time";
+import PagePagination from "../../components/PagePagination";
 import type { IngestTaskStage } from "../../types/ingest";
 import type { UploadFlow } from "./useUploadFlow";
 
@@ -134,12 +135,17 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
     handleDataTransferDrop,
     folderDropNotice,
     intakeFeedback,
+    pendingSelection,
+    confirmPendingSelection,
+    discardPendingSelection,
+    isCancellingUpload,
     handleStart,
     localUploadQueue,
     uploadSession,
     retryLocalUpload,
     removeLocalUpload,
     removeFailedLocalUploads,
+    cancelCurrentUpload,
     handleRefreshProcessing,
     handleReset,
     handleDeletePending,
@@ -200,6 +206,9 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
   const canRefresh = flowState === "processing" && Boolean(processingNote);
   const hasActiveUploadQueue = localUploadQueue.some((item) =>
     ["queued", "uploading", "processing", "failed"].includes(item.status),
+  );
+  const canCancelCurrentUpload = localUploadQueue.some((item) =>
+    ["queued", "uploading", "processing"].includes(item.status),
   );
   const uploadQueueCompleted = localUploadQueue.length > 0 && !hasActiveUploadQueue;
   const completedQueueNotice = localUploadQueue.find(
@@ -295,6 +304,26 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
           multiple
           onChange={handleFolderSelect}
         />
+
+        {pendingSelection && (
+          <section className="upload77-selection-review" aria-live="polite">
+            <div>
+              <strong>
+                已选择 {pendingSelection.items.length} 个文件
+                {pendingSelection.source === "folder" ? "（来自文件夹）" : ""}
+              </strong>
+              <span>请确认后才会检查并加入上传队列，当前尚未上传任何文件。</span>
+            </div>
+            <div className="upload77-selection-review-actions">
+              <button className="btn-secondary" onClick={discardPendingSelection} type="button">
+                取消选择
+              </button>
+              <button className="btn-primary" onClick={confirmPendingSelection} type="button">
+                确认加入队列
+              </button>
+            </div>
+          </section>
+        )}
 
         {!hasFile ? (
           <div
@@ -493,6 +522,22 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
               <p>按 20 MiB / 10 文件顺序传输；失败文件不会影响已成功批次，可逐行重试。</p>
             </div>
             <div className="upload77-section-actions">
+              {canCancelCurrentUpload && (
+                <button
+                  className="btn-secondary"
+                  disabled={isCancellingUpload}
+                  onClick={() => {
+                    if (
+                      window.confirm("将停止本批尚未完成的上传。已完成的文件不会受影响，是否继续？")
+                    ) {
+                      void cancelCurrentUpload();
+                    }
+                  }}
+                  type="button"
+                >
+                  {isCancellingUpload ? "正在取消…" : "取消本批上传"}
+                </button>
+              )}
               {localUploadQueue.some((item) => item.status === "failed") && (
                 <>
                   <button
@@ -690,29 +735,20 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
               )}
             </div>
             {filteredQueue.length > queuePageSize && (
-              <div className="upload77-list-pager" aria-label="上传队列分页">
-                <span>
-                  显示 {safeQueuePage * queuePageSize + 1}–
-                  {Math.min((safeQueuePage + 1) * queuePageSize, filteredQueue.length)} /{" "}
-                  {filteredQueue.length}
-                </span>
-                <div>
-                  <button
-                    type="button"
-                    disabled={safeQueuePage === 0}
-                    onClick={() => setQueuePage((page) => Math.max(0, page - 1))}
-                  >
-                    上一页
-                  </button>
-                  <button
-                    type="button"
-                    disabled={(safeQueuePage + 1) * queuePageSize >= filteredQueue.length}
-                    onClick={() => setQueuePage((page) => page + 1)}
-                  >
-                    下一页
-                  </button>
-                </div>
-              </div>
+              <PagePagination
+                className="upload77-list-pager"
+                ariaLabel="上传队列分页"
+                page={safeQueuePage + 1}
+                totalPages={Math.ceil(filteredQueue.length / queuePageSize)}
+                onPageChange={(nextPage) => setQueuePage(nextPage - 1)}
+                summary={
+                  <>
+                    显示 {safeQueuePage * queuePageSize + 1}–
+                    {Math.min((safeQueuePage + 1) * queuePageSize, filteredQueue.length)} /{" "}
+                    {filteredQueue.length}
+                  </>
+                }
+              />
             )}
           </div>
         </section>
@@ -952,31 +988,23 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                   </tbody>
                 </table>
                 {localPendingTasks.length > pendingPageSize && (
-                  <div className="upload77-list-pager" aria-label="待确认入库分页">
-                    <span>
-                      显示 {safePendingPage * pendingPageSize + 1}–
-                      {Math.min((safePendingPage + 1) * pendingPageSize, localPendingTasks.length)}{" "}
-                      / {localPendingTasks.length}
-                    </span>
-                    <div>
-                      <button
-                        type="button"
-                        disabled={safePendingPage === 0}
-                        onClick={() => setPendingPage((page) => Math.max(0, page - 1))}
-                      >
-                        上一页
-                      </button>
-                      <button
-                        type="button"
-                        disabled={
-                          (safePendingPage + 1) * pendingPageSize >= localPendingTasks.length
-                        }
-                        onClick={() => setPendingPage((page) => page + 1)}
-                      >
-                        下一页
-                      </button>
-                    </div>
-                  </div>
+                  <PagePagination
+                    className="upload77-list-pager"
+                    ariaLabel="待确认入库分页"
+                    page={safePendingPage + 1}
+                    totalPages={Math.ceil(localPendingTasks.length / pendingPageSize)}
+                    onPageChange={(nextPage) => setPendingPage(nextPage - 1)}
+                    summary={
+                      <>
+                        显示 {safePendingPage * pendingPageSize + 1}–
+                        {Math.min(
+                          (safePendingPage + 1) * pendingPageSize,
+                          localPendingTasks.length,
+                        )}{" "}
+                        / {localPendingTasks.length}
+                      </>
+                    }
+                  />
                 )}
               </div>
             )}

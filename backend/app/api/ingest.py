@@ -852,6 +852,19 @@ async def remove_upload_session_item(
     )
 
 
+@router.post(
+    "/ingest/upload-sessions/{session_id}/cancel",
+    response_model=UploadSessionResponse,
+)
+async def cancel_upload_session(
+    session_id: uuid.UUID,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
+) -> UploadSessionResponse:
+    return await upload_session_service.cancel_session(session, caller, session_id, storage=storage)
+
+
 @router.delete(
     "/ingest/upload-sessions/{session_id}/failed-items",
     response_model=UploadSessionResponse,

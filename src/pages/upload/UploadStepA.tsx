@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { formatBeijingTime } from "../../utils/time";
 import { formatFileSize, pendingStatusLabel } from "./uploadConstants";
 import BatchTaskProgress from "./BatchTaskProgress";
+import PagePagination from "../../components/PagePagination";
 import PendingBatchActions from "./PendingBatchActions";
 import PendingSelectAll, {
   isPendingTaskActionable,
@@ -237,29 +238,20 @@ export default function UploadStepA({ flow }: { flow: UploadFlow }) {
             </table>
             {filteredTasks.length === 0 && <div className="upload77-state">当前筛选下没有资料</div>}
             {filteredTasks.length > pageSize && (
-              <div className="upload77-list-pager" aria-label="企微待确认分页">
-                <span>
-                  显示 {safePage * pageSize + 1}–
-                  {Math.min((safePage + 1) * pageSize, filteredTasks.length)} /{" "}
-                  {filteredTasks.length}
-                </span>
-                <div>
-                  <button
-                    type="button"
-                    disabled={safePage === 0}
-                    onClick={() => setPage((current) => Math.max(0, current - 1))}
-                  >
-                    上一页
-                  </button>
-                  <button
-                    type="button"
-                    disabled={(safePage + 1) * pageSize >= filteredTasks.length}
-                    onClick={() => setPage((current) => current + 1)}
-                  >
-                    下一页
-                  </button>
-                </div>
-              </div>
+              <PagePagination
+                className="upload77-list-pager"
+                ariaLabel="企微待确认分页"
+                page={safePage + 1}
+                totalPages={Math.ceil(filteredTasks.length / pageSize)}
+                onPageChange={(nextPage) => setPage(nextPage - 1)}
+                summary={
+                  <>
+                    显示 {safePage * pageSize + 1}–
+                    {Math.min((safePage + 1) * pageSize, filteredTasks.length)} /{" "}
+                    {filteredTasks.length}
+                  </>
+                }
+              />
             )}
           </div>
         </>

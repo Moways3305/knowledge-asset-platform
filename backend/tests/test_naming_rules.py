@@ -187,6 +187,9 @@ async def test_direct_directory_generates_project_name_without_category_metadata
     assert response.status_code == 200, response.text
     payload = response.json()
     assert payload["canonical_name"].startswith("【ALPHA-NEW-2026-交付成果】")
+    assert "source_20260831_V1_L3.txt" in payload["canonical_name"]
+    assert "年度战略复盘" not in payload["canonical_name"]
+    assert payload["fields"]["subject"] == "source"
     assert payload["fields"]["directory_key"] == "project.deliverables"
     assert "category_id" not in payload["fields"]
     assert "asset_type" not in payload["fields"]

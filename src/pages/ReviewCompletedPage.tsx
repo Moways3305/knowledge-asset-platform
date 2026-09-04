@@ -3,6 +3,7 @@ import { ApiError } from "../api/http";
 import { fetchReviewPage } from "../api/review";
 import DataTable, { type Column } from "../components/DataTable";
 import GovernanceWorkspace from "../components/GovernanceWorkspace";
+import PagePagination from "../components/PagePagination";
 import type { ReviewItemDTO } from "../types/review";
 import { formatBeijingTime } from "../utils/time";
 
@@ -199,27 +200,19 @@ export default function ReviewCompletedPage() {
         ariaLabel="已完成审核任务列表"
       />
 
-      <div className="pk-pagination" aria-label="已完成审核分页">
-        <button
-          className="product-button is-secondary is-small"
-          type="button"
-          disabled={loading || page <= 1}
-          onClick={() => setPage((current) => Math.max(1, current - 1))}
-        >
-          上一页
-        </button>
-        <span>
-          第 {page} / {totalPages} 页
-        </span>
-        <button
-          className="product-button is-secondary is-small"
-          type="button"
-          disabled={loading || page >= totalPages}
-          onClick={() => setPage((current) => current + 1)}
-        >
-          下一页
-        </button>
-      </div>
+      <PagePagination
+        className="pk-pagination"
+        ariaLabel="已完成审核分页"
+        page={page}
+        totalPages={totalPages}
+        disabled={loading}
+        onPageChange={setPage}
+        summary={
+          <>
+            第 {page} / {totalPages} 页
+          </>
+        }
+      />
     </GovernanceWorkspace>
   );
 }

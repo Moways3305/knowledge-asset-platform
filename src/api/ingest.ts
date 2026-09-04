@@ -135,6 +135,7 @@ export async function appendUploadSessionBatch(input: {
   batchIndex: number;
   itemIds: string[];
   files: File[];
+  signal?: AbortSignal;
 }): Promise<UploadSessionDTO> {
   const form = new FormData();
   form.append("batch_id", input.batchId);
@@ -149,6 +150,7 @@ export async function appendUploadSessionBatch(input: {
         headers: await csrfHeaders(),
         body: form,
         credentials: "include",
+        signal: input.signal,
       },
     );
     return handleResponse<UploadSessionDTO>(response);
@@ -157,6 +159,10 @@ export async function appendUploadSessionBatch(input: {
 
 export async function completeUploadSession(sessionId: string): Promise<UploadSessionDTO> {
   return apiPostNoBody<UploadSessionDTO>(`/api/v1/ingest/upload-sessions/${sessionId}/complete`);
+}
+
+export async function cancelUploadSession(sessionId: string): Promise<UploadSessionDTO> {
+  return apiPostNoBody<UploadSessionDTO>(`/api/v1/ingest/upload-sessions/${sessionId}/cancel`);
 }
 
 export async function recordUploadTransportFailure(
