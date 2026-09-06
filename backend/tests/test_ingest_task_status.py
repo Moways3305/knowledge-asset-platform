@@ -80,6 +80,29 @@ async def test_upload_extraction_and_generation_stages_are_distinct(client, db_s
         assert body["next_action"] == {"key": "wait", "route_key": None, "enabled": False}
 
 
+async def test_cancelled_task_has_terminal_safe_status(client, db_session):
+    task = await _task(db_session, status="cancelled", processing_stage="cancelled")
+    task.cancel_requested = True
+    await db_session.commit()
+
+    response = await client.get(_status_url(task.id), headers=_headers(USER_CONSULTANT))
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "task_id": str(task.id),
+        "stage": "cancelled",
+        "status": "cancelled",
+        "updated_at": response.json()["updated_at"],
+        "last_progress_at": response.json()["last_progress_at"],
+        "next_retry_at": None,
+        "retryable": False,
+        "next_action": {"key": "cancelled", "route_key": None, "enabled": False},
+        "error": None,
+        "result_asset_id": None,
+        "review_id": None,
+    }
+
+
 async def test_generated_draft_waits_for_confirmation(client, db_session):
     task = await _task(db_session, status="pending_confirmation")
     task.ai_result = IngestTaskAiResult(

@@ -28,3 +28,14 @@ def test_review_decision_rejects_conflicting_terminal_replay():
             comment="no",
             decided_at=datetime.now(timezone.utc),
         )
+
+
+def test_cancelled_review_cannot_be_revived_by_a_late_decision():
+    task = _task("cancelled")
+    with pytest.raises(ReviewTransitionConflict, match="another decision"):
+        decide(
+            task,
+            target_status="approved",
+            comment="late approval",
+            decided_at=datetime.now(timezone.utc),
+        )

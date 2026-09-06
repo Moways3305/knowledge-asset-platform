@@ -118,6 +118,7 @@ export type IngestTaskStage =
   | "indexing_queued"
   | "indexing_in_progress"
   | "completed"
+  | "cancelled"
   | "failed"
   | "degraded_complete";
 
@@ -126,6 +127,7 @@ export type IngestTaskWorkflowStatus =
   | "action_required"
   | "waiting"
   | "completed"
+  | "cancelled"
   | "degraded"
   | "failed";
 
@@ -369,7 +371,8 @@ export interface MyUploadItemDTO {
     | "waiting_review"
     | "completed"
     | "failed"
-    | "duplicate_skipped";
+    | "duplicate_skipped"
+    | "cancelled";
   duplicate_result: "none" | "skipped" | "independent";
   result_asset_id: string | null;
 }

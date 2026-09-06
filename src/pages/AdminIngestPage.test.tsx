@@ -239,6 +239,34 @@ describe("AdminIngestPage operations reference", () => {
     });
   });
 
+  it("includes cancelled and all other ingest states in the overview counts", async () => {
+    const fixture = await vi.mocked(fetchAdminIngest)();
+    const statuses = [
+      "pending",
+      "processing",
+      "pending_confirmation",
+      "waiting_review",
+      "rejected",
+      "completed",
+      "duplicate_skipped",
+      "cancelled",
+      "failed",
+    ];
+    vi.mocked(fetchAdminIngest).mockResolvedValue({
+      items: statuses.map((status) => ({ ...fixture.items[0], id: status, status })),
+      total: statuses.length,
+    });
+    renderPage();
+    const overview = screen.getByLabelText("入库运行概览");
+    await within(overview).findByText("共 9 项");
+    const counts = overview
+      .querySelector(".ao84-ingest-counts")!
+      .querySelectorAll(":scope > span > strong");
+    expect(counts).toHaveLength(9);
+    expect(Array.from(counts).reduce((sum, count) => sum + Number(count.textContent), 0)).toBe(9);
+    expect(within(overview).getByText("已取消")).toHaveTextContent("1已取消");
+  });
+
   it("keeps processing-timeout recovery dry-run first and requires explicit confirmation", async () => {
     const user = userEvent.setup();
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);

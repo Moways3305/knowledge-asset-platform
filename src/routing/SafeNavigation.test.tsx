@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { BrowserRouter, MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SafeNavigationProvider, useSafeNavigation } from "./SafeNavigation";
 
@@ -122,5 +122,29 @@ describe("SafeNavigationProvider", () => {
     renderHistory([]);
     fireEvent.click(screen.getByRole("button", { name: "返回" }));
     await waitFor(() => expect(screen.getByText("/")).toBeInTheDocument());
+  });
+
+  it("does not follow a mismatched native history entry in BrowserRouter", async () => {
+    window.history.replaceState({ idx: 0, key: "safe" }, "", "/help");
+    window.history.pushState({ idx: 1, key: "stale" }, "", "/admin/audit");
+    window.history.pushState({ idx: 2, key: "current" }, "", "/knowledge");
+    sessionStorage.setItem(
+      "kap.safe-navigation.v1",
+      JSON.stringify([{ pathname: "/help", search: "", historyIndex: 0 }]),
+    );
+
+    render(
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <SafeNavigationProvider>
+          <Routes>
+            <Route path="*" element={<Harness />} />
+          </Routes>
+        </SafeNavigationProvider>
+      </BrowserRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "返回" }));
+
+    await waitFor(() => expect(screen.getByText("/help")).toBeInTheDocument());
+    expect(window.history.state.idx).toBe(2);
   });
 });

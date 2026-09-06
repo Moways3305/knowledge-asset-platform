@@ -166,6 +166,34 @@ describe("NotificationBell", () => {
     expect(screen.queryByText("状态更新")).not.toBeInTheDocument();
   });
 
+  it("renders cancellation as an explicit terminal notification status", async () => {
+    const cancelled = {
+      ...notification,
+      id: "notif-cancelled",
+      category: "ingest",
+      title: "上传已取消",
+      action_required: false,
+      task_status: "cancelled" as const,
+      task_group: "recent_completed" as const,
+      next_action_label: "查看记录",
+      target: { route_key: "upload", resource_id: "ingest-safe-cancelled" },
+    };
+    vi.mocked(fetchNotifications).mockResolvedValueOnce({
+      items: [cancelled],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      unread_count: 1,
+      pending_count: 0,
+      categories: ["ingest"],
+    });
+    renderBell();
+    fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
+    fireEvent.click(await screen.findByRole("tab", { name: /动态/ }));
+    expect(await screen.findByText("已取消")).toBeInTheDocument();
+    expect(screen.queryByText("状态待确认")).not.toBeInTheDocument();
+  });
+
   it("keeps the drawer and unread state when marking read fails", async () => {
     vi.mocked(fetchNotifications).mockResolvedValueOnce({
       items: [notification],

@@ -43,6 +43,7 @@ async def expire_stale_tasks(
     stmt = select(IngestTask).where(
         IngestTask.source == IngestSource.path_b_upload.value,
         IngestTask.status == IngestStatus.processing.value,
+        IngestTask.cancel_requested.is_(False),
         IngestTask.result_asset_id.is_(None),
     )
     if not all_owners:

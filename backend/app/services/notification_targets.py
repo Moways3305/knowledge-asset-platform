@@ -52,7 +52,7 @@ def _review_status(task: ReviewTask, can_decide: bool) -> tuple[str, bool]:
         "failed"
         if task.status == "approval_failed"
         else "completed"
-        if task.status in {"approved", "rejected"}
+        if task.status in {"approved", "rejected", "cancelled"}
         else "processing"
         if task.status == "approving"
         else "needs_action"
@@ -143,6 +143,12 @@ async def resolve(
         ingest_task = await session.get(IngestTask, row.target_id)
         if ingest_task is None or ingest_task.created_by != caller.user_id:
             return None
+        if ingest_task.cancel_requested or ingest_task.status == "cancelled":
+            return VisibleNotificationTarget(
+                target=NotificationTarget(route_key=route_key, resource_id=row.target_id),
+                status="cancelled",
+                action_required=False,
+            )
         effective_error_type = ingest_task.error_type
         if effective_error_type == "processing_timeout" and storage is not None:
             if not storage.inspect(ingest_task.source_file_ref).available:
@@ -153,6 +159,7 @@ async def resolve(
             "processing": "processing",
             "completed": "completed",
             "duplicate_skipped": "duplicate_skipped",
+            "cancelled": "cancelled",
             "waiting_review": "submitted",
             "pending_confirmation": "needs_action",
         }.get(ingest_task.status, "submitted")

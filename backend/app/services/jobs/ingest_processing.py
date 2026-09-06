@@ -64,6 +64,7 @@ from app.services import (
 )
 from app.services.desensitization import DesensitizationEngine
 from app.services.extraction import ExtractionPage, ExtractionResult, extract_text
+from app.services.jobs.ingest_cancellation import acknowledge_if_requested
 from app.services.llm_client import LLMClient, NullLLMClient
 from app.services.permission import build_caller_context
 from app.services.storage import LocalFileStorage
@@ -96,7 +97,11 @@ async def _publish_ingest_failed(session: AsyncSession, task: IngestTask) -> Non
 
 
 # 已处理终态（再次入队/重跑直接跳过，保证幂等）。
-_PROCESSED_STATUSES = {IngestStatus.pending_confirmation.value, IngestStatus.completed.value}
+_PROCESSED_STATUSES = {
+    IngestStatus.pending_confirmation.value,
+    IngestStatus.completed.value,
+    IngestStatus.cancelled.value,
+}
 _PAGE_MARKER_RE = re.compile(r"\{\{page:(\d+)\}\}\s*\n?")
 _IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "tif", "tiff", "bmp", "webp"}
 
@@ -322,6 +327,9 @@ async def _process_upload_task_impl(
     if task is None:
         return "not_found"
 
+    if await acknowledge_if_requested(session, task):
+        return IngestStatus.cancelled.value
+
     # 幂等：已成功处理 → 跳过（不重复建 ai_result、不重复写终态审计）。
     if task.status in _PROCESSED_STATUSES:
         return task.status
@@ -348,6 +356,9 @@ async def _process_upload_task_impl(
     task.recovery_not_before = None
     _set_stage(task, "processing_claimed")
     await session.commit()
+
+    if await acknowledge_if_requested(session, task):
+        return IngestStatus.cancelled.value
 
     actor = await _build_actor(session, task)
 
@@ -406,6 +417,8 @@ async def _process_upload_task_impl(
             extraction = extract_text(
                 file_bytes, file_name=task.source_file_name, mime=task.source_file_mime_type
             )
+            if await acknowledge_if_requested(session, task):
+                return IngestStatus.cancelled.value
             if task.ai_result is None:
                 task.ai_result = IngestTaskAiResult(ingest_task_id=task.id)
             task.ai_result.extraction_status = extraction.status
@@ -438,6 +451,8 @@ async def _process_upload_task_impl(
             await session.commit()
             _set_stage(task, "ocr_in_progress")
             await session.commit()
+            if await acknowledge_if_requested(session, task):
+                return IngestStatus.cancelled.value
             if file_bytes is None:
                 file_bytes = storage.resolve_path(task.source_file_ref).read_bytes()
             try:
@@ -455,6 +470,8 @@ async def _process_upload_task_impl(
                 # the page API below for durable checkpoints.
                 if "completed_pages" not in inspect.signature(ocr.recognize).parameters:
                     legacy_result = ocr.recognize(file_bytes, extraction)
+                    if await acknowledge_if_requested(session, task):
+                        return IngestStatus.cancelled.value
                     page_results = list(legacy_result.pages)
                     for full_index, full_result in enumerate(page_results):
                         source_page = extraction.pages[full_index]
@@ -507,6 +524,8 @@ async def _process_upload_task_impl(
                             source_kind=extraction.source_kind,
                         )
                         partial = ocr.recognize(file_bytes, single_page_extraction)
+                        if await acknowledge_if_requested(session, task):
+                            return IngestStatus.cancelled.value
                         # Compatibility with injected/test engines that return the complete page
                         # set in one call; the production engine returns exactly the requested page.
                         if len(partial.pages) == len(extraction.pages):
@@ -559,6 +578,8 @@ async def _process_upload_task_impl(
                     await session.commit()
                 recognized = legacy_result or ocr.build_result(page_results)
             except ocr.OCRError as exc:
+                if await acknowledge_if_requested(session, task, lock=True):
+                    return IngestStatus.cancelled.value
                 ai_result.ocr_status = "failed"
                 ai_result.ocr_attempted_at = utc_now()
                 task.error_type = exc.code
@@ -622,6 +643,8 @@ async def _process_upload_task_impl(
                 "extracted" if recognized.status == "succeeded" else "ocr_low_confidence"
             )
             if recognized.status != "succeeded":
+                if await acknowledge_if_requested(session, task, lock=True):
+                    return IngestStatus.cancelled.value
                 task.status = IngestStatus.failed.value
                 _set_stage(task, "ocr_failed")
                 task.error_type = recognized.error_type
@@ -644,6 +667,8 @@ async def _process_upload_task_impl(
             )
             _set_stage(task, "ocr_complete")
             await session.commit()
+            if await acknowledge_if_requested(session, task):
+                return IngestStatus.cancelled.value
 
         # OCR workers release the file after extraction. Markdown and content generation
         # continue as a new idempotent delivery on the ordinary queue.
@@ -684,6 +709,9 @@ async def _process_upload_task_impl(
                     task=task,
                     extracted_text=extraction.text,
                 )
+                await session.commit()
+                if await acknowledge_if_requested(session, task):
+                    return IngestStatus.cancelled.value
             except Exception:
                 await canonical_markdown.mark_task_markdown_failed(
                     session,
@@ -782,6 +810,8 @@ async def _process_upload_task_impl(
                             usage_request.get("usage") if isinstance(usage_request, dict) else None
                         ),
                     )
+        if await acknowledge_if_requested(session, task, lock=True):
+            return IngestStatus.cancelled.value
     except Exception as exc:  # noqa: BLE001  # 瞬时处理失败 → 可重试
         safe_log_exception(_logger, "ingest_processing_failed", exc, include_summary=False)
         if isinstance(exc, SQLAlchemyError):
@@ -798,6 +828,8 @@ async def _process_upload_task_impl(
         clean_task = await session.get(IngestTask, task_id)
         if clean_task is None:
             return "not_found"
+        if await acknowledge_if_requested(session, clean_task, lock=True):
+            return IngestStatus.cancelled.value
         clean_task.retry_count += 1
         clean_task.error_type = "processing_error"
         clean_task.error_message = "入库处理失败（详见审计）"  # 安全文案，无内部引用

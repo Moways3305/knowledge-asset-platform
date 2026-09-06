@@ -1090,6 +1090,32 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     expect(ingest.fetchIngestTaskStatus).toHaveBeenCalledTimes(terminalCallCount);
   });
 
+  it("服务端取消状态终止轮询并释放浏览器文件引用", async () => {
+    ingest.createIngestUpload.mockResolvedValue({ ingest_task_id: "cancelled-task" });
+    ingest.fetchIngestTaskStatus.mockResolvedValue(
+      taskStatus("cancelled-task", "cancelled", "cancelled"),
+    );
+    const { result } = renderHook(() => useUploadFlow());
+    await waitFor(() => expect(auth.fetchAuthMe).toHaveBeenCalled());
+
+    act(() =>
+      result.current.handleFileDrop([
+        new File(["cancelled"], "cancelled.pdf", { type: "application/pdf" }),
+      ]),
+    );
+
+    await waitFor(() =>
+      expect(result.current.localUploadQueue[0]).toMatchObject({
+        status: "cancelled",
+        file: null,
+        error: null,
+      }),
+    );
+    const terminalCallCount = ingest.fetchIngestTaskStatus.mock.calls.length;
+    await new Promise((resolve) => window.setTimeout(resolve, 35));
+    expect(ingest.fetchIngestTaskStatus).toHaveBeenCalledTimes(terminalCallCount);
+  });
+
   it("安全降级完成后进入人工确认并停止轮询，不误报处理超时", async () => {
     ingest.fetchIngestTaskStatus.mockResolvedValue({
       ...taskStatus("t1", "degraded_complete", "degraded"),

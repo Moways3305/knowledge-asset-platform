@@ -169,6 +169,7 @@ class IngestTaskStage(str, Enum):
     indexing_queued = "indexing_queued"
     indexing_in_progress = "indexing_in_progress"
     completed = "completed"
+    cancelled = "cancelled"
     failed = "failed"
     degraded_complete = "degraded_complete"
 
@@ -178,6 +179,7 @@ class IngestTaskWorkflowStatus(str, Enum):
     action_required = "action_required"
     waiting = "waiting"
     completed = "completed"
+    cancelled = "cancelled"
     degraded = "degraded"
     failed = "failed"
 

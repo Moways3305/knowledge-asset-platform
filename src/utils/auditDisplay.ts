@@ -13,6 +13,9 @@ const ACTION_LABELS: Record<string, string> = {
   "ingest.confirmed": "确认入库",
   "ingest.weknora_indexed": "写入知识底座",
   "ingest.failed": "入库失败",
+  "ingest.cancellation_requested": "请求取消入库",
+  "ingest.cancellation_cleaned": "完成取消清理",
+  "upload_session.cancelled": "取消上传会话",
   // 预览
   "preview.issued": "签发预览凭证",
   "preview.used": "使用预览凭证",
@@ -42,6 +45,7 @@ const ACTION_LABELS: Record<string, string> = {
   "review.candidate_created": "创建资产候选",
   "review.approved": "审核通过",
   "review.rejected": "审核驳回",
+  "review.cancelled": "审核已取消",
   // 微盘扫描
   "wecom_scan.config_created": "创建微盘扫描配置",
   "wecom_scan.config_updated": "更新微盘扫描配置",

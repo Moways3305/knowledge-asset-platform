@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
+import pytest
 from sqlalchemy import func, select
 
 from app.models.audit import AuditEvent
@@ -375,6 +376,70 @@ async def test_duplicate_skipped_ingest_projects_a_distinct_terminal_notificatio
     assert body["items"][0]["task_group"] == "recent_completed"
     assert body["items"][0]["action_required"] is False
     assert "server-only" not in str(body)
+
+
+@pytest.mark.parametrize("status", ["cancelled", "processing", "failed"])
+async def test_cancelled_ingest_notification_is_an_explicit_terminal_state(
+    client, db_session, status
+):
+    task = IngestTask(
+        source="path_b_upload",
+        source_file_ref="server-only/cancelled-notification.txt",
+        source_file_name="cancelled-notification.txt",
+        status=status,
+        cancel_requested=True,
+        error_type="processing_timeout",
+        created_by=USER_CONSULTANT,
+    )
+    db_session.add(task)
+    await db_session.flush()
+    db_session.add(
+        BusinessNotification(
+            recipient_user_id=USER_CONSULTANT,
+            event_type="ingest.failed",
+            category="ingest",
+            title="入库状态已更新",
+            summary="资料处理已结束。",
+            target_kind="ingest_task",
+            target_id=task.id,
+            dedup_key=f"ingest.cancelled:{task.id}",
+            channel="in_app",
+            delivery_status="pending",
+        )
+    )
+    await db_session.commit()
+
+    body = (await client.get(API, headers=_headers(USER_CONSULTANT))).json()
+    item = next(value for value in body["items"] if value["target"]["resource_id"] == str(task.id))
+    assert item["task_status"] == "cancelled"
+    assert item["task_group"] == "recent_completed"
+    assert item["action_required"] is False
+    assert item["failure_reason"] is None
+    assert item["recovery_suggestion"] is None
+    assert item["next_action_label"] == "查看记录"
+
+
+async def test_cancelled_review_notification_is_not_actionable(client, db_session):
+    task = ReviewTask(
+        review_type=ReviewType.project_ingest_approval.value,
+        trigger_source="path_b_upload",
+        target_project_id=PROJECT_ALPHA,
+        target_scope="project",
+        status=ReviewTaskStatus.cancelled.value,
+        reviewer_user_id=USER_PROJECT_MANAGER,
+        submitted_by=USER_CONSULTANT,
+        reviewed_at=datetime.now(timezone.utc),
+    )
+    db_session.add(task)
+    await db_session.flush()
+    db_session.add(_row(target_id=task.id, dedup_key=f"review.cancelled:{task.id}"))
+    await db_session.commit()
+
+    body = (await client.get(API, headers=_headers(USER_PROJECT_MANAGER))).json()
+    item = next(value for value in body["items"] if value["target"]["resource_id"] == str(task.id))
+    assert item["task_status"] == "completed"
+    assert item["task_group"] == "recent_completed"
+    assert item["action_required"] is False
 
 
 async def test_project_scoped_operation_notification_uses_ops_authorization_not_membership(

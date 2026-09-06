@@ -21,6 +21,7 @@ const reviewTypeLabel: Record<string, string> = {
 const statusLabel: Record<string, string> = {
   approved: "已通过",
   rejected: "已拒绝",
+  cancelled: "已取消",
 };
 
 const reviewTypeFilters = [
@@ -36,6 +37,7 @@ const statusFilters = [
   { value: "", label: "全部状态" },
   { value: "approved", label: "已通过" },
   { value: "rejected", label: "已拒绝" },
+  { value: "cancelled", label: "已取消" },
 ];
 
 function safeTitle(item: ReviewItemDTO) {
@@ -109,7 +111,15 @@ export default function ReviewCompletedPage() {
       key: "status",
       header: "状态",
       render: (item) => (
-        <span className={`gw-status ${item.status === "approved" ? "is-success" : "is-danger"}`}>
+        <span
+          className={`gw-status ${
+            item.status === "approved"
+              ? "is-success"
+              : item.status === "cancelled"
+                ? "is-neutral"
+                : "is-danger"
+          }`}
+        >
           {statusLabel[item.status] ?? SAFE_FALLBACK}
         </span>
       ),

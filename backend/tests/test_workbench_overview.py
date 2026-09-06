@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 
@@ -252,6 +253,33 @@ async def test_submitted_review_waiting_for_another_user_is_not_actionable(clien
     todos = response.json()["todos"]
     assert todos["status"] == "empty"
     assert todos["total"] == 0
+
+
+async def test_cancelled_review_is_recent_terminal_work_not_an_active_task(client, db_session):
+    user_id = await _create_business_user(db_session)
+    review = ReviewTask(
+        review_type="material_to_asset",
+        trigger_source="internal_sharing",
+        target_asset_id=KA_PROJECT_ALPHA_REVIEWABLE,
+        target_project_id=PROJECT_ALPHA,
+        target_scope="project",
+        status="cancelled",
+        reviewer_user_id=USER_PROJECT_MANAGER,
+        submitted_by=user_id,
+        reviewed_at=datetime.now(timezone.utc),
+    )
+    db_session.add(review)
+    await db_session.commit()
+
+    response = await client.get(OVERVIEW, headers=_headers(user_id))
+
+    assert response.status_code == 200
+    center = response.json()["task_center"]
+    assert not any(item["task_type"] == "review" for item in center["my_tasks"])
+    assert not any(item["task_type"] == "review" for item in center["running_jobs"])
+    completed = next(item for item in center["recent_completed"] if item["task_type"] == "review")
+    assert completed["status"] == "completed"
+    assert completed["result_summary"] == "审核已取消"
 
 
 async def test_only_confirm_ready_ingest_is_an_actionable_todo(client, db_session):

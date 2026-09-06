@@ -522,6 +522,25 @@ async def approve_project_ingest_review(
     ).scalar_one_or_none()
     if task is None:
         raise _denied(409, "project_ingest_task_missing", "项目提交来源不可用")
+    if task.cancel_requested or task.status == IngestStatus.cancelled.value:
+        before_status = review.status
+        review.status = ReviewTaskStatus.cancelled.value
+        review.review_comment = "上传人已取消提交"
+        review.reviewed_at = datetime.now(timezone.utc)
+        await audit_service.record_event(
+            session,
+            caller=caller,
+            log_type=AuditLogType.operation,
+            action=AuditAction.review_cancelled.value,
+            trace_id=trace_id,
+            target_type="review_task",
+            target_id=review.id,
+            before={"status": before_status},
+            after={"status": review.status, "reason": "source_ingest_cancelled"},
+            project_id=review.target_project_id,
+        )
+        await session.commit()
+        raise _denied(409, "project_ingest_cancelled", "上传已取消，审核任务不能继续处理")
 
     if not canonical_markdown.task_markdown_is_valid(storage, task.canonical_markdown):
         review.status = ReviewTaskStatus.approval_failed.value
@@ -938,6 +957,8 @@ async def list_pending(
         .where(
             IngestTask.result_asset_id.is_(None),
             IngestTask.created_by == caller.user_id,
+            IngestTask.cancel_requested.is_(False),
+            IngestTask.status != IngestStatus.cancelled.value,
             IngestTask.status != IngestStatus.duplicate_skipped.value,
         )
         .options(

@@ -477,10 +477,26 @@ export function useUploadIntake({
           if (!current) continue;
           const pollAttempts = current.pollAttempts + 1;
           const failed = status.status === "failed" || status.stage === "failed";
+          const cancelled = status.status === "cancelled" || status.stage === "cancelled";
           const readyForConfirmation =
             status.stage === "awaiting_confirmation" ||
             status.next_action?.key === "review_and_confirm";
-          if (failed) {
+          if (cancelled) {
+            updateLocalUploadQueue((items) =>
+              items.map((candidate) =>
+                candidate.id === item.id
+                  ? {
+                      ...candidate,
+                      file: null,
+                      pollAttempts,
+                      processingStage: status.stage,
+                      status: "cancelled",
+                      error: null,
+                    }
+                  : candidate,
+              ),
+            );
+          } else if (failed) {
             updateLocalUploadQueue((items) =>
               items.map((candidate) =>
                 candidate.id === item.id

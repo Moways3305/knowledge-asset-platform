@@ -154,7 +154,7 @@ class PersonalKnowledgeSubmission(Base):
     )
     # submit_to_project / internal_sharing_candidate / client_validation_candidate
     submission_type: Mapped[str] = mapped_column(String(40), nullable=False)
-    # pending / approved / rejected
+    # pending / approved / rejected / cancelled
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     review_task_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("review_tasks.id"), nullable=True

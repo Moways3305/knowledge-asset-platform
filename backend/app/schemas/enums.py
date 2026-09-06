@@ -281,6 +281,7 @@ class ReviewTaskStatus(str, Enum):
     approval_failed = "approval_failed"
     approved = "approved"
     rejected = "rejected"
+    cancelled = "cancelled"
 
 
 class CompanyAssetDecision(str, Enum):
@@ -357,6 +358,9 @@ class AuditAction(str, Enum):
     ingest_timeout_recovery_confirmed = "ingest.processing_timeout_recovery_confirmed"
     ingest_timeout_recovery_enqueued = "ingest.processing_timeout_recovery_enqueued"
     ingest_timeout_recovery_enqueue_failed = "ingest.processing_timeout_recovery_enqueue_failed"
+    ingest_cancellation_requested = "ingest.cancellation_requested"
+    ingest_cancellation_cleaned = "ingest.cancellation_cleaned"
+    upload_session_cancelled = "upload_session.cancelled"
     # 审核
     review_evidence_bound = "review.evidence_bound"
     review_created = "review.created"
@@ -364,6 +368,7 @@ class AuditAction(str, Enum):
     review_approval_failed = "review.approval_failed"
     review_approved = "review.approved"
     review_rejected = "review.rejected"
+    review_cancelled = "review.cancelled"
     review_bulk_decided = "review.bulk_decided"
     review_company_confirmation_recorded = "review.company_confirmation_recorded"
     review_company_confirmation_withdrawn = "review.company_confirmation_withdrawn"
@@ -642,4 +647,5 @@ class IngestStatus(str, Enum):
     rejected = "rejected"
     completed = "completed"
     duplicate_skipped = "duplicate_skipped"
+    cancelled = "cancelled"
     failed = "failed"

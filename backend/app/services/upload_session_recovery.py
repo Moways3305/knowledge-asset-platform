@@ -8,16 +8,19 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.db.utils import utc_now
 from app.models.ingest import (
     IngestTask,
     UploadSession,
     UploadSessionItem,
 )
-from app.schemas.enums import AuditAction, AuditLogType, IngestStatus
+from app.models.review import ReviewTask
+from app.schemas.enums import AuditAction, AuditLogType, IngestStatus, ReviewTaskStatus
 from app.schemas.ingest import UploadSessionListResponse, UploadSessionResponse
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
 from app.services.desensitization import DesensitizationEngine
+from app.services.jobs.ingest_cancellation import mark_stopped_task_cancelled
 from app.services.llm_client import LLMClient, NullLLMClient
 from app.services.storage import LocalFileStorage
 from app.services.upload_session_commands import RetryClaimConflict, claim_failed_item_retry
@@ -42,6 +45,8 @@ async def _reconcile_and_promote(
     trace_id: str,
 ) -> None:
     value = await _load_owned_session(session, caller, session_id, lock=True)
+    if value.status == "cancelled":
+        return
     task_ids = [item.ingest_task_id for item in value.items if item.ingest_task_id]
     await expire_stale_tasks(
         session,
@@ -181,7 +186,7 @@ async def get_session(
     if not caller.is_business_user:
         raise _denied(403, "admin_business_permission_denied", "仅业务用户可查看上传会话")
     value = await _load_owned_session(session, caller, session_id)
-    if promote and value.upload_completed:
+    if promote and value.upload_completed and value.status != "cancelled":
         await _reconcile_and_promote(
             session,
             session_id,
@@ -214,7 +219,10 @@ async def list_sessions(
         (
             await session.execute(
                 select(UploadSession.id)
-                .where(UploadSession.created_by == caller.user_id)
+                .where(
+                    UploadSession.created_by == caller.user_id,
+                    UploadSession.status != "cancelled",
+                )
                 .order_by(UploadSession.created_at.desc())
                 .limit(10)
             )
@@ -247,6 +255,8 @@ async def retry_item(
     trace_id: str,
 ) -> UploadSessionResponse:
     value = await _load_owned_session(session, caller, session_id)
+    if value.status == "cancelled":
+        raise _denied(409, "upload_session_cancelled", "上传会话已取消")
     item = next((candidate for candidate in value.items if candidate.id == item_id), None)
     if item is None:
         raise _denied(404, "upload_item_not_found", "上传文件不存在")
@@ -466,14 +476,12 @@ async def cancel_session(
     session_id: uuid.UUID,
     *,
     storage: LocalFileStorage,
+    trace_id: str | None = None,
 ) -> UploadSessionResponse:
-    """Cancel unfinished work in a caller-owned upload session.
-
-    The task rows are locked before removal.  This lets an already-running
-    worker finish first, while a later broker delivery safely sees no task.
-    Confirmed assets are deliberately outside the cancellation scope.
-    """
+    """Durably cancel all unconfirmed work without racing active workers."""
     value = await _load_owned_session(session, caller, session_id, lock=True)
+    if value.status == "cancelled":
+        return await _response(session, caller, value, storage=storage)
     task_ids = [item.ingest_task_id for item in value.items if item.ingest_task_id]
     tasks = (
         {
@@ -487,32 +495,100 @@ async def cancel_session(
         if task_ids
         else {}
     )
+    cancellable_task_ids = {task.id for task in tasks.values() if task.result_asset_id is None}
+    linked_reviews = (
+        (
+            await session.execute(
+                select(ReviewTask)
+                .where(ReviewTask.source_ingest_task_id.in_(cancellable_task_ids))
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .all()
+        if cancellable_task_ids
+        else []
+    )
+    for review in linked_reviews:
+        if review.status not in {
+            ReviewTaskStatus.approved.value,
+            ReviewTaskStatus.rejected.value,
+            ReviewTaskStatus.cancelled.value,
+        }:
+            before_status = review.status
+            review.status = ReviewTaskStatus.cancelled.value
+            review.review_comment = "上传人已取消提交"
+            review.reviewed_at = utc_now()
+            await audit_service.record_event(
+                session,
+                caller=caller,
+                log_type=AuditLogType.operation,
+                action=AuditAction.review_cancelled.value,
+                trace_id=trace_id,
+                target_type="review_task",
+                target_id=review.id,
+                before={"status": before_status},
+                after={"status": review.status},
+                project_id=review.target_project_id,
+            )
+    cancelled_items = 0
     for item in value.items:
         task = tasks.get(item.ingest_task_id) if item.ingest_task_id else None
-        if (
-            task is not None
-            and task.result_asset_id is None
-            and task.status
-            in {
-                IngestStatus.pending.value,
-                IngestStatus.processing.value,
-            }
-        ):
-            storage.delete(task.source_file_ref)
-            await session.delete(task)
-            item.ingest_task_id = None
+        if item.status == "cancelled":
+            continue
+        if task is not None and task.result_asset_id is None:
+            before_status = task.status
+            task.cancel_requested = True
+            if task.status != IngestStatus.processing.value:
+                await mark_stopped_task_cancelled(session, task)
             item.status = "cancelled"
             item.safe_error_code = None
             item.safe_error_message = None
-        elif task is None and item.status in {"waiting_upload", "waiting"}:
+            cancelled_items += 1
+            await audit_service.record_event(
+                session,
+                caller=caller,
+                log_type=AuditLogType.operation,
+                action=AuditAction.ingest_cancellation_requested.value,
+                trace_id=trace_id,
+                target_type="ingest_task",
+                target_id=task.id,
+                before={"status": before_status},
+                after={"status": task.status, "cancel_requested": True},
+                project_id=task.target_project_id,
+            )
+        elif task is not None:
+            # Confirmation and cancellation serialize on the task row lock. Once
+            # an asset exists, that result won the race and must remain completed.
+            item.status = "completed"
+            item.safe_error_code = None
+            item.safe_error_message = None
+        elif task is None and item.status not in {"completed", "cancelled"}:
             item.status = "cancelled"
             item.safe_error_code = None
             item.safe_error_message = None
+            cancelled_items += 1
+    value.upload_completed = True
     value.status = (
-        "completed"
-        if all(candidate.status in _TERMINAL_ITEM_STATES for candidate in value.items)
-        else "active"
+        "cancelled"
+        if value.items and all(item.status == "cancelled" for item in value.items)
+        else "completed"
     )
+    if cancelled_items:
+        await audit_service.record_event(
+            session,
+            caller=caller,
+            log_type=AuditLogType.operation,
+            action=AuditAction.upload_session_cancelled.value,
+            trace_id=trace_id,
+            target_type="upload_session",
+            target_id=value.id,
+            after={
+                "status": value.status,
+                "cancelled_items": cancelled_items,
+                "completed_items": sum(item.status == "completed" for item in value.items),
+            },
+        )
     await session.commit()
     return await _response(
         session,

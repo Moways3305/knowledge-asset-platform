@@ -98,6 +98,31 @@ async def test_exact_content_requires_explicit_decision_and_skip_is_idempotent(c
     assert by_id[second]["duplicate_result"] == "skipped"
 
 
+async def test_my_uploads_projects_cancelled_as_terminal_and_filterable(client, db_session):
+    task = IngestTask(
+        source=IngestSource.path_b_upload.value,
+        source_file_ref="internal://cancelled/history.txt",
+        source_file_name="cancelled-history.txt",
+        source_file_size=10,
+        status=IngestStatus.cancelled.value,
+        processing_stage="cancelled",
+        cancel_requested=True,
+        created_by=USER_CONSULTANT,
+    )
+    db_session.add(task)
+    await db_session.commit()
+
+    response = await client.get(
+        "/api/v1/ingest/my-uploads?final_status=cancelled", headers=_headers()
+    )
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+    assert response.json()["items"][0]["task_id"] == str(task.id)
+    assert response.json()["items"][0]["processing_status"] == "cancelled"
+    assert response.json()["items"][0]["final_status"] == "cancelled"
+
+
 async def test_same_batch_keep_switch_is_atomic_and_survives_refresh(client, db_session):
     content = b"same batch exact bytes"
     response = await client.post(

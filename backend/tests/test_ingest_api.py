@@ -14,7 +14,7 @@ from app.models.audit import AuditEvent
 from app.models.ingest import IngestTask, IngestTaskAiResult, IngestTaskDerivative
 from app.models.knowledge import KnowledgeAssetVersion
 from app.models.weknora import WeknoraKbMapping
-from app.schemas.enums import AuditAction
+from app.schemas.enums import AuditAction, IngestStatus
 from app.seed.dev_seed import (
     PROJECT_ALPHA,
     PROJECT_BETA,
@@ -872,6 +872,31 @@ async def test_legacy_title_projection_is_clean_consistent_and_read_only(client,
     assert pending_item["naming_parsed_fields"]["normalized_title"] == compatibility_title
     await db_session.refresh(ai)
     assert ai.suggested_title == legacy_title
+
+
+async def test_pending_list_excludes_cancel_requested_and_cancelled_tasks(client, db_session):
+    tasks = [
+        IngestTask(
+            source="path_b_upload",
+            source_file_ref=f"server-only/{status}.txt",
+            source_file_name=f"{status}.txt",
+            status=status,
+            cancel_requested=cancel_requested,
+            created_by=USER_CONSULTANT,
+        )
+        for status, cancel_requested in [
+            (IngestStatus.processing.value, True),
+            (IngestStatus.cancelled.value, True),
+        ]
+    ]
+    db_session.add_all(tasks)
+    await db_session.commit()
+
+    response = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
+
+    assert response.status_code == 200
+    returned_ids = {item["id"] for item in response.json()["items"]}
+    assert returned_ids.isdisjoint({str(task.id) for task in tasks})
 
 
 async def test_upload_markdown_enters_confirmation_with_extracted_text(client):

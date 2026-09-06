@@ -160,14 +160,11 @@ export function SafeNavigationProvider({ children }: { children: ReactNode }) {
         if (!(await stillExists(candidate))) continue;
         historyRef.current = candidates;
         writeHistory(candidates);
-        // Prefer the browser history entry when this visit happened inside KAP:
-        // it restores native page state such as scroll position.  The safe stack
-        // remains the source of truth for a direct link or a stale history item.
-        if (typeof window !== "undefined" && Number(window.history.state?.idx) > 0) {
-          navigate(-1);
-        } else {
-          navigate(`${candidate.pathname}${candidate.search}`, { replace: true });
-        }
+        // Browsers do not expose the pathname of the previous native history
+        // entry. An index alone cannot prove that it still matches this validated
+        // candidate after replaceState or a permission change, so never follow an
+        // opaque native entry here.
+        navigate(`${candidate.pathname}${candidate.search}`, { replace: true });
         return;
       }
       historyRef.current = [];

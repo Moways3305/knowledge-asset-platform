@@ -11,6 +11,7 @@ const statusLabels: Record<MyUploadItemDTO["final_status"], string> = {
   completed: "已完成",
   failed: "处理失败",
   duplicate_skipped: "跳过重复",
+  cancelled: "已取消",
 };
 
 const processingLabels: Record<string, string> = {
@@ -20,6 +21,7 @@ const processingLabels: Record<string, string> = {
   completed: "处理完成",
   failed: "处理失败",
   duplicate_skipped: "已跳过重复",
+  cancelled: "已取消",
 };
 
 export default function MyUploadsPanel({ onClose }: { onClose: () => void }) {
@@ -89,6 +91,7 @@ export default function MyUploadsPanel({ onClose }: { onClose: () => void }) {
             <option value="completed">已完成</option>
             <option value="failed">失败</option>
             <option value="duplicate_skipped">跳过重复</option>
+            <option value="cancelled">已取消</option>
           </select>
         </label>
         <label>

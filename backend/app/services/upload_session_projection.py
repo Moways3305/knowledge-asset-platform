@@ -84,7 +84,13 @@ async def build_response(
     ]
     return UploadSessionResponse(
         id=value.id,
-        status="completed" if value.upload_completed and not active_batches else "active",
+        status=(
+            "cancelled"
+            if value.status == "cancelled"
+            else "completed"
+            if value.upload_completed and not active_batches
+            else "active"
+        ),
         total_files=value.total_files,
         completed_files=sum(state in COMPLETED_ITEM_STATES for state in states),
         processing_files=states.count("processing") + states.count("uploading"),
