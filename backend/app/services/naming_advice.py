@@ -30,13 +30,13 @@ class NamingAdvice(TypedDict):
 
 
 class NamingPreviewAdvice(TypedDict):
-    """Non-null naming defaults required by the confirmation-preview DTO."""
+    """Naming preview advice; unavailable confidentiality must remain null."""
 
     suggested_version: str
     version_source: VersionSource
     version_confidence: Confidence
     version_reason: str
-    suggested_confidentiality_level: ConfidentialityLevel
+    suggested_confidentiality_level: ConfidentialityLevel | None
     confidentiality_source: ConfidentialitySource
     confidentiality_confidence: Confidence
     confidentiality_reason: str
@@ -108,22 +108,16 @@ def safe_naming_advice(ai: IngestTaskAiResult | None) -> NamingAdvice:
 
 
 def naming_preview_advice(ai: IngestTaskAiResult | None) -> NamingPreviewAdvice:
-    """Provide explicit defaults for naming-confirmation previews only.
-
-    Ingest-result endpoints must continue to expose unavailable AI advice as null.
-    Naming previews instead require a confirmable baseline, so their DTO deliberately
-    carries non-null defaults.
-    """
+    """Keep the version baseline, but never invent a confidentiality assessment."""
     advice = safe_naming_advice(ai)
     return {
         "suggested_version": advice["suggested_version"] or "V1",
         "version_source": advice["version_source"] or "default_needs_confirmation",
         "version_confidence": advice["version_confidence"] or "low",
         "version_reason": advice["version_reason"] or "未能可靠判断版本，已使用规则默认值",
-        "suggested_confidentiality_level": advice["suggested_confidentiality_level"]
-        or ConfidentialityLevel.L2,
+        "suggested_confidentiality_level": advice["suggested_confidentiality_level"],
         "confidentiality_source": advice["confidentiality_source"] or "default_needs_confirmation",
         "confidentiality_confidence": advice["confidentiality_confidence"] or "low",
         "confidentiality_reason": advice["confidentiality_reason"]
-        or "AI 未能可靠判断内容密级，已使用规则默认值",
+        or "AI 未能可靠判断内容密级，请人工选择",
     }

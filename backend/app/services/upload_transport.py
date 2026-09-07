@@ -310,6 +310,9 @@ async def replace_transport_item_bytes(
         raise _denied(413, "file_too_large", "文件超过 25 MiB")
     if candidate.storage_ref is None or candidate.content_hash is None:
         raise _denied(422, "upload_bytes_unavailable", "文件字节未安全保存")
+    # A newly selected file owns its metadata. Missing metadata must clear stale
+    # dates rather than borrow the old manifest's timestamp.
+    item.suggested_formed_on = candidate.suggested_formed_on
     task = await create_uploaded_ingest_task(
         session,
         storage_ref=candidate.storage_ref,

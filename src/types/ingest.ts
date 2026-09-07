@@ -165,7 +165,7 @@ export interface NamingFields {
   subject_or_client: string;
   date: string;
   version: string;
-  confidentiality_level: string;
+  confidentiality_level: string | null;
   ai_access_level: string;
   normalized_title: string;
   // AI 推断字段（含安全默认）；missing 子集为"待人工校正"。
@@ -187,6 +187,7 @@ export interface NamingFields {
 }
 
 export interface IngestAiResultDTO {
+  suggested_formed_on?: string | null;
   ingest_task_id: string;
   status: string;
   suggested_title: string | null;
@@ -319,7 +320,7 @@ export interface PendingIngestItemDTO {
   source_file_size?: number | null;
   target_scope: string | null;
   target_project_id: string | null;
-  // 文件形成日期建议（YYYY-MM-DD；客户端文件修改时间 / 文件名兜底），人工可改可清空。
+  // 原文件最后修改日期（YYYY-MM-DD）；无有效客户端日期时留空，不从文件名推断，人工可改可清空。
   suggested_formed_on?: string | null;
   can_batch_confirm: boolean;
   can_batch_reject: boolean;

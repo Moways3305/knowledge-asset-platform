@@ -336,3 +336,39 @@ def test_parser_wall_clock_timeout_is_safe(monkeypatch):
     result = extract_text(b"content", file_name="slow.txt", mime="text/plain")
     assert result.status == "failed"
     assert result.error_type == "extraction_timeout"
+
+
+def test_killed_parser_is_not_reported_as_corrupt_file(monkeypatch):
+    from unittest.mock import Mock
+
+    child = Mock(returncode=-9)
+    child.communicate.return_value = (b"", None)
+    monkeypatch.setattr("app.services.extraction.subprocess.Popen", lambda *a, **kw: child)
+    result = extract_text(b"valid source", file_name="company.pptx", mime=None)
+    assert result.error_type == "extraction_process_terminated"
+    assert "内存" in result.error_message
+    assert "损坏" not in result.error_message
+
+
+def test_worker_memory_error_is_distinct(monkeypatch):
+    import pickle
+    from types import SimpleNamespace
+
+    from app.services import extraction_worker
+
+    def memory_failure(*args, **kwargs):
+        raise MemoryError()
+
+    stdout = io.BytesIO()
+    monkeypatch.setattr(extraction_worker, "apply_process_limits", lambda: None)
+    monkeypatch.setattr(extraction_worker, "_extract_unbounded", memory_failure)
+    monkeypatch.setattr(
+        extraction_worker.sys,
+        "stdin",
+        SimpleNamespace(buffer=io.BytesIO(pickle.dumps((b"source", "company.pptx", None)))),
+    )
+    monkeypatch.setattr(extraction_worker.sys, "stdout", SimpleNamespace(buffer=stdout))
+    assert extraction_worker.main() == 0
+    kind, payload = pickle.loads(stdout.getvalue())
+    assert kind == "controlled"
+    assert payload[0] == "extraction_memory_limit"

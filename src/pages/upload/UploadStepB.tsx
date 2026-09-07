@@ -40,6 +40,10 @@ function queueFailureReason(
 ): string {
   const code = errorCode?.trim().toLowerCase();
   if (code) {
+    if (code === "extraction_process_terminated")
+      return "文件解析进程被终止，原件已保留；请管理员检查内存与进程资源后重试";
+    if (code === "extraction_memory_limit")
+      return "文件解析达到内存限制，原件已保留；请管理员检查资源，或拆分文件后重试";
     if (code === "extraction_password_protected") return "文件受密码保护，请解锁后重新上传";
     if (
       code === "extraction_format_mismatch" ||

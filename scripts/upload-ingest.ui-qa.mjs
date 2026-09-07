@@ -17,6 +17,7 @@ const assetId = "asset-result-77";
 const uploadSessionId = "upload-session-secret-77";
 const longPendingFileName =
   "2026年度华东区域重点客户战略经营计划执行复盘与下一阶段增长行动方案最终评审修订版_v12.pptx";
+const longPendingStem = longPendingFileName.slice(0, longPendingFileName.lastIndexOf("."));
 const longPendingSubject =
   "华东区域重点客户战略经营计划执行复盘与下一阶段增长行动方案及关键管理举措";
 const scenarios = [
@@ -88,6 +89,9 @@ const aiResult = (status) => ({
   desensitization_counts: {},
   desensitization_message: "未发现需要处理的敏感信息",
   suggested_confidentiality_level: "L2",
+  confidentiality_source: "ai_content",
+  confidentiality_confidence: "high",
+  suggested_formed_on: "2021-03-07",
   suggested_ai_access_level: "A2",
   suggested_phase_key: "年度复盘",
   confidence: status === "failed" ? null : 0.91,
@@ -115,6 +119,10 @@ const pendingTask = {
   error_type: null,
   error_message: null,
   suggested_title: "客户访谈关键洞察",
+  suggested_confidentiality_level: "L2",
+  confidentiality_source: "ai_content",
+  confidentiality_confidence: "high",
+  suggested_formed_on: "2021-03-07",
   suggested_one_liner: "归纳客户访谈中的关键反馈。",
   naming_parsed_fields: null,
   confidence: 0.88,
@@ -431,7 +439,7 @@ try {
                 return {
                   task_id: item.task_id,
                   submittable: true,
-                  canonical_name: `【公司资产-方法论】${longPendingSubject}_20210307_V1_L3.md`,
+                  canonical_name: `【公司资产-方法论】${longPendingStem}_20210307_V1_L2.md`,
                   rule_version: 5,
                   fields: {
                     ...item.naming,
@@ -800,7 +808,7 @@ try {
         await page.getByRole("button", { name: "下一步：核对命名" }).click();
         await page.getByLabel(`${longPendingFileName} 适用对象`).fill("公司咨询项目团队");
         await page
-          .getByText(`【公司资产-方法论】${longPendingSubject}_20210307_V1_L3.md`)
+          .getByText(`【公司资产-方法论】${longPendingStem}_20210307_V1_L2.md`)
           .waitFor();
         companyDirectoryScreenshot = path.join(outDir, `${scenario}-preview-${viewport.name}.png`);
         await page.getByRole("dialog").screenshot({
@@ -863,7 +871,7 @@ try {
             const controls = [
               row.querySelector('input[aria-label$="主题"]'),
               row.querySelector('select[aria-label$="正式目录"]'),
-              row.querySelector('input[aria-label$="文件形成日期"]'),
+              row.querySelector('input[aria-label$="文件最后修改日期"]'),
               row.querySelector('input[aria-label$="版本"]'),
               row.querySelector('select[aria-label$="密级"]'),
             ].filter(Boolean);
@@ -1024,11 +1032,12 @@ try {
         bulkConfirmPayload.items?.length === 1 &&
         bulkConfirmPayload.items[0]?.confirmation?.naming?.directory_key ===
           "company.methodology" &&
-        bulkConfirmPayload.items[0]?.confirmation?.naming?.subject === longPendingSubject &&
+        bulkConfirmPayload.items[0]?.confirmation?.naming?.subject === longPendingStem &&
         bulkConfirmPayload.items[0]?.confirmation?.naming?.formed_on === "2021-03-07" &&
         bulkConfirmPayload.items[0]?.confirmation?.naming?.version === "V1" &&
         bulkConfirmPayload.items[0]?.confirmation?.naming?.applicable_to === "公司咨询项目团队" &&
-        bulkConfirmPayload.items[0]?.confirmation?.confidentiality_level === "L3" &&
+        // Selecting a directory must not overwrite an existing reliable AI/manual level.
+        bulkConfirmPayload.items[0]?.confirmation?.confidentiality_level === "L2" &&
         !("category_id" in (bulkConfirmPayload.items[0]?.confirmation?.naming ?? {})) &&
         !("asset_type" in (bulkConfirmPayload.items[0]?.confirmation ?? {})),
       );

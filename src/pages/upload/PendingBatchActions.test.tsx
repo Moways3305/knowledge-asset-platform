@@ -46,6 +46,7 @@ function task(id: string, overrides: Partial<PendingIngestItemDTO> = {}): Pendin
     error_type: null,
     error_message: null,
     suggested_title: `${id}主题`,
+    suggested_formed_on: "2026-08-03",
     suggested_one_liner: null,
     suggested_version: "V1",
     version_source: "ai_content",
@@ -254,7 +255,7 @@ describe("PendingBatchActions governed review", () => {
 
     expect(await screen.findByText(/本批默认进入“01 个人学习笔记”/)).toBeInTheDocument();
     expect(screen.queryByText("目录类别")).not.toBeInTheDocument();
-    expect(screen.queryByText("文件形成日期")).not.toBeInTheDocument();
+    expect(screen.queryByText("文件最后修改日期")).not.toBeInTheDocument();
     expect(screen.queryByText("规范名预览")).not.toBeInTheDocument();
     expect(namingApi.classifyBatchNamingCategories).not.toHaveBeenCalled();
     expect(namingApi.previewBatchIngestNaming).not.toHaveBeenCalled();
@@ -376,8 +377,8 @@ describe("PendingBatchActions governed review", () => {
     });
     expect(screen.getByLabelText("bulk-one.pdf 正式目录")).toHaveValue("project.deliverables");
     expect(screen.getByLabelText("bulk-two.pdf 正式目录")).toHaveValue("project.key_materials");
-    expect(screen.getByLabelText("bulk-one.pdf 密级")).toHaveValue("L4");
-    expect(screen.getByLabelText("bulk-two.pdf 密级")).toHaveValue("L5");
+    expect(screen.getByLabelText("bulk-one.pdf 密级")).toHaveValue("L3");
+    expect(screen.getByLabelText("bulk-two.pdf 密级")).toHaveValue("L3");
   });
 
   it("loads AI extraction only on demand and retains the reviewed draft for final confirmation", async () => {
@@ -639,9 +640,9 @@ describe("PendingBatchActions governed review", () => {
     const version = screen.getByLabelText("legacy-advice.pdf 版本");
     const level = screen.getByLabelText("legacy-advice.pdf 密级");
     expect(version).toHaveValue("V1");
-    expect(level).toHaveValue("L2");
+    expect(level).toHaveValue("");
     expect(screen.getByText("规则默认，需核对")).toBeInTheDocument();
-    expect(screen.getByText("AI 未确定，规则默认，需核对")).toBeInTheDocument();
+    expect(screen.getByText("AI 未可靠判断，请人工选择")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "AI 已确定（0）" })).toBeInTheDocument();
 
     fireEvent.change(version, { target: { value: "V2.03" } });
@@ -661,7 +662,7 @@ describe("PendingBatchActions governed review", () => {
     expect(
       await screen.findByText("规范名预览暂时失败，请重试；已保留上一次有效预览"),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText("empty-preview.pdf 主题")).toHaveValue("empty-preview主题");
+    expect(screen.getByLabelText("empty-preview.pdf 主题")).toHaveValue("empty-preview");
   });
 
   it("cancels a pending delayed preview when the review dialog closes", async () => {
@@ -817,7 +818,7 @@ describe("PendingBatchActions governed review", () => {
       fireEvent.click(within(topDialog()).getByRole("button", { name: "确认入库" }));
 
       const assetLink = await screen.findByRole("link", {
-        name: "查看知识资产卡片：session-0主题",
+        name: "查看知识资产卡片：session-0",
       });
       expect(screen.getByRole("dialog", { name: "逐条核对 8 项规范命名" })).toBeInTheDocument();
       expect(screen.getAllByRole("button", { name: /确认入库 session-/ })).toHaveLength(7);

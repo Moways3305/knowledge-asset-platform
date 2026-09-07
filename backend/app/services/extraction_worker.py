@@ -17,6 +17,14 @@ def main() -> int:
         payload: tuple[str, object] = ("result", result)
     except _ControlledExtractionError as exc:
         payload = ("controlled", (exc.code, exc.message))
+    except MemoryError:
+        payload = (
+            "controlled",
+            (
+                "extraction_memory_limit",
+                "文件解析达到内存限制，原件已保留；请管理员检查资源，或拆分文件后重试。",
+            ),
+        )
     except Exception:
         payload = ("failed", None)
     sys.stdout.buffer.write(pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL))

@@ -82,7 +82,7 @@ export function useIngestConfirmation({
   const [editSummary, setEditSummary] = useState("");
   const [editKeyPoints, setEditKeyPoints] = useState("");
   const [editTags, setEditTags] = useState("");
-  const [editConfidentiality, setEditConfidentiality] = useState("L2");
+  const [editConfidentiality, setEditConfidentiality] = useState("");
   const [targetLibrary, setTargetLibrary] = useState<TargetLibrary>("");
   const [targetLocked, setTargetLocked] = useState(false);
   const [targetProjectId, setTargetProjectId] = useState("");
@@ -180,7 +180,7 @@ export function useIngestConfirmation({
       (ai.confidentiality_confidence === "high" || ai.confidentiality_confidence === "medium") &&
       /^L[1-5]$/.test(ai.suggested_confidentiality_level ?? "");
     setEditConfidentiality(
-      reliableAiConfidentialityRef.current ? ai.suggested_confidentiality_level! : "L2",
+      reliableAiConfidentialityRef.current ? ai.suggested_confidentiality_level! : "",
     );
     setSuggestionGeneration({
       status: ai.suggestion_generation_status,
@@ -188,10 +188,8 @@ export function useIngestConfirmation({
     });
     setGenerationErrorCategory(ai.generation_error_category ?? null);
     setNaming(ai.naming_parsed_fields ?? null);
-    const aiDate = ai.naming_parsed_fields?.date ?? "";
-    if (/^\d{8}$/.test(aiDate)) {
-      setNamingFormedOn(`${aiDate.slice(0, 4)}-${aiDate.slice(4, 6)}-${aiDate.slice(6)}`);
-    }
+    const modifiedDate = ai.suggested_formed_on ?? "";
+    setNamingFormedOn(/^\d{4}-\d{2}-\d{2}$/.test(modifiedDate) ? modifiedDate : "");
     // Version provenance is persisted and fail-closed by the backend. The
     // legacy parsed naming payload is compatibility metadata only and must
     // never override the authoritative suggestion projection.
@@ -227,14 +225,6 @@ export function useIngestConfirmation({
           const selectedKey = directories.some((directory) => directory.directory_key === current)
             ? current
             : (directories.find((directory) => directory.enabled)?.directory_key ?? "");
-          const selectedDirectory = directories.find(
-            (directory) => directory.directory_key === selectedKey,
-          );
-          if (!reliableAiConfidentialityRef.current) {
-            setEditConfidentiality(
-              selectedDirectory?.default_confidentiality || value.default_confidentiality || "L2",
-            );
-          }
           return selectedKey;
         });
       })
@@ -249,24 +239,20 @@ export function useIngestConfirmation({
     };
   }, [targetLibrary, targetProjectId, taskId]);
 
-  const setDirectoryKey = useCallback(
-    (nextDirectoryKey: string) => {
-      setDirectoryKeyState(nextDirectoryKey);
-      const directory = namingOptions?.directories.find(
-        (item) => item.directory_key === nextDirectoryKey,
-      );
-      setEditConfidentiality(
-        directory?.default_confidentiality || namingOptions?.default_confidentiality || "L2",
-      );
-    },
-    [namingOptions],
-  );
+  const setDirectoryKey = useCallback((nextDirectoryKey: string) => {
+    setDirectoryKeyState(nextDirectoryKey);
+  }, []);
 
   useEffect(() => {
     const runId = ++namingPreviewRunRef.current;
     setNamingPreview(null);
     if (!taskId) {
       setNamingPreviewBusy(false);
+      return;
+    }
+    if (!/^L[1-5]$/.test(editConfidentiality)) {
+      setNamingPreviewBusy(false);
+      setNamingPreviewError("AI 未能可靠判断密级，请人工选择");
       return;
     }
     if (targetLibrary === "personal") {
@@ -324,7 +310,7 @@ export function useIngestConfirmation({
       (targetLibrary === "company" && !namingApplicableTo.trim())
     ) {
       setNamingPreviewBusy(false);
-      setNamingPreviewError("请完整填写正式目录、主题、形成日期和规范版本");
+      setNamingPreviewError("请完整填写正式目录、主题、文件最后修改日期和规范版本");
       return;
     }
     setNamingPreviewBusy(true);
@@ -582,6 +568,10 @@ export function useIngestConfirmation({
       setApiError("请填写标题或主题");
       return;
     }
+    if (!/^L[1-5]$/.test(editConfidentiality)) {
+      setApiError("请选择文件密级");
+      return;
+    }
     const selectedTargetLibrary: Exclude<TargetLibrary, ""> = targetLibrary;
     if (selectedTargetLibrary === "project" && !targetProjectId) {
       setApiError("请选择目标项目");
@@ -688,7 +678,7 @@ export function useIngestConfirmation({
     setGenerationErrorCategory(null);
     setRegenerating(false);
     setRegenerationError(null);
-    setEditConfidentiality("L2");
+    setEditConfidentiality("");
     reliableAiConfidentialityRef.current = false;
     setTaskId(null);
     setResultAssetId(null);

@@ -412,6 +412,16 @@ def extract_text(content: bytes, *, file_name: str | None, mime: str | None) -> 
                 "文件解析超过安全时限，未处理任何密码；请精简或重新导出后重试。",
                 0,
             )
+        if child.returncode:
+            # A killed parser is not evidence of a damaged source document.
+            _logger.warning("extraction_process_terminated returncode=%s", child.returncode)
+            return ExtractionResult(
+                "",
+                "failed",
+                "extraction_process_terminated",
+                "文件解析进程被终止，原件已保留；请管理员检查内存与进程资源后重试。",
+                0,
+            )
         try:
             kind, payload = pickle.loads(output)
         except (EOFError, pickle.UnpicklingError, ValueError, TypeError):

@@ -341,6 +341,31 @@ async def test_processing_failure_can_be_retried_without_leaking_storage(client,
     assert "SECRET-LIKE" not in retried.text
 
 
+@pytest.mark.parametrize("code", ["extraction_process_terminated", "extraction_memory_limit"])
+async def test_parser_resource_failure_is_safe_and_retryable(client, db_session, monkeypatch, code):
+    task = await _task(
+        db_session, status="failed", processing_stage="text_extraction", error_type=code
+    )
+    task.source_file_ref = client._kap_storage.save(b"recoverable text", original_name="retry.txt")
+    await db_session.commit()
+    calls = []
+
+    async def fake_enqueue(*args, **kwargs):
+        calls.append(args[1])
+        return "processing"
+
+    monkeypatch.setattr("app.services.ingest_status.enqueue_ingest_processing", fake_enqueue)
+    before = await client.get(_status_url(task.id), headers=_headers(USER_CONSULTANT))
+    assert before.json()["error"]["code"] == code
+    assert before.json()["retryable"] is True
+    assert before.json()["next_action"]["key"] == "retry_processing"
+    assert "SECRET-LIKE" not in before.text
+    retried = await client.post(_retry_url(task.id), headers=_headers(USER_CONSULTANT))
+    assert retried.status_code == 200, retried.text
+    assert retried.json()["status"] == "processing"
+    assert calls == [task.id]
+
+
 async def test_processing_timeout_uses_physical_source_preflight(client, db_session, monkeypatch):
     available_ref = client._kap_storage.save(b"recoverable", original_name="timeout.txt")
     available = IngestTask(

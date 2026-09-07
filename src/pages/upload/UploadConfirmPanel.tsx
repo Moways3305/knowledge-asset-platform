@@ -377,6 +377,7 @@ export default function UploadConfirmPanel({
                   value={editConfidentiality}
                   onChange={(event) => setEditConfidentiality(event.target.value)}
                 >
+                  <option value="">请选择密级（需人工确认）</option>
                   {confidentialityOptions.map((option) => (
                     <option key={option}>{option}</option>
                   ))}
@@ -411,7 +412,7 @@ export default function UploadConfirmPanel({
             {(targetLibrary === "project" || targetLibrary === "company") && namingRequired && (
               <div className="upload77-canonical-form" aria-label="规范命名字段">
                 <label className="upload77-field" htmlFor="upload77-naming-date">
-                  <span>文件形成日期</span>
+                  <span>文件最后修改日期</span>
                   <input
                     id="upload77-naming-date"
                     type="date"

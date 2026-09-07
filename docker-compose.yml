@@ -159,7 +159,11 @@ services:
   worker:
     build: ./backend
     restart: unless-stopped
-    command: celery -A app.worker.celery_app.celery_app worker --loglevel=INFO --queues=default --hostname=default@%h --prefetch-multiplier=1
+    command: >-
+      celery -A app.worker.celery_app.celery_app worker --loglevel=INFO
+      --queues=default --hostname=default@%h --prefetch-multiplier=1
+      --concurrency=${INGEST_WORKER_CONCURRENCY:-1}
+      --max-tasks-per-child=20 --max-memory-per-child=524288
     env_file:
       - ./backend/.env
     environment: *backend-env
@@ -186,7 +190,7 @@ services:
       resources:
         limits:
           cpus: "1.0"
-          memory: 1G
+          memory: ${INGEST_WORKER_MEMORY_LIMIT:-4G}
 
   # OCR 专用 prefork worker。2GiB 容器内默认只跑 1 个子进程、只预取 1 个任务；
   # 每 4 份文件或子进程 RSS 超过约 700MiB 后回收，抑制 PyMuPDF/Tesseract 累计驻留。

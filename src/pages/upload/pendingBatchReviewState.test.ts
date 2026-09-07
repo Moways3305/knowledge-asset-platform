@@ -35,11 +35,23 @@ const task = {
 } as unknown as PendingIngestItemDTO;
 
 describe("pending batch review state", () => {
+  it("does not replace missing file modification date or confidentiality with AI/ directory defaults", () => {
+    const legacy = {
+      ...task,
+      suggested_formed_on: null,
+      confidentiality_source: null,
+      naming_parsed_fields: { ...task.naming_parsed_fields!, date: "20260803" },
+    };
+    const row = initialRows([legacy], options)[task.id];
+    expect(row.formed_on).toBe("");
+    expect(row.confidentiality_level).toBe("");
+    expect(rowMissing(row, false)?.message).toContain("密级");
+  });
   it("normalizes a suggested version and initializes only governed fields", () => {
     expect(suggestedVersion(task)).toBe("V2");
     const rows = initialRows(task ? [task] : [], options);
     expect(rows[task.id]).toMatchObject({
-      subject: "安全主题",
+      subject: "source",
       formed_on: "2026-08-01",
       version: "V2",
       directory_key: "project.deliverables",

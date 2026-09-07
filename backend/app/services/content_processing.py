@@ -68,7 +68,6 @@ _DEFAULT_PRIMARY = "待分类"
 _DEFAULT_SECONDARY = "待分类"
 _DEFAULT_SUBJECT = "通用"
 _DEFAULT_VERSION = "V1"
-_DEFAULT_LEVEL = "L2"
 _DEFAULT_AI = "A2"
 
 # 命名组件字段（用于 inferred/missing 标注与前端展示）。
@@ -103,7 +102,10 @@ _SYSTEM_PROMPT = (
     "date（文档日期，格式 YYYYMMDD；无法从文件名/正文确定则填 null）、"
     "version（版本，如 V1/V2/V1.1；无法确定则填 null）、"
     "version_confidence（high/medium/low）、version_reason（不引用正文原句的简短说明）、"
-    "confidentiality_level（L1-L5，只能依据文档正文，不得依据文件名中的 L1-L5）、"
+    "confidentiality_level（L1-L5，只能依据文档正文，不得依据文件名中的 L1-L5；"
+    "信息不足必须为 null，不得默认 L2）、"
+    "密级应考虑正文中的公开发布说明、保密标识、个人信息、合同报价、财务与商业秘密；"
+    "不得仅因属于公司介绍或项目资料就固定某一级别。正文不足以判断时返回 null 和 low。"
     "confidentiality_confidence（high/medium/low）、"
     "confidentiality_reason（不引用正文原句的简短说明）、"
     "inferred_fields（数组，列出上述哪些命名字段是你推断而非有明确依据的）、"
@@ -118,7 +120,7 @@ _SYSTEM_PROMPT = (
     '{"primary_category":"示例一级类","secondary_category":"示例二级类",'
     '"topic":"示例主题","subject_or_client":"通用","date":null,"version":null,'
     '"version_confidence":"low","version_reason":"信息不足",'
-    '"confidentiality_level":"L2","confidentiality_confidence":"low",'
+    '"confidentiality_level":null,"confidentiality_confidence":"low",'
     '"confidentiality_reason":"信息不足","inferred_fields":[],"one_liner":"示例一句话摘要",'
     '"detailed":"示例详细摘要","key_points":["示例要点"],"tags":["示例标签"],'
     '"suggested_category_id":null,"category_confidence":"low",'
@@ -199,7 +201,7 @@ def _is_original_compliant(file_name: str) -> bool:
     return bool(_parse_compliant_filename(file_name))
 
 
-def _build_naming(file_name: str, components: dict, level: str, ai_access: str) -> dict:
+def _build_naming(file_name: str, components: dict, level: str | None, ai_access: str) -> dict:
     """从候选组件（LLM / 文件名解析）确定性拼装规范标题；缺失用安全默认 + 标注。
 
     返回 naming dict（存入 `naming_parsed_fields`，含 normalized_title /
@@ -261,10 +263,12 @@ def _build_naming(file_name: str, components: dict, level: str, ai_access: str) 
         inferred.add("version")
         missing.add("version")
 
-    level_v = level if level in _VALID_LEVELS else _DEFAULT_LEVEL
+    level_v = level if level in _VALID_LEVELS else None
     ai_v = ai_access if ai_access in _VALID_AI else _DEFAULT_AI
 
-    normalized_title = f"【{primary}-{secondary}】{topic}_{subject}_{date}_{version}_{level_v}"
+    normalized_title = (
+        f"【{primary}-{secondary}】{topic}_{subject}_{date}_{version}_{level_v or ''}"
+    )
     return {
         "primary_category": primary,
         "secondary_category": secondary,
@@ -619,7 +623,7 @@ async def process_content(
     confidentiality_is_reliable = (
         level in _VALID_LEVELS and confidentiality_confidence in _AI_CONFIDENCE_THRESHOLD
     )
-    level_v = str(level) if confidentiality_is_reliable else _DEFAULT_LEVEL
+    level_v = str(level) if confidentiality_is_reliable else None
     ai_v = _DEFAULT_AI
 
     # 命名组件：优先 LLM，其次文件名解析（顾问命名合规时）作为兜底信号。
@@ -779,7 +783,7 @@ async def process_content(
         confidentiality_reason=(
             f"AI 根据正文内容特征建议为 {level_v}"
             if confidentiality_is_reliable
-            else "AI 未能可靠判断内容密级，已使用规则默认值"
+            else "AI 未能可靠判断内容密级，请人工选择"
         ),
         suggested_ai_access_level=None,
         naming_compliant=naming["original_naming_compliant"],
