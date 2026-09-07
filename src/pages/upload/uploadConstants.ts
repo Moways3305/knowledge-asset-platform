@@ -21,6 +21,7 @@ export const pendingStatusLabel: Record<string, string> = {
   pending_confirmation: "待确认",
   pending: "待处理",
   waiting_review: "待审核",
+  cancelled: "已取消",
   failed: "处理失败",
 };
 

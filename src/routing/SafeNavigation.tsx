@@ -5,9 +5,10 @@ import {
   useEffect,
   useMemo,
   useRef,
+  type AnchorHTMLAttributes,
   type ReactNode,
 } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useNavigationType } from "react-router-dom";
 import { fetchKnowledgeDetail } from "../api/knowledge";
 import { fetchProjectOverview } from "../api/project";
 import { useAuth } from "../auth/AuthContext";
@@ -19,7 +20,7 @@ interface SafeHistoryEntry {
 }
 
 interface SafeNavigationValue {
-  goBack: () => Promise<void>;
+  goBack: (options?: { fallback?: string }) => Promise<void>;
 }
 
 const STORAGE_KEY = "kap.safe-navigation.v1";
@@ -46,32 +47,24 @@ const staticRoutes: Array<[RegExp, (capabilities: Capabilities) => boolean]> = [
   [/^\/admin\/permissions$/, can.viewPermissions],
 ];
 
-function safeSearch(pathname: string, search: string): string | null {
+function safeSearch(search: string): string | null {
   if (!search) return "";
-  const params = new URLSearchParams(search);
-  if (pathname === "/knowledge") {
-    if ([...params.keys()].some((key) => key !== "scope")) return null;
-    const scope = params.get("scope");
-    return scope === null || ["company", "personal", "project"].includes(scope)
-      ? params.toString()
-        ? `?${params.toString()}`
-        : ""
-      : null;
+  // Query parameters are page state, not a destination.  Dropping unknown
+  // parameters here made a browser/app back action lose list filters, the
+  // selected tab, and the current page.  The pathname is separately checked
+  // against the internal route allow-list, so retaining a syntactically safe
+  // query cannot turn this into an external redirect.
+  if (
+    !search.startsWith("?") ||
+    Array.from(search).some((character) => character.charCodeAt(0) < 32)
+  ) {
+    return null;
   }
-  if (pathname === "/upload") {
-    if ([...params.keys()].some((key) => key !== "source")) return null;
-    const source = params.get("source");
-    return source === null || ["local", "wecom"].includes(source)
-      ? params.toString()
-        ? `?${params.toString()}`
-        : ""
-      : null;
-  }
-  return null;
+  return search;
 }
 
 function isSyntacticallyAllowed(entry: SafeHistoryEntry, capabilities: Capabilities): boolean {
-  if (safeSearch(entry.pathname, entry.search) === null) return false;
+  if (safeSearch(entry.search) === null) return false;
   const matched = staticRoutes.find(([pattern]) => pattern.test(entry.pathname));
   if (matched) return matched[1](capabilities);
   if (/^\/knowledge\/[^/]+$/.test(entry.pathname)) return can.viewKnowledge(capabilities);
@@ -126,6 +119,7 @@ function writeHistory(entries: SafeHistoryEntry[]) {
 export function SafeNavigationProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const navigationType = useNavigationType();
   const { capabilities, status } = useAuth();
   const historyRef = useRef<SafeHistoryEntry[]>(readHistory());
 
@@ -133,32 +127,57 @@ export function SafeNavigationProvider({ children }: { children: ReactNode }) {
     if (status !== "authenticated") return;
     const entry = {
       pathname: location.pathname,
-      search: safeSearch(location.pathname, location.search) ?? "",
+      search: safeSearch(location.search) ?? "",
     };
     if (!isSyntacticallyAllowed(entry, capabilities)) return;
     const last = historyRef.current[historyRef.current.length - 1];
     if (last?.pathname === entry.pathname && last.search === entry.search) return;
+    // A browser/client Back action must rewind our fallback stack as well.
+    // Without this, a later in-app "返回" can jump to a page the user has
+    // already left instead of the immediately preceding one.
+    if (navigationType === "POP") {
+      const existingIndex = historyRef.current
+        .map((candidate) => `${candidate.pathname}${candidate.search}`)
+        .lastIndexOf(`${entry.pathname}${entry.search}`);
+      if (existingIndex >= 0) {
+        historyRef.current = historyRef.current.slice(0, existingIndex + 1);
+        writeHistory(historyRef.current);
+        return;
+      }
+    }
     historyRef.current = [...historyRef.current, entry].slice(-MAX_ENTRIES);
     writeHistory(historyRef.current);
-  }, [capabilities, location.pathname, location.search, status]);
+  }, [capabilities, location.pathname, location.search, navigationType, status]);
 
-  const goBack = useCallback(async () => {
-    const current = `${location.pathname}${location.search}`;
-    const candidates = [...historyRef.current];
-    while (candidates.length) {
-      const candidate = candidates.pop()!;
-      if (`${candidate.pathname}${candidate.search}` === current) continue;
-      if (!isSyntacticallyAllowed(candidate, capabilities)) continue;
-      if (!(await stillExists(candidate))) continue;
-      historyRef.current = candidates;
-      writeHistory(candidates);
-      navigate(`${candidate.pathname}${candidate.search}`, { replace: true });
-      return;
-    }
-    historyRef.current = [];
-    writeHistory([]);
-    navigate("/", { replace: true });
-  }, [capabilities, location.pathname, location.search, navigate]);
+  const goBack = useCallback(
+    async (options?: { fallback?: string }) => {
+      const current = `${location.pathname}${location.search}`;
+      const candidates = [...historyRef.current];
+      while (candidates.length) {
+        const candidate = candidates.pop()!;
+        if (`${candidate.pathname}${candidate.search}` === current) continue;
+        if (!isSyntacticallyAllowed(candidate, capabilities)) continue;
+        if (!(await stillExists(candidate))) continue;
+        historyRef.current = candidates;
+        writeHistory(candidates);
+        // Browsers do not expose the pathname of the previous native history
+        // entry. An index alone cannot prove that it still matches this validated
+        // candidate after replaceState or a permission change, so never follow an
+        // opaque native entry here.
+        navigate(`${candidate.pathname}${candidate.search}`, { replace: true });
+        return;
+      }
+      historyRef.current = [];
+      writeHistory([]);
+      const fallback = options?.fallback;
+      if (fallback && isSafeInternalPath(fallback)) {
+        navigate(fallback, { replace: true });
+        return;
+      }
+      navigate("/", { replace: true });
+    },
+    [capabilities, location.pathname, location.search, navigate],
+  );
 
   const value = useMemo(() => ({ goBack }), [goBack]);
   return <SafeNavigationContext.Provider value={value}>{children}</SafeNavigationContext.Provider>;
@@ -168,10 +187,49 @@ export function useSafeNavigation(): SafeNavigationValue {
   const value = useContext(SafeNavigationContext);
   if (!value) {
     return {
-      goBack: async () => {
-        window.location.assign("/");
+      goBack: async (options) => {
+        window.location.assign(
+          options?.fallback && isSafeInternalPath(options.fallback) ? options.fallback : "/",
+        );
       },
     };
   }
   return value;
+}
+
+function isSafeInternalPath(value: string): boolean {
+  return (
+    value.startsWith("/") &&
+    !value.startsWith("//") &&
+    !value.includes("\\") &&
+    !Array.from(value).some((character) => character.charCodeAt(0) < 32)
+  );
+}
+
+/**
+ * A semantic in-app Back control.  Unlike a Link to a fixed route, it returns
+ * to the page that led here and only uses `fallback` for direct/deep links.
+ */
+export function HistoryBackButton({
+  fallback,
+  children,
+  onClick,
+  ...props
+}: AnchorHTMLAttributes<HTMLAnchorElement> & { fallback: string }) {
+  const { goBack } = useSafeNavigation();
+  return (
+    <a
+      {...props}
+      href={fallback}
+      onClick={(event) => {
+        onClick?.(event);
+        if (!event.defaultPrevented) {
+          event.preventDefault();
+          void goBack({ fallback });
+        }
+      }}
+    >
+      {children}
+    </a>
+  );
 }

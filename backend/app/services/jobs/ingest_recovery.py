@@ -14,6 +14,11 @@ from app.db.utils import utc_now
 from app.models.ingest import IngestTask
 from app.schemas.enums import AlertSeverity, AuditAction, AuditLogType, AuditRiskLevel, IngestStatus
 from app.services import audit as audit_service
+from app.services.jobs.ingest_cancellation import (
+    acknowledge_unclaimed_cancellations,
+    cleanup_cancelled_tasks,
+    mark_stopped_task_cancelled,
+)
 from app.services.storage import LocalFileStorage, StorageError
 
 ACTIVE_STAGES = {
@@ -41,6 +46,7 @@ class RecoverySummary:
     source_unavailable: int
     exhausted: int
     redispatched: int
+    cancellation_cleaned: int
 
 
 def _has_source_bytes(storage: LocalFileStorage, task: IngestTask) -> bool:
@@ -88,6 +94,19 @@ async def recover_stale_tasks(
     transaction that records the audit event. Both paths are safe under repeated scans.
     """
     settings = get_settings()
+    await acknowledge_unclaimed_cancellations(
+        session,
+        limit=limit,
+        task_ids=task_ids,
+        dry_run=dry_run,
+    )
+    cancellation_cleaned = await cleanup_cancelled_tasks(
+        session,
+        storage,
+        limit=limit,
+        task_ids=task_ids,
+        dry_run=dry_run,
+    )
     current = now or utc_now()
     lease_seconds = max(30, settings.ingest_lease_timeout_seconds)
     cutoff = current - timedelta(seconds=lease_seconds)
@@ -126,6 +145,10 @@ async def recover_stale_tasks(
     exhausted = 0
     redispatched = 0
     for task in tasks:
+        if task.cancel_requested:
+            if not dry_run:
+                await mark_stopped_task_cancelled(session, task)
+            continue
         is_due_recovery = task.processing_stage == "processing_interrupted"
         if not _has_source_bytes(storage, task):
             source_unavailable += 1
@@ -200,6 +223,17 @@ async def recover_stale_tasks(
             )
     if not dry_run:
         await session.commit()
+        cancellation_cleaned += await cleanup_cancelled_tasks(
+            session,
+            storage,
+            limit=limit,
+            task_ids=task_ids,
+        )
     return RecoverySummary(
-        len(tasks), tuple(scheduled), source_unavailable, exhausted, redispatched
+        len(tasks),
+        tuple(scheduled),
+        source_unavailable,
+        exhausted,
+        redispatched,
+        cancellation_cleaned,
     )

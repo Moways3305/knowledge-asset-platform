@@ -39,6 +39,7 @@ import type {
 import type { PreviewEntryVM } from "../types/preview";
 import { formatBeijingTime } from "../utils/time";
 import { readKnowledgeDetailSource } from "../routing/knowledgeDetailSource";
+import { HistoryBackButton } from "../routing/SafeNavigation";
 import { OnlyOfficePreview } from "./knowledge/OnlyOfficePreview";
 import "./KnowledgeDetailPage.css";
 
@@ -322,9 +323,9 @@ export default function KnowledgeDetailPage() {
   if (loading) {
     return (
       <main className="product-page kdetail-page" aria-busy="true">
-        <Link to={backPath} className="kdetail-back">
+        <HistoryBackButton fallback={backPath} className="kdetail-back">
           <ArrowLeft size={15} aria-hidden="true" /> {backLabel}
-        </Link>
+        </HistoryBackButton>
         <div className="kdetail-state">正在加载资产详情…</div>
       </main>
     );
@@ -336,9 +337,9 @@ export default function KnowledgeDetailPage() {
         <div className="kdetail-state kdetail-state-centered">
           <FileText size={28} aria-hidden="true" />
           <h1>未找到或无权查看</h1>
-          <Link to={backPath} className="btn-primary">
+          <HistoryBackButton fallback={backPath} className="btn-primary">
             {backLabel}
-          </Link>
+          </HistoryBackButton>
         </div>
       </main>
     );
@@ -358,9 +359,9 @@ export default function KnowledgeDetailPage() {
             >
               重新加载
             </button>
-            <Link to={backPath} className="btn-secondary">
+            <HistoryBackButton fallback={backPath} className="btn-secondary">
               {backLabel}
-            </Link>
+            </HistoryBackButton>
           </div>
         </div>
       </main>
@@ -427,9 +428,9 @@ export default function KnowledgeDetailPage() {
 
   return (
     <main className="product-page kdetail-page">
-      <Link to={backPath} className="kdetail-back">
+      <HistoryBackButton fallback={backPath} className="kdetail-back">
         <ArrowLeft size={15} aria-hidden="true" /> {backLabel}
-      </Link>
+      </HistoryBackButton>
 
       <header className="kdetail-header">
         <div className="kdetail-header-copy">

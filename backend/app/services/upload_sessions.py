@@ -2,6 +2,7 @@
 
 from app.services.upload_session_creation import create_session, get_session_if_exists
 from app.services.upload_session_recovery import (
+    cancel_session,
     get_session,
     list_sessions,
     remove_failed_items,
@@ -31,6 +32,7 @@ from app.services.upload_transport import (
 
 __all__ = [
     "BATCH_SIZE",
+    "cancel_session",
     "MACOS_METADATA_MESSAGE",
     "TRANSPORT_BATCH_MAX_BYTES",
     "UNREADABLE_FILE_MESSAGE",

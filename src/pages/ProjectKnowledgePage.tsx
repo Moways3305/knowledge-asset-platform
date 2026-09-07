@@ -6,7 +6,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
-import { Bot, ChevronLeft, ChevronRight, FileText, MoreHorizontal, Search } from "lucide-react";
+import { Bot, FileText, MoreHorizontal, Search } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   bulkDeleteKnowledgeAssets,
@@ -33,6 +33,7 @@ import {
   ProductPage,
 } from "../components/ProductLayout";
 import StatusBadge from "../components/StatusBadge";
+import PagePagination from "../components/PagePagination";
 import type { ProjectQaModelOptionDTO, ProjectQaResponseDTO } from "../types/agent";
 import type { AssetizationPreflightItemDTO, EvidenceInputDTO } from "../types/review";
 import type {
@@ -46,6 +47,7 @@ import type {
   SortDirection,
 } from "../types/knowledge";
 import { assetStatusLabel } from "../utils/knowledgeLabels";
+import { HistoryBackButton } from "../routing/SafeNavigation";
 import "./ProjectKnowledgePage.css";
 
 const PAGE_SIZE = 20;
@@ -75,12 +77,6 @@ const emptyPage = (): KnowledgePageVM => ({
   pageSize: PAGE_SIZE,
   hasNext: false,
 });
-
-function pageNumbers(current: number, total: number): number[] {
-  return [...new Set([1, current - 1, current, current + 1, total])].filter(
-    (value) => value >= 1 && value <= total,
-  );
-}
 
 function safeZone(value: string): string {
   if (value === "material") return "资料区";
@@ -702,12 +698,12 @@ function ProjectKnowledgeWorkspace({
         description={project.projectName}
         actions={
           <div className="pk-header-actions">
-            <Link
+            <HistoryBackButton
               className="product-button is-secondary is-small"
-              to={`/project/${project.projectId}`}
+              fallback={`/project/${project.projectId}`}
             >
               返回项目空间
-            </Link>
+            </HistoryBackButton>
             <label className="pk-project-switcher" htmlFor="pk-project-switcher-header">
               <span>切换项目</span>
               <select
@@ -983,44 +979,20 @@ function ProjectKnowledgeWorkspace({
               ariaLabel="项目知识列表"
             />
             {hasLoaded && result.total > 0 && (
-              <div className="pk-pagination" aria-label="项目知识分页">
-                <span>
-                  显示 {firstItem}-{lastItem} 条，共 {result.total} 条
-                </span>
-                <div className="pk-page-controls">
-                  <button
-                    type="button"
-                    aria-label="上一页"
-                    title="上一页"
-                    disabled={loading || result.page <= 1}
-                    onClick={() => setPage((value) => Math.max(1, value - 1))}
-                  >
-                    <ChevronLeft size={16} aria-hidden="true" />
-                  </button>
-                  {pageNumbers(result.page, totalPages).map((pageNumber) => (
-                    <button
-                      type="button"
-                      key={pageNumber}
-                      className={pageNumber === result.page ? "is-current" : ""}
-                      aria-label={`第 ${pageNumber} 页`}
-                      aria-current={pageNumber === result.page ? "page" : undefined}
-                      disabled={loading}
-                      onClick={() => setPage(pageNumber)}
-                    >
-                      {pageNumber}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    aria-label="下一页"
-                    title="下一页"
-                    disabled={loading || !result.hasNext}
-                    onClick={() => setPage((value) => value + 1)}
-                  >
-                    <ChevronRight size={16} aria-hidden="true" />
-                  </button>
-                </div>
-              </div>
+              <PagePagination
+                className="pk-pagination"
+                ariaLabel="项目知识分页"
+                page={result.page}
+                totalPages={totalPages}
+                hasNext={result.hasNext}
+                disabled={loading}
+                onPageChange={setPage}
+                summary={
+                  <>
+                    显示 {firstItem}-{lastItem} 条，共 {result.total} 条
+                  </>
+                }
+              />
             )}
             {confirmDeleteId && (
               <div

@@ -418,19 +418,28 @@ async def replace_upload_transport_item_bytes(
             status_code=503,
             detail={"denied_reason": "storage_failed", "message": "文件保存失败"},
         ) from None
-    await upload_session_service.replace_transport_item_bytes(
-        session,
-        caller,
-        session_id=session_id,
-        item_id=item_id,
-        candidate=upload_session_service.UploadCandidate(
-            file_name=file.filename or "file",
-            file_size=len(content),
-            file_type=file.content_type,
-            storage_ref=storage_ref,
-            content_hash=hashlib.sha256(content).hexdigest(),
-        ),
-    )
+    persisted = False
+    try:
+        await upload_session_service.replace_transport_item_bytes(
+            session,
+            caller,
+            session_id=session_id,
+            item_id=item_id,
+            candidate=upload_session_service.UploadCandidate(
+                file_name=file.filename or "file",
+                file_size=len(content),
+                file_type=file.content_type,
+                storage_ref=storage_ref,
+                content_hash=hashlib.sha256(content).hexdigest(),
+            ),
+        )
+        persisted = True
+    finally:
+        if not persisted:
+            try:
+                storage.delete(storage_ref)
+            except OSError:
+                pass
     return await upload_session_service.get_session(
         session,
         caller,
@@ -849,6 +858,26 @@ async def remove_upload_session_item(
 ) -> UploadSessionResponse:
     return await upload_session_service.remove_item(
         session, caller, session_id, item_id, storage=storage
+    )
+
+
+@router.post(
+    "/ingest/upload-sessions/{session_id}/cancel",
+    response_model=UploadSessionResponse,
+)
+async def cancel_upload_session(
+    session_id: uuid.UUID,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
+) -> UploadSessionResponse:
+    return await upload_session_service.cancel_session(
+        session,
+        caller,
+        session_id,
+        storage=storage,
+        trace_id=get_trace_id(request),
     )
 
 

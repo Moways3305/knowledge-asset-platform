@@ -246,7 +246,11 @@ def _response(
     next_action = _action("wait", None, enabled=False)
     error = None
 
-    if task.status in {IngestStatus.pending.value, IngestStatus.processing.value}:
+    if task.status == IngestStatus.cancelled.value or task.cancel_requested:
+        stage = IngestTaskStage.cancelled
+        status = IngestTaskWorkflowStatus.cancelled
+        next_action = _action("cancelled", None, enabled=False)
+    elif task.status in {IngestStatus.pending.value, IngestStatus.processing.value}:
         stage_value = task.processing_stage or (
             "upload_saved" if task.status == IngestStatus.pending.value else "text_extraction"
         )

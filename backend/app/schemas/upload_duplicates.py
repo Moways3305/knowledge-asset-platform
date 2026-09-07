@@ -87,6 +87,7 @@ class MyUploadItem(BaseModel):
         "completed",
         "failed",
         "duplicate_skipped",
+        "cancelled",
     ]
     duplicate_result: Literal["none", "skipped", "independent"] = "none"
     result_asset_id: uuid.UUID | None = None

@@ -28,6 +28,11 @@ from app.services.upload_session_types import (
 )
 
 
+def _ensure_session_not_cancelled(value: UploadSession) -> None:
+    if value.status == "cancelled":
+        raise _denied(409, "upload_session_cancelled", "上传会话已取消")
+
+
 async def initialize_transport_session(
     session: AsyncSession,
     caller: CallerContext,
@@ -44,6 +49,7 @@ async def initialize_transport_session(
     if existing is not None:
         if existing.created_by != caller.user_id:
             raise _denied(409, "upload_session_conflict", "上传会话标识冲突，请重新提交")
+        _ensure_session_not_cancelled(existing)
         return existing
     value = UploadSession(
         id=session_id,
@@ -103,6 +109,7 @@ async def append_transport_batch(
     ):
         raise _denied(413, "transport_batch_too_large", "上传批次超过 20 MiB 安全上限")
     value = await _load_owned_session(session, caller, session_id, lock=True)
+    _ensure_session_not_cancelled(value)
     existing_batch = await session.scalar(
         select(UploadTransportBatch).where(
             UploadTransportBatch.session_id == session_id,
@@ -124,6 +131,8 @@ async def append_transport_batch(
         raise _denied(422, "invalid_transport_batch_manifest", "上传批次文件清单无效")
     for item_id, candidate in candidates:
         item = next(item for item in value.items if item.id == item_id)
+        if item.status == "cancelled":
+            raise _denied(409, "upload_item_cancelled", "上传文件已取消")
         if item.ingest_task_id is not None:
             raise _denied(409, "upload_item_already_received", "文件已上传，不得重复创建")
         if (
@@ -177,6 +186,7 @@ async def preflight_transport_batch(
     """Lock and validate ordering/manifest before any browser bytes are persisted."""
     authorize_create(caller)
     value = await _load_owned_session(session, caller, session_id, lock=True)
+    _ensure_session_not_cancelled(value)
     existing = await session.scalar(
         select(UploadTransportBatch).where(
             UploadTransportBatch.session_id == session_id,
@@ -196,6 +206,8 @@ async def preflight_transport_batch(
             raise _denied(422, "invalid_transport_batch_manifest", "上传批次文件清单无效")
         for item_id, file_name, file_size in manifest:
             item = next(item for item in value.items if item.id == item_id)
+            if item.status == "cancelled":
+                raise _denied(409, "upload_item_cancelled", "上传文件已取消")
             if item.ingest_task_id is not None:
                 raise _denied(409, "upload_item_already_received", "文件已上传，不得重复创建")
             if file_size != item.file_size or _display_name(file_name) != item.file_name:
@@ -222,6 +234,9 @@ async def fail_transport_items(
     batch_index: int | None = None,
 ) -> UploadSession:
     value = await _load_owned_session(session, caller, session_id, lock=True)
+    _ensure_session_not_cancelled(value)
+    if value.upload_completed:
+        raise _denied(409, "upload_session_already_completed", "上传会话已完成")
     if batch_id is not None and batch_index is not None:
         existing = await session.scalar(
             select(UploadTransportBatch).where(
@@ -276,9 +291,14 @@ async def replace_transport_item_bytes(
     """Atomically attach reselected browser bytes to one manifest row."""
     authorize_create(caller)
     value = await _load_owned_session(session, caller, session_id, lock=True)
+    _ensure_session_not_cancelled(value)
+    if value.upload_completed:
+        raise _denied(409, "upload_session_already_completed", "上传会话已完成")
     item = next((entry for entry in value.items if entry.id == item_id), None)
     if item is None:
         raise _denied(404, "upload_item_not_found", "上传文件不存在")
+    if item.status == "cancelled":
+        raise _denied(409, "upload_item_cancelled", "上传文件已取消")
     if item.ingest_task_id is not None:
         return value
     if (
@@ -317,6 +337,8 @@ async def complete_transport_session(
     session_id: uuid.UUID,
 ) -> UploadSession:
     value = await _load_owned_session(session, caller, session_id, lock=True)
+    if value.status == "cancelled":
+        raise _denied(409, "upload_session_cancelled", "上传会话已取消")
     if value.upload_completed:
         return value
     incomplete = [

@@ -4,6 +4,7 @@ import { fetchAudit, markAuditProcessed } from "../api/admin";
 import { ApiError } from "../api/http";
 import { Link } from "react-router-dom";
 import { PageHeader, PageToolbar, ProductPage } from "../components/ProductLayout";
+import PagePagination from "../components/PagePagination";
 import type { AuditEventDTO } from "../types/audit";
 import { auditActionLabel, auditLoginSummary, auditTargetTypeLabel } from "../utils/auditDisplay";
 import { formatBeijingTime } from "../utils/time";
@@ -404,27 +405,19 @@ export default function AdminAuditPage() {
                 </tbody>
               </table>
             </div>
-            <div className="secops-pagination">
-              <span>
-                第 {total === 0 ? 0 : page} / {totalPages} 页 · 共 {total} 条
-              </span>
-              <button
-                type="button"
-                className="btn-small"
-                disabled={loading || page <= 1}
-                onClick={() => void loadList(activeTab, page - 1)}
-              >
-                上一页
-              </button>
-              <button
-                type="button"
-                className="btn-small"
-                disabled={loading || page >= totalPages}
-                onClick={() => void loadList(activeTab, page + 1)}
-              >
-                下一页
-              </button>
-            </div>
+            <PagePagination
+              className="secops-pagination"
+              ariaLabel="审计日志分页"
+              page={page}
+              totalPages={totalPages}
+              disabled={loading}
+              onPageChange={(nextPage) => void loadList(activeTab, nextPage)}
+              summary={
+                <>
+                  第 {total === 0 ? 0 : page} / {totalPages} 页 · 共 {total} 条
+                </>
+              }
+            />
           </section>
         </main>
       </div>

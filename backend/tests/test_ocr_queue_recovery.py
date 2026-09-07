@@ -10,12 +10,15 @@ from app.core.config import get_settings
 from app.db.utils import utc_now
 from app.models.audit import AuditEvent
 from app.models.ingest import IngestTask
-from app.seed.dev_seed import USER_CONSULTANT
+from app.models.review import ReviewTask
+from app.schemas.enums import IngestStatus, ReviewTaskStatus, ReviewType
+from app.seed.dev_seed import PROJECT_ALPHA, USER_CONSULTANT, USER_PROJECT_MANAGER
 from app.services import ocr
 from app.services.desensitization import NullDesensitizer
 from app.services.extraction import ExtractionPage, ExtractionResult
 from app.services.jobs import ingest_processing
 from app.services.jobs.ingest_recovery import recover_stale_tasks
+from app.services.llm_client import NullLLMClient
 
 pytestmark = pytest.mark.asyncio
 
@@ -57,6 +60,148 @@ async def test_stale_valid_source_gets_bounded_ocr_recovery(client, db_session):
     assert any(
         event.extra.get("error_code") == "worker_lost_recovery_scheduled" for event in audits
     )
+
+
+async def test_worker_acknowledges_cancellation_before_reading_and_recovery_cleans_bytes(
+    client, db_session
+):
+    ref = client._kap_storage.save(b"must-not-be-read", original_name="cancelled.pdf")
+    task = _task(ref)
+    task.cancel_requested = True
+    db_session.add(task)
+    await db_session.commit()
+
+    result = await ingest_processing.process_upload_task(
+        db_session,
+        task.id,
+        storage=client._kap_storage,
+        llm=NullLLMClient(),
+        desensitizer=NullDesensitizer(),
+        trace_id="cancel-before-read",
+        worker_id="ocr@test-host",
+        job_id="cancel-job",
+    )
+
+    assert result == IngestStatus.cancelled.value
+    await db_session.refresh(task)
+    assert task.status == IngestStatus.cancelled.value
+    assert task.processing_stage == "cancelled"
+    assert client._kap_storage.exists(ref)
+
+    summary = await recover_stale_tasks(db_session, client._kap_storage)
+    assert summary.cancellation_cleaned == 1
+    assert await db_session.get(IngestTask, task.id) is None
+    assert not client._kap_storage.exists(ref)
+
+
+async def test_cancelled_file_cleanup_failure_keeps_retryable_database_record(
+    client, db_session, monkeypatch
+):
+    ref = client._kap_storage.save(b"retry-cleanup", original_name="cleanup.pdf")
+    task = _task(ref)
+    task.status = IngestStatus.cancelled.value
+    task.processing_stage = "cancelled"
+    task.cancel_requested = True
+    task.processing_worker_id = None
+    db_session.add(task)
+    await db_session.commit()
+    original_delete = client._kap_storage.delete
+
+    def fail_delete(_storage_ref):
+        raise OSError("simulated cleanup failure")
+
+    monkeypatch.setattr(client._kap_storage, "delete", fail_delete)
+    first = await recover_stale_tasks(db_session, client._kap_storage)
+    assert first.cancellation_cleaned == 0
+    assert await db_session.get(IngestTask, task.id) is not None
+    assert client._kap_storage.exists(ref)
+
+    monkeypatch.setattr(client._kap_storage, "delete", original_delete)
+    second = await recover_stale_tasks(db_session, client._kap_storage)
+    assert second.cancellation_cleaned == 1
+    assert await db_session.get(IngestTask, task.id) is None
+    assert not client._kap_storage.exists(ref)
+
+
+async def test_cancelled_review_link_keeps_task_record_but_cleans_controlled_bytes(
+    client, db_session
+):
+    ref = client._kap_storage.save(b"review-linked", original_name="review-linked.pdf")
+    task = _task(ref)
+    task.status = IngestStatus.cancelled.value
+    task.processing_stage = "cancelled"
+    task.cancel_requested = True
+    task.processing_worker_id = None
+    db_session.add(task)
+    await db_session.flush()
+    review = ReviewTask(
+        review_type=ReviewType.project_ingest_approval.value,
+        trigger_source="path_b_upload",
+        source_ingest_task_id=task.id,
+        target_project_id=PROJECT_ALPHA,
+        target_scope="project",
+        status=ReviewTaskStatus.cancelled.value,
+        reviewer_user_id=USER_PROJECT_MANAGER,
+        submitted_by=USER_CONSULTANT,
+        confirmation_snapshot={},
+    )
+    db_session.add(review)
+    await db_session.commit()
+    task_id = task.id
+    review_id = review.id
+
+    first = await recover_stale_tasks(db_session, client._kap_storage)
+
+    db_session.expire_all()
+    retained = await db_session.get(IngestTask, task_id)
+    assert first.cancellation_cleaned == 1
+    assert retained is not None
+    assert retained.status == IngestStatus.cancelled.value
+    assert retained.cancellation_cleaned_at is not None
+    assert await db_session.get(ReviewTask, review_id) is not None
+    assert not client._kap_storage.exists(ref)
+
+    second = await recover_stale_tasks(db_session, client._kap_storage)
+    assert second.cancellation_cleaned == 0
+    assert await db_session.get(IngestTask, task_id) is not None
+
+
+async def test_unclaimed_cancelled_upload_is_terminalized_without_waiting_for_stale_lease(
+    client, db_session
+):
+    ref = client._kap_storage.save(b"never-claimed", original_name="queued.pdf")
+    task = _task(ref)
+    task.processing_stage = "upload_saved"
+    task.processing_heartbeat_at = utc_now()
+    task.processing_worker_id = None
+    task.processing_job_id = None
+    task.cancel_requested = True
+    db_session.add(task)
+    await db_session.commit()
+
+    summary = await recover_stale_tasks(db_session, client._kap_storage)
+
+    assert summary.scheduled == ()
+    assert summary.cancellation_cleaned == 1
+    assert await db_session.get(IngestTask, task.id) is None
+    assert not client._kap_storage.exists(ref)
+
+
+async def test_stale_claimed_cancellation_is_closed_instead_of_failed(client, db_session):
+    ref = client._kap_storage.save(b"stale-cancel", original_name="stale-cancel.pdf")
+    task = _task(ref)
+    task.processing_job_id = "lost-job"
+    task.cancel_requested = True
+    db_session.add(task)
+    await db_session.commit()
+    task_id = task.id
+
+    summary = await recover_stale_tasks(db_session, client._kap_storage)
+
+    assert summary.scheduled == ()
+    assert summary.cancellation_cleaned == 1
+    assert await db_session.get(IngestTask, task_id) is None
+    assert not client._kap_storage.exists(ref)
 
 
 @pytest.mark.parametrize("empty", [False, True])

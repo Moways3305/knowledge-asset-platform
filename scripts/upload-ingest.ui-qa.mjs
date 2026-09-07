@@ -705,6 +705,7 @@ try {
           });
         }
         await page.locator('input[type="file"]').first().setInputFiles(localFiles);
+        await page.getByRole("button", { name: "确认加入队列" }).click();
 
         if (scenario === "canonical-processing") {
           await page.getByText("正在生成 Markdown", { exact: true }).waitFor();

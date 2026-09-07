@@ -56,7 +56,7 @@ _SEVERITY_ORDER = {"error": 0, "warning": 1, "info": 2}
 # 待确认口径收窄：只统计真正需要用户确认的任务；失败 / 被拒归入独立待办。
 _INGEST_PENDING_STATUSES = {"pending_confirmation"}
 _INGEST_FAILED_STATUSES = {"failed", "rejected"}
-_REVIEW_TERMINAL_STATUSES = {"approved", "rejected"}
+_REVIEW_TERMINAL_STATUSES = {"approved", "rejected", "cancelled"}
 _JOB_RUNNING_STATUSES = {"queued", "running"}
 _JOB_TERMINAL_STATUSES = {"completed", "completed_with_errors", "failed", "no_action"}
 _PRIORITY_ORDER = {"urgent": 0, "high": 1, "normal": 2, "low": 3}
@@ -272,9 +272,13 @@ async def build_task_center(
                             updated_at=review_item.reviewed_at,
                             next_action_label="查看审核结果",
                             route_key="reviews",
-                            result_summary="审核已通过"
-                            if review_item.status == "approved"
-                            else "审核已结束",
+                            result_summary=(
+                                "审核已通过"
+                                if review_item.status == "approved"
+                                else "审核已取消"
+                                if review_item.status == "cancelled"
+                                else "审核已结束"
+                            ),
                         )
                     )
 

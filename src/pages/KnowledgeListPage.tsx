@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   Building2,
   BriefcaseBusiness,
-  ChevronLeft,
   ChevronRight,
   FileText,
   Folder,
@@ -36,6 +35,7 @@ import {
   ProductPage,
 } from "../components/ProductLayout";
 import StatusBadge from "../components/StatusBadge";
+import PagePagination from "../components/PagePagination";
 import type {
   AssetStatus,
   ConfidentialityLevel,
@@ -79,12 +79,6 @@ const emptyPage = (): KnowledgePageVM => ({
   pageSize: PAGE_SIZE,
   hasNext: false,
 });
-
-function pageNumbers(current: number, total: number): number[] {
-  return [...new Set([1, current - 1, current, current + 1, total])].filter(
-    (value) => value >= 1 && value <= total,
-  );
-}
 
 export default function KnowledgeListPage() {
   const { capabilities, status } = useAuth();
@@ -1081,44 +1075,20 @@ export default function KnowledgeListPage() {
                   </div>
 
                   {hasLoaded && result.total > 0 && (
-                    <div className="kbl-pagination" aria-label="知识资产分页">
-                      <span>
-                        显示 {firstItem}-{lastItem} 条，共 {result.total} 条
-                      </span>
-                      <div className="kbl-page-controls">
-                        <button
-                          type="button"
-                          aria-label="上一页"
-                          title="上一页"
-                          disabled={loading || result.page <= 1}
-                          onClick={() => setPage((value) => Math.max(1, value - 1))}
-                        >
-                          <ChevronLeft size={16} aria-hidden="true" />
-                        </button>
-                        {pageNumbers(result.page, totalPages).map((pageNumber) => (
-                          <button
-                            type="button"
-                            key={pageNumber}
-                            className={pageNumber === result.page ? "is-current" : ""}
-                            aria-label={`第 ${pageNumber} 页`}
-                            aria-current={pageNumber === result.page ? "page" : undefined}
-                            disabled={loading}
-                            onClick={() => setPage(pageNumber)}
-                          >
-                            {pageNumber}
-                          </button>
-                        ))}
-                        <button
-                          type="button"
-                          aria-label="下一页"
-                          title="下一页"
-                          disabled={loading || !result.hasNext}
-                          onClick={() => setPage((value) => value + 1)}
-                        >
-                          <ChevronRight size={16} aria-hidden="true" />
-                        </button>
-                      </div>
-                    </div>
+                    <PagePagination
+                      className="kbl-pagination"
+                      ariaLabel="知识资产分页"
+                      page={result.page}
+                      totalPages={totalPages}
+                      hasNext={result.hasNext}
+                      disabled={loading}
+                      onPageChange={setPage}
+                      summary={
+                        <>
+                          显示 {firstItem}-{lastItem} 条，共 {result.total} 条
+                        </>
+                      }
+                    />
                   )}
                 </>
               )}

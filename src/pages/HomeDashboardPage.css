@@ -781,7 +781,7 @@ button.workbench-focus:hover {
   opacity: 0.42;
 }
 
-.workbench-task-pager button:last-child {
+.workbench-task-pager > button:last-child {
   color: #4e3b0d;
   background: rgba(226, 203, 136, 0.35);
   border-color: rgba(164, 126, 38, 0.42);

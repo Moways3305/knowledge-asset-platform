@@ -57,4 +57,38 @@ describe("MyUploadsPanel", () => {
     await waitFor(() => expect(ingestApi.fetchMyUploads).toHaveBeenCalledTimes(2));
     expect(screen.getByText("当前筛选无结果")).toBeInTheDocument();
   });
+
+  it("renders and filters cancelled uploads as a terminal state", async () => {
+    ingestApi.fetchMyUploads.mockResolvedValue([
+      {
+        task_id: "task-cancelled",
+        source_file_name: "已取消资料.pdf",
+        source_file_size: 1024,
+        uploaded_at: "2026-09-04T08:00:00Z",
+        target_scope: "project",
+        target_project_id: "project-1",
+        target_project_name: "项目 A",
+        processing_status: "cancelled",
+        final_status: "cancelled",
+        duplicate_result: "none",
+        result_asset_id: null,
+      },
+    ]);
+    render(
+      <MemoryRouter>
+        <MyUploadsPanel onClose={vi.fn()} />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("已取消资料.pdf")).toBeInTheDocument();
+    expect(
+      screen.getAllByText("已取消").filter((element) => element.tagName === "DD"),
+    ).toHaveLength(2);
+    fireEvent.change(screen.getByLabelText("最终状态"), { target: { value: "cancelled" } });
+    await waitFor(() =>
+      expect(ingestApi.fetchMyUploads).toHaveBeenLastCalledWith(
+        expect.objectContaining({ finalStatus: "cancelled" }),
+      ),
+    );
+  });
 });

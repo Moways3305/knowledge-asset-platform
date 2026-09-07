@@ -3,6 +3,7 @@ import { ApiError } from "../api/http";
 import { fetchReviewPage } from "../api/review";
 import DataTable, { type Column } from "../components/DataTable";
 import GovernanceWorkspace from "../components/GovernanceWorkspace";
+import PagePagination from "../components/PagePagination";
 import type { ReviewItemDTO } from "../types/review";
 import { formatBeijingTime } from "../utils/time";
 
@@ -20,6 +21,7 @@ const reviewTypeLabel: Record<string, string> = {
 const statusLabel: Record<string, string> = {
   approved: "已通过",
   rejected: "已拒绝",
+  cancelled: "已取消",
 };
 
 const reviewTypeFilters = [
@@ -35,6 +37,7 @@ const statusFilters = [
   { value: "", label: "全部状态" },
   { value: "approved", label: "已通过" },
   { value: "rejected", label: "已拒绝" },
+  { value: "cancelled", label: "已取消" },
 ];
 
 function safeTitle(item: ReviewItemDTO) {
@@ -108,7 +111,15 @@ export default function ReviewCompletedPage() {
       key: "status",
       header: "状态",
       render: (item) => (
-        <span className={`gw-status ${item.status === "approved" ? "is-success" : "is-danger"}`}>
+        <span
+          className={`gw-status ${
+            item.status === "approved"
+              ? "is-success"
+              : item.status === "cancelled"
+                ? "is-neutral"
+                : "is-danger"
+          }`}
+        >
           {statusLabel[item.status] ?? SAFE_FALLBACK}
         </span>
       ),
@@ -199,27 +210,19 @@ export default function ReviewCompletedPage() {
         ariaLabel="已完成审核任务列表"
       />
 
-      <div className="pk-pagination" aria-label="已完成审核分页">
-        <button
-          className="product-button is-secondary is-small"
-          type="button"
-          disabled={loading || page <= 1}
-          onClick={() => setPage((current) => Math.max(1, current - 1))}
-        >
-          上一页
-        </button>
-        <span>
-          第 {page} / {totalPages} 页
-        </span>
-        <button
-          className="product-button is-secondary is-small"
-          type="button"
-          disabled={loading || page >= totalPages}
-          onClick={() => setPage((current) => current + 1)}
-        >
-          下一页
-        </button>
-      </div>
+      <PagePagination
+        className="pk-pagination"
+        ariaLabel="已完成审核分页"
+        page={page}
+        totalPages={totalPages}
+        disabled={loading}
+        onPageChange={setPage}
+        summary={
+          <>
+            第 {page} / {totalPages} 页
+          </>
+        }
+      />
     </GovernanceWorkspace>
   );
 }

@@ -861,6 +861,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
         },
       } as unknown as ChangeEvent<HTMLInputElement>),
     );
+    act(() => result.current.confirmPendingSelection());
     await waitFor(() =>
       expect(result.current.localUploadQueue[1]?.status).toBe("awaiting_confirmation"),
     );
@@ -915,6 +916,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
         },
       } as unknown as ChangeEvent<HTMLInputElement>),
     );
+    act(() => result.current.confirmPendingSelection());
     await waitFor(() =>
       expect(result.current.localUploadQueue.map((item) => item.status)).toEqual([
         "failed",
@@ -973,6 +975,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
         },
       } as unknown as ChangeEvent<HTMLInputElement>),
     );
+    act(() => result.current.confirmPendingSelection());
     await waitFor(() => {
       expect(result.current.localUploadQueue[0]?.status).toBe("failed");
       expect(result.current.localUploadQueue[1]?.status).toBe("uploading");
@@ -1019,6 +1022,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
         },
       } as unknown as ChangeEvent<HTMLInputElement>),
     );
+    act(() => result.current.confirmPendingSelection());
     await waitFor(() => expect(ingest.createIngestUpload).toHaveBeenCalledTimes(1));
     await waitFor(() =>
       expect(result.current.localUploadQueue.map((item) => item.status)).toEqual([
@@ -1081,6 +1085,32 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       ]),
     );
     expect(ingest.fetchPendingIngestTasks).toHaveBeenCalledWith("path_b_upload");
+    const terminalCallCount = ingest.fetchIngestTaskStatus.mock.calls.length;
+    await new Promise((resolve) => window.setTimeout(resolve, 35));
+    expect(ingest.fetchIngestTaskStatus).toHaveBeenCalledTimes(terminalCallCount);
+  });
+
+  it("服务端取消状态终止轮询并释放浏览器文件引用", async () => {
+    ingest.createIngestUpload.mockResolvedValue({ ingest_task_id: "cancelled-task" });
+    ingest.fetchIngestTaskStatus.mockResolvedValue(
+      taskStatus("cancelled-task", "cancelled", "cancelled"),
+    );
+    const { result } = renderHook(() => useUploadFlow());
+    await waitFor(() => expect(auth.fetchAuthMe).toHaveBeenCalled());
+
+    act(() =>
+      result.current.handleFileDrop([
+        new File(["cancelled"], "cancelled.pdf", { type: "application/pdf" }),
+      ]),
+    );
+
+    await waitFor(() =>
+      expect(result.current.localUploadQueue[0]).toMatchObject({
+        status: "cancelled",
+        file: null,
+        error: null,
+      }),
+    );
     const terminalCallCount = ingest.fetchIngestTaskStatus.mock.calls.length;
     await new Promise((resolve) => window.setTimeout(resolve, 35));
     expect(ingest.fetchIngestTaskStatus).toHaveBeenCalledTimes(terminalCallCount);

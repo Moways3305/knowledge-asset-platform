@@ -66,9 +66,14 @@ const jobStatusLabel: Record<string, string> = {
 };
 
 const ingestStatusLabel: Record<string, string> = {
+  pending: "待处理",
   processing: "处理中",
   pending_confirmation: "待业务确认",
+  waiting_review: "待审核",
+  rejected: "已驳回",
   completed: "已完成",
+  duplicate_skipped: "重复跳过",
+  cancelled: "已取消",
   failed: "处理失败",
 };
 

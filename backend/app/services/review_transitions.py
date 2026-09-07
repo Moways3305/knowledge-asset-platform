@@ -10,6 +10,7 @@ from app.schemas.enums import ReviewTaskStatus
 TERMINAL_REVIEW_STATES = {
     ReviewTaskStatus.approved.value,
     ReviewTaskStatus.rejected.value,
+    ReviewTaskStatus.cancelled.value,
 }
 
 

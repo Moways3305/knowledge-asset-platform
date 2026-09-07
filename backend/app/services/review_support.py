@@ -36,7 +36,11 @@ from app.schemas.review import (
 )
 from app.services import governance_policy, naming_rules
 
-_TERMINAL = {ReviewTaskStatus.approved.value, ReviewTaskStatus.rejected.value}
+_TERMINAL = {
+    ReviewTaskStatus.approved.value,
+    ReviewTaskStatus.rejected.value,
+    ReviewTaskStatus.cancelled.value,
+}
 _NON_TERMINAL = {
     ReviewTaskStatus.pending_evidence.value,
     ReviewTaskStatus.pending_reviewer.value,

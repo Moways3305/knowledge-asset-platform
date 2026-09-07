@@ -68,6 +68,14 @@ class IngestTask(Base):
     processing_attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     processing_worker_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     processing_job_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Cooperative cancellation is durable across HTTP, broker, and worker processes.
+    # A running worker owns the transition to ``cancelled`` at a safe stage boundary.
+    cancel_requested: Mapped[bool] = mapped_column(nullable=False, default=False)
+    # Review-linked cancelled rows must remain for referential/audit history. This
+    # timestamp proves their controlled bytes were already removed.
+    cancellation_cleaned_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     recovery_not_before: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

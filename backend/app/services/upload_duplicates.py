@@ -659,7 +659,9 @@ async def decide_duplicate(
 
 
 def my_upload_projection(task: IngestTask, *, project_name: str | None = None) -> MyUploadItem:
-    if task.status == IngestStatus.duplicate_skipped.value:
+    if task.status == IngestStatus.cancelled.value or task.cancel_requested:
+        final_status = "cancelled"
+    elif task.status == IngestStatus.duplicate_skipped.value:
         final_status = "duplicate_skipped"
     elif task.status == IngestStatus.completed.value:
         final_status = "completed"

@@ -5,6 +5,7 @@ const TASK_STATUS_LABEL: Record<string, string> = {
   completed: "已完成",
   partial: "部分完成",
   failed: "失败",
+  cancelled: "已取消",
   duplicate_skipped: "重复跳过",
 };
 

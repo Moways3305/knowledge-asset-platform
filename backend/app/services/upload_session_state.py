@@ -14,6 +14,8 @@ COMPLETED_ITEM_STATES = frozenset(
 
 
 def task_item_state(task: IngestTask) -> str:
+    if task.status == IngestStatus.cancelled.value or task.cancel_requested:
+        return "cancelled"
     if task.status == IngestStatus.pending_confirmation.value:
         return "awaiting_confirmation"
     if task.status == IngestStatus.duplicate_skipped.value:
