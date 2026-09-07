@@ -6165,6 +6165,7 @@
           "indexing_queued",
           "indexing_in_progress",
           "completed",
+          "cancelled",
           "failed",
           "degraded_complete"
         ],
@@ -6286,6 +6287,7 @@
           "action_required",
           "waiting",
           "completed",
+          "cancelled",
           "degraded",
           "failed"
         ],
@@ -9009,7 +9011,8 @@
               "waiting_review",
               "completed",
               "failed",
-              "duplicate_skipped"
+              "duplicate_skipped",
+              "cancelled"
             ],
             "title": "Final Status",
             "type": "string"
@@ -14705,7 +14708,8 @@
           "approving",
           "approval_failed",
           "approved",
-          "rejected"
+          "rejected",
+          "cancelled"
         ],
         "title": "ReviewTaskStatus",
         "type": "string"
@@ -29189,6 +29193,97 @@
           }
         },
         "summary": "Append Upload Transport Batch",
+        "tags": [
+          "ingest"
+        ]
+      }
+    },
+    "/api/v1/ingest/upload-sessions/{session_id}/cancel": {
+      "post": {
+        "operationId": "cancel_upload_session_api_v1_ingest_upload_sessions__session_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Upload Session",
         "tags": [
           "ingest"
         ]
