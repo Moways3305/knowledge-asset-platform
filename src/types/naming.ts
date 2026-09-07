@@ -128,7 +128,7 @@ export interface NamingPreviewDTO {
   version_source?: "source_filename" | "ai_content" | "default_needs_confirmation";
   version_confidence?: "high" | "medium" | "low";
   version_reason?: string;
-  suggested_confidentiality_level?: string;
+  suggested_confidentiality_level?: string | null;
   confidentiality_source?: "ai_content" | "default_needs_confirmation";
   confidentiality_confidence?: "high" | "medium" | "low";
   confidentiality_reason?: string;
@@ -170,7 +170,7 @@ export interface BatchNamingPreviewItemDTO {
   version_source?: "source_filename" | "ai_content" | "default_needs_confirmation";
   version_confidence?: "high" | "medium" | "low";
   version_reason?: string;
-  suggested_confidentiality_level?: string;
+  suggested_confidentiality_level?: string | null;
   confidentiality_source?: "ai_content" | "default_needs_confirmation";
   confidentiality_confidence?: "high" | "medium" | "low";
   confidentiality_reason?: string;

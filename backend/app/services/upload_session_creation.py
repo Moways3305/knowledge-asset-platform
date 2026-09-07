@@ -76,6 +76,7 @@ async def create_session(
             file_name=display_name,
             file_size=candidate.file_size,
             file_type=candidate.file_type,
+            suggested_formed_on=candidate.suggested_formed_on,
             status="failed" if candidate.error_code else "waiting",
             safe_error_code=candidate.error_code,
             safe_error_message=candidate.error_message,

@@ -315,7 +315,7 @@ class NamingPreviewResponse(BaseModel):
     )
     version_confidence: Literal["high", "medium", "low"] = "low"
     version_reason: str = "未能可靠判断版本，已使用规则默认值"
-    suggested_confidentiality_level: ConfidentialityLevel = ConfidentialityLevel.L2
+    suggested_confidentiality_level: ConfidentialityLevel | None = None
     confidentiality_source: Literal["ai_content", "default_needs_confirmation"] = (
         "default_needs_confirmation"
     )
@@ -374,7 +374,7 @@ class BatchNamingPreviewItemResponse(BaseModel):
     )
     version_confidence: Literal["high", "medium", "low"] = "low"
     version_reason: str = "未能可靠判断版本，已使用规则默认值"
-    suggested_confidentiality_level: ConfidentialityLevel = ConfidentialityLevel.L2
+    suggested_confidentiality_level: ConfidentialityLevel | None = None
     confidentiality_source: Literal["ai_content", "default_needs_confirmation"] = (
         "default_needs_confirmation"
     )

@@ -2073,8 +2073,14 @@
             "type": "boolean"
           },
           "suggested_confidentiality_level": {
-            "$ref": "#/components/schemas/ConfidentialityLevel",
-            "default": "L2"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConfidentialityLevel"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "suggested_version": {
             "default": "V1",
@@ -2333,6 +2339,17 @@
             "contentMediaType": "application/octet-stream",
             "title": "File",
             "type": "string"
+          },
+          "formed_on": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Formed On"
           }
         },
         "required": [
@@ -5429,6 +5446,17 @@
               }
             ],
             "title": "Suggested Confidentiality Level"
+          },
+          "suggested_formed_on": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Formed On"
           },
           "suggested_key_points": {
             "anyOf": [
@@ -9492,8 +9520,14 @@
             "title": "Rule Version"
           },
           "suggested_confidentiality_level": {
-            "$ref": "#/components/schemas/ConfidentialityLevel",
-            "default": "L2"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConfidentialityLevel"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "suggested_version": {
             "default": "V1",

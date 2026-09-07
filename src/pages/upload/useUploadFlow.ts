@@ -13,6 +13,7 @@ import { type PathBranch, type TargetLibrary } from "./uploadConstants";
 import { useIngestConfirmation } from "./useIngestConfirmation";
 import { useUploadIntake } from "./useUploadIntake";
 import { usePendingIngest } from "./usePendingIngest";
+import { hasReliableAiConfidentiality } from "./pendingBatchReviewState";
 
 function classifyPermanentRejectError(error: unknown): { message: string; retryable: boolean } {
   if (!(error instanceof ApiError)) {
@@ -304,6 +305,12 @@ export function useUploadFlow() {
               ai.suggested_one_liner?.trim() ||
               "";
             if (!title || !summary) throw new Error("该资料缺少可确认的标题或摘要");
+            const confidentiality =
+              governedNaming?.confidentiality_level ||
+              (hasReliableAiConfidentiality(ai) ? ai.suggested_confidentiality_level : "");
+            if (!/^L[1-5]$/.test(confidentiality ?? "")) {
+              throw new Error("该资料密级尚未确定，请人工选择后确认");
+            }
             if (!isCurrent()) return;
             prepared.push({
               task,
@@ -321,10 +328,7 @@ export function useUploadFlow() {
                 target_scope: destination,
                 target_project_id: destination === "project" ? destinationProjectId : undefined,
                 target_zone: "material",
-                confidentiality_level:
-                  governedNaming?.confidentiality_level ||
-                  ai.suggested_confidentiality_level ||
-                  "L2",
+                confidentiality_level: confidentiality!,
                 embedding_model_ref: models.embeddingRef || undefined,
                 rerank_model_ref: models.rerankRef || undefined,
                 acknowledged_naming_warning_codes: warningCodesByTask?.[task.id] ?? [],

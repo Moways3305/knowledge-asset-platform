@@ -68,14 +68,11 @@ export async function createUploadSession(input: {
 }): Promise<UploadSessionDTO> {
   const form = new FormData();
   input.files.forEach((file) => form.append("files", file, file.name));
-  const formedOnMap: Record<string, string> = {};
-  for (const file of input.files) {
-    const formedOn = localDateFromMs(file.lastModified);
-    if (formedOn) formedOnMap[file.name] = formedOn;
-  }
-  if (Object.keys(formedOnMap).length > 0) {
-    form.append("client_formed_on", JSON.stringify(formedOnMap));
-  }
+  // Preserve multipart order, including null entries and duplicate filenames.
+  form.append(
+    "client_formed_on",
+    JSON.stringify(input.files.map((file) => localDateFromMs(file.lastModified))),
+  );
   if (input.rejectedFiles?.length) {
     form.append("client_rejections", JSON.stringify(input.rejectedFiles));
   }
@@ -189,6 +186,8 @@ export async function replaceUploadSessionItemBytes(input: {
 }): Promise<UploadSessionDTO> {
   const form = new FormData();
   form.append("file", input.file, input.file.name);
+  const formedOn = localDateFromMs(input.file.lastModified);
+  if (formedOn) form.append("formed_on", formedOn);
   return withCsrfRetry(async () => {
     const response = await fetch(
       `${BASE_URL}/api/v1/ingest/upload-sessions/${input.sessionId}/items/${input.itemId}/bytes`,
@@ -203,9 +202,10 @@ export async function replaceUploadSessionItemBytes(input: {
   });
 }
 
-function localDateFromMs(ms: number): string | null {
+export function localDateFromMs(ms: number): string | null {
   if (!Number.isFinite(ms) || ms <= 0) return null;
   const d = new Date(ms);
+  if (!Number.isFinite(d.getTime())) return null;
   const y = d.getFullYear();
   const m = `${d.getMonth() + 1}`.padStart(2, "0");
   const day = `${d.getDate()}`.padStart(2, "0");

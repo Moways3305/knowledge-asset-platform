@@ -17,6 +17,7 @@ import {
   fetchUploadSession,
   fetchUploadSessions,
   initializeUploadSession,
+  localDateFromMs,
   recordUploadTransportFailure,
   removeFailedUploadSessionItems,
   removeUploadSessionItem,
@@ -725,6 +726,7 @@ export function useUploadIntake({
             file_size: candidate.file.size,
             file_type: candidate.file.type || undefined,
             transport_batch_index: transportIndexByOrdinal.get(ordinal),
+            formed_on: localDateFromMs(candidate.file.lastModified) ?? undefined,
             rejection: rejection
               ? {
                   file_name: candidate.file.name,

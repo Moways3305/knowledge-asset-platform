@@ -219,6 +219,7 @@ class IngestAiResultResponse(BaseModel):
     仅保留运营元数据（状态、命名校验、级别、置信度）。
     """
 
+    suggested_formed_on: str | None = None
     ingest_task_id: uuid.UUID
     status: str
     suggested_title: str | None = None
@@ -431,7 +432,7 @@ class PendingIngestItem(BaseModel):
     source_file_size: int | None = None
     target_scope: str | None = None
     target_project_id: uuid.UUID | None = None
-    # 文件形成日期建议（YYYY-MM-DD；客户端文件修改时间 / 文件名兜底），人工可改可清空。
+    # 原文件最后修改日期（YYYY-MM-DD）；无有效客户端日期时留空，不从文件名推断，人工可改可清空。
     suggested_formed_on: str | None = None
     # Server-derived UX capability. This never replaces confirmation endpoint
     # authorization or validation.

@@ -1,4 +1,4 @@
-"""文件形成日期建议（lastModified → 文件名正则）+ 预览渲染类型分发测试。"""
+"""原文件修改日期仅来自客户端元数据，不以文件名日期兜底；另测预览类型。"""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ def _hdr(user_id):
     return {"X-Dev-User-Id": str(user_id)}
 
 
-# ---------------- 文件名日期正则 ----------------
+# 历史解析工具仍可识别文件名日期，但不能作为上传修改日期的来源。
 @pytest.mark.parametrize(
     ("file_name", "expected"),
     [
@@ -91,18 +91,22 @@ async def test_single_upload_invalid_formed_on_ignored(client, db_session):
     assert task.suggested_formed_on is None
 
 
-async def test_single_upload_filename_fallback(client, db_session):
+@pytest.mark.parametrize("metadata", [{}, {"formed_on": "invalid"}])
+async def test_single_upload_without_valid_modified_date_does_not_infer_filename(
+    client, db_session, metadata
+):
     resp = await client.post(
         "/api/v1/ingest/upload",
         headers=_hdr(USER_CONSULTANT),
         files={"file": ("需求文档20260805.txt", "内容".encode(), "text/plain")},
+        data=metadata,
     )
     assert resp.status_code == 200, resp.text
     task_id = uuid.UUID(resp.json()["ingest_task_id"])
     task = (
         await db_session.execute(select(IngestTask).where(IngestTask.id == task_id))
     ).scalar_one()
-    assert task.suggested_formed_on == "2026-08-05"
+    assert task.suggested_formed_on is None
 
 
 # ---------------- 批量上传（upload-sessions）带 client_formed_on ----------------
@@ -134,11 +138,15 @@ async def test_session_persists_client_formed_on(client, db_session):
     assert task.suggested_formed_on == "2026-07-29"
 
 
-async def test_session_filename_fallback(client, db_session):
+@pytest.mark.parametrize("metadata", [{}, {"client_formed_on": '["invalid"]'}])
+async def test_session_without_valid_modified_date_does_not_infer_filename(
+    client, db_session, metadata
+):
     resp = await client.post(
         "/api/v1/ingest/upload-sessions",
         headers=_hdr(USER_CONSULTANT),
         files=[("files", ("需求文档20260730.txt", b"x", "text/plain"))],
+        data=metadata,
     )
     assert resp.status_code == 200, resp.text
     item = (
@@ -149,4 +157,5 @@ async def test_session_filename_fallback(client, db_session):
     task = (
         await db_session.execute(select(IngestTask).where(IngestTask.id == item.ingest_task_id))
     ).scalar_one()
-    assert task.suggested_formed_on == "2026-07-30"
+    assert task.suggested_formed_on is None
+    assert item.suggested_formed_on is None

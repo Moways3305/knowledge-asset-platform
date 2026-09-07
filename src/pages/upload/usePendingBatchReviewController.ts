@@ -10,7 +10,7 @@ import {
 } from "./pendingBatchCommands";
 import {
   DATE_PATTERN,
-  directoryDefaultConfidentiality,
+  hasReliableAiConfidentiality,
   initialRows,
   reviewState,
   rowMissing,
@@ -440,6 +440,10 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
   const advanceTarget = async () => {
     if (!targetReady) return;
     if (targetLibrary === "personal") {
+      if (selectedConfirmTasks.some((task) => !hasReliableAiConfidentiality(task))) {
+        setDialogError("部分资料的密级尚未确定，请打开单文件确认页选择密级后入库。");
+        return;
+      }
       if (
         !formalDirectories.some((directory) => directory.directory_key === bulkPersonalDirectoryKey)
       ) {
@@ -459,7 +463,7 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
                 (
                   await previewIngestNaming(task.id, {
                     target_scope: "personal",
-                    confidentiality_level: task.suggested_confidentiality_level ?? "L2",
+                    confidentiality_level: task.suggested_confidentiality_level!,
                   })
                 ).duplicate ??
                   task.duplicate ??
@@ -511,10 +515,6 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
         if (bulkDirectoryKey) {
           selectedConfirmTasks.forEach((task) => {
             nextRows[task.id].directory_key = bulkDirectoryKey;
-            nextRows[task.id].confidentiality_level = directoryDefaultConfidentiality(
-              value,
-              bulkDirectoryKey,
-            );
           });
         }
         setRows(nextRows);
@@ -827,9 +827,12 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
           return next;
         });
       } else if (targetLibrary === "personal") {
+        if (!hasReliableAiConfidentiality(task)) {
+          throw new Error("密级尚未确定，请打开单文件确认页选择密级。");
+        }
         const refreshed = await previewIngestNaming(task.id, {
           target_scope: "personal",
-          confidentiality_level: task.suggested_confidentiality_level ?? "L2",
+          confidentiality_level: task.suggested_confidentiality_level!,
         });
         setPersonalDuplicates((current) => ({
           ...current,

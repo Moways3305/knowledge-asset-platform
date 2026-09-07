@@ -340,15 +340,8 @@ export default function PendingBatchNamingReview(props: Props) {
                     value={row.directory_key}
                     onChange={(event) => {
                       const directoryKey = event.target.value;
-                      const directory = options?.directories.find(
-                        (item) => item.directory_key === directoryKey,
-                      );
                       updateRow(task.id, {
                         directory_key: directoryKey,
-                        confidentiality_level:
-                          directory?.default_confidentiality ||
-                          options?.default_confidentiality ||
-                          "L2",
                       });
                     }}
                   >
@@ -369,9 +362,9 @@ export default function PendingBatchNamingReview(props: Props) {
                   </small>
                 </label>
                 <label>
-                  <span>文件形成日期</span>
+                  <span>文件最后修改日期</span>
                   <input
-                    aria-label={`${task.source_file_name} 文件形成日期`}
+                    aria-label={`${task.source_file_name} 文件最后修改日期`}
                     type="date"
                     value={row.formed_on}
                     onChange={(event) => updateRow(task.id, { formed_on: event.target.value })}
@@ -435,6 +428,7 @@ export default function PendingBatchNamingReview(props: Props) {
                       updateRow(task.id, { confidentiality_level: event.target.value })
                     }
                   >
+                    <option value="">请选择密级（AI 无可靠结论时需人工确认）</option>
                     {["L1", "L2", "L3", "L4", "L5"].map((level) => (
                       <option key={level}>{level}</option>
                     ))}
@@ -454,7 +448,7 @@ export default function PendingBatchNamingReview(props: Props) {
                         ? `AI 内容建议 · ${
                             task.confidentiality_confidence === "high" ? "高" : "中"
                           }置信度`
-                        : "AI 未确定，规则默认，需核对"}
+                        : "AI 未可靠判断，请人工选择"}
                   </small>
                 </label>
               </div>

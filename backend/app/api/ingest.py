@@ -98,11 +98,8 @@ def _normalize_formed_on(value: str | None) -> str | None:
 
 
 def _formed_on_for(client_map: dict[str, str], file_name: str) -> str | None:
-    """文件形成日期建议：客户端 lastModified 优先，其次文件名正则兜底。"""
-    client_value = _normalize_formed_on(client_map.get(file_name))
-    if client_value:
-        return client_value
-    return upload_session_service.extract_formed_on_from_filename(file_name)
+    """仅使用客户端原文件 lastModified，不用文件名日期冒充修改时间。"""
+    return _normalize_formed_on(client_map.get(file_name))
 
 
 @router.post("/ingest/upload-sessions/init", response_model=UploadSessionResponse)
@@ -375,6 +372,7 @@ async def replace_upload_transport_item_bytes(
     item_id: uuid.UUID,
     request: Request,
     file: UploadFile = File(),
+    formed_on: str | None = Form(default=None),
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
     storage: LocalFileStorage = Depends(get_storage),
@@ -431,6 +429,7 @@ async def replace_upload_transport_item_bytes(
                 file_type=file.content_type,
                 storage_ref=storage_ref,
                 content_hash=hashlib.sha256(content).hexdigest(),
+                suggested_formed_on=_normalize_formed_on(formed_on),
             ),
         )
         persisted = True
@@ -533,8 +532,7 @@ async def create_upload(
         file_mime_type=file.content_type,
         target_scope=target_scope,
         target_project_id=target_project_id,
-        formed_on=_normalize_formed_on(formed_on)
-        or upload_session_service.extract_formed_on_from_filename(file_name),
+        formed_on=_normalize_formed_on(formed_on),
         storage=storage,
         llm=llm,
         desensitizer=desensitizer,
@@ -572,9 +570,15 @@ async def create_upload_session(
         return existing
     candidates: list[upload_session_service.UploadCandidate] = []
     client_formed_map: dict[str, str] = {}
+    client_formed_dates: list[str | None] | None = None
     if client_formed_on:
         try:
             parsed_formed_on = json.loads(client_formed_on)
+            if isinstance(parsed_formed_on, list) and len(parsed_formed_on) == len(files or []):
+                client_formed_dates = [
+                    _normalize_formed_on(value) if isinstance(value, str) else None
+                    for value in parsed_formed_on
+                ]
             if (
                 isinstance(parsed_formed_on, dict)
                 and len(parsed_formed_on) <= _CLIENT_FORMED_ON_LIMIT
@@ -658,7 +662,11 @@ async def create_upload_session(
                     error_message=rejection_message,
                 )
             )
-    for file in files or []:
+    file_name_counts: dict[str, int] = {}
+    for entry in files or []:
+        name = entry.filename or "file"
+        file_name_counts[name] = file_name_counts.get(name, 0) + 1
+    for file_ordinal, file in enumerate(files or []):
         file_name = file.filename or "file"
         metadata_message = upload_session_service.macos_metadata_error(file_name)
         if metadata_message is not None:
@@ -752,7 +760,13 @@ async def create_upload_session(
                         file_type=file.content_type,
                         storage_ref=storage_ref,
                         content_hash=hashlib.sha256(content).hexdigest(),
-                        suggested_formed_on=_formed_on_for(client_formed_map, file_name),
+                        suggested_formed_on=(
+                            client_formed_dates[file_ordinal]
+                            if client_formed_dates is not None
+                            else _formed_on_for(client_formed_map, file_name)
+                            if file_name_counts.get(file.filename or "file") == 1
+                            else None
+                        ),
                     )
                 )
             except StorageError:

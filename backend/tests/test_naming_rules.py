@@ -251,6 +251,8 @@ async def test_company_preview_requires_governance_and_applicable_to(client):
     )
     assert allowed.status_code == 200, allowed.text
     assert allowed.json()["canonical_name"].startswith("【方法论】")
+    assert "source_全公司_20260831_V1_L2.txt" in allowed.json()["canonical_name"]
+    assert "项目方法沉淀" not in allowed.json()["canonical_name"]
 
 
 async def test_legacy_category_input_is_read_only_and_does_not_rewrite_project_code(

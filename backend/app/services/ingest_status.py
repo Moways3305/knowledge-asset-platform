@@ -45,6 +45,14 @@ class _TaskContext:
 
 
 _SAFE_ERRORS = {
+    "extraction_process_terminated": (
+        "文件解析进程被终止，原件已保留。",
+        "请管理员检查容器内存、进程限制和终止日志后重试；这不代表文件损坏。",
+    ),
+    "extraction_memory_limit": (
+        "文件解析达到内存限制，原件已保留。",
+        "请管理员检查资源，或拆分文件后重试。",
+    ),
     "ingest_processing_failed": (
         "文件处理暂时失败。",
         "稍后重试；若持续失败，请联系管理员检查后台任务与文件存储。",
@@ -328,6 +336,10 @@ def _response(
                     "ingest_task_retry" if retryable else None,
                     enabled=retryable,
                 )
+        elif task.error_type in {"extraction_process_terminated", "extraction_memory_limit"}:
+            error = _safe_error(task.error_type)
+            retryable = task.created_by == caller.user_id or caller.can_discover_l5
+            next_action = _action("retry_processing", "ingest_task_retry", enabled=retryable)
         elif task.error_type == "ocr_resource_limit":
             error = _safe_error("ocr_resource_limit")
             next_action = _action("replace_file", "upload")
@@ -704,6 +716,8 @@ async def retry_task(
         IngestStatus.failed.value,
         IngestStatus.processing.value,
     } and task.error_type in {
+        "extraction_process_terminated",
+        "extraction_memory_limit",
         "processing_error",
         "worker_lost",
         "broker_or_container_restart",
@@ -716,6 +730,8 @@ async def retry_task(
                 IngestTask.status.in_({IngestStatus.failed.value, IngestStatus.processing.value}),
                 IngestTask.error_type.in_(
                     {
+                        "extraction_process_terminated",
+                        "extraction_memory_limit",
                         "processing_error",
                         "worker_lost",
                         "broker_or_container_restart",

@@ -76,6 +76,9 @@ async def _reconcile_and_promote(
                     item.safe_error_message = (
                         "文件处理超过安全时限且近期无活动；请重试或移除"
                         if task.error_type == "processing_timeout"
+                        else "解析进程被终止或达到内存限制，原件已保留；请管理员检查资源后重试"
+                        if task.error_type
+                        in {"extraction_process_terminated", "extraction_memory_limit"}
                         else "文件处理失败，请检查文件后重试"
                     )
                 else:

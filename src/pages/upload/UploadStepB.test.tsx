@@ -25,6 +25,10 @@ function pending(id: string, fileName: string): PendingIngestItemDTO {
     error_type: null,
     error_message: null,
     suggested_title: "安全标题",
+    suggested_formed_on: "2026-08-03",
+    suggested_confidentiality_level: "L2",
+    confidentiality_source: "ai_content",
+    confidentiality_confidence: "high",
     suggested_one_liner: null,
     naming_parsed_fields: null,
     confidence: null,
@@ -609,6 +613,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
   it("requires each governed item to provide a formed date and receive a server preview", async () => {
     const task = {
       ...pending("governed", "Governed.pdf"),
+      suggested_formed_on: null,
       target_scope: null,
       naming_parsed_fields: {
         primary_category: "",
@@ -652,7 +657,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "下一步：核对命名" }));
 
-    const date = await screen.findByLabelText("Governed.pdf 文件形成日期");
+    const date = await screen.findByLabelText("Governed.pdf 文件最后修改日期");
     expect(date).toHaveValue("");
     expect(screen.getByRole("button", { name: "确认已选择的 1 项入库" })).toBeDisabled();
     expect(screen.getAllByText(/仍有 1 条需补充形成日期/)).toHaveLength(1);
@@ -720,7 +725,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
       target: { value: "project-a" },
     });
     fireEvent.click(screen.getByRole("button", { name: "下一步：核对命名" }));
-    await screen.findByLabelText("Diagnostic.pdf 文件形成日期");
+    await screen.findByLabelText("Diagnostic.pdf 文件最后修改日期");
     fireEvent.click(screen.getByRole("button", { name: "生成或刷新全部预览" }));
 
     const versionInput = screen.getByLabelText("Diagnostic.pdf 版本");
@@ -831,7 +836,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
     expect(screen.getByRole("button", { name: "需人工补齐（1）" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "异常/重复（0）" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "需人工补齐（1）" }));
-    fireEvent.change(screen.getByLabelText("待分类资料.md 文件形成日期"), {
+    fireEvent.change(screen.getByLabelText("待分类资料.md 文件最后修改日期"), {
       target: { value: "2026-08-03" },
     });
 
@@ -1022,6 +1027,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
     const longName = `${"超长项目资料文件名".repeat(12)}.pdf`;
     const tasks = Array.from({ length: 213 }, (_, index) => ({
       ...pending(`bulk-${index}`, `${index}-${longName}`),
+      suggested_formed_on: index === 0 ? "2026-08-02" : null,
       target_scope: null,
       naming_parsed_fields:
         index === 0

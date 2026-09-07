@@ -43,7 +43,7 @@ class UploadCandidate:
     content_hash: str | None = None
     error_code: str | None = None
     error_message: str | None = None
-    # 文件形成日期建议（YYYY-MM-DD，客户端 lastModified 或文件名正则兜底）。
+    # 原文件最后修改日期（YYYY-MM-DD，来自客户端 lastModified）；缺失或无效时留空。
     suggested_formed_on: str | None = None
 
 

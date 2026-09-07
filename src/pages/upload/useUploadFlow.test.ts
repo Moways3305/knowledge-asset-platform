@@ -87,6 +87,9 @@ const readyAiResult: IngestAiResultDTO = {
   desensitization_message: null,
   suggested_asset_type: "methodology",
   suggested_confidentiality_level: "L2",
+  confidentiality_source: "ai_content",
+  confidentiality_confidence: "high",
+  suggested_formed_on: "2026-08-03",
   suggested_ai_access_level: "A2",
   suggested_phase_key: "行动辅导",
   confidence: 0.9,
@@ -434,6 +437,39 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       await result.current.handleSubmit();
     });
     expect(ingest.confirmIngest).not.toHaveBeenCalled();
+  });
+
+  it("keeps missing confidentiality empty until manual selection and never applies a directory default", async () => {
+    ingest.fetchIngestAiResult.mockResolvedValueOnce({
+      ...readyAiResult,
+      suggested_confidentiality_level: "L2",
+      confidentiality_source: null,
+      confidentiality_confidence: null,
+      suggested_formed_on: null,
+      naming_parsed_fields: { date: "19990101" },
+    });
+    const { result } = renderHook(() => useUploadFlow());
+    await driveToReady(result);
+    expect(result.current.editConfidentiality).toBe("");
+    expect(result.current.namingFormedOn).toBe("");
+    act(() => result.current.setDirectoryKey("personal.learning_notes"));
+    expect(result.current.editConfidentiality).toBe("");
+    await act(async () => result.current.handleSubmit());
+    expect(ingest.confirmIngest).not.toHaveBeenCalled();
+    act(() => result.current.setEditConfidentiality("L4"));
+    act(() => result.current.setDirectoryKey("personal.project_materials"));
+    expect(result.current.editConfidentiality).toBe("L4");
+  });
+
+  it("uses the uploaded file modification date instead of the AI document date", async () => {
+    ingest.fetchIngestAiResult.mockResolvedValueOnce({
+      ...readyAiResult,
+      suggested_formed_on: "2026-09-07",
+      naming_parsed_fields: { date: "20180801" },
+    });
+    const { result } = renderHook(() => useUploadFlow());
+    await driveToReady(result);
+    expect(result.current.namingFormedOn).toBe("2026-09-07");
   });
 
   it("applies the server-deidentified project subject before preview and confirmation", async () => {

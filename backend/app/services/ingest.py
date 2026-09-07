@@ -305,6 +305,7 @@ async def get_ai_result(
     advice = safe_naming_advice(ai)
     base = IngestAiResultResponse(
         ingest_task_id=task.id,
+        suggested_formed_on=task.suggested_formed_on if is_full else None,
         status=task.status,
         suggested_asset_type=ai.suggested_asset_type if ai else None,
         **advice,

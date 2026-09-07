@@ -902,7 +902,9 @@ async def _process_upload_task_impl(
     failed = extraction_failed or generation_failed
     task.status = IngestStatus.failed.value if failed else IngestStatus.pending_confirmation.value
     task.processing_stage = (
-        "waiting_generation_config"
+        "text_extraction"
+        if extraction_failed
+        else "waiting_generation_config"
         if generation_failed and fields.get("generation_error_category") == "configuration_error"
         else "content_generation_failed"
         if generation_failed
