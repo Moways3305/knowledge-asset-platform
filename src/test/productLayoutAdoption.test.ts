@@ -165,13 +165,17 @@ describe("product layout and route contract", () => {
   it("keeps the upload empty state to one bordered input control", () => {
     const page = read("src/pages/UploadPage.tsx");
     const localUpload = read("src/pages/upload/UploadStepB.tsx");
+    const fileTasks = read("src/pages/upload/UnifiedFileTasks.tsx");
     const confirmation = read("src/pages/upload/UploadConfirmPanel.tsx");
     expect(page).toContain('title="上传文件"');
     expect(page).not.toContain("UploadNamingCard");
     expect(localUpload).toContain('className="upload-dropzone upload77-dropzone"');
     expect(localUpload).toContain("className={`upload-inline-info");
     expect(localUpload).not.toContain("dropzone-security");
-    expect(localUpload).toContain('aria-labelledby="local-pending-title"');
+    expect(localUpload).toContain("<UnifiedFileTasks flow={flow} />");
+    expect(localUpload).not.toContain('aria-labelledby="local-upload-queue-title"');
+    expect(fileTasks).toContain('aria-labelledby="local-pending-title"');
+    expect(fileTasks.match(/<table\b/g)).toHaveLength(1);
     expect(confirmation).not.toContain("保存草稿");
     expect(confirmation).not.toContain("Import from URL");
   });

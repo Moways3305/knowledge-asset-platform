@@ -66,7 +66,7 @@ async def _run(
     return result
 
 
-async def _process(maker, task_id_str, trace_id, worker_id, job_id):
+async def _process(maker, task_id_str, trace_id, worker_id, job_id) -> str:
     from app.services.desensitization import get_desensitizer
     from app.services.generation_models import resolve_generation_llm_client
     from app.services.jobs import ingest_processing
