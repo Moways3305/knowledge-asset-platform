@@ -95,25 +95,19 @@ async def _reconcile_and_promote(
             item.safe_error_code = None
             item.safe_error_message = None
 
-    batches = sorted({item.batch_index for item in value.items})
-    batch_to_promote: int | None = None
-    for batch_index in batches:
-        items = [item for item in value.items if item.batch_index == batch_index]
-        if any(item.status not in _TERMINAL_ITEM_STATES for item in items):
-            if all(item.status == "waiting" for item in items if item.ingest_task_id):
-                batch_to_promote = batch_index
-            break
-    promote_items = (
-        [
-            item
-            for item in value.items
-            if item.batch_index == batch_to_promote
-            and item.status == "waiting"
-            and item.ingest_task_id
-        ]
-        if batch_to_promote is not None
-        else []
-    )
+    # Rolling admission: a completed/failed/cancelled item frees a slot immediately.
+    # Awaiting human confirmation must not hold a processing slot.
+    from app.core.config import get_settings
+
+    active_count = sum(item.status == "processing" for item in value.items)
+    available = max(0, get_settings().ingest_processing_window - active_count)
+    promote_items = [
+        item
+        for item in sorted(value.items, key=lambda item: item.ordinal)
+        if item.status == "waiting"
+        and item.ingest_task_id
+        and not tasks[item.ingest_task_id].cancel_requested
+    ][:available]
     for item in promote_items:
         task_id = item.ingest_task_id
         if task_id is None:

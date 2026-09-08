@@ -33,3 +33,10 @@ def recover_orphaned_ingest_tasks() -> dict[str, int]:
         "redispatched": summary.redispatched,
         "cancellation_cleaned": summary.cancellation_cleaned,
     }
+
+
+@celery_app.task(name="ingest.recover_stale_uploads")
+def refill_waiting_uploads():
+    from app.services.upload_window import refill_upload_window
+
+    return run_task(refill_upload_window, label="ingest.recover_stale_uploads")

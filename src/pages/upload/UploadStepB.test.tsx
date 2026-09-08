@@ -2,6 +2,8 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PendingIngestItemDTO } from "../../types/ingest";
 import UploadStepB from "./UploadStepB";
+import { mergeFileTasks } from "./UnifiedFileTasks";
+import type { LocalUploadQueueItem } from "./uploadIntake";
 import type { UploadFlow } from "./useUploadFlow";
 
 const namingApi = vi.hoisted(() => ({
@@ -90,6 +92,35 @@ function flowFixture(overrides: Record<string, unknown> = {}): UploadFlow {
 }
 
 describe("UploadStepB folder drop and batch rejection", () => {
+  it("merges by task identity without collapsing distinct same-name files", () => {
+    const local = [
+      { id: "item-a", ingestTaskId: "a", fileName: "same.pdf" },
+      { id: "item-b", ingestTaskId: "b", fileName: "same.pdf" },
+    ] as LocalUploadQueueItem[];
+    const rows = mergeFileTasks(local, [pending("a", "same.pdf"), pending("b", "same.pdf")]);
+    expect(rows).toHaveLength(2);
+    expect(rows.map((row) => row.task?.id)).toEqual(["a", "b"]);
+  });
+
+  it("requires a modal decision before starting a selected upload", () => {
+    const confirm = vi.fn();
+    const cancel = vi.fn();
+    render(
+      <UploadStepB
+        flow={flowFixture({
+          pendingSelection: { items: [new File(["body"], "check.txt")] },
+          confirmPendingSelection: confirm,
+          discardPendingSelection: cancel,
+        })}
+      />,
+    );
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("check.txt")).toBeInTheDocument();
+    expect(confirm).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "开始上传" }));
+    expect(confirm).toHaveBeenCalledTimes(1);
+  });
+
   beforeEach(() => {
     namingApi.previewIngestNaming.mockReset().mockResolvedValue({
       required: false,
@@ -167,12 +198,11 @@ describe("UploadStepB folder drop and batch rejection", () => {
       render(<UploadStepB flow={flowFixture({ localPendingTasks: [task], batchSelection: [] })} />);
 
       const table = screen.getByRole("table");
-      expect(table).toHaveClass("upload77-pending-table");
+      expect(table).toHaveClass("upload-unified-table");
       expect(table.closest(".upload77-table-wrap")).not.toBeNull();
-      expect(table.querySelectorAll("colgroup col")).toHaveLength(7);
-      expect(table.querySelector(".upload77-pending-col-file")).not.toBeNull();
-      expect(table.querySelector(".upload77-pending-col-subject")).not.toBeNull();
-      expect(screen.getByRole("columnheader", { name: "建议主题" })).toBeInTheDocument();
+      expect(table.querySelectorAll("thead th")).toHaveLength(4);
+      expect(screen.getByRole("columnheader", { name: "文件" })).toBeInTheDocument();
+      expect(screen.queryByRole("columnheader", { name: "建议主题" })).not.toBeInTheDocument();
       expect(screen.queryByRole("columnheader", { name: "建议标题" })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: fileName })).toHaveAttribute("title", fileName);
       expect(screen.getByText(subject)).toHaveClass("upload77-pending-truncate");
@@ -231,18 +261,13 @@ describe("UploadStepB folder drop and batch rejection", () => {
     ];
     render(<UploadStepB flow={flowFixture({ localUploadQueue: queue })} />);
 
-    expect(screen.getByRole("heading", { name: "本次上传队列" })).toBeInTheDocument();
-    expect(screen.getByText(/本次上传 1 项派生处理已完成/)).toBeInTheDocument();
-    expect(screen.getByText(/规范文本已生成；2 项待人工确认，尚未进入检索/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "文件任务" })).toBeInTheDocument();
+    expect(screen.getAllByRole("table")).toHaveLength(1);
     expect(screen.getByText("done.pdf")).toBeInTheDocument();
     expect(
       screen.queryByText("本文件暂未完成处理，请按操作重试或重新选择原文件"),
     ).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "前往待确认入库" })).toHaveAttribute(
-      "href",
-      "#local-pending-title",
-    );
-    expect(screen.getByRole("heading", { name: "待确认入库" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "待确认入库" })).not.toBeInTheDocument();
   });
 
   it("paginates a large queue without hiding the batch totals or failed-file recovery", async () => {
@@ -280,7 +305,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
     );
 
     expect(screen.getByLabelText("上传会话进度")).toHaveTextContent("总数10");
-    expect(screen.getByText("显示 1–8 / 10")).toBeInTheDocument();
+    expect(screen.getByText("共 12 项")).toBeInTheDocument();
     expect(screen.queryByText("file-9.pdf")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "下一页" }));
     expect(screen.getByText("file-9.pdf")).toBeInTheDocument();
@@ -374,7 +399,9 @@ describe("UploadStepB folder drop and batch rejection", () => {
 
     await act(async () => releaseRetry());
     await waitFor(() => expect(screen.getByRole("button", { name: "移除" })).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: "移除" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "移除" }));
+    });
     expect(removeLocalUpload).toHaveBeenCalledWith("single-retry");
   });
 
