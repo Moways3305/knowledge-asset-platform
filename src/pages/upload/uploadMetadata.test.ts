@@ -26,6 +26,7 @@ describe("upload source metadata", () => {
     };
     const { result, unmount } = renderHook(() => useUploadIntake(options));
     act(() => result.current.handleFileDrop([file]));
+    await act(async () => result.current.confirmPendingSelection());
     await waitFor(() =>
       expect(api.initializeUploadSession).toHaveBeenCalledWith(
         expect.objectContaining({

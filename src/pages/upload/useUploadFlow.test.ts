@@ -334,7 +334,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
   it("默认模型存在时可提交，confirm payload 携带选中的 model_ref", async () => {
     const { result } = renderHook(() => useUploadFlow());
     await driveToReady(result);
-    act(() => result.current.setDirectoryKey("personal.learning_notes"));
+    await act(async () => result.current.setDirectoryKey("personal.learning_notes"));
     expect(result.current.canSubmit).toBe(true);
 
     await act(async () => {
@@ -457,7 +457,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     await act(async () => result.current.handleSubmit());
     expect(ingest.confirmIngest).not.toHaveBeenCalled();
     act(() => result.current.setEditConfidentiality("L4"));
-    act(() => result.current.setDirectoryKey("personal.project_materials"));
+    await act(async () => result.current.setDirectoryKey("personal.project_materials"));
     expect(result.current.editConfidentiality).toBe("L4");
   });
 
@@ -688,6 +688,8 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     await waitFor(() => expect(result.current.projects).toHaveLength(1));
     const second = new File(["text"], "second.txt", { type: "text/plain" });
     act(() => result.current.handleFileDrop([file, second]));
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+    await act(async () => result.current.confirmPendingSelection());
     await waitFor(() => expect(ingest.createIngestUpload).toHaveBeenCalledTimes(2));
     expect(ingest.createIngestUpload.mock.calls.map((call) => call[0].file.name)).toEqual([
       "复盘.md",
@@ -700,6 +702,45 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     expect(
       result.current.localUploadQueue.every((item) => item.status === "awaiting_confirmation"),
     ).toBe(true);
+  });
+
+  it("取消拖拽确认后不创建任务，之后仍可重新选择", async () => {
+    const { result } = renderHook(() => useUploadFlow());
+    const file = new File(["body"], "cancel.txt", { type: "text/plain" });
+    await act(async () =>
+      result.current.handleDataTransferDrop(folderDataTransfer([droppedFile(file)])),
+    );
+    expect(result.current.pendingSelection?.items).toHaveLength(1);
+    expect(result.current.localUploadQueue).toHaveLength(0);
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+    await act(async () => result.current.discardPendingSelection());
+    expect(result.current.pendingSelection).toBeNull();
+    expect(result.current.localUploadQueue).toHaveLength(0);
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+    act(() => result.current.handleFileDrop([file]));
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+    await act(async () => result.current.confirmPendingSelection());
+    await waitFor(() => expect(ingest.createIngestUpload).toHaveBeenCalledTimes(1));
+  });
+
+  it("同一轮重复确认只创建一次上传", async () => {
+    const { result } = renderHook(() => useUploadFlow());
+    act(() => result.current.handleFileDrop([new File(["body"], "once.txt")]));
+    await act(async () => {
+      result.current.confirmPendingSelection();
+      result.current.confirmPendingSelection();
+    });
+    await waitFor(() => expect(ingest.createIngestUpload).toHaveBeenCalledTimes(1));
+  });
+
+  it("切换来源清空待确认选择，旧确认回调不能上传", async () => {
+    const { result } = renderHook(() => useUploadFlow());
+    act(() => result.current.handleFileDrop([new File(["body"], "old.txt")]));
+    const oldConfirm = result.current.confirmPendingSelection;
+    await act(async () => result.current.switchPath("a"));
+    expect(result.current.pendingSelection).toBeNull();
+    await act(async () => oldConfirm());
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
   });
 
   it("递归读取嵌套目录并按自然顺序隔离无效、超限和不可读文件", async () => {
@@ -719,6 +760,8 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     const { result } = renderHook(() => useUploadFlow());
 
     await act(async () => result.current.handleDataTransferDrop(transfer));
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+    await act(async () => result.current.confirmPendingSelection());
     await waitFor(() => expect(ingest.createIngestUpload).toHaveBeenCalledTimes(2));
     expect(ingest.createIngestUpload.mock.calls.map((call) => call[0].file.name)).toEqual([
       "one.txt",
@@ -756,6 +799,8 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     const { result } = renderHook(() => useUploadFlow());
 
     await act(async () => result.current.handleDataTransferDrop(transfer));
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+    await act(async () => result.current.confirmPendingSelection());
     await waitFor(() => expect(result.current.localUploadQueue).toHaveLength(5));
     expect(result.current.localUploadQueue.map((item) => item.status)).toEqual([
       "failed",
@@ -785,6 +830,8 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     const { result } = renderHook(() => useUploadFlow());
 
     await act(async () => result.current.handleDataTransferDrop(transfer));
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+    await act(async () => result.current.confirmPendingSelection());
     await waitFor(() => expect(ingest.createIngestUpload).toHaveBeenCalledTimes(1));
     expect(result.current.folderDropNotice).toContain("浏览器不支持读取文件夹");
     expect(result.current.localUploadQueue[0].fileName).toBe("fallback.txt");
@@ -802,6 +849,8 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     const { result } = renderHook(() => useUploadFlow());
 
     await act(async () => result.current.handleDataTransferDrop(transfer));
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+    await act(async () => result.current.confirmPendingSelection());
     await waitFor(() => expect(result.current.localUploadQueue).toHaveLength(201));
     expect(result.current.folderDropNotice).toContain("浏览器不支持读取文件夹");
     expect(result.current.folderDropNotice).not.toContain("一次最多添加");
@@ -818,6 +867,8 @@ describe("useUploadFlow model selection (PBC-38)", () => {
         folderDataTransfer([droppedDirectory("huge", entries)]),
       ),
     );
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+    await act(async () => result.current.confirmPendingSelection());
     expect(result.current.localUploadQueue).toHaveLength(201);
     expect(result.current.localUploadQueue.every((item) => item.status === "failed")).toBe(true);
     expect(result.current.folderDropNotice).toBeNull();
@@ -1104,6 +1155,8 @@ describe("useUploadFlow model selection (PBC-38)", () => {
         new File(["c"], "third.pdf", { type: "application/pdf" }),
       ]),
     );
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+    await act(async () => result.current.confirmPendingSelection());
 
     await waitFor(() =>
       expect(result.current.localUploadQueue.map((item) => item.status)).toEqual([
@@ -1139,6 +1192,8 @@ describe("useUploadFlow model selection (PBC-38)", () => {
         new File(["cancelled"], "cancelled.pdf", { type: "application/pdf" }),
       ]),
     );
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+    await act(async () => result.current.confirmPendingSelection());
 
     await waitFor(() =>
       expect(result.current.localUploadQueue[0]).toMatchObject({
@@ -1172,6 +1227,8 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     act(() =>
       result.current.handleFileDrop([new File(["a"], "degraded.pdf", { type: "application/pdf" })]),
     );
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+    await act(async () => result.current.confirmPendingSelection());
 
     await waitFor(() =>
       expect(result.current.localUploadQueue[0]).toMatchObject({
@@ -1217,6 +1274,8 @@ describe("useUploadFlow model selection (PBC-38)", () => {
         new File(["b"], "failed-stage.pdf", { type: "application/pdf" }),
       ]),
     );
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+    await act(async () => result.current.confirmPendingSelection());
 
     await waitFor(() =>
       expect(result.current.localUploadQueue.map((item) => item.status)).toEqual([
@@ -1243,6 +1302,8 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     act(() =>
       result.current.handleFileDrop([new File(["a"], "single.pdf", { type: "application/pdf" })]),
     );
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+    await act(async () => result.current.confirmPendingSelection());
     await waitFor(() => expect(ingest.fetchIngestTaskStatus).toHaveBeenCalledTimes(1));
     await new Promise((resolve) => window.setTimeout(resolve, 35));
     expect(ingest.fetchIngestTaskStatus).toHaveBeenCalledTimes(1);
@@ -1261,6 +1322,8 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     act(() =>
       result.current.handleFileDrop([new File(["a"], "switch.pdf", { type: "application/pdf" })]),
     );
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+    await act(async () => result.current.confirmPendingSelection());
     await waitFor(() => expect(ingest.fetchIngestTaskStatus).toHaveBeenCalledTimes(1));
 
     act(() => result.current.switchPath("a"));
@@ -1280,6 +1343,8 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     act(() =>
       result.current.handleFileDrop([new File(["a"], "unmount.pdf", { type: "application/pdf" })]),
     );
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+    await act(async () => result.current.confirmPendingSelection());
     await waitFor(() => expect(ingest.fetchIngestTaskStatus).toHaveBeenCalledTimes(1));
 
     unmount();
@@ -1299,6 +1364,8 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     act(() =>
       result.current.handleFileDrop([new File(["a"], "timeout.pdf", { type: "application/pdf" })]),
     );
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+    await act(async () => result.current.confirmPendingSelection());
 
     await waitFor(() => expect(result.current.localUploadQueue[0]?.status).toBe("failed"));
     expect(result.current.localUploadQueue[0]?.error).toBe("文件处理超时，请稍后重试");
@@ -1487,6 +1554,8 @@ describe("useUploadFlow model selection (PBC-38)", () => {
         new File(["local"], "local.pdf", { type: "application/pdf" }),
       ]),
     );
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+    await act(async () => result.current.confirmPendingSelection());
     await waitFor(() =>
       expect(result.current.localUploadQueue[0]?.status).toBe("awaiting_confirmation"),
     );
@@ -1512,6 +1581,8 @@ describe("useUploadFlow model selection (PBC-38)", () => {
         new File(["local"], "local.pdf", { type: "application/pdf" }),
       ]),
     );
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+    await act(async () => result.current.confirmPendingSelection());
     await waitFor(() =>
       expect(result.current.localUploadQueue[0]?.status).toBe("awaiting_confirmation"),
     );
@@ -1667,6 +1738,8 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     act(() =>
       result.current.handleFileDrop([new File(["a"], "A.docx"), new File(["b"], "B.docx")]),
     );
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+    await act(async () => result.current.confirmPendingSelection());
     await waitFor(() =>
       expect(result.current.localUploadQueue.map((item) => item.status)).toEqual([
         "awaiting_confirmation",
@@ -2049,6 +2122,8 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     act(() =>
       result.current.handleFileDrop([new File(["a"], "A.docx"), new File(["b"], "B.docx")]),
     );
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+    await act(async () => result.current.confirmPendingSelection());
     await waitFor(() =>
       expect(result.current.localUploadQueue.map((item) => item.status)).toEqual([
         "awaiting_confirmation",

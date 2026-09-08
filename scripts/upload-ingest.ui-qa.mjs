@@ -713,7 +713,7 @@ try {
           });
         }
         await page.locator('input[type="file"]').first().setInputFiles(localFiles);
-        await page.getByRole("button", { name: "确认加入队列" }).click();
+        await page.getByRole("button", { name: "开始上传" }).click();
 
         if (scenario === "canonical-processing") {
           await page.getByText("正在生成 Markdown", { exact: true }).waitFor();
@@ -807,9 +807,7 @@ try {
         await batchDirectory.selectOption("company.methodology");
         await page.getByRole("button", { name: "下一步：核对命名" }).click();
         await page.getByLabel(`${longPendingFileName} 适用对象`).fill("公司咨询项目团队");
-        await page
-          .getByText(`【公司资产-方法论】${longPendingStem}_20210307_V1_L2.md`)
-          .waitFor();
+        await page.getByText(`【公司资产-方法论】${longPendingStem}_20210307_V1_L2.md`).waitFor();
         companyDirectoryScreenshot = path.join(outDir, `${scenario}-preview-${viewport.name}.png`);
         await page.getByRole("dialog").screenshot({
           path: companyDirectoryScreenshot,
@@ -853,11 +851,13 @@ try {
           const deck = document.querySelector(".deck")?.getBoundingClientRect();
           const text = document.body.innerText;
           const pendingTable = document.querySelector(
-            'section[aria-labelledby="local-pending-title"] .upload77-pending-table',
+            'section[aria-labelledby="local-pending-title"] .upload-unified-table',
           );
           const pendingWrap = pendingTable?.closest(".upload77-table-wrap");
-          const fileButton = pendingTable?.querySelector(".upload77-task-select");
-          const subject = pendingTable?.querySelector(".upload77-pending-truncate");
+          const fileButton = [
+            ...(pendingTable?.querySelectorAll(".upload77-task-select") || []),
+          ].find((button) => button.getAttribute("title") === longPendingFileName);
+          const subject = pendingTable?.querySelector(".upload77-pending-truncate[title]");
           const formColumn = document.querySelector(".upload77-form-column");
           const titleField = document.querySelector("#upload77-edit-title")?.closest("label");
           const oneLinerField = document
@@ -894,7 +894,9 @@ try {
             return after.getBoundingClientRect().top - before.getBoundingClientRect().bottom;
           };
           const pendingOverflowX = pendingWrap ? getComputedStyle(pendingWrap).overflowX : "";
-          const pendingRequiresHorizontalScroll = window.innerWidth <= 1280;
+          const pendingRequiresHorizontalScroll = Boolean(
+            pendingWrap && pendingWrap.scrollWidth > pendingWrap.clientWidth + 2,
+          );
           let pendingAcceptsHorizontalScroll = !pendingRequiresHorizontalScroll;
           if (pendingWrap && pendingRequiresHorizontalScroll) {
             const originalScrollLeft = pendingWrap.scrollLeft;
@@ -931,10 +933,10 @@ try {
               text.indexOf("客户增长复盘.md") >= 0 &&
               text.indexOf("客户访谈纪要.txt") > text.indexOf("客户增长复盘.md"),
             compactCompletionVisible:
-              Boolean(document.querySelector(".upload77-upload-complete")) &&
+              Boolean(document.querySelector(".upload-file-tasks")) &&
               !document.querySelector("#local-upload-queue-title"),
             canonicalGenerating: text.includes("正在生成 Markdown"),
-            localPendingVisible: text.includes("待确认入库") && text.includes(longPendingFileName),
+            localPendingVisible: text.includes("文件任务") && text.includes(longPendingFileName),
             pendingWrapClientWidth: pendingWrap?.clientWidth ?? 0,
             pendingWrapScrollWidth: pendingWrap?.scrollWidth ?? 0,
             pendingOverflowX,
@@ -947,13 +949,13 @@ try {
                   pendingAcceptsHorizontalScroll)),
             longPendingLayoutValid:
               Boolean(pendingTable && pendingWrap && fileButton && subject) &&
-              pendingTable.querySelectorAll("colgroup col").length === 7 &&
-              Number.parseFloat(getComputedStyle(pendingTable).minWidth) >= 1120 &&
+              pendingTable.querySelectorAll("thead th").length === 4 &&
+              pendingTable.classList.contains("upload-unified-table") &&
               pendingWrap.scrollWidth >= pendingTable.scrollWidth &&
               fileButton.getAttribute("title") === longPendingFileName &&
               subject.getAttribute("title") === longPendingSubject &&
               hasTwoLineClamp(fileButton) &&
-              hasTwoLineClamp(subject),
+              Boolean(subject.closest("details")),
             projectNamingLayoutValid:
               Boolean(formColumn && titleField && oneLinerField && summaryField) &&
               getComputedStyle(formColumn).alignContent === "start" &&
@@ -1051,7 +1053,7 @@ try {
       let pendingScreenshot = null;
       let canonicalScreenshot = null;
       if (scenario === "canonical-processing") {
-        const queueSection = page.locator('section[aria-labelledby="local-upload-queue-title"]');
+        const queueSection = page.locator('section[aria-labelledby="local-pending-title"]');
         await queueSection.scrollIntoViewIfNeeded();
         canonicalScreenshot = path.join(outDir, `${scenario}-queue-${viewport.name}.png`);
         await queueSection.screenshot({

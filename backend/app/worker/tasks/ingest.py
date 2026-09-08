@@ -25,6 +25,48 @@ async def _run(
     worker_id: str | None,
     job_id: str | None,
 ) -> str:
+    from app.services.ingest_capacity import processing_slot
+
+    async with processing_slot(maker, uuid.UUID(task_id_str)) as admitted:
+        if not admitted:
+            from sqlalchemy import update
+
+            from app.db.utils import utc_now
+            from app.models.ingest import IngestTask
+
+            async with maker() as waiting:
+                await waiting.execute(
+                    update(IngestTask)
+                    .where(
+                        IngestTask.id == uuid.UUID(task_id_str),
+                        IngestTask.status == "processing",
+                        IngestTask.cancel_requested.is_(False),
+                    )
+                    .values(processing_heartbeat_at=utc_now())
+                )
+                await waiting.commit()
+            return "capacity_wait"
+        result = await _process(maker, task_id_str, trace_id, worker_id, job_id)
+    # The execution slot is released before dispatching the next file.
+    from app.services.upload_window import refill_upload_window
+
+    try:
+        await refill_upload_window(maker, uuid.UUID(task_id_str))
+    except Exception as exc:
+        # Processing has already committed. Beat retries admission independently;
+        # never replay a successful extraction because refill failed.
+        safe_log_exception(
+            _logger,
+            "upload_window_refill_deferred",
+            exc,
+            include_summary=False,
+            level=logging.WARNING,
+            task_id=task_id_str,
+        )
+    return result
+
+
+async def _process(maker, task_id_str, trace_id, worker_id, job_id) -> str:
     from app.services.desensitization import get_desensitizer
     from app.services.generation_models import resolve_generation_llm_client
     from app.services.jobs import ingest_processing
@@ -69,7 +111,16 @@ def process_ingest_upload(self, task_id_str: str, trace_id: str | None = None) -
             label="ingest.process_upload",
             trace_id=trace_id,
         )
-        if result == "content_generation_queued":
+        if result == "capacity_wait":
+            # Capacity is not a failed processing attempt. Preserve recovery job identity.
+            process_ingest_upload.apply_async(
+                args=[task_id_str, trace_id],
+                countdown=5,
+                queue=(self.request.delivery_info or {}).get("routing_key")
+                or get_settings().celery_default_queue,
+                task_id=getattr(self.request, "id", None),
+            )
+        elif result == "content_generation_queued":
             process_ingest_upload.apply_async(
                 args=[task_id_str, trace_id],
                 queue=get_settings().celery_default_queue,

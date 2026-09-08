@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -105,6 +105,8 @@ class Settings(BaseSettings):
     ingest_recovery_scan_seconds: int = 60
     ingest_recovery_base_delay_seconds: int = 60
     ingest_recovery_max_attempts: int = 3
+    ingest_processing_window: int = Field(default=5, ge=1, le=32)
+    ingest_heavy_processing_window: int = Field(default=1, ge=1, le=8)
     # Historical processing_timeout recovery is deliberately slower and separately bounded.
     ingest_timeout_recovery_batch_size: int = 3
     ingest_timeout_recovery_interval_seconds: int = 15

@@ -121,6 +121,9 @@ describe("useUploadFlow persistent upload sessions", () => {
     );
 
     act(() => result.current.handleFileDrop(files));
+    expect(ingest.createUploadSession).not.toHaveBeenCalled();
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+    await act(async () => result.current.confirmPendingSelection());
     await waitFor(() => expect(ingest.createUploadSession).toHaveBeenCalledTimes(1));
     expect(ingest.createUploadSession.mock.calls[0][0].files).toHaveLength(700);
     await waitFor(() => expect(result.current.localUploadQueue).toHaveLength(700));
@@ -143,6 +146,9 @@ describe("useUploadFlow persistent upload sessions", () => {
     ];
 
     act(() => result.current.handleFileDrop(files));
+    expect(ingest.createUploadSession).not.toHaveBeenCalled();
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+    await act(async () => result.current.confirmPendingSelection());
     await waitFor(() => expect(ingest.createUploadSession).toHaveBeenCalledTimes(1));
     const request = ingest.createUploadSession.mock.calls[0][0];
     expect(request.files.map((file: File) => file.name)).toEqual([".notes.md"]);
@@ -162,6 +168,9 @@ describe("useUploadFlow persistent upload sessions", () => {
     ];
 
     act(() => result.current.handleFileDrop(files));
+    expect(ingest.createUploadSession).not.toHaveBeenCalled();
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+    await act(async () => result.current.confirmPendingSelection());
     await waitFor(() => expect(ingest.fetchUploadSession).toHaveBeenCalledTimes(1));
     const requestedId = ingest.createUploadSession.mock.calls[0][0].sessionId;
     expect(requestedId).toMatch(/^[0-9a-f-]{36}$/i);

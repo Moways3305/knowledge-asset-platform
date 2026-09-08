@@ -74,6 +74,7 @@ export function useUploadIntake({
     items: Array<File | DroppedFileCandidate>;
     source: "files" | "folder" | "drop";
   } | null>(null);
+  const pendingSelectionRef = useRef<typeof pendingSelection>(null);
   const [isCancellingUpload, setIsCancellingUpload] = useState(false);
   const localUploadQueueRef = useRef<LocalUploadQueueItem[]>([]);
   const localUploadWorkerRef = useRef<Promise<void> | null>(null);
@@ -92,6 +93,7 @@ export function useUploadIntake({
     () => () => {
       localStatusPollRunRef.current += 1;
       directoryReadRunRef.current += 1;
+      pendingSelectionRef.current = null;
     },
     [],
   );
@@ -797,6 +799,9 @@ export function useUploadIntake({
   const stageLocalFiles = useCallback(
     (files: Iterable<File | DroppedFileCandidate>, source: "files" | "folder" | "drop") => {
       const items = Array.from(files);
+      directoryReadRunRef.current += 1;
+      pendingSelectionRef.current = null;
+      setPendingSelection(null);
       if (!items.length) {
         setIntakeFeedback({
           kind: "cancelled",
@@ -810,7 +815,8 @@ export function useUploadIntake({
         });
         return;
       }
-      setPendingSelection({ items, source });
+      pendingSelectionRef.current = { items, source };
+      setPendingSelection(pendingSelectionRef.current);
       setIntakeFeedback({
         kind: "checking",
         total: items.length,
@@ -825,13 +831,16 @@ export function useUploadIntake({
   );
 
   const confirmPendingSelection = useCallback(() => {
-    if (!pendingSelection) return;
-    const selection = pendingSelection;
+    const selection = pendingSelectionRef.current;
+    if (!selection) return;
+    pendingSelectionRef.current = null;
     setPendingSelection(null);
     void enqueueLocalFiles(selection.items);
-  }, [enqueueLocalFiles, pendingSelection]);
+  }, [enqueueLocalFiles]);
 
   const discardPendingSelection = useCallback(() => {
+    directoryReadRunRef.current += 1;
+    pendingSelectionRef.current = null;
     setPendingSelection(null);
     setIntakeFeedback({
       kind: "cancelled",
@@ -1034,11 +1043,11 @@ export function useUploadIntake({
   const handleFileDrop = useCallback(
     (files: Iterable<File>) => {
       setFolderDropNotice(null);
-      void enqueueLocalFiles(files);
+      stageLocalFiles(files, "drop");
       if (fileRef.current) fileRef.current.value = "";
       if (folderRef.current) folderRef.current.value = "";
     },
-    [enqueueLocalFiles],
+    [stageLocalFiles],
   );
 
   const handleDataTransferDrop = useCallback(
@@ -1051,13 +1060,15 @@ export function useUploadIntake({
       );
       if (directoryReadRunRef.current !== runId || activePath !== "b") return;
       setFolderDropNotice(result.notice);
-      void enqueueLocalFiles(result.candidates);
+      stageLocalFiles(result.candidates, "drop");
       if (fileRef.current) fileRef.current.value = "";
       if (folderRef.current) folderRef.current.value = "";
     },
-    [activePath, enqueueLocalFiles],
+    [activePath, stageLocalFiles],
   );
   const cancelIntakeRuns = useCallback(() => {
+    pendingSelectionRef.current = null;
+    setPendingSelection(null);
     localStatusPollRunRef.current += 1;
     directoryReadRunRef.current += 1;
     setFolderDropNotice(null);

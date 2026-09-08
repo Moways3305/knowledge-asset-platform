@@ -3,6 +3,20 @@
   max-width: 1280px;
 }
 
+.upload-file-tasks .upload-session-details {
+  padding: 12px 20px;
+  color: #d6e5f4;
+}
+
+.upload-file-tasks details summary {
+  cursor: pointer;
+}
+
+.upload-file-tasks .upload-file-row-actions details {
+  max-width: 100%;
+  color: #d6e5f4;
+}
+
 .upload77-page,
 .upload77-page * {
   box-sizing: border-box;
@@ -1704,6 +1718,16 @@
   opacity: 0.65;
 }
 
+.upload-unified-table .upload77-task-select {
+  display: -webkit-box;
+  width: 100%;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 .upload77-status {
   display: inline-flex;
   align-items: center;
@@ -2126,4 +2150,53 @@
 
 .lv-tip-table tbody tr:last-child td {
   border-bottom: 0;
+}
+/* One persistent file row across transport, processing and confirmation. */
+.upload-file-selection-list {
+  max-height: 40vh;
+  overflow: auto;
+  padding-left: 1.5rem;
+  overflow-wrap: anywhere;
+}
+.upload-unified-table {
+  width: 100%;
+  table-layout: fixed;
+}
+.upload-unified-table th:first-child {
+  width: 44px;
+}
+.upload-unified-table th:nth-child(2) {
+  width: 42%;
+}
+.upload-unified-table th:nth-child(3) {
+  width: 28%;
+}
+.upload-unified-table td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.upload-file-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.upload-file-row-actions details {
+  width: 100%;
+}
+.upload-file-row-actions summary {
+  cursor: pointer;
+}
+.upload-file-tasks .upload77-list-tools {
+  padding: 16px;
+}
+.upload-file-tasks .upload77-list-tools > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+@media (max-width: 600px) {
+  .upload-unified-table {
+    min-width: 620px;
+  }
 }

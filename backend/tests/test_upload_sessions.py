@@ -783,8 +783,8 @@ async def test_next_batch_waits_then_advances_when_the_current_batch_releases_ca
     assert [item["batch_number"] for item in body["items"]].count(1) == 200
     assert [item["batch_number"] for item in body["items"]].count(2) == 200
     assert [item["batch_number"] for item in body["items"]].count(3) == 1
-    assert all(item["status"] == "processing" for item in body["items"][:200])
-    assert all(item["status"] == "waiting" for item in body["items"][200:])
+    assert all(item["status"] == "processing" for item in body["items"][:5])
+    assert all(item["status"] == "waiting" for item in body["items"][5:])
 
     first_batch_task_ids = list(
         (
@@ -818,6 +818,8 @@ async def test_next_batch_waits_then_advances_when_the_current_batch_releases_ca
     assert staged.json()["items"][200]["processing_stage"] is None
 
     for task in tasks:
+        if task.id != first_batch_task_ids[0]:
+            continue
         task.status = IngestStatus.pending_confirmation.value
         task.processing_stage = "awaiting_confirmation"
     await db_session.commit()
@@ -828,10 +830,14 @@ async def test_next_batch_waits_then_advances_when_the_current_batch_releases_ca
     )
     assert advanced.status_code == 200
     next_body = advanced.json()
-    assert next_body["current_batch_number"] == 2
-    assert all(item["status"] == "awaiting_confirmation" for item in next_body["items"][:200])
-    assert all(item["status"] == "processing" for item in next_body["items"][200:400])
-    assert next_body["items"][400]["status"] == "waiting"
+    assert next_body["items"][0]["status"] == "awaiting_confirmation"
+    assert all(item["status"] == "processing" for item in next_body["items"][1:6])
+    assert all(item["status"] == "waiting" for item in next_body["items"][6:])
+    # Polling again cannot dispatch extra files or duplicate the five active jobs.
+    repeated = await client.get(
+        f"/api/v1/ingest/upload-sessions/{body['id']}", headers=_headers(USER_CONSULTANT)
+    )
+    assert sum(item["status"] == "processing" for item in repeated.json()["items"]) == 5
 
 
 async def test_macos_metadata_is_rejected_before_task_creation_without_false_positives(
