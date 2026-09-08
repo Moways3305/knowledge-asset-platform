@@ -117,7 +117,7 @@ export function useIngestConfirmation({
   const [directoryKey, setDirectoryKeyState] = useState("");
   const [namingFormedOn, setNamingFormedOn] = useState("");
   const [namingVersion, setNamingVersion] = useState("V1");
-  const [namingApplicableTo, setNamingApplicableTo] = useState("");
+  const [namingApplicableTo, setNamingApplicableTo] = useState("通用");
   const [namingPreview, setNamingPreview] = useState<NamingPreviewDTO | null>(null);
   const [namingPreviewBusy, setNamingPreviewBusy] = useState(false);
   const [namingPreviewError, setNamingPreviewError] = useState<string | null>(null);
@@ -689,7 +689,7 @@ export function useIngestConfirmation({
     setDirectoryKeyState("");
     setNamingFormedOn("");
     setNamingVersion("V1");
-    setNamingApplicableTo("");
+    setNamingApplicableTo("通用");
     setNamingPreview(null);
     setNamingPreviewBusy(false);
     setNamingPreviewError(null);

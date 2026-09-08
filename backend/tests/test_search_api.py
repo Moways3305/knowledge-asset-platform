@@ -266,7 +266,7 @@ def test_intent_classification_six_classes_and_default():
 
 
 # ---------------- 阶段1卡片 ----------------
-async def test_stage1_cards_company_scope_l4_redacted_l5_hidden(client):
+async def test_stage1_cards_company_scope_l4_redacted_l5_hidden(client, db_session):
     docs = [
         _doc(KA_COMPANY_L2, _COMPANY_KB, "零售数字化成熟度评估内容"),
         _doc(KA_COMPANY_L4, _COMPANY_KB, "医药集采渠道影响（内部原文）"),
@@ -281,9 +281,11 @@ async def test_stage1_cards_company_scope_l4_redacted_l5_hidden(client):
     cards = {c["asset_id"]: c for c in body["cards"]}
     # L5 对普通 consultant 不可发现 → 连卡片都没有。
     assert str(KA_COMPANY_L5) not in cards
-    # L2 卡片：有 one_liner、可见摘要。
+    # 历史 L2 无脱敏版本时不得回退到普通摘要。
     l2 = cards[str(KA_COMPANY_L2)]
-    assert l2["one_liner"]
+    assert l2["one_liner"] is None
+    assert l2["detailed"] is None
+    assert l2["key_points"] == []
     assert l2["can_view_original"] is False
     # L4 卡片：detailed 取脱敏摘要、key_points 置空、不可得原文。
     l4 = cards[str(KA_COMPANY_L4)]
@@ -291,6 +293,17 @@ async def test_stage1_cards_company_scope_l4_redacted_l5_hidden(client):
     assert l4["key_points"] == []
     assert l4["can_view_original"] is False
     _assert_no_leak(resp.text)
+
+    from app.services.authorized_summary_backfill import backfill_authorized_summaries
+
+    await backfill_authorized_summaries(db_session, dry_run=False)
+    refreshed = await client.post(
+        SEARCH, headers=_hdr(USER_CONSULTANT), json={"query": "数字化成熟度", "scope": "company"}
+    )
+    assert refreshed.status_code == 200
+    l2_after = next(c for c in refreshed.json()["cards"] if c["asset_id"] == str(KA_COMPANY_L2))
+    assert l2_after["detailed"].startswith("（脱敏）")
+    assert l2_after["can_view_original"] is False
 
 
 async def test_stage1_score_sorted_and_orphan_dropped(client):

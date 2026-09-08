@@ -1,4 +1,4 @@
-"""Idempotent backfill for complete L3/L4 authorized summaries."""
+"""Idempotent backfill for complete L2–L4 authorized summaries."""
 
 from __future__ import annotations
 
@@ -11,8 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetSummary
 from app.services.authorized_summary import build_authorized_summary_variants
 from app.services.desensitization import DesensitizationEngine, RuleBasedDesensitizer
+from app.services.summary_policy import REDACTED_SUMMARY_LEVELS
 
-_REDACTED_LEVELS = {"L3", "L4"}
+_REDACTED_LEVELS = REDACTED_SUMMARY_LEVELS
 _PENDING_TYPE = "redacted_summary_pending"
 _PENDING_SOURCE_MISSING = "source_summary_missing"
 _PENDING_REDACTION_FAILED = "redaction_failed"
@@ -53,7 +54,7 @@ async def backfill_authorized_summaries(
     dry_run: bool = True,
     desensitizer: DesensitizationEngine | None = None,
 ) -> AuthorizedSummaryBackfillReport:
-    """Regenerate current L3/L4 safe summaries without exposing source content.
+    """Regenerate current L2–L4 safe summaries without exposing source content.
 
     Missing ordinary detailed summaries are not fabricated. They receive a persistent, non-content
     pending marker when applying the backfill, so a later repair can be retried safely.

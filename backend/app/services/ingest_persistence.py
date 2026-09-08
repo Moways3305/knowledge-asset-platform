@@ -18,7 +18,6 @@ from app.models.knowledge import (
 from app.schemas.enums import (
     AuditAction,
     AuditLogType,
-    ConfidentialityLevel,
     IngestStatus,
 )
 from app.services import audit as audit_service
@@ -26,9 +25,10 @@ from app.services import domain_events
 from app.services.authorized_summary import build_authorized_summary_variants
 from app.services.canonical_markdown import FILE_VARIANT, MARKDOWN_MIME, canonical_file_name
 from app.services.ingest_confirmation import ValidatedConfirmationContext
+from app.services.summary_policy import REDACTED_SUMMARY_LEVELS
 from app.worker.enqueue import enqueue_outbox_delivery
 
-_REDACTED_LEVELS = {ConfidentialityLevel.L3.value, ConfidentialityLevel.L4.value}
+_REDACTED_LEVELS = REDACTED_SUMMARY_LEVELS
 
 
 def derived_confirmation_properties(

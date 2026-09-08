@@ -2,16 +2,16 @@
 
 两类脱敏，定位不同，不要混淆：
 
-1. **入库前置脱敏 `DesensitizationEngine`（同步，确定性规则）**：路径 B / 路径 A 文本
-   抽取成功后、调用**平台侧外部 LLM 内容建议前**先做的实体擦洗层。起默认用
+1. **规则脱敏 `DesensitizationEngine`（同步，确定性规则）**：用于授权摘要及其历史回填。
+   内容建议阶段已退出前置脱敏；默认用
    `RuleBasedDesensitizer`（本地正则、无外部网络、无新依赖），把邮箱 / 手机号 / 固话 /
    身份证号 / 银行卡号 / 长数字账号 / 金额 / 联系人 / 客户公司字段替换为占位符。
    `desensitize()` 返回结构化 `DesensitizationResult`（脱敏文本 + 状态 + 类别计数），
-   只用于平台侧 LLM 输入与安全展示元数据，**不替代原文**。
+   生成安全摘要副本，**不替代原文**；规则不是覆盖任意人名的通用实体识别器。
 
    边界（总经理确认的信任边界）：**WeKnora 底座及其 LLM 是受信任的外部/底座处理方**，
-   可继续接收原始文件 / 原文内容做索引，本层不阻断 WeKnora 原文链路；规则脱敏只擦洗
-   送往平台侧外部 LLM 的那一份抽取文本。原始文件仍保留在平台受控存储，供授权预览/溯源。
+   可继续接收原始文件 / 原文内容做索引，本层不阻断受信外部 API 原文链路。
+   原始文件仍保留在平台受控存储，供授权预览/溯源。
 
 2. **检索输出脱敏 `OutputDesensitizer`（异步）**：把将返回给调用方的
    WeKnora 原文 chunk 做实体擦洗（客户名/金额/联系人/个人信息）。用已就绪的外部
@@ -85,6 +85,13 @@ _PLACEHOLDER = {
 # 金额：带货币标记（¥/￥/人民币/RMB）或数字 + 中文金额单位（万/亿/元）。普通数字不替换。
 _AMOUNT_RES = (
     re.compile(
+        r"(?:USD|CNY|HKD|EUR|美元|美金|港币|港元|欧元|人民币|RMB|[¥￥$€])"
+        r"\s*\d[\d,]*(?:\.\d+)?\s*(?:万亿|亿|万|千)?(?:元)?",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\d[\d,]*(?:\.\d+)?\s*(?:万亿|亿|万|千)?(?:美元|美金|港元|港币|欧元)"),
+    re.compile(r"[壹贰叁肆伍陆柒捌玖拾佰仟万亿零两一二三四五六七八九十百千]+元(?:整)?"),
+    re.compile(
         r"(?:人民币|RMB)\s*\d[\d,]*(?:\.\d+)?\s*(?:亿元|万元|千元|亿|万|元)?", re.IGNORECASE
     ),
     re.compile(r"[¥￥]\s?\d[\d,]*(?:\.\d+)?\s*(?:亿元|万元|千元|亿|万|元)?"),
@@ -93,12 +100,28 @@ _AMOUNT_RES = (
 
 # 联系人 / 客户公司字段：保留标签与分隔符，仅擦洗字段值。
 _CONTACT_RE = re.compile(
-    r"(?P<label>客户联系人|项目联系人|联系人|对接人)(?P<sep>[\s:：]+)"
+    r"(?P<label>客户联系人|项目联系人|联系人|对接人|姓名|受访者|受访人|访谈对象|负责人)"
+    r"(?P<sep>[\s:：]+)"
     r"(?P<val>[^\s，,。；;、:：\n]{1,20})"
 )
 _CUSTOMER_RE = re.compile(
     r"(?P<label>客户名称|客户单位|客户|公司名称|单位名称|甲方|乙方)(?P<sep>\s*[:：]\s*)"
     r"(?P<val>[^\s，,。；;、:：\n]{2,40})"
+)
+
+# 有明确角色/称呼的人名。并非通用 NER，不能把任意 2–4 个汉字都当作姓名。
+_PERSON_CONTEXT_RES = (
+    re.compile(
+        r"(?P<label>董事长|总经理|副总经理|财务总监|总监|经理|顾问|受访者|负责人)"
+        r"\s*(?!负责|表示|指出|认为|提出|介绍|需要|要求|应当|必须)"
+        r"(?P<val>[\u4e00-\u9fff]{2,4}?)(?=表示|指出|认为|提出|介绍|负责|[，,。；;：:\s]|$)"
+    ),
+    re.compile(r"(?<![\u4e00-\u9fff])(?P<val>[\u4e00-\u9fff]{2,4})(?P<label>先生|女士)"),
+)
+
+_LABELED_AMOUNT_RE = re.compile(
+    r"(?P<label>合同金额|项目金额|报价|薪酬|工资|奖金|营业收入|净利润|金额)"
+    r"(?P<sep>\s*[:：]\s*)(?P<val>\d[\d,]*(?:\.\d+)?)(?![\d.])"
 )
 
 # 顺序敏感：长/结构化标识先替换，避免被泛数字规则吞掉（手机号不能先被长数字账号吃掉）。
@@ -142,6 +165,11 @@ class RuleBasedDesensitizer:
             out, n = rx.subn(_PLACEHOLDER["amount"], out)
             _bump("amount", n)
 
+        out, n = _LABELED_AMOUNT_RE.subn(
+            lambda m: f"{m.group('label')}{m.group('sep')}{_PLACEHOLDER['amount']}", out
+        )
+        _bump("amount", n)
+
         # 2) 结构化标识（邮箱/身份证/银行卡/手机/固话/账号）按既定顺序替换。
         for category, rx in _SIMPLE_RULES:
             out, n = rx.subn(_PLACEHOLDER[category], out)
@@ -152,6 +180,12 @@ class RuleBasedDesensitizer:
             lambda m: f"{m.group('label')}{m.group('sep')}{_PLACEHOLDER['contact']}", out
         )
         _bump("contact", n)
+
+        for rx in _PERSON_CONTEXT_RES:
+            out, n = rx.subn(
+                lambda m: m.group(0).replace(m.group("val"), _PLACEHOLDER["contact"], 1), out
+            )
+            _bump("contact", n)
 
         # 4) 客户 / 公司字段：保留标签 + 分隔符，仅擦洗值。
         out, n = _CUSTOMER_RE.subn(

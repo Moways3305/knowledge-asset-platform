@@ -45,6 +45,7 @@ from app.schemas.permission import (
     PermissionDecision,
     layer_rank,
 )
+from app.services.summary_policy import REDACTED_SUMMARY_LEVELS
 from app.services.work_identity import default_active_role
 
 # 读侧默认不可进入检索/访问的资产状态。
@@ -58,7 +59,7 @@ _INACTIVE_ASSET_STATUSES = {
     AssetStatus.deleted.value,
 }
 # 需要脱敏摘要的保密级别。
-_REDACTED_SUMMARY_LEVELS = {ConfidentialityLevel.L3.value, ConfidentialityLevel.L4.value}
+_REDACTED_SUMMARY_LEVELS = REDACTED_SUMMARY_LEVELS
 
 _logger = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ class _AccessProfile:
     exceed_reason：当请求层级超过 max_layer 时返回的拒绝原因。
     source：放行来源（用于 allowed 时的 effective_access_source）。
     original_audit_required / original_strong_audit_required：原文层是否需审计/强审计。
-    summary_variant：摘要层提示（L3/L4 → redacted_summary）。
+    summary_variant：摘要层提示（L2–L4 → redacted_summary）。
     """
 
     max_layer: AccessLayer | None
@@ -269,8 +270,12 @@ def decide(
     max_rank = layer_rank(profile.max_layer)
     req_rank = layer_rank(layer)
 
-    # 摘要层提示只在请求摘要层时附带（L3/L4 → 脱敏摘要）。
-    summary_variant = profile.summary_variant if layer == AccessLayer.summary else None
+    # 摘要层提示只在请求摘要层时附带（L2–L4 → 脱敏摘要）。
+    summary_variant = (
+        SummaryType.redacted_summary.value
+        if layer == AccessLayer.summary and asset.confidentiality_level in _REDACTED_SUMMARY_LEVELS
+        else None
+    )
 
     allowed = max_rank > 0 and req_rank <= max_rank
 

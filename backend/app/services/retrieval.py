@@ -45,6 +45,7 @@ from app.services.desensitization import OutputDesensitizer
 from app.services.llm_client import LLMClient, LLMError, NullLLMClient
 from app.services.permission import decide
 from app.services.permission_rules import load_access_policy
+from app.services.summary_policy import REDACTED_SUMMARY_LEVELS
 from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient
 
 # 需要输出脱敏的保密级别（返回原文/片段前必须实体脱敏）。
@@ -55,7 +56,7 @@ _DESENSITIZE_LEVELS = {
     ConfidentialityLevel.L4.value,
     ConfidentialityLevel.L5.value,
 }
-_REDACTED_LEVELS = {ConfidentialityLevel.L3.value, ConfidentialityLevel.L4.value}
+_REDACTED_LEVELS = REDACTED_SUMMARY_LEVELS
 _ACTIVE_ASSET = AssetStatus.active.value
 _ACTIVE_VERSION = VersionStatus.active.value
 # 只有底座索引成功（index_status=indexed）的 version 才可参与语义召回 / 原文 chunk 取件
@@ -297,7 +298,7 @@ def _card_summary_fields(
 ) -> tuple[str | None, str | None, list[str]]:
     """卡片三层摘要字段：one_liner / detailed / key_points。
 
-    L3/L4 取脱敏摘要（redacted/safe），key_points 置空（原始要点未脱敏，不外泄）。
+    L2–L4 取脱敏摘要（redacted/safe），key_points 置空（原始要点未脱敏，不外泄）。
     无摘要层权限 → 全空（卡片只剩发现层元数据）。
     """
     if not summary_allowed:

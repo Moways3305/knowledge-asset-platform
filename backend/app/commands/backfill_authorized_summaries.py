@@ -1,4 +1,4 @@
-"""Dry-run-first command for complete L3/L4 authorized summary backfill."""
+"""Dry-run-first command for complete L2–L4 authorized summary backfill."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ async def _run(*, dry_run: bool) -> dict[str, object]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Regenerate complete L3/L4 authorized summaries. Defaults to dry-run."
+        description="Regenerate complete L2–L4 authorized summaries. Defaults to dry-run."
     )
     parser.add_argument(
         "--apply",
