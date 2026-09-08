@@ -679,7 +679,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
           subject: "安全标题",
           formed_on: "2026-08-03",
           version: "V1",
-          applicable_to: "",
+          applicable_to: "通用",
           confidentiality_level: "L2",
         },
       },

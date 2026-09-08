@@ -59,9 +59,11 @@ describe("pending batch review state", () => {
     });
   });
 
-  it("keeps company rows blocked until applicable_to is supplied", () => {
+  it("defaults company audience to 通用 but validates an explicitly cleared value", () => {
     const row = initialRows([task], options)[task.id];
-    expect(rowMissing(row, true)?.field).toBe("applicable_to");
+    expect(row.applicable_to).toBe("通用");
+    expect(rowMissing(row, true)).toBeNull();
+    expect(rowMissing({ ...row, applicable_to: "" }, true)?.field).toBe("applicable_to");
   });
 
   it("marks a server preview error as an exception", () => {

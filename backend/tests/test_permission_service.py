@@ -32,6 +32,22 @@ SUMMARY = AccessLayer.summary
 ORIGINAL = AccessLayer.original
 
 
+def test_summary_redaction_also_applies_to_owner_member_and_boss():
+    cases = [
+        (_ctx(U_CONSULTANT, {"consultant"}), _asset(scope="personal", owner=U_CONSULTANT)),
+        (
+            _ctx(U_CONSULTANT, {"consultant"}, {P_ALPHA}),
+            _asset(scope="project", project_id=P_ALPHA),
+        ),
+        (_ctx(U_BOSS, {"boss"}), _asset(scope="company")),
+    ]
+    for caller, asset in cases:
+        decision = decide(caller, asset, SUMMARY)
+        assert decision.allowed
+        assert decision.summary_variant == "redacted_summary"
+        assert decide(caller, asset, ORIGINAL).summary_variant is None
+
+
 def _ctx(user_id, roles, projects=None, active=True) -> CallerContext:
     return CallerContext(
         user_id=user_id,
@@ -121,7 +137,7 @@ def test_non_member_project_l1_l2_gets_controlled_summary_not_original():
     assert decide(caller, asset, DISCOVERY).allowed is True
     summary = decide(caller, asset, SUMMARY)
     assert summary.allowed is True
-    assert summary.summary_variant is None
+    assert summary.summary_variant == "redacted_summary"
     original = decide(caller, asset, ORIGINAL)
     assert original.allowed is False
     assert original.denied_reason == DeniedReason.original_requires_request

@@ -87,7 +87,7 @@ export function initialRows(tasks: PendingIngestItemDTO[], options: NamingOption
             ? task.suggested_formed_on
             : "",
           version: suggestedVersion(task),
-          applicable_to: "",
+          applicable_to: "通用",
           confidentiality_level: suggestedConfidentiality(task, options, defaultDirectoryKey),
         },
       ];

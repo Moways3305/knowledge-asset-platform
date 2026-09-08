@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from sqlalchemy import select
 
 from app.models.knowledge import (
@@ -11,7 +12,9 @@ from app.seed.dev_seed import USER_CONSULTANT
 from app.services.authorized_summary_backfill import backfill_authorized_summaries
 
 
-async def _seed_truncated_l3(db_session) -> tuple[KnowledgeAsset, KnowledgeAssetVersion, str]:
+async def _seed_truncated_l3(
+    db_session, level="L3"
+) -> tuple[KnowledgeAsset, KnowledgeAssetVersion, str]:
     sensitive_customer = "历史敏感客户"
     sensitive_email = "legacy@example.com"
     safe_tail = "BACKFILL-COMPLETE-END"
@@ -27,7 +30,7 @@ async def _seed_truncated_l3(db_session) -> tuple[KnowledgeAsset, KnowledgeAsset
         asset_type="methodology",
         owner_user_id=USER_CONSULTANT,
         visibility="private",
-        confidentiality_level="L3",
+        confidentiality_level=level,
         ai_access_level="A3",
         asset_status="active",
     )
@@ -78,8 +81,9 @@ async def _summary_map(db_session, asset_id, version_id) -> dict[str, str | None
     return {row.summary_type: row.content for row in rows}
 
 
-async def test_backfill_is_dry_run_first_complete_and_idempotent(db_session):
-    asset, version, safe_tail = await _seed_truncated_l3(db_session)
+@pytest.mark.parametrize("level", ["L2", "L3", "L4"])
+async def test_backfill_is_dry_run_first_complete_and_idempotent(db_session, level):
+    asset, version, safe_tail = await _seed_truncated_l3(db_session, level)
     before = await _summary_map(db_session, asset.id, version.id)
 
     dry_run = await backfill_authorized_summaries(db_session, dry_run=True)

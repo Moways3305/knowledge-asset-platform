@@ -17,7 +17,6 @@ from app.models.knowledge import (
 )
 from app.schemas.enums import (
     AssetStatus,
-    ConfidentialityLevel,
     KnowledgeScope,
     ProjectRole,
 )
@@ -41,12 +40,13 @@ from app.services.permission import (
     lifecycle_actor_allowed,
     lifecycle_visibility,
 )
+from app.services.summary_policy import REDACTED_SUMMARY_LEVELS
 
 _logger = logging.getLogger(__name__)
 
 _INACTIVE_STATUSES = ["processing", AssetStatus.archived.value, AssetStatus.deprecated.value]
 _DELETED_STATUS = AssetStatus.deleted.value
-_REDACTED_LEVELS = {ConfidentialityLevel.L3.value, ConfidentialityLevel.L4.value}
+_REDACTED_LEVELS = REDACTED_SUMMARY_LEVELS
 
 
 _can_delete = knowledge_lifecycle.can_delete
@@ -65,7 +65,6 @@ def _index_user_message(ver) -> str | None:
 
 _INACTIVE_STATUSES = ["processing", AssetStatus.archived.value, AssetStatus.deprecated.value]
 _DELETED_STATUS = AssetStatus.deleted.value
-_REDACTED_LEVELS = {ConfidentialityLevel.L3.value, ConfidentialityLevel.L4.value}
 
 
 _can_delete = knowledge_lifecycle.can_delete

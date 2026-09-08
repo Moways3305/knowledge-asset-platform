@@ -10,9 +10,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from uuid import UUID
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 
+from app.models.knowledge import KnowledgeAssetSummary
 from app.seed.dev_seed import USER_CONSULTANT
 
 UPLOAD = "/api/v1/ingest/upload"
@@ -104,7 +106,7 @@ async def test_confirm_one_liner_only_ok(client):
     assert r.status_code == 200, r.text
 
 
-async def test_confirm_persists_reviewed_ai_fields_exactly(client):
+async def test_confirm_persists_reviewed_ai_fields_exactly(client, db_session):
     up = await client.post(
         UPLOAD,
         headers=_hdr(USER_CONSULTANT),
@@ -131,9 +133,18 @@ async def test_confirm_persists_reviewed_ai_fields_exactly(client):
     assert detail.status_code == 200, detail.text
     body = detail.json()
     assert body["title"] == "人工核对标题"
-    assert body["summary"]["one_liner"] == "人工核对一句话"
-    assert body["summary"]["detailed"] == "人工核对详细摘要"
-    assert body["summary"]["key_points"] == ["人工知识点一", "人工知识点二"]
+    assert body["summary"]["one_liner"] == "（脱敏）人工核对一句话"
+    assert body["summary"]["detailed"] == "（脱敏）人工核对详细摘要"
+    assert body["summary"]["key_points"] == []
+    rows = await db_session.scalars(
+        select(KnowledgeAssetSummary).where(
+            KnowledgeAssetSummary.asset_id == UUID(confirmed.json()["result_asset_id"])
+        )
+    )
+    stored = {row.summary_type: row.content for row in rows}
+    assert stored["one_liner"] == "人工核对一句话"
+    assert stored["detailed"] == "人工核对详细摘要"
+    assert stored["key_points"].splitlines() == ["人工知识点一", "人工知识点二"]
     assert set(body["tags"]) == {"人工标签", "复核完成"}
 
 
