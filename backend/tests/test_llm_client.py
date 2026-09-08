@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+from uuid import UUID
 
 import httpx
 import pytest
@@ -16,6 +17,7 @@ from sqlalchemy import select
 
 from app.main import app
 from app.models.audit import AuditEvent
+from app.models.knowledge import KnowledgeAssetSummary
 from app.schemas.enums import AssetType, ConfidentialityLevel
 from app.seed.dev_seed import USER_ADMIN_ONLY, USER_CONSULTANT, USER_PROJECT_MANAGER
 from app.services import audit as audit_service
@@ -679,7 +681,7 @@ async def test_response_error_task_is_reprocessed_only_after_explicit_retry(
 
 
 # ---- confirm 三层摘要写穿 + AI/人工独立 ----
-async def test_confirm_writes_three_layer_summaries(client, monkeypatch):
+async def test_confirm_writes_three_layer_summaries(client, monkeypatch, db_session):
     _enable_llm(monkeypatch, FakeLLM(mode="ok"))
     task_id = await _upload(client)
     r = await client.post(
@@ -699,9 +701,17 @@ async def test_confirm_writes_three_layer_summaries(client, monkeypatch):
     assert r.status_code == 200
     asset_id = r.json()["result_asset_id"]
     detail = (await client.get(f"{KN}/{asset_id}", headers=_hdr(USER_CONSULTANT))).json()
-    # 资产摘要为人工确认值（独立于 AI 草稿）。
-    assert detail["summary"]["one_liner"] == "人工一句话"
-    assert detail["summary"]["key_points"] == ["人工要点1", "人工要点2"]
+    # L2 展示脱敏副本；数据库仍保留人工确认值（独立于 AI 草稿）。
+    assert detail["summary"]["one_liner"] == "（脱敏）人工一句话"
+    assert detail["summary"]["detailed"] == "（脱敏）人工详细摘要"
+    assert detail["summary"]["key_points"] == []
+    rows = await db_session.scalars(
+        select(KnowledgeAssetSummary).where(KnowledgeAssetSummary.asset_id == UUID(asset_id))
+    )
+    stored = {row.summary_type: row.content for row in rows}
+    assert stored["one_liner"] == "人工一句话"
+    assert stored["detailed"] == "人工详细摘要"
+    assert stored["key_points"].splitlines() == ["人工要点1", "人工要点2"]
     # AI 草稿仍是 LLM 值（未被人工覆盖）。
     ai = (
         await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
