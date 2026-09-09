@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetSummary
@@ -53,6 +53,7 @@ async def backfill_authorized_summaries(
     *,
     dry_run: bool = True,
     desensitizer: DesensitizationEngine | None = None,
+    asset_id: uuid.UUID | None = None,
 ) -> AuthorizedSummaryBackfillReport:
     """Regenerate current L2–L4 safe summaries without exposing source content.
 
@@ -76,6 +77,7 @@ async def backfill_authorized_summaries(
                 ),
             )
             .where(KnowledgeAsset.confidentiality_level.in_(_REDACTED_LEVELS))
+            .where(KnowledgeAsset.id == asset_id if asset_id is not None else true())
             .order_by(KnowledgeAsset.id, KnowledgeAssetSummary.summary_type)
         )
     ).all()

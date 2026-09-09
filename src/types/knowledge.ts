@@ -7,6 +7,7 @@ export type ConfidentialityLevel = "L1" | "L2" | "L3" | "L4" | "L5";
 export type AiAccessLevel = "A1" | "A2" | "A3" | "A4";
 export type AssetStatus = "active" | "needs_update" | "deprecated" | "archived";
 export type KnowledgeScope = "personal" | "project" | "company";
+export type SummaryStatus = "ready" | "safe_pending" | "generation_pending";
 export type KnowledgeZone = "material" | "asset";
 export type AssetType =
   | "methodology"
@@ -141,7 +142,12 @@ export interface KnowledgeDetailDTO {
   updated_at: string | null;
   archived_at: string | null;
   archive_reason: string | null;
-  summary: { one_liner: string | null; detailed: string | null; key_points: string[] } | null;
+  summary: {
+    one_liner: string | null;
+    detailed: string | null;
+    key_points: string[];
+    status?: SummaryStatus;
+  } | null;
   current_version: {
     id: string;
     version_no: string;
@@ -229,6 +235,7 @@ export interface KnowledgePageVM {
 }
 
 export interface KnowledgeDetailVM extends KnowledgeCardVM {
+  summaryStatus?: SummaryStatus;
   projectId: string | null;
   maintainerName: string;
   categoryPath?: string;

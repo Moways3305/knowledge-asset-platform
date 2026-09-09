@@ -106,6 +106,7 @@ async def build_response(
         items=[
             UploadSessionItemResponse(
                 id=item.id,
+                ingest_task_id=item.ingest_task_id,
                 ordinal=item.ordinal,
                 batch_number=item.batch_index + 1,
                 transport_batch_number=(

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -653,18 +653,71 @@ describe("KnowledgeListPage reference implementation", () => {
     expect(screen.getByText("可查看摘要，原文受限")).toBeInTheDocument();
     expect(screen.getByText(longProjectAsset.title)).toBeInTheDocument();
     expect(screen.getByText("可查看摘要与原文")).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: "查看详情" })[0]).toHaveAttribute(
-      "href",
-      `/knowledge/${restrictedAsset.id}`,
-    );
-    const titleLink = screen.getByRole("link", {
+    expect(screen.getAllByRole("button", { name: "查看详情" })).toHaveLength(2);
+    const titleLink = screen.getByRole("button", {
       name: `查看《${restrictedAsset.title}》详情`,
     });
-    expect(titleLink).toHaveAttribute("href", `/knowledge/${restrictedAsset.id}`);
     titleLink.focus();
     expect(titleLink).toHaveFocus();
     expect(screen.queryByText(restrictedAsset.id)).not.toBeInTheDocument();
     expect(screen.queryByText(/storage_ref|WeKnora|token/i)).not.toBeInTheDocument();
+  });
+
+  it.each(["company", "project", "personal"] as const)(
+    "opens the same drawer for %s assets without leaving the list",
+    async (scope) => {
+      const asset = { ...restrictedAsset, scope };
+      vi.mocked(fetchKnowledgePage).mockResolvedValue(response([asset]));
+      vi.mocked(fetchKnowledgeDetail).mockResolvedValue({
+        ...crossProjectDetail,
+        ...asset,
+        oneLiner: "",
+        detailed: "",
+        summaryStatus: "safe_pending",
+      });
+      const user = userEvent.setup();
+      renderPage();
+      await user.click(await screen.findByRole("button", { name: `查看《${asset.title}》详情` }));
+      const drawer = await screen.findByRole("dialog", { name: asset.title });
+      expect(drawer).toHaveTextContent("安全摘要待处理");
+      expect(drawer).toHaveTextContent(
+        scope === "company" ? "公司知识" : scope === "personal" ? "个人知识" : "项目知识",
+      );
+      expect(drawer).not.toHaveTextContent("其他项目 · 摘要可见");
+      expect(within(drawer).queryByRole("link", { name: "打开完整详情" })).not.toBeInTheDocument();
+      await user.click(within(drawer).getByRole("button", { name: "关闭详情" }));
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: `查看《${asset.title}》详情` }),
+      ).toBeInTheDocument();
+      expect(fetchKnowledgePage).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("ignores a late detail response after closing and opening another asset", async () => {
+    let resolveFirst!: (detail: KnowledgeDetailVM) => void;
+    vi.mocked(fetchKnowledgeDetail)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockResolvedValueOnce({ ...crossProjectDetail, ...longProjectAsset });
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(
+      await screen.findByRole("button", { name: `查看《${restrictedAsset.title}》详情` }),
+    );
+    await user.click(screen.getByRole("button", { name: "关闭详情" }));
+    await user.click(screen.getByRole("button", { name: `查看《${longProjectAsset.title}》详情` }));
+    const drawer = await screen.findByRole("dialog", { name: longProjectAsset.title });
+    expect(within(drawer).getByRole("link", { name: "打开完整详情" })).toHaveAttribute(
+      "href",
+      `/knowledge/${longProjectAsset.id}`,
+    );
+    await act(async () => resolveFirst({ ...crossProjectDetail, ...restrictedAsset }));
+    expect(screen.getByRole("dialog", { name: longProjectAsset.title })).toBeInTheDocument();
   });
 
   it("opens a cross-project summary drawer and submits an honest original request", async () => {
@@ -764,7 +817,7 @@ describe("KnowledgeListPage reference implementation", () => {
       screen.getByRole("button", { name: `查看《${crossProjectAsset.title}》安全摘要` }),
     );
     expect(await screen.findByRole("dialog", { name: crossProjectAsset.title })).toHaveTextContent(
-      "暂无可共享摘要",
+      "安全摘要待处理",
     );
     expect(screen.getByRole("button", { name: "申请原文" })).toBeInTheDocument();
   });

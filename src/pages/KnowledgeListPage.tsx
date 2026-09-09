@@ -24,6 +24,7 @@ import { useAuth } from "../auth/AuthContext";
 import { can } from "../auth/permissions";
 import DataTable, { type Column } from "../components/DataTable";
 import DetailDrawer from "../components/DetailDrawer";
+import { summaryPendingLabel } from "../components/knowledgeSummaryState";
 import AccessExplanationDrawer, { accessLabel } from "../components/AccessExplanationDrawer";
 import TaskModal from "../components/TaskModal";
 import LoadingError from "../components/LoadingError";
@@ -130,6 +131,7 @@ export default function KnowledgeListPage() {
     : "";
   const canLoadBusinessKnowledge = status === "authenticated" && capabilities.isBusinessUser;
   const [summaryAssetId, setSummaryAssetId] = useState<string | null>(null);
+  const summaryRequestRef = useRef(0);
   const [summaryDetail, setSummaryDetail] = useState<KnowledgeDetailVM | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
@@ -172,20 +174,36 @@ export default function KnowledgeListPage() {
     directory ? "directory" : "global-search",
   );
 
-  const openCrossProjectSummary = (assetId: string) => {
+  const openDetail = (assetId: string) => {
+    const requestId = ++summaryRequestRef.current;
     setSummaryAssetId(assetId);
     setSummaryDetail(null);
     setSummaryError(null);
     setRequestNote(null);
     setSummaryLoading(true);
     void fetchKnowledgeDetail(assetId)
-      .then(setSummaryDetail)
-      .catch(() => setSummaryError("摘要暂时无法加载，请稍后重试。"))
-      .finally(() => setSummaryLoading(false));
+      .then((detail) => {
+        if (requestId === summaryRequestRef.current) setSummaryDetail(detail);
+      })
+      .catch(() => {
+        if (requestId === summaryRequestRef.current)
+          setSummaryError("详情暂时无法加载，请关闭后重试。");
+      })
+      .finally(() => {
+        if (requestId === summaryRequestRef.current) setSummaryLoading(false);
+      });
   };
 
-  const closeCrossProjectSummary = () => {
+  useEffect(
+    () => () => {
+      ++summaryRequestRef.current;
+    },
+    [],
+  );
+
+  const closeDetail = () => {
     if (requestBusy) return;
+    ++summaryRequestRef.current;
     setSummaryAssetId(null);
     setSummaryDetail(null);
     setSummaryError(null);
@@ -507,20 +525,20 @@ export default function KnowledgeListPage() {
                   type="button"
                   title={asset.title}
                   aria-label={`查看《${asset.title}》安全摘要`}
-                  onClick={() => openCrossProjectSummary(asset.id)}
+                  onClick={() => openDetail(asset.id)}
                 >
                   {asset.title}
                 </button>
               ) : (
-                <Link
+                <button
                   className="kbl-title-link"
+                  type="button"
                   title={asset.title}
                   aria-label={`查看《${asset.title}》详情`}
-                  to={`/knowledge/${asset.id}`}
-                  state={detailState}
+                  onClick={() => openDetail(asset.id)}
                 >
                   {asset.title}
-                </Link>
+                </button>
               )}
               {asset.canonicalName && (
                 <small title={asset.canonicalName}>{asset.canonicalName}</small>
@@ -597,18 +615,18 @@ export default function KnowledgeListPage() {
             <button
               className="product-button is-secondary is-small"
               type="button"
-              onClick={() => openCrossProjectSummary(asset.id)}
+              onClick={() => openDetail(asset.id)}
             >
               查看摘要
             </button>
           ) : (
-            <Link
+            <button
               className="product-button is-secondary is-small"
-              to={`/knowledge/${asset.id}`}
-              state={detailState}
+              type="button"
+              onClick={() => openDetail(asset.id)}
             >
               查看详情
-            </Link>
+            </button>
           ),
       },
     ],
@@ -1191,10 +1209,14 @@ export default function KnowledgeListPage() {
 
       <DetailDrawer
         open={summaryAssetId !== null}
-        title={summaryDetail?.title ?? "跨项目知识摘要"}
-        description="其他项目 · 摘要可见。此处不授予项目空间权限，也不展示原文或项目治理信息。"
+        title={summaryDetail?.title ?? "知识详情"}
+        description={
+          summaryDetail?.access.crossProjectSummary
+            ? "其他项目 · 摘要可见。此处不授予项目空间权限，也不展示原文或项目治理信息。"
+            : "查看资料摘要与核心信息，关闭后继续浏览当前列表。"
+        }
         busy={requestBusy}
-        onClose={closeCrossProjectSummary}
+        onClose={closeDetail}
         footer={
           summaryDetail ? (
             summaryDetail.access.original ? (
@@ -1203,7 +1225,9 @@ export default function KnowledgeListPage() {
                 to={`/knowledge/${summaryDetail.id}`}
                 state={detailState}
               >
-                原文访问已开放，查看详情
+                {summaryDetail.access.crossProjectSummary
+                  ? "原文访问已开放，查看详情"
+                  : "打开完整详情"}
               </Link>
             ) : summaryDetail.access.existingRequestStatus === "pending" ? (
               <Link className="product-button is-secondary" to="/original-access?box=mine">
@@ -1234,15 +1258,36 @@ export default function KnowledgeListPage() {
         ) : summaryDetail ? (
           <div className="kbl-summary-drawer">
             <div className="kbl-summary-drawer-meta">
-              <span>{summaryDetail.projectName || "其他项目"}</span>
+              <span>
+                {summaryDetail.scope === "project"
+                  ? summaryDetail.projectName || "项目知识"
+                  : summaryDetail.scope === "company"
+                    ? "公司知识"
+                    : "个人知识"}
+              </span>
               <span>{confidentialityLabels[summaryDetail.confidentialityLevel]}</span>
             </div>
-            {summaryDetail.detailed || summaryDetail.oneLiner ? (
-              <p>{summaryDetail.detailed || summaryDetail.oneLiner}</p>
+            {!summaryDetail.access.summary ? (
+              <p>当前身份不可查看内容摘要。</p>
+            ) : summaryDetail.detailed ||
+              summaryDetail.oneLiner ||
+              summaryDetail.keyPoints.length ? (
+              <div>
+                {(summaryDetail.detailed || summaryDetail.oneLiner) && (
+                  <p>{summaryDetail.detailed || summaryDetail.oneLiner}</p>
+                )}
+                {summaryDetail.keyPoints.length > 0 && (
+                  <ul>
+                    {summaryDetail.keyPoints.map((point, index) => (
+                      <li key={index}>{point}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             ) : (
               <EmptyState
-                title="暂无可共享摘要"
-                description="安全摘要尚未生成。你仍可申请原文，审批通过后再查看受控内容。"
+                title={summaryPendingLabel(summaryDetail)}
+                description="摘要暂未就绪，不代表文件解析失败。原文访问仍按现有权限控制。"
               />
             )}
             <section className="kbl-summary-core" aria-labelledby="summary-core-title">
@@ -1250,12 +1295,20 @@ export default function KnowledgeListPage() {
               <dl>
                 <div>
                   <dt>资料范围</dt>
-                  <dd>项目知识</dd>
+                  <dd>
+                    {summaryDetail.scope === "company"
+                      ? "公司知识"
+                      : summaryDetail.scope === "personal"
+                        ? "个人知识"
+                        : "项目知识"}
+                  </dd>
                 </div>
-                <div>
-                  <dt>来源项目</dt>
-                  <dd>{summaryDetail.projectName || "暂无"}</dd>
-                </div>
+                {summaryDetail.scope === "project" && (
+                  <div>
+                    <dt>来源项目</dt>
+                    <dd>{summaryDetail.projectName || "暂无"}</dd>
+                  </div>
+                )}
                 <div>
                   <dt>正式目录</dt>
                   <dd>{summaryDetail.directoryPath || "待治理"}</dd>

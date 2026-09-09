@@ -365,6 +365,7 @@ async def test_missing_current_version_never_falls_back_to_historical_summaries(
         "one_liner": None,
         "detailed": None,
         "key_points": [],
+        "status": "safe_pending",
     }
     assert "PBC67-HISTORICAL" not in detail.text
 

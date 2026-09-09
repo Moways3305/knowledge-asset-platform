@@ -103,7 +103,9 @@ def _image_bytes(content: bytes, *, source_kind: str, page_number: int) -> bytes
             retryable=False,
         )
     if completed.returncode != 0 or not completed.stdout:
-        raise OCRError("ocr_source_invalid", "PDF 无法读取，请检查文件是否损坏。", retryable=False)
+        raise OCRError(
+            "ocr_render_failed", "PDF 页面渲染进程异常，原件已保留，请管理员检查。", retryable=False
+        )
     try:
         with Image.open(io.BytesIO(completed.stdout)) as image:
             if image.width * image.height > settings.ocr_max_rendered_pixels:
@@ -116,7 +118,9 @@ def _image_bytes(content: bytes, *, source_kind: str, page_number: int) -> bytes
         raise
     except Exception as exc:
         raise OCRError(
-            "ocr_source_invalid", "PDF 无法读取，请检查文件是否损坏。", retryable=False
+            "ocr_render_output_invalid",
+            "PDF 渲染输出无效，原件已保留，请管理员检查。",
+            retryable=False,
         ) from exc
     return completed.stdout
 

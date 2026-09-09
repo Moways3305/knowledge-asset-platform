@@ -143,7 +143,7 @@ export function useUploadIntake({
                 ? "未完成上传，请重新选择原文件"
                 : null,
         errorCode: item.error_code,
-        ingestTaskId: null,
+        ingestTaskId: item.ingest_task_id ?? null,
         pollAttempts: 0,
         batchNumber: item.batch_number,
         transportBatchNumber: item.transport_batch_number ?? undefined,

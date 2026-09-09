@@ -116,6 +116,9 @@ async def test_transport_session_is_durable_ordered_and_batch_idempotent(client,
     repeated = await client.post(f"/api/v1/ingest/upload-sessions/{session_id}/batches", **request)
     assert first.status_code == repeated.status_code == 200
     assert repeated.json()["uploaded_files"] == 1
+    stored_item = await db_session.get(UploadSessionItem, uuid.UUID(item_ids[0]))
+    assert first.json()["items"][0]["ingest_task_id"] == str(stored_item.ingest_task_id)
+    assert repeated.json()["items"][0]["ingest_task_id"] == str(stored_item.ingest_task_id)
     assert (
         await db_session.scalar(
             select(func.count())

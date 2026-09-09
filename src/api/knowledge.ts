@@ -98,6 +98,7 @@ function mapDetail(d: KnowledgeDetailDTO): KnowledgeDetailVM {
     oneLiner: d.summary?.one_liner ?? "",
     detailed: d.summary?.detailed ?? "",
     keyPoints: d.summary?.key_points ?? [],
+    summaryStatus: d.summary?.status,
     currentVersionNo: d.current_version?.display_version ?? d.current_version?.version_no ?? null,
     indexErrorCode: d.index_error_code ?? null,
     canonicalMarkdownStatus: d.canonical_markdown_status ?? null,

@@ -108,6 +108,21 @@ function renderDetail(state?: unknown) {
 }
 
 describe("KnowledgeDetailPage", () => {
+  it("distinguishes a missing safe summary from generation failure", async () => {
+    vi.mocked(fetchKnowledgeDetail).mockResolvedValue({
+      ...baseAsset,
+      scope: "company",
+      confidentialityLevel: "L2",
+      oneLiner: "",
+      detailed: "",
+      keyPoints: [],
+      summaryStatus: "safe_pending",
+    });
+    renderDetail();
+    expect(await screen.findAllByText("安全摘要待处理")).toHaveLength(2);
+    expect(screen.queryByText("摘要待生成")).not.toBeInTheDocument();
+  });
+
   beforeEach(() => {
     authState.authMe.projects = [];
     vi.mocked(fetchKnowledgeDetail).mockReset();

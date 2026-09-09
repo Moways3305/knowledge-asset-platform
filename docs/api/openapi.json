@@ -15488,6 +15488,16 @@
               }
             ],
             "title": "One Liner"
+          },
+          "status": {
+            "default": "generation_pending",
+            "enum": [
+              "ready",
+              "safe_pending",
+              "generation_pending"
+            ],
+            "title": "Status",
+            "type": "string"
           }
         },
         "title": "SummaryOut",
@@ -15839,6 +15849,18 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "ingest_task_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ingest Task Id"
           },
           "last_attempt_at": {
             "anyOf": [

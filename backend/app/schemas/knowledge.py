@@ -10,6 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -109,6 +110,7 @@ class SummaryOut(BaseModel):
     one_liner: str | None = None
     detailed: str | None = None
     key_points: list[str] = []
+    status: Literal["ready", "safe_pending", "generation_pending"] = "generation_pending"
 
 
 class CurrentVersionOut(BaseModel):
