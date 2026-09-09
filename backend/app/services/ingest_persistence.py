@@ -94,6 +94,13 @@ def build_summaries(
                     content=redacted_detailed,
                 )
             )
+        if not redacted_one_liner or not redacted_detailed:
+            rows.append(
+                KnowledgeAssetSummary(
+                    summary_type="redacted_summary_pending",
+                    content="redaction_failed",
+                )
+            )
     return rows
 
 

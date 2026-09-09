@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import math
+import os
 import pickle
 import sys
 
@@ -31,7 +32,7 @@ def _rasterize(
             image.save(out, format="PNG")
             return out.getvalue()
 
-    import fitz
+    import pymupdf as fitz
 
     document = fitz.open(stream=content, filetype="pdf")
     try:
@@ -52,7 +53,7 @@ def _rasterize(
         document.close()
 
 
-def main() -> int:
+def _run(output) -> int:
     apply_process_limits()
     try:
         content, source_kind, page_number, max_image_pixels = pickle.loads(sys.stdin.buffer.read())
@@ -69,8 +70,15 @@ def main() -> int:
         payload = ("controlled", (exc.code, exc.message))
     except Exception:
         payload = ("failed", None)
-    sys.stdout.buffer.write(pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL))
+    output.write(pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL))
     return 0
+
+
+def main() -> int:
+    sys.stdout.flush()
+    with os.fdopen(os.dup(sys.stdout.fileno()), "wb") as output:
+        os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
+        return _run(output)
 
 
 if __name__ == "__main__":

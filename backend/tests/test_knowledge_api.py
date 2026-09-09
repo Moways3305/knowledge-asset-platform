@@ -7,8 +7,10 @@ storage_ref 不外泄。
 
 from __future__ import annotations
 
+from sqlalchemy import delete
+
 from app.models.identity import Project
-from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetSummary, KnowledgeAssetVersion
 from app.seed.dev_seed import (
     KA_COMPANY_L4,
     KA_COMPANY_L5,
@@ -113,6 +115,49 @@ async def test_l4_detail_original_false_and_redacted_summary(client):
     # 摘要应为脱敏文本（seed 中以"（脱敏）"开头），且无 key_points 泄露。
     assert body["summary"]["one_liner"].startswith("（脱敏）")
     assert body["summary"]["key_points"] == []
+    assert body["summary"]["status"] == "ready"
+
+
+async def test_missing_safe_summary_is_pending_then_targeted_backfill_repairs(client, db_session):
+    from app.services.authorized_summary_backfill import backfill_authorized_summaries
+
+    asset = await db_session.get(KnowledgeAsset, KA_COMPANY_L4)
+    asset.confidentiality_level = "L2"
+    await db_session.execute(
+        delete(KnowledgeAssetSummary).where(
+            KnowledgeAssetSummary.asset_id == asset.id,
+            KnowledgeAssetSummary.version_id == asset.current_version_id,
+        )
+    )
+    db_session.add_all(
+        [
+            KnowledgeAssetSummary(
+                asset_id=asset.id,
+                version_id=asset.current_version_id,
+                summary_type=kind,
+                content="联系邮箱 private@example.com。安全业务说明。",
+            )
+            for kind in ("one_liner", "detailed")
+        ]
+    )
+    await db_session.commit()
+    response = await client.get(f"{KN}/{asset.id}", headers=_hdr(USER_CONSULTANT))
+    assert response.status_code == 200
+    assert response.json()["summary"]["status"] == "safe_pending"
+    assert response.json()["summary"]["detailed"] is None
+    assert "private@example.com" not in response.text
+    dry_run = await backfill_authorized_summaries(db_session, asset_id=asset.id)
+    assert dry_run.scanned == 1
+    response = await client.get(f"{KN}/{asset.id}", headers=_hdr(USER_CONSULTANT))
+    assert response.json()["summary"]["status"] == "safe_pending"
+    applied = await backfill_authorized_summaries(db_session, dry_run=False, asset_id=asset.id)
+    assert applied.scanned == applied.regenerated == 1
+    response = await client.get(f"{KN}/{asset.id}", headers=_hdr(USER_CONSULTANT))
+    assert response.json()["summary"]["status"] == "ready"
+    assert "安全业务说明" in response.json()["summary"]["detailed"]
+    assert "private@example.com" not in response.text
+    repeated = await backfill_authorized_summaries(db_session, dry_run=False, asset_id=asset.id)
+    assert repeated.regenerated == 0
 
 
 async def test_l5_detail_404_for_consultant(client):

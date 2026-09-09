@@ -396,7 +396,7 @@ def test_worker_memory_error_is_distinct(monkeypatch):
         SimpleNamespace(buffer=io.BytesIO(pickle.dumps((b"source", "company.pptx", None)))),
     )
     monkeypatch.setattr(extraction_worker.sys, "stdout", SimpleNamespace(buffer=stdout))
-    assert extraction_worker.main() == 0
+    assert extraction_worker._run(stdout) == 0
     kind, payload = pickle.loads(stdout.getvalue())
     assert kind == "controlled"
     assert payload[0] == "extraction_memory_limit"

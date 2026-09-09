@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import pickle
 import sys
 
@@ -9,7 +10,7 @@ from app.services.extraction import _ControlledExtractionError, _extract_unbound
 from app.services.process_limits import apply_process_limits
 
 
-def main() -> int:
+def _run(output) -> int:
     apply_process_limits()
     try:
         content, file_name, mime = pickle.loads(sys.stdin.buffer.read())
@@ -27,8 +28,15 @@ def main() -> int:
         )
     except Exception:
         payload = ("failed", None)
-    sys.stdout.buffer.write(pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL))
+    output.write(pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL))
     return 0
+
+
+def main() -> int:
+    sys.stdout.flush()
+    with os.fdopen(os.dup(sys.stdout.fileno()), "wb") as output:
+        os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
+        return _run(output)
 
 
 if __name__ == "__main__":

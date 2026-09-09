@@ -40,6 +40,7 @@ class IngestUploadResponse(BaseModel):
 
 class UploadSessionItemResponse(BaseModel):
     id: uuid.UUID
+    ingest_task_id: uuid.UUID | None = None
     ordinal: int
     batch_number: int
     transport_batch_number: int | None = None

@@ -2,6 +2,8 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { UploadSessionDTO } from "../../types/ingest";
 import { useUploadFlow } from "./useUploadFlow";
+import { mergeFileTasks } from "./UnifiedFileTasks";
+import type { PendingIngestItemDTO } from "../../types/ingest";
 
 vi.mock("../../hooks/useModelSelection", () => ({
   useModelSelection: () => ({
@@ -95,6 +97,22 @@ describe("useUploadFlow persistent upload sessions", () => {
       sameNameWarning: true,
       status: "completed",
     });
+  });
+
+  it("restores task identity so 43 uploaded files remain 43 merged rows", async () => {
+    const uploaded = session(43);
+    uploaded.items.forEach((item, index) => {
+      item.ingest_task_id = `task-${index}`;
+    });
+    ingest.fetchUploadSessions.mockResolvedValue([uploaded]);
+    const { result } = renderHook(() => useUploadFlow());
+    await waitFor(() => expect(result.current.localUploadQueue).toHaveLength(43));
+    const pending = uploaded.items.map((item) => ({
+      id: item.ingest_task_id!,
+      source_file_name: item.file_name,
+    })) as PendingIngestItemDTO[];
+    expect(result.current.localUploadQueue[0].ingestTaskId).toBe("task-0");
+    expect(mergeFileTasks(result.current.localUploadQueue, pending)).toHaveLength(43);
   });
 
   it("treats a completed session item as authoritative over stale parse failure metadata", async () => {

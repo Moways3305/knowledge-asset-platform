@@ -54,6 +54,7 @@ export type UploadSessionItemState =
 
 export interface UploadSessionItemDTO {
   id: string;
+  ingest_task_id?: string | null;
   ordinal: number;
   batch_number: number;
   transport_batch_number?: number | null;

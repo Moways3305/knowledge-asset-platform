@@ -327,6 +327,7 @@ async def get_detail(
                 one_liner=safe_one_liner,
                 detailed=safe_detailed,
                 key_points=[],
+                status="ready" if safe_one_liner or safe_detailed else "safe_pending",
             )
         else:
             kp_raw = smap.get("key_points")
@@ -337,6 +338,9 @@ async def get_detail(
                 one_liner=smap.get("one_liner"),
                 detailed=smap.get("detailed"),
                 key_points=key_points,
+                status="ready"
+                if smap.get("one_liner") or smap.get("detailed") or key_points
+                else "generation_pending",
             )
 
     # 当前版本信息（仅元数据，不含原文内容）。复用上面已加载的 version_obj。

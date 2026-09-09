@@ -203,6 +203,24 @@ for (const scenario of scenarios) {
         });
       }
 
+      if (requestUrl.pathname === `/api/v1/knowledge/${assetId}`) {
+        return fulfill({
+          ...asset(),
+          scope: scenario === "project" ? "project" : "company",
+          project_id: scenario === "project" ? projectId : null,
+          project_name: scenario === "project" ? "华东交付项目" : null,
+          maintainer: { id: "qa-user", name: "资料维护人" },
+          summary: {
+            one_liner: "（脱敏）经营诊断方法。",
+            detailed: "（脱敏）介绍诊断流程、访谈方法和复盘步骤，不包含客户敏感原文。",
+            key_points: [],
+            status: "ready",
+          },
+          current_version: null,
+          safe_version: "V1",
+          directory_path: "公司库 / 01 公司方法论",
+        });
+      }
       return fulfill({ detail: { message: "UI QA route not configured" } }, 404);
     });
 
@@ -272,7 +290,7 @@ for (const scenario of scenarios) {
             bodyText,
           ),
         tableVisible: Boolean(document.querySelector(".kbl-table")),
-        semanticTitleEntry: Boolean(document.querySelector(".kbl-title-link[href]")),
+        semanticTitleEntry: Boolean(document.querySelector("button.kbl-title-link")),
       };
     });
 
@@ -282,6 +300,19 @@ for (const scenario of scenarios) {
       animations: "disabled",
     });
 
+    if (scenario === "company" || scenario === "project") {
+      const originalUrl = page.url();
+      await page.getByRole("button", { name: `查看《${asset().title}》详情` }).click();
+      const drawer = page.getByRole("dialog", { name: asset().title });
+      await drawer.waitFor();
+      await drawer.getByRole("heading", { name: "核心信息" }).waitFor();
+      await page.screenshot({
+        path: path.join(outDir, `${scenario}-${viewport.name}-drawer.png`),
+        animations: "disabled",
+      });
+      await drawer.getByRole("button", { name: "关闭详情" }).click();
+      if (page.url() !== originalUrl) throw new Error("Drawer changed list location");
+    }
     let collapsedMetrics = {};
     if (scenario === "company" && viewport.width > 700) {
       await page.getByRole("button", { name: "折叠主导航" }).click();

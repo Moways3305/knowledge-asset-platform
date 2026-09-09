@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import io
+import os
 import sys
 
 
-def main() -> int:
+def _render(output) -> int:
     source_kind, page_raw, max_pixels_raw = sys.argv[1:4]
     page_number = int(page_raw)
     max_pixels = int(max_pixels_raw)
@@ -21,9 +22,9 @@ def main() -> int:
                 image = source.convert("RGB")
                 out = io.BytesIO()
                 image.save(out, format="PNG")
-                sys.stdout.buffer.write(out.getvalue())
+                output.write(out.getvalue())
                 return 0
-        import fitz
+        import pymupdf as fitz
 
         document = fitz.open(stream=content, filetype="pdf")
         try:
@@ -32,14 +33,21 @@ def main() -> int:
             page = document.load_page(page_number - 1)
             if int(page.rect.width * 2) * int(page.rect.height * 2) > max_pixels:
                 return 3
-            sys.stdout.buffer.write(
-                page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False).tobytes("png")
-            )
+            output.write(page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False).tobytes("png"))
             return 0
         finally:
             document.close()
     except Exception:
         return 2
+
+
+def main() -> int:
+    # Reserve the binary protocol channel before loading any rendering library.
+    # Redirect both Python prints and native-library stdout diagnostics to stderr.
+    sys.stdout.flush()
+    with os.fdopen(os.dup(sys.stdout.fileno()), "wb") as output:
+        os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
+        return _render(output)
 
 
 if __name__ == "__main__":

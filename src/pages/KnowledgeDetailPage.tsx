@@ -11,6 +11,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { ApiError } from "../api/http";
+import { summaryPendingLabel } from "../components/knowledgeSummaryState";
 import { useAuth } from "../auth/AuthContext";
 import AccessExplanationDrawer, { accessLabel } from "../components/AccessExplanationDrawer";
 import ProjectCompanyPublicationDialog, {
@@ -454,7 +455,11 @@ export default function KnowledgeDetailPage() {
           )}
           {canSummary && (
             <p className={hasText(asset.oneLiner) ? "" : "kdetail-summary-pending"}>
-              {hasText(asset.oneLiner) ? asset.oneLiner : "摘要待生成"}
+              {hasText(asset.oneLiner)
+                ? asset.oneLiner
+                : hasSummaryBody
+                  ? ""
+                  : summaryPendingLabel(asset)}
             </p>
           )}
         </div>
@@ -531,7 +536,7 @@ export default function KnowledgeDetailPage() {
               {!canSummary ? (
                 <div className="kdetail-restricted">当前身份不可查看内容摘要。</div>
               ) : !hasText(asset.oneLiner) && !hasSummaryBody ? (
-                <div className="kdetail-muted-state">摘要待生成</div>
+                <div className="kdetail-muted-state">{summaryPendingLabel(asset)}</div>
               ) : (
                 <div className="kdetail-summary-body">
                   {hasText(asset.detailed) && <p>{asset.detailed}</p>}

@@ -38,6 +38,18 @@ def test_missing_safe_variant_returns_empty_not_raw(level):
     assert _card_summary_fields(asset, True) == (None, None, [])
 
 
+def test_failed_redaction_persists_a_repair_marker(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.ingest_persistence.build_authorized_summary_variants",
+        lambda **kwargs: (None, None),
+    )
+    rows = build_summaries("L2", one_liner="private", detailed="private", key_points=[])
+    summaries = {row.summary_type: row.content for row in rows}
+    assert summaries["redacted_summary_pending"] == "redaction_failed"
+    assert summaries["detailed"] == "private"
+    assert "redacted_summary" not in summaries
+
+
 @pytest.mark.parametrize("level", ["L1", "L5"])
 def test_l1_and_l5_summary_policy_is_unchanged(level):
     rows = build_summaries(level, one_liner="public", detailed="detail", key_points=["point"])

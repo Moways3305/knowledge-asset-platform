@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import subprocess
 import sys
 from types import SimpleNamespace
 
@@ -15,6 +16,46 @@ def _image() -> bytes:
     output = io.BytesIO()
     Image.new("RGB", (20, 20), "white").save(output, format="PNG")
     return output.getvalue()
+
+
+def test_renderer_protocol_isolates_python_and_native_warnings():
+    import pymupdf
+
+    with pymupdf.open() as document:
+        document.new_page()
+        content = document.tobytes()
+    code = """
+import os, sys
+from app.services import ocr_render_worker as worker
+original = worker._render
+def noisy(output):
+    print("library warning", flush=True)
+    os.write(1, b"native warning\\n")
+    return original(output)
+worker._render = noisy
+sys.argv = ["renderer", "pdf", "1", "20000000"]
+raise SystemExit(worker.main())
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code], input=content, capture_output=True, timeout=30
+    )
+    assert result.returncode == 0
+    assert result.stdout.startswith(b"\x89PNG\r\n\x1a\n")
+    assert b"library warning" in result.stderr
+    assert b"native warning" in result.stderr
+    with Image.open(io.BytesIO(result.stdout)) as image:
+        image.load()
+
+
+def test_polluted_render_output_is_not_reported_as_corrupt_source(monkeypatch):
+    monkeypatch.setattr(
+        ocr.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout=b"warning\n" + _image()),
+    )
+    with pytest.raises(ocr.OCRError) as caught:
+        ocr._image_bytes(b"pdf", source_kind="pdf", page_number=1)
+    assert caught.value.code == "ocr_render_output_invalid"
 
 
 def test_local_ocr_records_page_status_and_confidence(monkeypatch):
@@ -141,7 +182,7 @@ def test_pdf_pixel_limit_is_checked_before_pixmap_allocation(monkeypatch):
         open=lambda **_kwargs: Document(),
         Matrix=lambda x, y: SimpleNamespace(x=x, y=y),
     )
-    monkeypatch.setitem(sys.modules, "fitz", fake_fitz)
+    monkeypatch.setitem(sys.modules, "pymupdf", fake_fitz)
 
     with pytest.raises(ocr_raster_worker._RasterError) as caught:
         ocr_raster_worker._rasterize(b"pdf", source_kind="pdf", page_number=1, max_image_pixels=100)
