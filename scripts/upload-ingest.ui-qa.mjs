@@ -265,10 +265,10 @@ try {
           scenario === "batch-personal-ready" ||
           scenario === "batch-company-directory-ready"
             ? [
-                ["upload-item-1", "客户增长复盘.md"],
+                ["upload-item-1", longPendingFileName],
                 ["upload-item-2", "客户访谈纪要.txt"],
               ]
-            : [["upload-item-1", "客户增长复盘.md"]];
+            : [["upload-item-1", longPendingFileName]];
         return {
           id: uploadSessionId,
           status: state === "awaiting_confirmation" ? "completed" : "active",
@@ -293,9 +293,14 @@ try {
             file_size: Buffer.byteLength(
               fileName.endsWith(".txt") ? "安全验收内容" : "# 客户增长复盘\n安全验收内容",
             ),
-            file_type: fileName.endsWith(".txt") ? "TXT" : "MD",
+            file_type: fileName.endsWith(".txt") ? "TXT" : "PPTX",
             status: state,
-            ingest_task_id: state === "waiting_upload" || state === "failed" ? null : taskId,
+            ingest_task_id:
+              state === "waiting_upload" || state === "failed"
+                ? null
+                : index === 0
+                  ? taskId
+                  : "task-safe-78",
             processing_stage:
               state === "processing" && scenario === "canonical-processing"
                 ? "canonical_markdown_generation"
@@ -470,13 +475,13 @@ try {
                     {
                       ...localPendingTask,
                       id: "task-safe-78",
-                      source_file_name: "年度经营计划.md",
+                      source_file_name: "客户访谈纪要.txt",
                       suggested_title: "年度经营计划",
                       naming_parsed_fields: {
                         ...batchNamingFields,
                         topic: "年度经营计划",
                         date: "20210116",
-                        source_file_name: "年度经营计划.md",
+                        source_file_name: "客户访谈纪要.txt",
                       },
                     },
                   ]
@@ -695,8 +700,8 @@ try {
       } else if (scenario !== "local-empty") {
         const localFiles = [
           {
-            name: "客户增长复盘.md",
-            mimeType: "text/markdown",
+            name: longPendingFileName,
+            mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
             buffer: Buffer.from("# 客户增长复盘\n安全验收内容"),
           },
         ];
@@ -777,7 +782,7 @@ try {
         await page.getByRole("button", { name: "下一步：核对入库" }).click();
         await page.getByRole("heading", { name: "核对 2 项个人入库" }).waitFor();
         await page
-          .getByRole("combobox", { name: /年度经营计划\.md 个人目录/ })
+          .getByRole("combobox", { name: /客户访谈纪要\.txt 个人目录/ })
           .selectOption("personal.project_materials");
         const personalReview = page.getByRole("dialog", { name: "核对 2 项个人入库" });
         personalBatchReviewLayoutValid = await personalReview.evaluate(
@@ -930,8 +935,8 @@ try {
                 (button) => button.textContent?.trim() === "选择文件",
               ).length === 1,
             queueOrderValid:
-              text.indexOf("客户增长复盘.md") >= 0 &&
-              text.indexOf("客户访谈纪要.txt") > text.indexOf("客户增长复盘.md"),
+              text.indexOf(longPendingFileName) >= 0 &&
+              text.indexOf("客户访谈纪要.txt") > text.indexOf(longPendingFileName),
             compactCompletionVisible:
               Boolean(document.querySelector(".upload-file-tasks")) &&
               !document.querySelector("#local-upload-queue-title"),
