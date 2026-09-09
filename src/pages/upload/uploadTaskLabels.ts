@@ -32,6 +32,8 @@ export function queueFailureReason(
     if (code === "extraction_memory_limit")
       return "文件解析达到内存限制，原件已保留；请管理员检查资源，或拆分文件后重试";
     if (code === "extraction_password_protected") return "文件受密码保护，请解锁后重新上传";
+    if (code === "extraction_permission_restricted")
+      return "PDF 可直接打开，但限制内容提取；请取得授权后的可提取版本再上传";
     if (
       code === "extraction_format_mismatch" ||
       code === "file_format_unsupported" ||
