@@ -244,8 +244,16 @@ for (const scenario of scenarios) {
       await page.goto(`${base}/knowledge`, { waitUntil: "networkidle" });
       await page.getByRole("button", { name: /公司库/ }).click();
       await page.getByRole("button", { name: /01 公司方法论/ }).click();
-      await page.getByRole("link", { name: "查看详情" }).click();
+      await page.getByRole("button", { name: "查看详情", exact: true }).click();
+      const drawer = page.getByRole("dialog", { name: "客户增长项目复盘方法论" });
+      await drawer.getByRole("heading", { name: "核心信息" }).waitFor();
+      await drawer.getByRole("link", { name: "打开完整详情" }).click();
       await page.waitForURL(`**/knowledge/${assetId}`);
+      await drawer.waitFor({ state: "hidden" });
+      await page
+        .locator(".kdetail-page")
+        .getByRole("heading", { name: "客户增长项目复盘方法论" })
+        .waitFor();
     } else {
       await page.goto(`${base}/knowledge/${assetId}`, { waitUntil: "networkidle" });
     }
