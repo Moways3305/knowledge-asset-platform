@@ -294,6 +294,34 @@ def test_extract_encrypted_pdf_is_rejected_without_password_prompt():
     assert "never-send-this" not in (result.error_message or "")
 
 
+def test_empty_password_pdf_with_extraction_permission_is_readable():
+    from pypdf import PdfReader, PdfWriter
+    from pypdf.constants import UserAccessPermissions
+
+    writer = PdfWriter(clone_from=PdfReader(io.BytesIO(_make_pdf("Readable content"))))
+    writer.encrypt("", "owner-only", permissions_flag=UserAccessPermissions.EXTRACT)
+    buf = io.BytesIO()
+    writer.write(buf)
+    result = extract_text(buf.getvalue(), file_name="restricted-editing.pdf", mime=None)
+    assert result.status == "extracted"
+    assert "Readable content" in result.text
+
+
+def test_empty_password_pdf_without_extraction_permission_has_distinct_error():
+    from pypdf import PdfWriter
+    from pypdf.constants import UserAccessPermissions
+
+    writer = PdfWriter()
+    writer.add_blank_page(width=100, height=100)
+    writer.encrypt("", "owner-only", permissions_flag=UserAccessPermissions.PRINT)
+    buf = io.BytesIO()
+    writer.write(buf)
+    result = extract_text(buf.getvalue(), file_name="no-copy.pdf", mime=None)
+    assert result.status == "failed"
+    assert result.error_type == "extraction_permission_restricted"
+    assert "限制内容提取" in result.error_message
+
+
 def test_extract_encrypted_office_container_is_rejected():
     result = extract_text(
         b"\xd0\xcf\x11\xe0" + b"encrypted-office", file_name="protected.docx", mime=None

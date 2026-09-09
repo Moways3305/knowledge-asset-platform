@@ -281,10 +281,19 @@ def _validate_pdf(content: bytes) -> None:
 
         reader = PdfReader(io.BytesIO(content))
         if reader.is_encrypted:
-            raise _ControlledExtractionError(
-                "extraction_password_protected",
-                "该 PDF 已加密或需要密码保护；平台不会接收或请求密码，请移除保护后重新上传。",
-            )
+            from pypdf.constants import UserAccessPermissions
+
+            if not reader.decrypt(""):
+                raise _ControlledExtractionError(
+                    "extraction_password_protected",
+                    "该 PDF 需要打开密码，请解除打开密码后重新上传。",
+                )
+            permissions = reader.user_access_permissions
+            if permissions is None or not permissions & UserAccessPermissions.EXTRACT:
+                raise _ControlledExtractionError(
+                    "extraction_permission_restricted",
+                    "该 PDF 可直接打开，但限制内容提取；请取得授权后的可提取版本再上传。",
+                )
     except _ControlledExtractionError:
         raise
     except Exception as exc:  # parser-specific errors are intentionally not surfaced
