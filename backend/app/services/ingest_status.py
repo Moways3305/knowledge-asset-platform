@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select, update
@@ -532,6 +533,8 @@ async def retry_task(
             .values(
                 status=IngestStatus.processing.value,
                 processing_stage="text_extraction",
+                processing_started_at=None,
+                processing_heartbeat_at=datetime.now(timezone.utc),
                 error_type=None,
                 error_message=None,
                 processing_worker_id=None,
@@ -629,6 +632,11 @@ async def retry_task(
             .values(
                 status=IngestStatus.processing.value,
                 processing_stage="content_generation",
+                processing_started_at=None,
+                processing_heartbeat_at=datetime.now(timezone.utc),
+                processing_worker_id=None,
+                processing_job_id=None,
+                recovery_not_before=None,
                 retry_count=0,
                 error_type=None,
                 error_message=None,
@@ -681,6 +689,11 @@ async def retry_task(
             .values(
                 status=IngestStatus.processing.value,
                 processing_stage="ocr_queued",
+                processing_started_at=None,
+                processing_heartbeat_at=datetime.now(timezone.utc),
+                processing_worker_id=None,
+                processing_job_id=None,
+                recovery_not_before=None,
                 error_type=None,
                 error_message=None,
                 retry_count=task.retry_count + 1,
@@ -750,6 +763,8 @@ async def retry_task(
                 error_type=None,
                 error_message=None,
                 processing_worker_id=None,
+                processing_started_at=None,
+                processing_heartbeat_at=datetime.now(timezone.utc),
                 processing_job_id=None,
                 recovery_not_before=None,
             )

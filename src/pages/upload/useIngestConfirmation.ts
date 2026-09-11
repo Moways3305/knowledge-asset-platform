@@ -331,10 +331,7 @@ export function useIngestConfirmation({
         .then((value) => {
           if (namingPreviewRunRef.current !== runId) return;
           setNamingPreview(value);
-          const renderedSubject = value.fields?.subject;
-          if (typeof renderedSubject === "string" && renderedSubject !== editTitle) {
-            setEditTitle(renderedSubject);
-          }
+          // Source-based canonical naming must not overwrite the reviewed title.
         })
         .catch((reason) => {
           if (namingPreviewRunRef.current !== runId) return;

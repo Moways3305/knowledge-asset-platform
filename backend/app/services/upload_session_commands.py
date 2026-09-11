@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,6 +50,11 @@ async def claim_failed_item_retry(
         .values(
             status=IngestStatus.processing.value,
             processing_stage=resume_stage,
+            processing_started_at=None,
+            processing_heartbeat_at=datetime.now(timezone.utc),
+            processing_worker_id=None,
+            processing_job_id=None,
+            recovery_not_before=None,
             error_type=None,
             error_message=None,
             retry_count=IngestTask.retry_count + 1,

@@ -62,11 +62,11 @@ def apply_authoritative_project_subject(
     request: IngestConfirmRequest,
     result: RenderedNaming | None,
 ) -> IngestConfirmRequest:
-    """Apply the server-rendered project subject to every persisted request field."""
+    """Keep the reviewed display title separate from the source-based filename."""
     if result is None or request.target_scope != KnowledgeScope.project:
         return request
-    subject = result.metadata["subject"]
     naming = request.naming
+    subject = naming.subject if naming is not None else request.title
     if naming is not None:
         naming = naming.model_copy(update={"subject": subject})
     return request.model_copy(update={"title": subject, "naming": naming})

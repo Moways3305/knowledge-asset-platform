@@ -440,6 +440,8 @@ async def _recover_once(
                 retry_count=IngestTask.retry_count + 1,
                 processing_worker_id=None,
                 processing_job_id=None,
+                processing_started_at=None,
+                processing_heartbeat_at=datetime.now(timezone.utc),
                 recovery_not_before=None,
             )
         )

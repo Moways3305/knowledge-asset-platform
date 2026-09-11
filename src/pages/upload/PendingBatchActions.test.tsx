@@ -690,9 +690,9 @@ describe("PendingBatchActions governed review", () => {
         {
           task_id: item.id,
           submittable: true,
-          canonical_name: "【P-2026-交付成果】保留的主题_20260803_V1_L2.pdf",
+          canonical_name: "【P-2026-交付成果】retry-governed_20260803_V1_L2.pdf",
           rule_version: 3,
-          fields: { subject: "保留的主题" },
+          fields: { subject: "retry-governed" },
           notices: [],
           error_code: null,
           message: null,
@@ -715,6 +715,16 @@ describe("PendingBatchActions governed review", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "确认已选择的 1 项入库" })).toBeEnabled(),
     );
+    expect(screen.getByLabelText("retry-governed.pdf 主题")).toHaveValue("保留的主题");
+    const previewCalls = namingApi.previewBatchIngestNaming.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "生成或刷新全部预览" }));
+    await waitFor(() =>
+      expect(namingApi.previewBatchIngestNaming.mock.calls.length).toBeGreaterThan(previewCalls),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "确认已选择的 1 项入库" })).toBeEnabled(),
+    );
+    expect(screen.getByLabelText("retry-governed.pdf 主题")).toHaveValue("保留的主题");
     fireEvent.click(screen.getByRole("button", { name: "确认已选择的 1 项入库" }));
 
     await screen.findByText(/1 项资料确认未完成/);
@@ -908,7 +918,7 @@ describe("PendingBatchActions governed review", () => {
     expect(
       await screen.findByText("本批待核对资料已处理完成，可查看本次结果或关闭弹窗"),
     ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "查看知识资产卡片：last-item主题" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "查看知识资产卡片：last-item" })).toHaveAttribute(
       "href",
       "/knowledge/asset-last",
     );

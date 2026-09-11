@@ -1066,6 +1066,12 @@ async def test_item_retry_atomically_claims_the_failed_row_before_enqueue(
     task.status = IngestStatus.failed.value
     task.processing_stage = "content_generation_failed"
     task.error_type = "timeout"
+    old = datetime.now(timezone.utc) - timedelta(days=2)
+    task.created_at = old
+    task.processing_started_at = old
+    task.processing_heartbeat_at = old
+    task.processing_worker_id = "previous-worker"
+    task.processing_job_id = "previous-job"
     await db_session.commit()
 
     retry_url = f"/api/v1/ingest/upload-sessions/{session_id}/items/{item_id}/retry"
@@ -1075,6 +1081,14 @@ async def test_item_retry_atomically_claims_the_failed_row_before_enqueue(
     async def fake_enqueue(*_args, **_kwargs):
         nonlocal enqueue_calls, competing_status
         enqueue_calls += 1
+        # A browser poll runs stale expiry before the new worker can claim the
+        # retry. The previous attempt's heartbeat must not kill this attempt.
+        polled = await client.get(
+            f"/api/v1/ingest/upload-sessions/{session_id}",
+            headers=_headers(USER_CONSULTANT),
+        )
+        assert polled.status_code == 200
+        assert polled.json()["items"][0]["status"] == "processing"
         competing = await client.post(retry_url, headers=_headers(USER_CONSULTANT))
         competing_status = competing.status_code
         return IngestStatus.processing.value
@@ -1087,6 +1101,15 @@ async def test_item_retry_atomically_claims_the_failed_row_before_enqueue(
     assert enqueue_calls == 1
     await db_session.refresh(task)
     assert task.retry_count == 1
+    assert task.status == "processing"
+    assert task.processing_started_at is None
+    assert task.processing_worker_id is None
+    assert task.processing_job_id is None
+    from app.services.upload_session_types import _is_stale_processing
+
+    now = datetime.now(timezone.utc)
+    assert not _is_stale_processing(task, now + timedelta(minutes=16))
+    assert _is_stale_processing(task, now + timedelta(hours=3))
 
 
 async def test_item_retry_treats_zero_byte_source_as_unavailable(client, db_session, monkeypatch):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
@@ -376,6 +377,9 @@ async def test_processing_timeout_uses_physical_source_preflight(client, db_sess
         source_file_size=0,
         status="failed",
         error_type="processing_timeout",
+        created_at=datetime.now(timezone.utc) - timedelta(days=2),
+        processing_started_at=datetime.now(timezone.utc) - timedelta(days=2),
+        processing_heartbeat_at=datetime.now(timezone.utc) - timedelta(days=2),
         created_by=USER_CONSULTANT,
     )
     missing = IngestTask(
@@ -419,6 +423,12 @@ async def test_processing_timeout_uses_physical_source_preflight(client, db_sess
     assert retried.status_code == 200
     assert retried.json()["status"] == "processing"
     assert calls == 1
+
+    await db_session.refresh(available)
+    assert available.processing_started_at is None
+    from app.services.upload_session_types import _is_stale_processing
+
+    assert not _is_stale_processing(available, datetime.now(timezone.utc) + timedelta(minutes=16))
 
 
 async def test_processing_failure_waiting_for_retry_is_actionable(client, db_session):

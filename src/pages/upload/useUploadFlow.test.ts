@@ -472,7 +472,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     expect(result.current.namingFormedOn).toBe("2026-09-07");
   });
 
-  it("applies the server-deidentified project subject before preview and confirmation", async () => {
+  it("keeps the edited title separate from the server filename preview", async () => {
     auth.fetchAuthMe.mockResolvedValue({
       projects: [{ projectId: "project-alpha", projectName: "琥崧项目" }],
     });
@@ -524,15 +524,16 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     });
 
     await waitFor(() => expect(namingApi.previewIngestNaming).toHaveBeenCalled());
-    await waitFor(() => expect(result.current.editTitle).toBe("2021年第1期辅导简报"));
+    await waitFor(() => expect(result.current.namingPreview).not.toBeNull());
+    expect(result.current.editTitle).toBe("琥崧智能2021年第1期辅导简报");
     await waitFor(() => expect(result.current.canSubmit).toBe(true));
     await act(async () => {
       await result.current.handleSubmit();
     });
     const payload = ingest.confirmIngest.mock.calls[0][1];
-    expect(payload.title).toBe("2021年第1期辅导简报");
-    expect(payload.naming.subject).toBe("2021年第1期辅导简报");
-    expect(JSON.stringify(payload)).not.toContain("琥崧");
+    expect(payload.title).toBe("琥崧智能2021年第1期辅导简报");
+    expect(payload.naming.subject).toBe("琥崧智能2021年第1期辅导简报");
+    expect(payload).not.toHaveProperty("canonical_name");
   });
 
   it("selects the first scoped formal directory", async () => {
@@ -1853,7 +1854,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     });
   });
 
-  it("keeps a reviewed AI draft authoritative when the final readiness poll returns newer suggestions", async () => {
+  it("keeps the latest form title and reviewed summary over AI draft titles and polling", async () => {
     ingest.fetchIngestAiResult.mockReset().mockResolvedValue({
       ...readyAiResult,
       ingest_task_id: "draft-a",
@@ -1908,13 +1909,13 @@ describe("useUploadFlow model selection (PBC-38)", () => {
         items: [
           expect.objectContaining({
             confirmation: expect.objectContaining({
-              title: "人工核对标题",
+              title: "主表单中的不同主题",
               one_liner: "人工一句话",
               summary: "人工详细摘要",
               key_points: ["人工关键点"],
               tags: ["人工标签"],
               naming: expect.objectContaining({
-                subject: "人工核对标题",
+                subject: "主表单中的不同主题",
               }),
             }),
           }),

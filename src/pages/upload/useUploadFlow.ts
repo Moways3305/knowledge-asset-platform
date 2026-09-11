@@ -293,8 +293,8 @@ export function useUploadFlow() {
             const selectedDirectory = directoryByTask?.[task.id] || governedNaming?.directory_key;
             const reviewedTitle = reviewedAi?.title.trim();
             const title =
-              reviewedTitle ||
               governedNaming?.subject.trim() ||
+              reviewedTitle ||
               ai.suggested_title?.trim() ||
               task.suggested_title?.trim() ||
               "";
@@ -336,7 +336,7 @@ export function useUploadFlow() {
                 naming: governedNaming
                   ? {
                       directory_key: selectedDirectory || governedNaming.directory_key,
-                      subject: reviewedTitle || governedNaming.subject,
+                      subject: governedNaming.subject,
                       formed_on: governedNaming.formed_on,
                       version: governedNaming.version,
                       applicable_to:

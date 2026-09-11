@@ -703,7 +703,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
       {
         [task.id]: {
           directory_key: "project.deliverables",
-          subject: "安全标题",
+          subject: "Governed",
           formed_on: "2026-08-03",
           version: "V1",
           applicable_to: "通用",
@@ -960,7 +960,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
         "project-a",
         expect.objectContaining({
           directory_key: "project.deliverables",
-          subject: "安全标题",
+          subject: "编辑后的主题",
           formed_on: "2026-08-03",
           version: "V1",
           confidentiality_level: "L2",
@@ -969,7 +969,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
       ),
     );
     expect(screen.getByRole("dialog")).toHaveTextContent("逐条核对");
-    expect(screen.getByRole("link", { name: "查看知识资产卡片：安全标题" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "查看知识资产卡片：编辑后的主题" })).toHaveAttribute(
       "href",
       "/knowledge/asset-single-confirm",
     );
