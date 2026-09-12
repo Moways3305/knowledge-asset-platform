@@ -325,13 +325,7 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
           const preview = response?.items?.[0];
           if (!preview) throw new Error("empty naming preview response");
           setPreviews((current) => ({ ...current, [taskId]: preview }));
-          const subject = preview.fields?.subject;
-          if (typeof subject === "string" && subject !== row.subject) {
-            setRows((current) => ({
-              ...current,
-              [taskId]: { ...current[taskId], subject },
-            }));
-          }
+          // Preview subject belongs to the source-based filename, not the editable title.
           if (!preview.submittable && preview.message) {
             setPreviewFeedback((current) => ({ ...current, [taskId]: preview.message! }));
           }
@@ -564,16 +558,6 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
       setReviewedTaskIds(
         new Set(currentItems.filter((item) => item.submittable).map((item) => item.task_id)),
       );
-      setRows((current) => {
-        const updated = { ...current };
-        currentItems.forEach((item) => {
-          const subject = item.fields?.subject;
-          if (typeof subject === "string" && updated[item.task_id]) {
-            updated[item.task_id] = { ...updated[item.task_id], subject };
-          }
-        });
-        return updated;
-      });
     } catch (error) {
       setDialogError(commandErrorMessage(error, "批量预览暂时失败，资料仍保留，可稍后重试"));
     } finally {
@@ -699,8 +683,8 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
         .map((task) => ({
           taskId: task.id,
           title:
-            aiReviewDrafts[task.id]?.title.trim() ||
             rows[task.id]?.subject.trim() ||
+            aiReviewDrafts[task.id]?.title.trim() ||
             task.suggested_title?.trim() ||
             task.source_file_name,
           assetId: result.resultAssetIds?.[task.id],

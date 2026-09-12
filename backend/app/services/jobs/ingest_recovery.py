@@ -62,8 +62,9 @@ def _is_heavy(task: IngestTask) -> bool:
     name = task.source_file_name.lower()
     return (
         mime == "application/pdf"
+        or mime in {"application/msword", "application/vnd.ms-powerpoint"}
         or mime.startswith("image/")
-        or name.endswith((".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"))
+        or name.endswith((".doc", ".ppt", ".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"))
     )
 
 

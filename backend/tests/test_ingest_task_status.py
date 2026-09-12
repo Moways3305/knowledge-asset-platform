@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
@@ -366,6 +367,21 @@ async def test_parser_resource_failure_is_safe_and_retryable(client, db_session,
     assert calls == [task.id]
 
 
+@pytest.mark.parametrize(
+    "code",
+    ["office_converter_unavailable", "office_conversion_failed", "office_conversion_timeout"],
+)
+async def test_office_conversion_error_is_not_reported_as_corruption(client, db_session, code):
+    task = await _task(
+        db_session, status="failed", processing_stage="text_extraction", error_type=code
+    )
+    response = await client.get(_status_url(task.id), headers=_headers(USER_CONSULTANT))
+    assert response.status_code == 200
+    assert response.json()["error"]["code"] == code
+    assert "损坏" not in response.json()["error"]["message"]
+    assert "SECRET-LIKE" not in response.text
+
+
 async def test_processing_timeout_uses_physical_source_preflight(client, db_session, monkeypatch):
     available_ref = client._kap_storage.save(b"recoverable", original_name="timeout.txt")
     available = IngestTask(
@@ -376,6 +392,9 @@ async def test_processing_timeout_uses_physical_source_preflight(client, db_sess
         source_file_size=0,
         status="failed",
         error_type="processing_timeout",
+        created_at=datetime.now(timezone.utc) - timedelta(days=2),
+        processing_started_at=datetime.now(timezone.utc) - timedelta(days=2),
+        processing_heartbeat_at=datetime.now(timezone.utc) - timedelta(days=2),
         created_by=USER_CONSULTANT,
     )
     missing = IngestTask(
@@ -419,6 +438,12 @@ async def test_processing_timeout_uses_physical_source_preflight(client, db_sess
     assert retried.status_code == 200
     assert retried.json()["status"] == "processing"
     assert calls == 1
+
+    await db_session.refresh(available)
+    assert available.processing_started_at is None
+    from app.services.upload_session_types import _is_stale_processing
+
+    assert not _is_stale_processing(available, datetime.now(timezone.utc) + timedelta(minutes=16))
 
 
 async def test_processing_failure_waiting_for_retry_is_actionable(client, db_session):

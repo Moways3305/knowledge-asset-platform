@@ -214,11 +214,10 @@ def test_extract_corrupt_pptx_fails_without_logging_content_or_path(caplog):
     assert "C:\\Users\\private" not in (r.error_message or "")
 
 
-def test_extract_legacy_ppt_is_explicitly_unsupported():
+def test_extract_legacy_ppt_rejects_mislabeled_bytes():
     r = extract_text(b"legacy-binary", file_name="legacy.ppt", mime="application/vnd.ms-powerpoint")
-    assert r.status == "unsupported"
-    assert r.error_type == "extraction_unsupported"
-    assert r.error_message == "当前 .ppt 格式暂不支持自动提取（文件已落盘，请人工补全内容）"
+    assert r.status == "failed"
+    assert r.error_type == "extraction_format_mismatch"
 
 
 def test_extract_unsupported():
@@ -370,6 +369,7 @@ def test_killed_parser_is_not_reported_as_corrupt_file(monkeypatch):
     from unittest.mock import Mock
 
     child = Mock(returncode=-9)
+    monkeypatch.setattr("app.services.extraction._kill_parser_tree", lambda _: None)
     child.communicate.return_value = (b"", None)
     monkeypatch.setattr("app.services.extraction.subprocess.Popen", lambda *a, **kw: child)
     result = extract_text(b"valid source", file_name="company.pptx", mime=None)

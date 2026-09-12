@@ -472,7 +472,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     expect(result.current.namingFormedOn).toBe("2026-09-07");
   });
 
-  it("applies the server-deidentified project subject before preview and confirmation", async () => {
+  it("keeps the edited title separate from the server filename preview", async () => {
     auth.fetchAuthMe.mockResolvedValue({
       projects: [{ projectId: "project-alpha", projectName: "琥崧项目" }],
     });
@@ -524,15 +524,16 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     });
 
     await waitFor(() => expect(namingApi.previewIngestNaming).toHaveBeenCalled());
-    await waitFor(() => expect(result.current.editTitle).toBe("2021年第1期辅导简报"));
+    await waitFor(() => expect(result.current.namingPreview).not.toBeNull());
+    expect(result.current.editTitle).toBe("琥崧智能2021年第1期辅导简报");
     await waitFor(() => expect(result.current.canSubmit).toBe(true));
     await act(async () => {
       await result.current.handleSubmit();
     });
     const payload = ingest.confirmIngest.mock.calls[0][1];
-    expect(payload.title).toBe("2021年第1期辅导简报");
-    expect(payload.naming.subject).toBe("2021年第1期辅导简报");
-    expect(JSON.stringify(payload)).not.toContain("琥崧");
+    expect(payload.title).toBe("琥崧智能2021年第1期辅导简报");
+    expect(payload.naming.subject).toBe("琥崧智能2021年第1期辅导简报");
+    expect(payload).not.toHaveProperty("canonical_name");
   });
 
   it("selects the first scoped formal directory", async () => {
@@ -745,7 +746,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
 
   it("递归读取嵌套目录并按自然顺序隔离无效、超限和不可读文件", async () => {
     const tooLarge = new File(["x"], "large.pdf", { type: "application/pdf" });
-    Object.defineProperty(tooLarge, "size", { value: 26 * 1024 * 1024 });
+    Object.defineProperty(tooLarge, "size", { value: 100_000_001 });
     const transfer = folderDataTransfer([
       droppedDirectory("客户资料", [
         droppedFile(new File(["one"], "one.txt", { type: "text/plain" })),
@@ -777,7 +778,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     expect(result.current.localUploadQueue.map((item) => item.error)).toEqual([
       null,
       "该文件类型暂不支持上传",
-      "文件超过 25 MiB 大小上限",
+      "文件超过 100 MB 大小上限",
       null,
       "文件内容当前不可读取；请先在本机完成下载后重新选择",
     ]);
@@ -1096,7 +1097,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
   it("混合选择时仅有效文件进入上传，非法文件保留各自安全失败原因", async () => {
     const { result } = renderHook(() => useUploadFlow());
     const tooLarge = new File(["x"], "large.pdf", { type: "application/pdf" });
-    Object.defineProperty(tooLarge, "size", { value: 26 * 1024 * 1024 });
+    Object.defineProperty(tooLarge, "size", { value: 100_000_001 });
     act(() =>
       result.current.handleFileSelect({
         target: {
@@ -1119,7 +1120,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       ]),
     );
     expect(result.current.localUploadQueue[1].error).toBe("该文件类型暂不支持上传");
-    expect(result.current.localUploadQueue[2].error).toBe("文件超过 25 MiB 大小上限");
+    expect(result.current.localUploadQueue[2].error).toBe("文件超过 100 MB 大小上限");
   });
 
   it("三个本地文件按各自服务端状态独立收敛，并刷新待确认列表", async () => {
@@ -1853,7 +1854,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     });
   });
 
-  it("keeps a reviewed AI draft authoritative when the final readiness poll returns newer suggestions", async () => {
+  it("keeps the latest form title and reviewed summary over AI draft titles and polling", async () => {
     ingest.fetchIngestAiResult.mockReset().mockResolvedValue({
       ...readyAiResult,
       ingest_task_id: "draft-a",
@@ -1908,13 +1909,13 @@ describe("useUploadFlow model selection (PBC-38)", () => {
         items: [
           expect.objectContaining({
             confirmation: expect.objectContaining({
-              title: "人工核对标题",
+              title: "主表单中的不同主题",
               one_liner: "人工一句话",
               summary: "人工详细摘要",
               key_points: ["人工关键点"],
               tags: ["人工标签"],
               naming: expect.objectContaining({
-                subject: "人工核对标题",
+                subject: "主表单中的不同主题",
               }),
             }),
           }),

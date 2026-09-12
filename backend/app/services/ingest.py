@@ -619,8 +619,8 @@ async def approve_project_ingest_review(
         )
         await session.commit()
         raise
-    # Re-normalize snapshots at approval time as well so reviews created before
-    # this protection cannot retain a historical customer-bearing subject.
+    # Keep the reviewed display title at approval too; canonical filenames are
+    # independently rendered from the source filename.
     req = ingest_confirmation.apply_authoritative_project_subject(req, naming_result)
 
     asset: KnowledgeAsset

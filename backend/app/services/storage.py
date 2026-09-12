@@ -23,8 +23,8 @@ from pathlib import Path
 
 from app.core.config import get_settings
 
-# 单文件上限（25 MiB）。最小闭环用常量；生产可改为配置。
-MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+# 单文件上限（100 MB）。最小闭环用常量；生产可改为配置。
+MAX_UPLOAD_BYTES = 100_000_000
 
 # 内部存储引用前缀（server-only，绝不外泄）。
 _REF_PREFIX = "internal://"

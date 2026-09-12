@@ -81,7 +81,8 @@ async def enqueue_ingest_processing(
     heavy = not content_only_stage and (
         mime == "application/pdf"
         or mime.startswith("image/")
-        or name.endswith((".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"))
+        or mime in {"application/msword", "application/vnd.ms-powerpoint"}
+        or name.endswith((".doc", ".ppt", ".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"))
     )
     queue = settings.celery_ocr_queue if heavy else settings.celery_default_queue
     if task is not None:

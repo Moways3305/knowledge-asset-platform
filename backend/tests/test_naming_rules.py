@@ -195,6 +195,51 @@ async def test_direct_directory_generates_project_name_without_category_metadata
     assert "asset_type" not in payload["fields"]
 
 
+@pytest.mark.parametrize("scope", ["project", "company"])
+async def test_reviewed_title_persists_without_renaming_source(client, db_session, scope):
+    from app.models.knowledge import KnowledgeAsset
+
+    await _enable_project_code(client)
+    await _publish(client)
+    user = USER_PROJECT_MANAGER if scope == "project" else USER_BOSS
+    task_id = await _upload(client, user)
+    body = {
+        "target_scope": scope,
+        "confidentiality_level": "L2",
+        "naming": {
+            "directory_key": "project.deliverables"
+            if scope == "project"
+            else "company.methodology",
+            "subject": "人工修改的资料主题",
+            "formed_on": "2026-08-31",
+            "version": "V1",
+            "applicable_to": "通用",
+        },
+    }
+    if scope == "project":
+        body["target_project_id"] = str(PROJECT_ALPHA)
+    preview = await client.post(
+        f"/api/v1/ingest/{task_id}/naming-preview", headers=_hdr(user), json=body
+    )
+    assert preview.status_code == 200, preview.text
+    confirmed = await client.post(
+        f"/api/v1/ingest/{task_id}/confirm",
+        headers=_hdr(user),
+        json={
+            **body,
+            "title": "人工修改的资料主题",
+            "summary": "人工核对的资料摘要",
+            "acknowledged_naming_warning_codes": [n["code"] for n in preview.json()["notices"]],
+        },
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["status"] == "completed"
+    assert "source" in confirmed.json()["canonical_name"]
+    assert "人工修改" not in confirmed.json()["canonical_name"]
+    asset = await db_session.get(KnowledgeAsset, uuid.UUID(confirmed.json()["result_asset_id"]))
+    assert asset.title == "人工修改的资料主题"
+
+
 async def test_directory_scope_is_validated_server_side(client):
     await _enable_project_code(client)
     await _publish(client)

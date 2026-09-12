@@ -10,6 +10,7 @@ WORKDIR /app
 # （beat 无 inspect ping，按进程存活判断，不依赖 celerybeat-schedule 文件）。
 RUN apt-get update \
     && apt-get install -y --no-install-recommends procps tesseract-ocr tesseract-ocr-chi-sim \
+        libreoffice-writer libreoffice-impress fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
 # 先装锁定依赖（requirements.lock 由 `uv pip compile pyproject.toml build-requirements.in

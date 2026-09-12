@@ -509,8 +509,8 @@ describe("UploadStepB folder drop and batch rejection", () => {
 
     expect(event.defaultPrevented).toBe(true);
     expect(flow.handleDataTransferDrop).toHaveBeenCalledWith(dataTransfer);
-    expect(screen.getByText(/PPTX 自动提取/)).toBeInTheDocument();
-    expect(screen.getByText(/旧 \.ppt 仅保存，需人工补全/)).toBeInTheDocument();
+    expect(screen.getByText(/PPT\/PPTX/)).toBeInTheDocument();
+    expect(screen.getByText(/DOC\/PPT 自动转换并提取正文/)).toBeInTheDocument();
   });
 
   it("shows a distinct drag state and persistent 700-item batch feedback", () => {
@@ -554,7 +554,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
     expect(document.body).not.toHaveTextContent(/[A-Za-z]:\\|\/Users\/|storage_ref/);
   });
 
-  it("explains that legacy .ppt files are saved but require manual completion", () => {
+  it("shows historical unsupported state without claiming PPT is unsupported today", () => {
     render(
       <UploadStepB
         flow={flowFixture({
@@ -568,9 +568,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
       />,
     );
 
-    expect(screen.getByText(/\.ppt 格式暂不支持自动提取/)).toHaveTextContent(
-      "已保存文件，请人工补全内容",
-    );
+    expect(screen.queryByText(/\.ppt 格式暂不支持自动提取/)).not.toBeInTheDocument();
   });
 
   it("cancels permanent batch rejection without sending a request or clearing selection", () => {
@@ -703,7 +701,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
       {
         [task.id]: {
           directory_key: "project.deliverables",
-          subject: "安全标题",
+          subject: "Governed",
           formed_on: "2026-08-03",
           version: "V1",
           applicable_to: "通用",
@@ -960,7 +958,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
         "project-a",
         expect.objectContaining({
           directory_key: "project.deliverables",
-          subject: "安全标题",
+          subject: "编辑后的主题",
           formed_on: "2026-08-03",
           version: "V1",
           confidentiality_level: "L2",
@@ -969,7 +967,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
       ),
     );
     expect(screen.getByRole("dialog")).toHaveTextContent("逐条核对");
-    expect(screen.getByRole("link", { name: "查看知识资产卡片：安全标题" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "查看知识资产卡片：编辑后的主题" })).toHaveAttribute(
       "href",
       "/knowledge/asset-single-confirm",
     );

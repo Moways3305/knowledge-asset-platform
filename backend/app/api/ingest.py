@@ -144,7 +144,7 @@ async def initialize_upload_session(
             safe_rejection = {
                 "error_code": rejection.error_code,
                 "error_message": {
-                    "file_too_large": "文件超过 25 MiB 大小上限",
+                    "file_too_large": "文件超过 100 MB 大小上限",
                     "unsupported_file_type": "该文件类型暂不支持上传",
                     "macos_metadata": upload_session_service.MACOS_METADATA_MESSAGE,
                 }.get(rejection.error_code, upload_session_service.UNREADABLE_FILE_MESSAGE),
@@ -251,7 +251,7 @@ async def append_upload_transport_batch(
             if len(content) > MAX_UPLOAD_BYTES:
                 raise HTTPException(
                     status_code=413,
-                    detail={"denied_reason": "file_too_large", "message": "文件超过 25 MiB"},
+                    detail={"denied_reason": "file_too_large", "message": "文件超过 100 MB"},
                 )
             storage_ref = storage.save(content, original_name=file.filename or "file")
             candidates.append(
@@ -399,7 +399,7 @@ async def replace_upload_transport_item_bytes(
     if len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(
             status_code=413,
-            detail={"denied_reason": "file_too_large", "message": "文件超过 25 MiB"},
+            detail={"denied_reason": "file_too_large", "message": "文件超过 100 MB"},
         )
     try:
         storage_ref = storage.save(content, original_name=file.filename or "file")
@@ -648,7 +648,7 @@ async def create_upload_session(
             rejection_message = {
                 "macos_metadata": metadata_message,
                 "unsupported_file_type": "该文件类型暂不支持上传",
-                "file_too_large": "文件超过 25 MiB 大小上限",
+                "file_too_large": "文件超过 100 MB 大小上限",
             }.get(
                 rejected.error_code,
                 upload_session_service.UNREADABLE_FILE_MESSAGE,
@@ -699,7 +699,7 @@ async def create_upload_session(
                     file_size=file.size,
                     file_type=file.content_type,
                     error_code="file_too_large",
-                    error_message="文件超过 25 MiB 大小上限",
+                    error_message="文件超过 100 MB 大小上限",
                 )
             )
             continue
@@ -737,7 +737,7 @@ async def create_upload_session(
                     file_size=len(content),
                     file_type=file.content_type,
                     error_code="file_too_large",
-                    error_message="文件超过 25 MiB 大小上限",
+                    error_message="文件超过 100 MB 大小上限",
                 )
             )
         elif not content:

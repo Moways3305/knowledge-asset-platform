@@ -388,8 +388,8 @@ def test_upload_proxy_limits_are_scoped_and_aligned_at_both_nginx_layers():
     outer = outer_path.read_text(encoding="utf-8")
     installer = installer_path.read_text(encoding="utf-8")
 
-    assert inner.count("client_max_body_size 32m;") == 2
-    assert outer.count("client_max_body_size 32m;") == 2
+    assert inner.count("client_max_body_size 110m;") == 2
+    assert outer.count("client_max_body_size 110m;") == 2
     for config in (inner, outer):
         assert "location = /api/v1/ingest/upload" in config
         assert "location ^~ /api/v1/ingest/upload-sessions" in config
@@ -477,7 +477,7 @@ def test_host_nginx_installer_is_read_only_by_default_and_idempotent(tmp_path):
     assert "127.0.0.1:8443" in installed_site
     assert "wecom-verification" in installed_site
     assert "ssl_certificate /etc/letsencrypt" in installed_site
-    assert snippet.read_text(encoding="utf-8").count("client_max_body_size 32m;") == 2
+    assert snippet.read_text(encoding="utf-8").count("client_max_body_size 110m;") == 2
 
     second = subprocess.run(
         [shell, shell_path(installer), "--install"], env=env, capture_output=True, text=True

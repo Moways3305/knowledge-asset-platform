@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import io
 import logging
+import os
 import pickle
+import signal
 import subprocess
 import sys
 import zipfile
@@ -23,6 +25,7 @@ from dataclasses import dataclass
 
 from app.core.logging import safe_log_exception
 from app.core.text_safety import EXTRACTED_TEXT_MAX_CHARS, SafetyStats, sanitize_text
+from app.services.extraction_errors import _ControlledExtractionError
 
 _logger = logging.getLogger(__name__)
 
@@ -210,15 +213,6 @@ def _extract_xlsx(content: bytes) -> str:
     return "\n\n".join(sheets)
 
 
-class _ControlledExtractionError(Exception):
-    """A safe, user-actionable rejection raised before a parser sees the bytes."""
-
-    def __init__(self, code: str, message: str) -> None:
-        self.code = code
-        self.message = message
-        super().__init__(code)
-
-
 def _office_package_kind(content: bytes, ext: str) -> None:
     """Validate OOXML ZIP structure and bound decompression before library parsing."""
     if content.startswith(b"\xd0\xcf\x11\xe0"):
@@ -326,6 +320,16 @@ def _extract_unbounded(
         return ExtractionResult(
             "", "empty", "extraction_empty", "文件为空，请选择包含内容的文件后重试。", 0
         )
+    if ext in {"doc", "ppt"} or (
+        mime_fallback and mime in {"application/msword", "application/vnd.ms-powerpoint"}
+    ):
+        from app.services.legacy_office import convert_legacy_office
+
+        legacy_ext = (
+            ext if ext in {"doc", "ppt"} else "doc" if mime == "application/msword" else "ppt"
+        )
+        converted, target = convert_legacy_office(content, legacy_ext)
+        return _extract_unbounded(converted, file_name=f"source.{target}", mime=None)
     if ext in _TEXT_EXT or (mime_fallback and mime.startswith("text/")):
         if content.startswith((b"%PDF-", b"PK\x03\x04", b"\xd0\xcf\x11\xe0")):
             raise _ControlledExtractionError(
@@ -351,9 +355,7 @@ def _extract_unbounded(
         )
     else:
         unsupported_message = (
-            "当前 .ppt 格式暂不支持自动提取（文件已落盘，请人工补全内容）"
-            if ext == "ppt"
-            else "旧版 .xls 暂不支持自动提取（文件已落盘），请另存为 .xlsx 后重新上传"
+            "旧版 .xls 暂不支持自动提取（文件已落盘），请另存为 .xlsx 后重新上传"
             if ext == "xls"
             else f"暂不支持从 .{ext or '该类型'} 文件抽取文本（文件已落盘，请人工补全内容）"
         )
@@ -394,17 +396,34 @@ def _extract_unbounded(
     )
 
 
+def _kill_parser_tree(child: subprocess.Popen) -> None:
+    if os.name == "posix":
+        try:
+            os.killpg(child.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    elif child.poll() is None:
+        subprocess.run(
+            ["taskkill", "/PID", str(child.pid), "/T", "/F"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+
+
 def extract_text(content: bytes, *, file_name: str | None, mime: str | None) -> ExtractionResult:
     """Parse user bytes in a killable child process with bounded package complexity."""
     # subprocess (rather than multiprocessing) is intentional: a Celery prefork
     # worker can itself be daemonised and is then forbidden from creating another
     # multiprocessing child, while it may safely launch and kill a subprocess.
+    child = None
     try:
         child = subprocess.Popen(
             [sys.executable, "-m", "app.services.extraction_worker"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
+            start_new_session=os.name == "posix",
         )
         try:
             output, _ = child.communicate(
@@ -412,6 +431,7 @@ def extract_text(content: bytes, *, file_name: str | None, mime: str | None) -> 
                 timeout=EXTRACTION_TIMEOUT_SECONDS,
             )
         except subprocess.TimeoutExpired:
+            _kill_parser_tree(child)
             child.kill()
             child.communicate()
             return ExtractionResult(
@@ -464,3 +484,6 @@ def extract_text(content: bytes, *, file_name: str | None, mime: str | None) -> 
             error_message="文件内容无法解析（可能已损坏或与扩展名不符），请重新上传或人工补全",
             char_count=0,
         )
+    finally:
+        if child is not None:
+            _kill_parser_tree(child)
