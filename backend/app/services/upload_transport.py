@@ -307,7 +307,7 @@ async def replace_transport_item_bytes(
     ):
         raise _denied(422, "upload_item_manifest_mismatch", "重新选择的文件与原清单不一致")
     if candidate.file_size > SINGLE_FILE_MAX_BYTES:
-        raise _denied(413, "file_too_large", "文件超过 25 MiB")
+        raise _denied(413, "file_too_large", "文件超过 100 MB")
     if candidate.storage_ref is None or candidate.content_hash is None:
         raise _denied(422, "upload_bytes_unavailable", "文件字节未安全保存")
     # A newly selected file owns its metadata. Missing metadata must clear stale

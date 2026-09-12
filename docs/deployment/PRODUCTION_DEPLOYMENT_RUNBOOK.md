@@ -116,7 +116,7 @@
   - nginx 反代（server 块 `deploy/nginx.conf.template`，http 级配置 `deploy/nginx-main.conf`）：`/api/v1/`、`/health`（覆盖 `/health/ready`、`/health/config`）、`/admin/ops/` → `backend:8000`（Docker DNS）；其余路径 SPA fallback 到 `index.html`。`nginx.conf.template` 在容器启动时由 nginx 镜像 envsubst 机制渲染（替换 `${ONLYOFFICE_ORIGIN}`）。
   - backend 宿主端口（compose 本地映射 `127.0.0.1:8001`）**仅供调试**，生产正式访问不走它，可在生产移除该映射。本地 compose 前端入口为 `http://<host>:18080/`。
 - **TLS 终止位置**：在 `frontend` nginx 之前（或之上）放置真实 HTTPS/TLS 终止（云 LB / 反代 / Ingress）。本仓库前端 nginx 以**非 root** 用户监听 `8080`（compose 映射 `18080:8080`），TLS 由前置层负责。
-- **宿主机 Nginx 只由仓库管理上传端点 snippet，绝不接管完整站点**：现有 server block 继续负责 TLS/Certbot、企业微信校验文件、ONLYOFFICE（生产实际转发 `127.0.0.1:8443`）和 KAP 默认入口（`location /` 转发 `127.0.0.1:18080`）。[`deploy/nginx-host-upload-rules.conf`](../../deploy/nginx-host-upload-rules.conf) 仅包含两个上传 location 的 `32m / 120s` 覆盖；[`deploy/install-host-nginx.sh`](../../deploy/install-host-nginx.sh) 只允许显式模式：
+- **宿主机 Nginx 只由仓库管理上传端点 snippet，绝不接管完整站点**：现有 server block 继续负责 TLS/Certbot、企业微信校验文件、ONLYOFFICE（生产实际转发 `127.0.0.1:8443`）和 KAP 默认入口（`location /` 转发 `127.0.0.1:18080`）。[`deploy/nginx-host-upload-rules.conf`](../../deploy/nginx-host-upload-rules.conf) 仅包含两个上传 location 的 `110m / 120s` 覆盖；[`deploy/install-host-nginx.sh`](../../deploy/install-host-nginx.sh) 只允许显式模式：
   ```sh
   # 1. 只读识别现有 KAP server_name、唯一 location / 和 include 状态
   sudo env KAP_SERVER_NAME=kap.example.com \

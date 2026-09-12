@@ -305,7 +305,7 @@ async def test_content_statuses_are_explicit_and_safe(client, db_session):
     task.source_file_mime_type = "application/octet-stream"
     await db_session.commit()
     unsupported = await client.get(url, headers=_bearer())
-    assert unsupported.json()["content_status"] == "extraction_unsupported"
+    assert unsupported.json()["content_status"] == "extraction_failed"
 
     task.source_file_ref = client._kap_storage.save(b"not-a-docx", original_name="broken.docx")
     task.source_file_name = "broken.docx"

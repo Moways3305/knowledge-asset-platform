@@ -46,6 +46,18 @@ class _TaskContext:
 
 
 _SAFE_ERRORS = {
+    "office_converter_unavailable": (
+        "旧版 Office 转换服务未安装，原件已保留。",
+        "请管理员更新处理镜像后重试。",
+    ),
+    "office_conversion_failed": (
+        "旧版 Office 转换未完成，原件已保留。",
+        "请检查密码或格式兼容性，或另存为 DOCX/PPTX。",
+    ),
+    "office_conversion_timeout": (
+        "旧版 Office 转换超时，原件已保留。",
+        "请另存为 DOCX/PPTX 或拆分文件后重试。",
+    ),
     "extraction_process_terminated": (
         "文件解析进程被终止，原件已保留。",
         "请管理员检查容器内存、进程限制和终止日志后重试；这不代表文件损坏。",
@@ -341,6 +353,13 @@ def _response(
             error = _safe_error(task.error_type)
             retryable = task.created_by == caller.user_id or caller.can_discover_l5
             next_action = _action("retry_processing", "ingest_task_retry", enabled=retryable)
+        elif task.error_type in {
+            "office_converter_unavailable",
+            "office_conversion_failed",
+            "office_conversion_timeout",
+        }:
+            error = _safe_error(task.error_type)
+            next_action = _action("replace_file", "upload")
         elif task.error_type == "ocr_resource_limit":
             error = _safe_error("ocr_resource_limit")
             next_action = _action("replace_file", "upload")

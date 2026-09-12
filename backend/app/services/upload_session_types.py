@@ -14,11 +14,12 @@ from app.models.ingest import (
 )
 from app.schemas.enums import IngestSource, IngestStatus
 from app.schemas.permission import CallerContext
+from app.services.storage import MAX_UPLOAD_BYTES
 
 BATCH_SIZE = 200
 TRANSPORT_BATCH_MAX_FILES = 10
 TRANSPORT_BATCH_MAX_BYTES = 20 * 1024 * 1024
-SINGLE_FILE_MAX_BYTES = 25 * 1024 * 1024
+SINGLE_FILE_MAX_BYTES = MAX_UPLOAD_BYTES
 _PENDING_NAME_WARNING_STATUSES = {
     IngestStatus.pending_confirmation.value,
     IngestStatus.failed.value,

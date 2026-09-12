@@ -746,7 +746,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
 
   it("递归读取嵌套目录并按自然顺序隔离无效、超限和不可读文件", async () => {
     const tooLarge = new File(["x"], "large.pdf", { type: "application/pdf" });
-    Object.defineProperty(tooLarge, "size", { value: 26 * 1024 * 1024 });
+    Object.defineProperty(tooLarge, "size", { value: 100_000_001 });
     const transfer = folderDataTransfer([
       droppedDirectory("客户资料", [
         droppedFile(new File(["one"], "one.txt", { type: "text/plain" })),
@@ -778,7 +778,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     expect(result.current.localUploadQueue.map((item) => item.error)).toEqual([
       null,
       "该文件类型暂不支持上传",
-      "文件超过 25 MiB 大小上限",
+      "文件超过 100 MB 大小上限",
       null,
       "文件内容当前不可读取；请先在本机完成下载后重新选择",
     ]);
@@ -1097,7 +1097,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
   it("混合选择时仅有效文件进入上传，非法文件保留各自安全失败原因", async () => {
     const { result } = renderHook(() => useUploadFlow());
     const tooLarge = new File(["x"], "large.pdf", { type: "application/pdf" });
-    Object.defineProperty(tooLarge, "size", { value: 26 * 1024 * 1024 });
+    Object.defineProperty(tooLarge, "size", { value: 100_000_001 });
     act(() =>
       result.current.handleFileSelect({
         target: {
@@ -1120,7 +1120,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       ]),
     );
     expect(result.current.localUploadQueue[1].error).toBe("该文件类型暂不支持上传");
-    expect(result.current.localUploadQueue[2].error).toBe("文件超过 25 MiB 大小上限");
+    expect(result.current.localUploadQueue[2].error).toBe("文件超过 100 MB 大小上限");
   });
 
   it("三个本地文件按各自服务端状态独立收敛，并刷新待确认列表", async () => {

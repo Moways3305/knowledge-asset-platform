@@ -168,7 +168,7 @@ class Settings(BaseSettings):
     ocr_page_timeout_seconds: int = 60
     ocr_document_timeout_seconds: int = 600
     ocr_max_pages: int = 100
-    ocr_max_image_bytes: int = 25 * 1024 * 1024
+    ocr_max_image_bytes: int = 100_000_000
     ocr_max_rendered_pixels: int = 20_000_000
     ocr_max_total_pixels: int = 100_000_000
 

@@ -48,7 +48,7 @@ export interface UploadIntakeFeedback {
   message: string;
 }
 
-export const LOCAL_UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
+export const LOCAL_UPLOAD_MAX_BYTES = 100_000_000;
 export const TRANSPORT_BATCH_MAX_BYTES = 20 * 1024 * 1024;
 export const TRANSPORT_BATCH_MAX_FILES = 10;
 const LOCAL_UPLOAD_EXTENSIONS = new Set([
@@ -105,7 +105,7 @@ export function localFileError(file: File): { code: IntakeRejectionCode; message
     return { code: "unsupported_file_type", message: "该文件类型暂不支持上传" };
   }
   if (file.size > LOCAL_UPLOAD_MAX_BYTES) {
-    return { code: "file_too_large", message: "文件超过 25 MiB 大小上限" };
+    return { code: "file_too_large", message: "文件超过 100 MB 大小上限" };
   }
   return null;
 }

@@ -13,6 +13,8 @@ def apply_process_limits() -> None:
 
         resource.setrlimit(resource.RLIMIT_AS, (MAX_ADDRESS_SPACE_BYTES, MAX_ADDRESS_SPACE_BYTES))
         resource.setrlimit(resource.RLIMIT_CPU, (MAX_CPU_SECONDS, MAX_CPU_SECONDS))
+        # Bound converter temporary outputs as well as address space and CPU.
+        resource.setrlimit(resource.RLIMIT_FSIZE, (128 * 1024 * 1024, 128 * 1024 * 1024))
     except (ImportError, OSError, ValueError):
         # Windows and restricted containers lack resource(2). Structural limits,
         # the parent kill timeout, and the Celery hard limit still apply there.

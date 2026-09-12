@@ -27,6 +27,12 @@ export function queueFailureReason(
 ): string {
   const code = errorCode?.trim().toLowerCase();
   if (code) {
+    if (code === "office_converter_unavailable")
+      return "旧版 Office 转换服务未安装，原件已保留，请管理员更新处理镜像";
+    if (code === "office_conversion_timeout")
+      return "旧版 Office 转换超时，原件已保留，请另存为 DOCX/PPTX 后重试";
+    if (code === "office_conversion_failed")
+      return "旧版 Office 转换未完成，请检查密码或格式兼容性，或另存为 DOCX/PPTX 后重试";
     if (code === "ocr_render_failed" || code === "ocr_render_output_invalid")
       return "PDF 页面渲染异常，原件已保留；请管理员检查渲染服务后重试";
     if (code === "extraction_process_terminated")

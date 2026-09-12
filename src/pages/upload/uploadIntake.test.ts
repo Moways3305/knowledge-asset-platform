@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildUploadTransportBatches,
   LOCAL_UPLOAD_MAX_BYTES,
+  localFileError,
   TRANSPORT_BATCH_MAX_BYTES,
 } from "./uploadIntake";
 
@@ -11,6 +12,19 @@ function item(name: string, size: number) {
 }
 
 describe("buildUploadTransportBatches", () => {
+  it("accepts exactly 100 MB and rejects the next byte without oversized batches", () => {
+    const file = new File(["x"], "large.doc");
+    Object.defineProperty(file, "size", { value: 100_000_000, configurable: true });
+    expect(LOCAL_UPLOAD_MAX_BYTES).toBe(100_000_000);
+    expect(localFileError(file)).toBeNull();
+    expect(
+      buildUploadTransportBatches([item("a.txt", 1), { file }, item("b.txt", 1)]).map(
+        (b) => b.length,
+      ),
+    ).toEqual([1, 1, 1]);
+    Object.defineProperty(file, "size", { value: 100_000_001 });
+    expect(localFileError(file)?.code).toBe("file_too_large");
+  });
   it("splits 196 files into sequential requests of at most ten files", () => {
     const batches = buildUploadTransportBatches(
       Array.from({ length: 196 }, (_, index) => item(`${index}.txt`, 1)),
@@ -47,7 +61,7 @@ describe("buildUploadTransportBatches", () => {
     );
   });
 
-  it("allows a 20-25 MiB file only as its own request", () => {
+  it("allows a 20 MiB-100 MB file only as its own request", () => {
     const large = item("large.pdf", TRANSPORT_BATCH_MAX_BYTES + 1024);
     const batches = buildUploadTransportBatches([item("a.txt", 1), large, item("b.txt", 1)]);
     expect(batches.map((batch) => batch.map((entry) => entry.file.name))).toEqual([
