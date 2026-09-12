@@ -15,11 +15,16 @@ describe("upload format support copy", () => {
     expect(source).toContain(".txt");
   });
 
-  it("distinguishes PPTX extraction from the legacy PPT fallback", () => {
-    expect(source).toContain("支持 Markdown、PDF、Word、PPTX 自动提取及 Excel、纯文本等资料");
-    expect(source).toContain(".ppt 仅保存，需人工补全");
-    expect(source).not.toContain("支持 Markdown、PDF、Word、PPT、Excel、纯文本等资料");
-    expect(source).not.toContain("支持 .pptx .pdf .docx .xlsx 等格式");
+  it("advertises legacy Office conversion without promising image-only extraction", () => {
+    expect(source).toContain("Word（DOC/DOCX）、PPT/PPTX");
+    expect(source).toContain("DOC/PPT 自动转换并提取正文");
+    expect(source).toContain("纯图片内容可能需要人工补全");
+    expect(source).not.toContain(".ppt 仅保存，需人工补全");
+  });
+
+  it("shows the 100 MB single-file limit", () => {
+    expect(source.replace(/\s+/g, " ")).toContain("单文件最大 100 MB");
+    expect(source).not.toContain("单文件最大 25");
   });
 });
 
