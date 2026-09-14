@@ -126,7 +126,11 @@ describe("AppLayout shell contract", () => {
 
   it("keeps the product brand and real identity menu in the shell", () => {
     const { container } = renderLayout();
-    expect(screen.getByText("KAP")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "MOWAYS 博维咨询" })).toHaveAttribute(
+      "src",
+      "/moways-logo.png",
+    );
+    expect(screen.queryByText("KAP")).not.toBeInTheDocument();
     expect(container.querySelector(".rail-sub")).toHaveTextContent("博维知识资产平台");
     expect(container.querySelector(".deck-title")).toHaveTextContent("今日工作台");
     expect(screen.getByRole("button", { name: /布局验收用户/ })).toBeInTheDocument();
