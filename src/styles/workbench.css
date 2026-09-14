@@ -74,20 +74,20 @@
   outline-offset: 2px;
 }
 .rail-mark {
-  font-family: var(--font-sans);
-  font-size: 21px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  color: #fff;
-  line-height: 1;
-}
-.rail-mark::after {
-  content: "";
   display: block;
-  width: 30px;
-  height: 2px;
-  margin-top: 9px;
-  background: var(--color-gold);
+  width: 160px;
+  max-width: 100%;
+  min-width: 0;
+  flex: 0 1 160px;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+.rail-mark img {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
 }
 .rail-sub {
   font-size: 11px;
@@ -1187,9 +1187,6 @@
   }
   .rail-collapse {
     display: none;
-  }
-  .rail-mark {
-    font-size: 22px;
   }
   .rail-nav {
     display: flex;

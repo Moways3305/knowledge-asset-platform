@@ -290,8 +290,8 @@ function AppShell() {
       <aside className="rail" aria-label="产品导航">
         <div className="rail-brand">
           <div className="rail-brand-row">
-            <span className="rail-mark" aria-label="KAP">
-              KAP
+            <span className="rail-mark">
+              <img src="/moways-logo.png" alt="MOWAYS 博维咨询" width={984} height={327} />
             </span>
             <button
               type="button"
