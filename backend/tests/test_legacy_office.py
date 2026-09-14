@@ -16,7 +16,7 @@ from app.services.extraction import _ControlledExtractionError, _extract_unbound
 OLE_HEADER = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 
 
-@pytest.mark.parametrize("extension", ["doc", "ppt"])
+@pytest.mark.parametrize("extension", ["doc", "ppt", "xls"])
 def test_conversion_uses_private_profile_and_cleans_files(monkeypatch, extension):
     monkeypatch.setattr(legacy_office.shutil, "which", lambda _: "libreoffice")
     roots = []
@@ -85,6 +85,21 @@ def test_rtf_doc_reuses_docx_parser(monkeypatch):
     assert "Legacy office body" in result.text
 
 
+def test_converter_memory_failure_is_not_reported_as_bad_document(monkeypatch, caplog):
+    monkeypatch.setattr(legacy_office.shutil, "which", lambda _: "libreoffice")
+
+    def run(args, **kwargs):
+        kwargs["stderr"].write(b"private document name: std::bad_alloc")
+        return SimpleNamespace(returncode=1)
+
+    monkeypatch.setattr(legacy_office.subprocess, "run", run)
+    with pytest.raises(_ControlledExtractionError) as error:
+        legacy_office.convert_legacy_office(OLE_HEADER, "doc")
+    assert error.value.code == "extraction_memory_limit"
+    assert "memory_failure=True" in caplog.text
+    assert "private document" not in caplog.text
+
+
 def test_missing_converter_is_not_file_corruption(monkeypatch):
     monkeypatch.setattr(legacy_office.shutil, "which", lambda _: None)
     monkeypatch.setattr(legacy_office.Path, "is_file", lambda _: False)
@@ -94,7 +109,12 @@ def test_missing_converter_is_not_file_corruption(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "extension,mime", [("doc", "application/msword"), ("ppt", "application/vnd.ms-powerpoint")]
+    "extension,mime",
+    [
+        ("doc", "application/msword"),
+        ("ppt", "application/vnd.ms-powerpoint"),
+        ("xls", "application/vnd.ms-excel"),
+    ],
 )
 def test_legacy_recovery_uses_heavy_queue(extension, mime):
     from app.core.config import get_settings
@@ -107,7 +127,7 @@ def test_legacy_recovery_uses_heavy_queue(extension, mime):
     assert _recovery_queue(task) == get_settings().celery_default_queue
 
 
-@pytest.mark.parametrize("extension", ["doc", "ppt"])
+@pytest.mark.parametrize("extension", ["doc", "ppt", "xls"])
 async def test_legacy_first_dispatch_uses_heavy_queue(client, db_session, monkeypatch, extension):
     from app.core.config import get_settings
     from app.models.ingest import IngestTask
@@ -139,7 +159,7 @@ async def test_legacy_first_dispatch_uses_heavy_queue(client, db_session, monkey
     assert calls[0]["queue"] == settings.celery_ocr_queue
 
 
-@pytest.mark.parametrize("extension", ["doc", "ppt"])
+@pytest.mark.parametrize("extension", ["doc", "ppt", "xls"])
 def test_real_legacy_round_trip(tmp_path, extension):
     executable = shutil.which("libreoffice") or shutil.which("soffice")
     if executable is None:
@@ -154,6 +174,12 @@ def test_real_legacy_round_trip(tmp_path, extension):
         document = Document()
         document.add_paragraph("Legacy conversion verification")
         document.save(str(modern))
+    elif extension == "xls":
+        from openpyxl import Workbook
+
+        document = Workbook()
+        document.active.append(["Legacy conversion verification", 123])
+        document.save(str(modern))
     else:
         from pptx import Presentation
 
@@ -167,7 +193,9 @@ def test_real_legacy_round_trip(tmp_path, extension):
             f"-env:UserInstallation={(tmp_path / 'synthetic-profile').as_uri()}",
             "--headless",
             "--convert-to",
-            "doc:MS Word 97" if extension == "doc" else "ppt:MS PowerPoint 97",
+            {"doc": "doc:MS Word 97", "ppt": "ppt:MS PowerPoint 97", "xls": "xls:MS Excel 97"}[
+                extension
+            ],
             "--outdir",
             str(tmp_path),
             str(modern),

@@ -52,11 +52,11 @@ _SAFE_ERRORS = {
     ),
     "office_conversion_failed": (
         "旧版 Office 转换未完成，原件已保留。",
-        "请检查密码或格式兼容性，或另存为 DOCX/PPTX。",
+        "请重试或另存为新版格式。",
     ),
     "office_conversion_timeout": (
         "旧版 Office 转换超时，原件已保留。",
-        "请另存为 DOCX/PPTX 或拆分文件后重试。",
+        "请重试或另存为新版格式。",
     ),
     "extraction_process_terminated": (
         "文件解析进程被终止，原件已保留。",

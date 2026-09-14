@@ -11,7 +11,12 @@ DOC/PPT 使用 LibreOffice 的 headless 转换接口，独立配置目录禁用�
 限制：纯图片 DOC/PPT 目前不会自动转换到 PDF 再 OCR；无可提取文字时返回空正文，
 可另存为 PDF 后上传走 OCR。加密或转换不兼容返回转换失败，不尝试破解密码。
 100 MB 是接收上限，不是解析成功保证；解压大小、页面复杂度、内存和超时保护继续生效。
-旧版 XLS 不在本次支持范围内。
+旧版 XLS 通过 LibreOffice Calc 转换为 XLSX 后提取，首次处理和重试均进入重型队列。
+部署时必须重建包含 libreoffice-calc 的处理镜像。
+
+Office 转换失败日志现在记录格式、退出码、是否生成输出和内存失败标记，
+不记录文档正文或原始 stderr。出现内存错误时返回 extraction_memory_limit，
+不再将这类环境失败提示为文件密码或格式兼容问题。
 
 ## 发布后操作（Ubuntu）
 

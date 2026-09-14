@@ -509,8 +509,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
 
     expect(event.defaultPrevented).toBe(true);
     expect(flow.handleDataTransferDrop).toHaveBeenCalledWith(dataTransfer);
-    expect(screen.getByText(/PPT\/PPTX/)).toBeInTheDocument();
-    expect(screen.getByText(/DOC\/PPT 自动转换并提取正文/)).toBeInTheDocument();
+    expect(screen.getByText(/支持 Word、Excel、PPT、PDF、Markdown 和文本/)).toBeInTheDocument();
   });
 
   it("shows a distinct drag state and persistent 700-item batch feedback", () => {
