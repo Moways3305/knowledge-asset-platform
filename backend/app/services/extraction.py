@@ -4,7 +4,7 @@
 （txt/md 直读、pdf 用 pypdf、docx 用 python-docx、pptx 用 python-pptx、
 xlsx 用 openpyxl 转 markdown 表格）。本模块只识别需 OCR 的页，OCR 由独立本地引擎执行。
 
-边界：不接真实 LLM / 大模型；不支持 旧版 .xls
+边界：不接真实 LLM / 大模型；旧版 Office 经独立转换后解析。
 （标 `unsupported`，不崩溃、不阻断任务创建）；不做切块 / 向量化。
 
 安全：抽取全文是**用户业务内容**，可能含 `s3://` / `internal://` / URL 等字样——
@@ -320,14 +320,15 @@ def _extract_unbounded(
         return ExtractionResult(
             "", "empty", "extraction_empty", "文件为空，请选择包含内容的文件后重试。", 0
         )
-    if ext in {"doc", "ppt"} or (
-        mime_fallback and mime in {"application/msword", "application/vnd.ms-powerpoint"}
-    ):
+    legacy_mimes = {
+        "application/msword": "doc",
+        "application/vnd.ms-powerpoint": "ppt",
+        "application/vnd.ms-excel": "xls",
+    }
+    if ext in {"doc", "ppt", "xls"} or (mime_fallback and mime in legacy_mimes):
         from app.services.legacy_office import convert_legacy_office
 
-        legacy_ext = (
-            ext if ext in {"doc", "ppt"} else "doc" if mime == "application/msword" else "ppt"
-        )
+        legacy_ext = ext if ext in {"doc", "ppt", "xls"} else legacy_mimes[mime]
         converted, target = convert_legacy_office(content, legacy_ext)
         return _extract_unbounded(converted, file_name=f"source.{target}", mime=None)
     if ext in _TEXT_EXT or (mime_fallback and mime.startswith("text/")):
@@ -355,9 +356,7 @@ def _extract_unbounded(
         )
     else:
         unsupported_message = (
-            "旧版 .xls 暂不支持自动提取（文件已落盘），请另存为 .xlsx 后重新上传"
-            if ext == "xls"
-            else f"暂不支持从 .{ext or '该类型'} 文件抽取文本（文件已落盘，请人工补全内容）"
+            f"暂不支持从 .{ext or '该类型'} 文件抽取文本（文件已落盘，请人工补全内容）"
         )
         return ExtractionResult("", "unsupported", "extraction_unsupported", unsupported_message, 0)
     safe_text = sanitize_text(text, max_chars=MAX_EXTRACT_CHARS)

@@ -15,10 +15,8 @@ describe("upload format support copy", () => {
     expect(source).toContain(".txt");
   });
 
-  it("advertises legacy Office conversion without promising image-only extraction", () => {
-    expect(source).toContain("Word（DOC/DOCX）、PPT/PPTX");
-    expect(source).toContain("DOC/PPT 自动转换并提取正文");
-    expect(source).toContain("纯图片内容可能需要人工补全");
+  it("lists supported document families concisely", () => {
+    expect(source).toContain("支持 Word、Excel、PPT、PDF、Markdown 和文本");
     expect(source).not.toContain(".ppt 仅保存，需人工补全");
   });
 

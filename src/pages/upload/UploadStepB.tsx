@@ -130,8 +130,7 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
             <UploadCloud size={30} strokeWidth={1.7} aria-hidden="true" />
             <h2>{isDragging ? "松开即可逐项检查" : "拖放文件到这里"}</h2>
             <p className="dropzone-hint">
-              支持 Markdown、PDF、Word（DOC/DOCX）、PPT/PPTX、Excel、纯文本等资料，单文件最大 100
-              MB；DOC/PPT 自动转换并提取正文，纯图片内容可能需要人工补全
+              支持 Word、Excel、PPT、PDF、Markdown 和文本，单文件最大 100 MB
             </p>
             <div className="upload77-dropzone-actions">
               <button

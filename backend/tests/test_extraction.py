@@ -257,10 +257,10 @@ def test_extract_xlsx_empty_sheets_returns_empty():
     assert r.error_type == "extraction_empty"
 
 
-def test_extract_xls_unsupported_with_actionable_hint():
+def test_extract_xls_rejects_invalid_ole_header():
     r = extract_text(b"\xd0\xcf\x11\xe0 old binary", file_name="a.xls", mime=None)
-    assert r.status == "unsupported"
-    assert "另存为 .xlsx" in (r.error_message or "")
+    assert r.status == "failed"
+    assert r.error_type == "extraction_format_mismatch"
 
 
 def test_extract_empty_pdf():
