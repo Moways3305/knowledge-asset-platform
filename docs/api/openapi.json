@@ -1933,6 +1933,11 @@
             ],
             "title": "Subject"
           },
+          "subject_is_manual": {
+            "default": false,
+            "title": "Subject Is Manual",
+            "type": "boolean"
+          },
           "version": {
             "anyOf": [
               {
@@ -9270,6 +9275,11 @@
           "subject": {
             "title": "Subject",
             "type": "string"
+          },
+          "subject_is_manual": {
+            "default": false,
+            "title": "Subject Is Manual",
+            "type": "boolean"
           },
           "version": {
             "title": "Version",

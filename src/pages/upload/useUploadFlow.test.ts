@@ -517,11 +517,13 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     const { result } = renderHook(() => useUploadFlow());
     await driveToReady(result);
 
-    act(() => {
+    await act(async () => {
       result.current.setTargetLibrary("project");
       result.current.setTargetProjectId("project-alpha");
       result.current.setNamingFormedOn("2021-03-07");
     });
+    expect(result.current.directoryKey).toBe("");
+    await act(async () => result.current.setDirectoryKey("project.guidance_process"));
 
     await waitFor(() => expect(namingApi.previewIngestNaming).toHaveBeenCalled());
     await waitFor(() => expect(result.current.namingPreview).not.toBeNull());
@@ -595,7 +597,12 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       result.current.setTargetLibrary("project");
       result.current.setTargetProjectId("project-alpha");
     });
-    await waitFor(() => expect(result.current.directoryKey).toBeTruthy());
+    await waitFor(() => expect(result.current.namingOptions?.rule_version).toBe(2));
+    expect(result.current.directoryKey).toBe("");
+    await act(async () => result.current.setDirectoryKey("project.deliverables"));
+    expect(result.current.directoryKey).toBe("project.deliverables");
+    await act(async () => result.current.setTargetProjectId("project-beta"));
+    expect(result.current.directoryKey).toBe("");
   });
 
   it("confirmation 边界统一暴露已验证目标、人工字段、AI 建议和 task 身份", async () => {
@@ -630,6 +637,23 @@ describe("useUploadFlow model selection (PBC-38)", () => {
         generation: { status: "generated" },
       },
     });
+    await act(async () => result.current.setEditTitle("人工改名"));
+    await act(async () =>
+      result.current.applyAiResult({
+        ...readyAiResult,
+        ingest_task_id: "t1",
+        suggested_title: "刷新后的 AI 主题",
+      }),
+    );
+    expect(result.current.namingPreviewState.fields.title).toBe("人工改名");
+    await act(async () =>
+      result.current.applyAiResult({
+        ...readyAiResult,
+        ingest_task_id: "t2",
+        suggested_title: "另一个文件",
+      }),
+    );
+    expect(result.current.namingPreviewState.fields.title).toBe("另一个文件");
   });
 
   it("切换模型后 confirm payload 使用新的 model_ref", async () => {

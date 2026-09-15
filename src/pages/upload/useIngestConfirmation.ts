@@ -78,6 +78,8 @@ export function useIngestConfirmation({
   const [apiError, setApiError] = useState<string | null>(null);
   const [processingNote, setProcessingNote] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
+  const [titleIsManual, setTitleIsManual] = useState(false);
+  const manualTitleRef = useRef<{ taskId: string; manual: boolean }>({ taskId: "", manual: false });
   const [editOneLiner, setEditOneLiner] = useState("");
   const [editSummary, setEditSummary] = useState("");
   const [editKeyPoints, setEditKeyPoints] = useState("");
@@ -170,7 +172,11 @@ export function useIngestConfirmation({
     });
     // The backend projection is the only trusted suggestion source. If it
     // cannot derive a safe subject, require explicit manual input.
-    setEditTitle(ai.suggested_title ?? "");
+    if (manualTitleRef.current.taskId !== ai.ingest_task_id || !manualTitleRef.current.manual) {
+      setEditTitle(ai.suggested_title ?? "");
+      setTitleIsManual(false);
+      manualTitleRef.current = { taskId: ai.ingest_task_id, manual: false };
+    }
     setEditOneLiner(ai.suggested_one_liner ?? "");
     setEditSummary(ai.suggested_summary ?? "");
     setEditKeyPoints((ai.suggested_key_points ?? []).join("\n"));
@@ -208,6 +214,8 @@ export function useIngestConfirmation({
     namingPreviewRunRef.current += 1;
     setNamingPreview(null);
     setNamingPreviewError(null);
+    // A choice belongs to one task and destination, never to the next file.
+    setDirectoryKeyState("");
     setNamingPolicyResolved(targetLibrary === "personal");
     if (!targetLibrary || (targetLibrary === "project" && !targetProjectId)) {
       setNamingOptions(null);
@@ -222,9 +230,14 @@ export function useIngestConfirmation({
         setNamingPolicyResolved(true);
         setDirectoryKeyState((current) => {
           const directories = value.directories ?? [];
-          const selectedKey = directories.some((directory) => directory.directory_key === current)
+          const selectedKey = directories.some(
+            (directory) =>
+              directory.directory_key === current &&
+              directory.enabled &&
+              directory.scope === targetLibrary,
+          )
             ? current
-            : (directories.find((directory) => directory.enabled)?.directory_key ?? "");
+            : "";
           return selectedKey;
         });
       })
@@ -323,6 +336,7 @@ export function useIngestConfirmation({
         naming: {
           directory_key: directoryKey,
           subject: editTitle,
+          ...(titleIsManual ? { subject_is_manual: true } : {}),
           formed_on: namingFormedOn,
           version: namingVersion,
           applicable_to: targetLibrary === "company" ? namingApplicableTo : undefined,
@@ -345,6 +359,7 @@ export function useIngestConfirmation({
   }, [
     editConfidentiality,
     editTitle,
+    titleIsManual,
     namingApplicableTo,
     directoryKey,
     namingFormedOn,
@@ -603,6 +618,7 @@ export function useIngestConfirmation({
           ? {
               directory_key: directoryKey,
               subject: editTitle,
+              ...(titleIsManual ? { subject_is_manual: true } : {}),
               formed_on: namingFormedOn,
               version: namingVersion,
               applicable_to: selectedTargetLibrary === "company" ? namingApplicableTo : undefined,
@@ -632,6 +648,7 @@ export function useIngestConfirmation({
     editSummary,
     editTags,
     editTitle,
+    titleIsManual,
     embeddingModelRef,
     isCurrentWorkflowRun,
     loadLocalPending,
@@ -663,6 +680,8 @@ export function useIngestConfirmation({
     setFileSize(0);
     setFileType("");
     setSelectedTaskName("");
+    manualTitleRef.current = { taskId: "", manual: false };
+    setTitleIsManual(false);
     setEditTitle("");
     setEditOneLiner("");
     setEditSummary("");
@@ -830,7 +849,11 @@ export function useIngestConfirmation({
     setApiError,
     processingNote,
     editTitle,
-    setEditTitle,
+    setEditTitle: (value: Parameters<typeof setEditTitle>[0]) => {
+      setTitleIsManual(true);
+      manualTitleRef.current = { taskId: taskId ?? "", manual: true };
+      setEditTitle(value);
+    },
     editOneLiner,
     setEditOneLiner,
     editSummary,

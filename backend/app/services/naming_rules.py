@@ -432,10 +432,11 @@ async def render(
             else (f"{category.primary}-{category.secondary}")
         )
     project_code: str | None = None
-    # Canonical names always retain the source filename.  ``naming.subject``
-    # is intentionally kept in the request contract for compatibility and as
-    # a display/search suggestion, but it is not a file-renaming instruction.
-    rendered_subject = _source_name_stem(task.source_file_name)
+    # AI suggestions never rename an original automatically. An explicit human
+    # edit is a naming instruction, shared by preview and final persistence.
+    rendered_subject = (
+        naming.subject if naming.subject_is_manual else _source_name_stem(task.source_file_name)
+    )
     subject_has_business_name = False
     if scope == KnowledgeScope.project.value:
         if request.target_project_id is None:
@@ -473,6 +474,7 @@ async def render(
         "scope": scope,
         "project_code": project_code,
         "subject": rendered_subject,
+        "subject_is_manual": naming.subject_is_manual,
         "subject_deidentified": False,
         "subject_business_name_warning": subject_has_business_name,
         "applicable_to": naming.applicable_to,
