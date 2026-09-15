@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { PendingIngestItemDTO } from "../../types/ingest";
 import type { NamingOptionsDTO } from "../../types/naming";
-import { initialRows, reviewState, rowMissing, suggestedVersion } from "./pendingBatchReviewState";
+import {
+  initialRows,
+  reviewState,
+  rowMissing,
+  suggestedVersion,
+  suggestedDirectory,
+  matchesReviewFilter,
+} from "./pendingBatchReviewState";
 
 const options = {
   rule_version: "rule-v1",
@@ -54,13 +61,14 @@ describe("pending batch review state", () => {
       subject: "source",
       formed_on: "2026-08-01",
       version: "V2",
-      directory_key: "project.deliverables",
+      directory_key: "",
       confidentiality_level: "L2",
     });
   });
 
   it("defaults company audience to 通用 but validates an explicitly cleared value", () => {
     const row = initialRows([task], options)[task.id];
+    row.directory_key = "project.deliverables";
     expect(row.applicable_to).toBe("通用");
     expect(rowMissing(row, true)).toBeNull();
     expect(rowMissing({ ...row, applicable_to: "" }, true)?.field).toBe("applicable_to");
@@ -68,6 +76,7 @@ describe("pending batch review state", () => {
 
   it("marks a server preview error as an exception", () => {
     const row = initialRows([task], options)[task.id];
+    row.directory_key = "project.deliverables";
     expect(
       reviewState(
         task,
@@ -79,5 +88,40 @@ describe("pending batch review state", () => {
         false,
       ),
     ).toBe("exception");
+  });
+  it("only preselects an unambiguous explicit historical directory match", () => {
+    expect(suggestedDirectory(task, options)).toBe("");
+    const matched = {
+      ...task,
+      naming_parsed_fields: { ...task.naming_parsed_fields!, secondary_category: "03 交付成果" },
+    };
+    expect(suggestedDirectory(matched, options)).toBe("project.deliverables");
+    expect(
+      suggestedDirectory(
+        {
+          ...matched,
+          naming_parsed_fields: {
+            ...matched.naming_parsed_fields,
+            inferred_fields: ["secondary_category"],
+          },
+        },
+        options,
+      ),
+    ).toBe("");
+    expect(
+      suggestedDirectory(matched, {
+        ...options,
+        directories: [
+          ...options.directories,
+          { ...options.directories[0], directory_key: "other" },
+        ],
+      }),
+    ).toBe("");
+  });
+  it("filters actual missing fields independently", () => {
+    const row = initialRows([task], options)[task.id];
+    expect(matchesReviewFilter("missing_directory", "manual", row)).toBe(true);
+    expect(matchesReviewFilter("missing_date", "manual", row)).toBe(false);
+    expect(matchesReviewFilter("missing_confidentiality", "manual", row)).toBe(false);
   });
 });

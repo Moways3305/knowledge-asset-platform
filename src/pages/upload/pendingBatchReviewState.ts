@@ -8,8 +8,57 @@ import type {
 
 export type ReviewRows = Record<string, BatchNamingValuesDTO>;
 export type PreviewRows = Record<string, BatchNamingPreviewItemDTO>;
-export type ReviewFilter = "all" | "ai_ready" | "manual" | "reviewed" | "exception";
-export type ReviewState = Exclude<ReviewFilter, "all">;
+export type ReviewState = "ai_ready" | "manual" | "reviewed" | "exception";
+export type ReviewFilter =
+  | "all"
+  | ReviewState
+  | "missing_confidentiality"
+  | "missing_date"
+  | "missing_directory";
+export const REVIEW_FILTERS = [
+  ["all", "全部"],
+  ["ai_ready", "可确认"],
+  ["manual", "需处理"],
+  ["reviewed", "已核对"],
+  ["exception", "异常/重复"],
+  ["missing_confidentiality", "缺密级"],
+  ["missing_date", "缺日期"],
+  ["missing_directory", "待选目录"],
+] as const;
+export function matchesReviewFilter(
+  filter: ReviewFilter,
+  state: ReviewState,
+  row: BatchNamingValuesDTO | undefined,
+): boolean {
+  if (filter === "all") return true;
+  if (filter === "missing_confidentiality")
+    return !CONFIDENTIALITY_LEVELS.has(row?.confidentiality_level ?? "");
+  if (filter === "missing_date") return !DATE_PATTERN.test(row?.formed_on ?? "");
+  if (filter === "missing_directory") return !row?.directory_key;
+  return filter === state;
+}
+
+// Match explicit historical category labels to the current formal directory.
+// Inferred/missing labels and ambiguous matches are not classification evidence.
+export function suggestedDirectory(task: PendingIngestItemDTO, options: NamingOptionsDTO): string {
+  const parsed = task.naming_parsed_fields;
+  if (!parsed) return "";
+  const unsafe = new Set([...(parsed.inferred_fields ?? []), ...(parsed.missing_fields ?? [])]);
+  const clean = (s: string) =>
+    s
+      .trim()
+      .replace(/^\d+\s*/, "")
+      .trim();
+  const labels = ["primary_category", "secondary_category"] as const;
+  const names = new Set(
+    labels
+      .filter((key) => !unsafe.has(key))
+      .map((key) => clean(parsed[key] ?? ""))
+      .filter(Boolean),
+  );
+  const matches = options.directories.filter((d) => d.enabled && names.has(clean(d.display_name)));
+  return matches.length === 1 ? matches[0].directory_key : "";
+}
 export type DeleteFeedback = { message: string; retryable: boolean };
 export type CompletedReviewItem = {
   taskId: string;
@@ -74,10 +123,9 @@ export function suggestedConfidentiality(
 }
 
 export function initialRows(tasks: PendingIngestItemDTO[], options: NamingOptionsDTO): ReviewRows {
-  const defaultDirectoryKey =
-    options.directories.find((directory) => directory.enabled)?.directory_key ?? "";
   return Object.fromEntries(
     tasks.map((task) => {
+      const defaultDirectoryKey = suggestedDirectory(task, options);
       return [
         task.id,
         {
@@ -95,13 +143,19 @@ export function initialRows(tasks: PendingIngestItemDTO[], options: NamingOption
   );
 }
 
-export type NamingField = "subject" | "directory_key" | "formed_on" | "version" | "applicable_to";
+export type NamingField =
+  | "subject"
+  | "directory_key"
+  | "formed_on"
+  | "version"
+  | "applicable_to"
+  | "confidentiality_level";
 
 export type RowError = { field: NamingField | null; message: string };
 
 export function rowMissing(row: BatchNamingValuesDTO, company: boolean): RowError | null {
   if (!CONFIDENTIALITY_LEVELS.has(row.confidentiality_level))
-    return { field: null, message: "AI 未可靠判断密级，请人工选择" };
+    return { field: "confidentiality_level", message: "请选择密级" };
   if (!row.subject.trim()) return { field: "subject", message: "请填写主题" };
   if (!row.directory_key) return { field: "directory_key", message: "请选择正式目录" };
   if (!DATE_PATTERN.test(row.formed_on)) {
@@ -129,41 +183,26 @@ export function previewError(preview: BatchNamingPreviewItemDTO | undefined): Ro
 }
 
 export function reviewState(
-  task: PendingIngestItemDTO,
+  _task: PendingIngestItemDTO,
   row: BatchNamingValuesDTO,
   preview: BatchNamingPreviewItemDTO | undefined,
   company: boolean,
   flowError: string | undefined,
-  edited: boolean,
+  _edited: boolean,
   reviewed: boolean,
 ): ReviewState {
-  if (preview?.error_code) return "exception";
   if (flowError) return "exception";
   if (rowMissing(row, company)) return "manual";
-  if (reviewed) return "reviewed";
-  if (edited) return "manual";
-
-  const parsed = task.naming_parsed_fields;
-  const legacyCategoryFields = new Set(["primary_category", "secondary_category", "asset_type"]);
-  const unsafeAiField = Boolean(
-    parsed &&
-    [...(parsed.missing_fields ?? []), ...(parsed.inferred_fields ?? [])].some(
-      (field) => !legacyCategoryFields.has(field),
-    ),
-  );
-  const differsFromSafeAi =
-    row.subject.trim() !== sourceSubject(task) ||
-    row.formed_on !== parsedValue(task, "date") ||
-    row.version.toUpperCase() !== suggestedVersion(task);
+  if (preview?.error_code) return "exception";
+  const duplicate = preview?.duplicate;
   if (
-    !parsed ||
-    unsafeAiField ||
-    differsFromSafeAi ||
-    (task.version_source !== "source_filename" && task.version_source !== "ai_content") ||
-    !hasReliableAiConfidentiality(task) ||
-    (company && !row.applicable_to)
-  ) {
-    return "manual";
-  }
-  return "ai_ready";
+    duplicate &&
+    duplicate.duplicate_state !== "none" &&
+    duplicate.duplicate_state !== "suspected_metadata" &&
+    duplicate.decision !== "independent" &&
+    !(duplicate.duplicate_state === "same_batch" && duplicate.default_selected)
+  )
+    return "exception";
+  if (!preview?.submittable) return "manual";
+  return reviewed ? "reviewed" : "ai_ready";
 }

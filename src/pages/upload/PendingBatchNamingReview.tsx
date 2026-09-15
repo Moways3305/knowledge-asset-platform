@@ -11,6 +11,8 @@ import {
   rowMissing,
   suggestedConfidentiality,
   suggestedVersion,
+  REVIEW_FILTERS,
+  matchesReviewFilter,
 } from "./pendingBatchReviewState";
 import type {
   CompletedReviewItem,
@@ -80,7 +82,6 @@ export default function PendingBatchNamingReview(props: Props) {
     warningNotices,
     rows,
     previews,
-    editedTaskIds,
     loadAiReview,
     flow,
     deletingTaskId,
@@ -123,15 +124,7 @@ export default function PendingBatchNamingReview(props: Props) {
         </div>
       </div>
       <div className="upload77-batch-naming-filters" aria-label="核对状态筛选">
-        {(
-          [
-            ["all", "全部"],
-            ["ai_ready", "AI 已确定"],
-            ["manual", "需人工补齐"],
-            ["reviewed", "已核对"],
-            ["exception", "异常/重复"],
-          ] as const
-        ).map(([value, label]) => (
+        {REVIEW_FILTERS.map(([value, label]) => (
           <button
             aria-pressed={reviewFilter === value}
             className="upload77-batch-filter"
@@ -144,7 +137,9 @@ export default function PendingBatchNamingReview(props: Props) {
                   value === "all"
                     ? selectedConfirmTasks.map((task) => task.id)
                     : selectedConfirmTasks
-                        .filter((task) => statesByTask[task.id] === value)
+                        .filter((task) =>
+                          matchesReviewFilter(value, statesByTask[task.id], rows[task.id]),
+                        )
                         .map((task) => task.id),
               });
             }}
@@ -242,11 +237,13 @@ export default function PendingBatchNamingReview(props: Props) {
                 </strong>
                 <div className="upload77-batch-naming-row-actions">
                   <span>
-                    {preview?.submittable
-                      ? editedTaskIds.has(task.id)
+                    {statesByTask[task.id] === "reviewed"
+                      ? "已核对"
+                      : statesByTask[task.id] === "ai_ready"
                         ? "可确认"
-                        : "已核对"
-                      : "待核对"}
+                        : statesByTask[task.id] === "exception"
+                          ? "异常/重复"
+                          : (localError?.message ?? "待生成有效预览")}
                   </span>
                   <button
                     className="btn-secondary"
@@ -262,7 +259,9 @@ export default function PendingBatchNamingReview(props: Props) {
                       flow.batchBusy ||
                       deletingTaskId !== null ||
                       Boolean(rowMissing(row, company)) ||
-                      !preview?.submittable
+                      !preview?.submittable ||
+                      statesByTask[task.id] === "exception" ||
+                      previewBusyByTask[task.id]
                     }
                     onClick={() => setConfirmCandidate(task)}
                     type="button"
@@ -482,14 +481,16 @@ export default function PendingBatchNamingReview(props: Props) {
                   <span>{serverError.message}</span>
                 </div>
               )}
-              {preview?.notices.map((notice) => (
-                <div
-                  className="upload77-batch-naming-notice"
-                  key={`${notice.kind}-${notice.message}`}
-                >
-                  {notice.message}
-                </div>
-              ))}
+              {preview?.notices
+                .filter((notice) => notice.code !== "historical_naming_noncompliant")
+                .map((notice) => (
+                  <div
+                    className="upload77-batch-naming-notice"
+                    key={`${notice.kind}-${notice.message}`}
+                  >
+                    {notice.message}
+                  </div>
+                ))}
             </article>
           );
         })}

@@ -112,6 +112,7 @@ export interface NamingOptionsDTO {
 export interface NamingConfirmationDTO {
   directory_key: string;
   subject: string;
+  subject_is_manual?: boolean;
   formed_on: string;
   version: string;
   applicable_to?: string;
@@ -151,6 +152,7 @@ export interface NamingWarningNoticeDTO {
 export interface BatchNamingValuesDTO {
   directory_key: string;
   subject: string;
+  subject_is_manual?: boolean;
   formed_on: string;
   version: string;
   applicable_to?: string;

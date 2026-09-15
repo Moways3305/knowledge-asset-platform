@@ -4,6 +4,39 @@ import { clearCsrfToken } from "./http";
 import { previewBatchIngestNaming } from "./naming";
 
 describe("previewBatchIngestNaming", () => {
+  it("previews 598 rows in bounded batches and forwards explicit manual names", async () => {
+    const sizes: number[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      if (!init?.body) return new Response(JSON.stringify({ csrf_token: "test-csrf" }));
+      const body = JSON.parse(String(init.body));
+      sizes.push(body.items.length);
+      expect(body.items[0].naming.subject_is_manual).toBe(true);
+      return new Response(
+        JSON.stringify({
+          items: body.items.map((item: { task_id: string }) => ({ task_id: item.task_id })),
+        }),
+      );
+    });
+    const response = await previewBatchIngestNaming({
+      targetScope: "company",
+      items: Array.from({ length: 598 }, (_, index) => ({
+        taskId: String(index),
+        naming: {
+          directory_key: "company.introduction",
+          subject: "人工改名",
+          subject_is_manual: true,
+          formed_on: "2026-09-15",
+          version: "V1",
+          applicable_to: "通用",
+          confidentiality_level: "L2",
+        },
+      })),
+    });
+    expect(sizes).toEqual([...Array(11).fill(50), 48]);
+    expect(response.items.map((item) => item.task_id)).toEqual(
+      Array.from({ length: 598 }, (_, index) => String(index)),
+    );
+  });
   beforeEach(() => {
     clearCsrfToken();
     vi.restoreAllMocks();

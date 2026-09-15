@@ -72,24 +72,37 @@ export function previewIngestNaming(
   return apiPost(`/api/v1/ingest/${taskId}/naming-preview`, input);
 }
 
-export function previewBatchIngestNaming(input: {
+export async function previewBatchIngestNaming(input: {
   targetScope: "project" | "company";
   targetProjectId?: string;
   items: Array<{ taskId: string; naming: BatchNamingValuesDTO }>;
 }): Promise<BatchNamingPreviewResponseDTO> {
-  return apiPost("/api/v1/ingest/bulk-naming-preview", {
-    target_scope: input.targetScope,
-    target_project_id: input.targetProjectId ?? null,
-    items: input.items.map((item) => ({
-      task_id: item.taskId,
-      confidentiality_level: item.naming.confidentiality_level,
-      naming: {
-        directory_key: item.naming.directory_key,
-        subject: item.naming.subject,
-        formed_on: item.naming.formed_on,
-        version: item.naming.version,
-        ...(input.targetScope === "company" ? { applicable_to: item.naming.applicable_to } : {}),
+  const result: BatchNamingPreviewResponseDTO = { items: [] };
+  // Large review sessions must not exceed the endpoint's 500-item contract.
+  // Smaller sequential requests also bound work for hundreds of files.
+  for (let offset = 0; offset < input.items.length; offset += 50) {
+    const response = await apiPost<BatchNamingPreviewResponseDTO>(
+      "/api/v1/ingest/bulk-naming-preview",
+      {
+        target_scope: input.targetScope,
+        target_project_id: input.targetProjectId ?? null,
+        items: input.items.slice(offset, offset + 50).map((item) => ({
+          task_id: item.taskId,
+          confidentiality_level: item.naming.confidentiality_level,
+          naming: {
+            directory_key: item.naming.directory_key,
+            subject: item.naming.subject,
+            ...(item.naming.subject_is_manual ? { subject_is_manual: true } : {}),
+            formed_on: item.naming.formed_on,
+            version: item.naming.version,
+            ...(input.targetScope === "company"
+              ? { applicable_to: item.naming.applicable_to }
+              : {}),
+          },
+        })),
       },
-    })),
-  });
+    );
+    result.items.push(...response.items);
+  }
+  return result;
 }

@@ -243,6 +243,7 @@ class NamingConfirmationFields(BaseModel):
 
     directory_key: str | None = None
     subject: str
+    subject_is_manual: bool = False
     formed_on: date
     version: str
     applicable_to: str | None = None
@@ -331,6 +332,7 @@ class BatchNamingConfirmationFields(BaseModel):
 
     directory_key: str | None = None
     subject: str | None = None
+    subject_is_manual: bool = False
     formed_on: date | str | None = None
     version: str | None = None
     applicable_to: str | None = None
