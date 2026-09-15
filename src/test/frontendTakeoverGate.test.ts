@@ -389,7 +389,12 @@ describe("frontend route takeover gate", () => {
       .map((key) => key.split("/").slice(-1)[0]?.replace(".tsx", ""))
       .filter((name): name is string => Boolean(name))
       .sort();
-    const registered = [...routes.map((item) => item.component), "NotFoundPage"].sort();
+    // LoginPage is owned by LoginGate, before any business route is mounted.
+    const registered = [
+      ...routes.map((item) => item.component),
+      "NotFoundPage",
+      "LoginPage",
+    ].sort();
     expect(pageFiles).toEqual(registered);
   });
 
@@ -480,6 +485,15 @@ describe("frontend route takeover gate", () => {
     expect(scannedFiles.some((file) => file.endsWith("/auth/AuthContext.tsx"))).toBe(true);
     expect(scannedFiles.some((file) => file.endsWith("/auth/permissions.ts"))).toBe(true);
     for (const [file, moduleSource] of Object.entries(productionUiModules)) {
+      if (/\.test\.[tj]sx?$/.test(file)) continue;
+      // A short-lived OAuth return URL is navigation state, never identity.
+      // Its same-origin / expiry / one-shot contract is covered by LoginPage tests.
+      if (file === "../auth/loginReturn.ts") {
+        expect(moduleSource).toContain('const KEY = "kap.login-return"');
+        expect(moduleSource).toContain("JSON.stringify({ path, at: Date.now() })");
+        expect(moduleSource).not.toMatch(/\blocalStorage\b/);
+        continue;
+      }
       expect(moduleSource, file).not.toMatch(/\b(?:localStorage|sessionStorage)\b/);
     }
   });

@@ -41,6 +41,7 @@ export default function App() {
       <ErrorBoundary>
         <Routes>
           <Route element={<AppLayout />}>
+            <Route path="login" element={<Navigate to="/" replace />} />
             <Route index element={<HomeDashboardPage />} />
             {/* 守卫与导航共用 can.* 判定：无权直接渲染「无此入口」态，不让页面先发请求。
                 后端仍是权威：绕过前端直达接口照常 403/404。 */}
