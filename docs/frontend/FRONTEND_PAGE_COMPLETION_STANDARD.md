@@ -29,8 +29,9 @@ item below is satisfied in the same change.
 
 ## Explicit exception process
 
-An exception must be narrow, documented in `FRONTEND_ROUTE_TAKEOVER_MATRIX.md`, and enforced by a
-stable structural rule where possible. It must state the owner, purpose, evidence, and follow-up.
+An exception must be narrow, documented alongside its contract in
+`src/test/frontendTakeoverGate.test.ts`, and enforced by a stable structural rule where possible.
+It must state the owner, purpose, evidence, and follow-up.
 File names, comments, or visual similarity alone are not sufficient evidence for deletion.
 
 Static product/help pages may have no API owner. Ambient declaration files may have no runtime
