@@ -31,6 +31,7 @@ import GlobalTaskStatus from "../components/GlobalTaskStatus";
 import ErrorBoundary from "../components/ErrorBoundary";
 import LoadingError from "../components/LoadingError";
 import { AuthProvider, useAuth } from "../auth/AuthContext";
+import LoginGate from "../auth/LoginGate";
 import { logout } from "../api/auth";
 import { can, type Capability, type Capabilities } from "../auth/permissions";
 import { SafeNavigationProvider } from "../routing/SafeNavigation";
@@ -393,11 +394,13 @@ export default function AppLayout() {
   // AuthProvider 包裹整个外壳：导航过滤、身份菜单、页面守卫共享同一份 /auth/me。
   return (
     <AuthProvider>
-      <WorkbenchProvider>
-        <SafeNavigationProvider>
-          <AppShell />
-        </SafeNavigationProvider>
-      </WorkbenchProvider>
+      <LoginGate>
+        <WorkbenchProvider>
+          <SafeNavigationProvider>
+            <AppShell />
+          </SafeNavigationProvider>
+        </WorkbenchProvider>
+      </LoginGate>
     </AuthProvider>
   );
 }
