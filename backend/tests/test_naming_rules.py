@@ -5,12 +5,85 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 from app.models.identity import Project
 from app.models.naming import NamingRuleRevision
 from app.seed.dev_seed import PROJECT_ALPHA, USER_BOSS, USER_CONSULTANT, USER_PROJECT_MANAGER
 from app.services.directories import default_directory_config
+
+
+@pytest.mark.parametrize("count", [1, 25])
+async def test_batch_preview_preloads_rows_and_preserves_item_permissions(
+    client, db_session, count
+):
+    from app.models.ingest import IngestTask
+
+    await _enable_project_code(client)
+    await _publish(client)
+    task_ids = [uuid.uuid4() for _ in range(count)]
+    foreign_id = uuid.uuid4()
+    for task_id in [*task_ids, foreign_id]:
+        db_session.add(
+            IngestTask(
+                id=task_id,
+                source="local_upload",
+                source_file_ref="private/ref",
+                source_file_name="source.txt",
+                created_by=(USER_CONSULTANT if task_id == foreign_id else USER_PROJECT_MANAGER),
+            )
+        )
+    await db_session.commit()
+    naming = {
+        "directory_key": "project.deliverables",
+        "subject": "人工标题",
+        "subject_is_manual": True,
+        "formed_on": "2026-08-31",
+        "version": "V1",
+    }
+    body = {
+        "target_scope": "project",
+        "target_project_id": str(PROJECT_ALPHA),
+        "confidentiality_level": "L2",
+        "naming": naming,
+    }
+    single = await client.post(
+        f"/api/v1/ingest/{task_ids[0]}/naming-preview",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json=body,
+    )
+    assert single.status_code == 200, single.text
+    queries = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _many):
+        if "FROM ingest_tasks " in statement or "FROM ingest_task_ai_results " in statement:
+            queries.append(statement)
+
+    engine = db_session.bind.sync_engine
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        response = await client.post(
+            "/api/v1/ingest/bulk-naming-preview",
+            headers=_hdr(USER_PROJECT_MANAGER),
+            json={
+                "target_scope": "project",
+                "target_project_id": str(PROJECT_ALPHA),
+                "items": [
+                    {"task_id": str(task_id), "confidentiality_level": "L2", "naming": naming}
+                    for task_id in [*task_ids, foreign_id, uuid.uuid4()]
+                ],
+            },
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    assert response.status_code == 200, response.text
+    items = response.json()["items"]
+    assert [item["task_id"] for item in items[:count]] == list(map(str, task_ids))
+    for key in ("canonical_name", "fields", "notices", "duplicate"):
+        assert items[0][key] == single.json()[key]
+    assert all(item["submittable"] for item in items[:count])
+    assert all(item["error_code"] == "item_unavailable" for item in items[count:])
+    assert len(queries) == 2
 
 
 def _hdr(user_id: uuid.UUID) -> dict[str, str]:

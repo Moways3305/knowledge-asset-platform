@@ -63,6 +63,14 @@ class RenderedNaming:
     duplicate: UploadDuplicateReadModel
 
 
+@dataclass(frozen=True)
+class _PreviewRows:
+    """Request-local snapshots, never shared across users or requests."""
+
+    tasks: dict[uuid.UUID, IngestTask]
+    ai: dict[uuid.UUID, IngestTaskAiResult]
+
+
 def _denied(status: int, reason: str, message: str) -> HTTPException:
     return HTTPException(status_code=status, detail={"denied_reason": reason, "message": message})
 
@@ -371,6 +379,8 @@ async def render(
     caller: CallerContext,
     task: IngestTask,
     request: NamingPreviewRequest,
+    *,
+    _rows: _PreviewRows | None = None,
 ) -> RenderedNaming | None:
     scope = request.target_scope.value
     if scope == KnowledgeScope.personal.value:
@@ -510,8 +520,12 @@ async def render(
                 message="主题可能包含客户名、项目简称或业务专名，请确认是否保留",
             )
         )
-    ai = await session.scalar(
-        select(IngestTaskAiResult).where(IngestTaskAiResult.ingest_task_id == task.id)
+    ai = (
+        _rows.ai.get(task.id)
+        if _rows is not None
+        else await session.scalar(
+            select(IngestTaskAiResult).where(IngestTaskAiResult.ingest_task_id == task.id)
+        )
     )
     advice = safe_naming_advice(ai)
     if advice["version_source"] == "default_needs_confirmation":
@@ -607,10 +621,12 @@ async def preview(
     caller: CallerContext,
     task_id: uuid.UUID,
     request: NamingPreviewRequest,
+    *,
+    _rows: _PreviewRows | None = None,
 ) -> NamingPreviewResponse:
     if not caller.is_business_user:
         raise _denied(403, "admin_business_permission_denied", "仅业务用户可预览入库命名")
-    task = await session.get(IngestTask, task_id)
+    task = _rows.tasks.get(task_id) if _rows is not None else await session.get(IngestTask, task_id)
     if task is None:
         raise _denied(404, "ingest_task_not_found", "入库任务不存在")
     if not (task.created_by == caller.user_id or caller.can_discover_l5):
@@ -625,11 +641,16 @@ async def preview(
             raise _denied(409, "ingest_target_project_locked", "目标项目已由来源规则锁定")
     elif scope == KnowledgeScope.company.value and not caller.can_discover_l5:
         raise _denied(403, "company_confirmation_requires_governance", "公司知识需治理角色确认")
-    ai = await session.scalar(
-        select(IngestTaskAiResult).where(IngestTaskAiResult.ingest_task_id == task.id)
+    ai = (
+        _rows.ai.get(task.id)
+        if _rows is not None
+        else await session.scalar(
+            select(IngestTaskAiResult).where(IngestTaskAiResult.ingest_task_id == task.id)
+        )
     )
     advice = naming_preview_advice(ai)
-    rendered = await render(session, caller, task, request)
+    rows = _rows or _PreviewRows({task.id: task}, {task.id: ai} if ai is not None else {})
+    rendered = await render(session, caller, task, request, _rows=rows)
     if rendered is None:
         duplicate = await read_duplicate(
             session,
@@ -709,6 +730,22 @@ async def batch_preview(
         request.target_scope,
         request.target_project_id,
     )
+    task_query = select(IngestTask).where(
+        IngestTask.id.in_({item.task_id for item in request.items})
+    )
+    if not caller.can_discover_l5:
+        task_query = task_query.where(IngestTask.created_by == caller.user_id)
+    tasks = {task.id: task for task in (await session.scalars(task_query)).all()}
+    ai_rows = (
+        (
+            await session.scalars(
+                select(IngestTaskAiResult).where(IngestTaskAiResult.ingest_task_id.in_(tasks))
+            )
+        ).all()
+        if tasks
+        else []
+    )
+    rows = _PreviewRows(tasks, {ai.ingest_task_id: ai for ai in ai_rows})
     results: list[BatchNamingPreviewItemResponse] = []
     for item in request.items:
         try:
@@ -720,7 +757,7 @@ async def batch_preview(
                     "naming": item.naming.model_dump() if item.naming is not None else None,
                 }
             )
-            rendered = await preview(session, caller, item.task_id, item_request)
+            rendered = await preview(session, caller, item.task_id, item_request, _rows=rows)
             results.append(
                 BatchNamingPreviewItemResponse(
                     task_id=item.task_id,
