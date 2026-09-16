@@ -196,7 +196,10 @@ async def test_direct_directory_generates_project_name_without_category_metadata
 
 
 @pytest.mark.parametrize("scope", ["project", "company"])
-async def test_reviewed_title_persists_without_renaming_source(client, db_session, scope):
+@pytest.mark.parametrize("manual", [False, True])
+async def test_reviewed_title_persists_with_explicit_manual_naming(
+    client, db_session, scope, manual
+):
     from app.models.knowledge import KnowledgeAsset
 
     await _enable_project_code(client)
@@ -211,6 +214,7 @@ async def test_reviewed_title_persists_without_renaming_source(client, db_sessio
             if scope == "project"
             else "company.methodology",
             "subject": "人工修改的资料主题",
+            "subject_is_manual": manual,
             "formed_on": "2026-08-31",
             "version": "V1",
             "applicable_to": "通用",
@@ -234,8 +238,9 @@ async def test_reviewed_title_persists_without_renaming_source(client, db_sessio
     )
     assert confirmed.status_code == 200, confirmed.text
     assert confirmed.json()["status"] == "completed"
-    assert "source" in confirmed.json()["canonical_name"]
-    assert "人工修改" not in confirmed.json()["canonical_name"]
+    assert confirmed.json()["canonical_name"] == preview.json()["canonical_name"]
+    assert ("人工修改" in confirmed.json()["canonical_name"]) is manual
+    assert ("source" in confirmed.json()["canonical_name"]) is not manual
     asset = await db_session.get(KnowledgeAsset, uuid.UUID(confirmed.json()["result_asset_id"]))
     assert asset.title == "人工修改的资料主题"
 

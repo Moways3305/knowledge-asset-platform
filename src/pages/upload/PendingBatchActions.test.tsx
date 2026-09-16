@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/http";
@@ -58,7 +58,7 @@ function task(id: string, overrides: Partial<PendingIngestItemDTO> = {}): Pendin
     confidentiality_reason: "AI 根据正文内容特征建议为 L3",
     naming_parsed_fields: {
       primary_category: "项目资料",
-      secondary_category: "交付成果",
+      secondary_category: "项目交付成果",
       topic: `${id}主题`,
       subject_or_client: "华东区",
       date: "20260803",
@@ -101,7 +101,7 @@ function flowFixture(
   } as unknown as UploadFlow;
 }
 
-async function openProjectReview() {
+async function openProjectReview(waitForPreview = true) {
   fireEvent.click(screen.getByRole("button", { name: /批量确认入库/ }));
   fireEvent.change(screen.getByRole("combobox", { name: "批量入库目标知识库" }), {
     target: { value: "project" },
@@ -111,6 +111,8 @@ async function openProjectReview() {
   });
   fireEvent.click(screen.getByRole("button", { name: "下一步：核对命名" }));
   await screen.findByLabelText("核对状态筛选");
+  if (waitForPreview)
+    await waitFor(() => expect(screen.queryAllByText("正在按当前填写内容生成…")).toHaveLength(0));
 }
 
 function topDialog(): HTMLElement {
@@ -200,7 +202,18 @@ describe("PendingBatchActions governed review", () => {
       default_confidentiality: "L2",
       message: null,
     });
-    namingApi.previewBatchIngestNaming.mockReset();
+    namingApi.previewBatchIngestNaming.mockReset().mockImplementation(async (input) => ({
+      items: input.items.map((item: { taskId: string; naming: { subject: string } }) => ({
+        task_id: item.taskId,
+        submittable: true,
+        canonical_name: item.naming.subject,
+        fields: null,
+        notices: [],
+        error_code: null,
+        message: null,
+        rule_version: 3,
+      })),
+    }));
     ingestApi.fetchIngestAiResult.mockReset().mockResolvedValue({
       ingest_task_id: "safe-task",
       status: "ready",
@@ -473,15 +486,46 @@ describe("PendingBatchActions governed review", () => {
     expect(screen.queryByText("internal detail")).not.toBeInTheDocument();
   });
 
+  it("submits ready rows while retaining rows missing required fields", async () => {
+    const ready = task("ready");
+    const incomplete = task("incomplete", { suggested_formed_on: null });
+    const flow = flowFixture([ready, incomplete]);
+    render(<PendingBatchActions tasks={[ready, incomplete]} flow={flow} />);
+    await openProjectReview();
+    fireEvent.change(screen.getByLabelText("ready.pdf 主题"), { target: { value: "人工改名" } });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "确认已选择的 1 项入库" })).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "确认已选择的 1 项入库" }));
+    expect(flow.handleBatchConfirm).toHaveBeenCalledWith(
+      [ready],
+      "project",
+      expect.any(String),
+      expect.objectContaining({
+        ready: expect.objectContaining({ subject: "人工改名", subject_is_manual: true }),
+      }),
+      expect.anything(),
+      true,
+      expect.any(Function),
+    );
+    act(() => {
+      const completed = vi.mocked(flow.handleBatchConfirm).mock.calls[0][6];
+      completed?.({ succeededIds: [ready.id], failedIds: [] });
+    });
+    expect(screen.queryByLabelText("ready.pdf 主题")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("incomplete.pdf 文件最后修改日期")).toBeInTheDocument();
+  });
+
   it("filters and counts AI-ready, manual, reviewed, and exceptional rows", async () => {
     const aiReady = task("ai-ready", {
       naming_parsed_fields: {
         ...task("ai-ready").naming_parsed_fields!,
-        inferred_fields: ["secondary_category"],
-        missing_fields: ["primary_category"],
+        inferred_fields: [],
+        missing_fields: [],
       },
     });
     const manual = task("manual", {
+      suggested_formed_on: null,
       naming_parsed_fields: {
         ...task("manual").naming_parsed_fields!,
         date: "20260803",
@@ -497,7 +541,7 @@ describe("PendingBatchActions governed review", () => {
       items: [
         {
           task_id: aiReady.id,
-          submittable: false,
+          submittable: true,
           canonical_name: null,
           rule_version: null,
           fields: null,
@@ -540,28 +584,28 @@ describe("PendingBatchActions governed review", () => {
 
     render(<PendingBatchActions tasks={tasks} flow={flow} />);
     await openProjectReview();
-    expect(screen.getByRole("button", { name: "AI 已确定（3）" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "可确认（3）" })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("ai-ready.pdf 主题"), {
       target: { value: "人工改动" },
     });
-    expect(screen.getByRole("button", { name: "AI 已确定（2）" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "需人工补齐（2）" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "可确认（2）" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "需处理（2）" })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("ai-ready.pdf 主题"), {
       target: { value: "ai-ready主题" },
     });
     fireEvent.click(screen.getByRole("button", { name: "生成或刷新全部预览" }));
 
-    await screen.findByRole("button", { name: "AI 已确定（0）" });
-    expect(screen.getByRole("button", { name: "需人工补齐（2）" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "已核对（2）" })).toBeInTheDocument();
+    await screen.findByRole("button", { name: "可确认（0）" });
+    expect(screen.getByRole("button", { name: "需处理（1）" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "已核对（3）" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "异常/重复（0）" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "已核对（2）" }));
-    expect(screen.getByText("当前筛选显示 2/4 条")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "已核对（3）" }));
+    expect(screen.getByText("当前筛选显示 3/4 条")).toBeInTheDocument();
     expect(screen.getByText(/reviewed\.pdf/)).toBeInTheDocument();
     expect(screen.getByText(/duplicate\.pdf/)).toBeInTheDocument();
     expect(screen.queryByText(/manual\.pdf/)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "仍然确认已选择的 4 项入库" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "仍然确认已选择的 3 项入库" })).toBeEnabled();
 
     fireEvent.click(screen.getByRole("button", { name: "异常/重复（0）" }));
     expect(screen.getByText("当前筛选下没有资料")).toBeInTheDocument();
@@ -570,7 +614,7 @@ describe("PendingBatchActions governed review", () => {
     const scrollRegion = dialog.querySelector(".upload77-batch-naming-scroll");
     const closeButton = within(dialog).getByRole("button", { name: "关闭批量命名核对" });
     const confirmButton = within(dialog).getByRole("button", {
-      name: "仍然确认已选择的 4 项入库",
+      name: "仍然确认已选择的 3 项入库",
     });
     const cancelButton = within(dialog).getByRole("button", { name: "取消" });
     expect(scrollRegion).toBeInTheDocument();
@@ -580,7 +624,7 @@ describe("PendingBatchActions governed review", () => {
     expect(flow.handleBatchConfirm).not.toHaveBeenCalled();
   });
 
-  it("never marks any remaining missing or inferred field as AI-determined", async () => {
+  it("does not treat obsolete parser fields as missing confirmed metadata", async () => {
     const inferredLevel = task("inferred-level", {
       naming_parsed_fields: {
         ...task("inferred-level").naming_parsed_fields!,
@@ -598,8 +642,8 @@ describe("PendingBatchActions governed review", () => {
     render(<PendingBatchActions tasks={tasks} flow={flowFixture(tasks)} />);
     await openProjectReview();
 
-    expect(screen.getByRole("button", { name: "AI 已确定（0）" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "需人工补齐（2）" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "可确认（2）" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "需处理（0）" })).toBeInTheDocument();
   });
 
   it("shows persisted filename version and reliable AI content confidentiality sources", async () => {
@@ -621,7 +665,7 @@ describe("PendingBatchActions governed review", () => {
     expect(screen.getByText("来自源文件")).toBeInTheDocument();
     expect(screen.getByLabelText("项目复盘_V1.1_L3.md 密级")).toHaveValue("L4");
     expect(screen.getByText("AI 内容建议 · 高置信度")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "AI 已确定（1）" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "可确认（1）" })).toBeInTheDocument();
   });
 
   it("treats legacy advice as editable defaults and accepts decimal version edits", async () => {
@@ -643,7 +687,7 @@ describe("PendingBatchActions governed review", () => {
     expect(level).toHaveValue("");
     expect(screen.getByText("规则默认，需核对")).toBeInTheDocument();
     expect(screen.getByText("AI 未可靠判断，请人工选择")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "AI 已确定（0）" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "可确认（0）" })).toBeInTheDocument();
 
     fireEvent.change(version, { target: { value: "V2.03" } });
     fireEvent.change(level, { target: { value: "L3" } });
@@ -670,7 +714,7 @@ describe("PendingBatchActions governed review", () => {
     namingApi.previewBatchIngestNaming.mockResolvedValue({ items: [] });
 
     render(<PendingBatchActions tasks={[item]} flow={flowFixture([item])} />);
-    await openProjectReview();
+    await openProjectReview(false);
     fireEvent.click(within(topDialog()).getByRole("button", { name: "关闭批量命名核对" }));
     expect(topDialog()).toHaveTextContent("放弃本次批量命名核对");
     fireEvent.click(within(topDialog()).getByRole("button", { name: "放弃修改并关闭" }));
@@ -944,7 +988,7 @@ describe("PendingBatchActions governed review", () => {
 
     render(<Harness />);
     await openProjectReview();
-    fireEvent.click(screen.getByRole("button", { name: "AI 已确定（2）" }));
+    fireEvent.click(screen.getByRole("button", { name: "可确认（2）" }));
     fireEvent.change(screen.getByLabelText("second.pdf 主题"), {
       target: { value: "人工修改后保留" },
     });
@@ -957,12 +1001,9 @@ describe("PendingBatchActions governed review", () => {
 
     await waitFor(() => expect(deleteItem).toHaveBeenCalledWith("first"));
     expect(screen.queryByText(/first\.pdf/)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /AI 已确定/ })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    expect(screen.getByRole("button", { name: /可确认/ })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByLabelText("second.pdf 主题")).toHaveValue("人工修改后保留");
-    fireEvent.click(screen.getByRole("button", { name: "需人工补齐（1）" }));
+    fireEvent.click(screen.getByRole("button", { name: "需处理（1）" }));
     expect(screen.getByLabelText("second.pdf 主题")).toHaveValue("人工修改后保留");
   });
 

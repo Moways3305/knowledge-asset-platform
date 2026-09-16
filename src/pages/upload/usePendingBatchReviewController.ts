@@ -14,6 +14,8 @@ import {
   initialRows,
   reviewState,
   rowMissing,
+  REVIEW_FILTERS,
+  matchesReviewFilter,
 } from "./pendingBatchReviewState";
 import type {
   CompletedReviewItem,
@@ -200,6 +202,17 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
     if (duplicate.decision === "independent") return true;
     return duplicate.duplicate_state === "same_batch" && duplicate.default_selected;
   };
+  const readyConfirmTasks = selectedConfirmTasks.filter((task) =>
+    targetLibrary === "personal"
+      ? Boolean(personalDirectoryByTask[task.id]) && duplicateReady(task)
+      : Boolean(rows[task.id]) &&
+        !rowMissing(rows[task.id], company) &&
+        previews[task.id]?.submittable &&
+        !previews[task.id]?.error_code &&
+        !previewBusyByTask[task.id] &&
+        !flow.batchErrors[task.id] &&
+        duplicateReady(task),
+  );
   const allPreviewed =
     stage === "review" &&
     selectedConfirmTasks.length > 0 &&
@@ -207,13 +220,7 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
       ? selectedConfirmTasks.every(
           (task) => Boolean(personalDirectoryByTask[task.id]) && duplicateReady(task),
         )
-      : selectedConfirmTasks.every(
-          (task) =>
-            Boolean(rows[task.id]) &&
-            !rowMissing(rows[task.id], company) &&
-            previews[task.id]?.submittable &&
-            duplicateReady(task),
-        ));
+      : readyConfirmTasks.length > 0);
   const targetReady =
     Boolean(targetLibrary) &&
     (targetLibrary !== "project" || Boolean(targetProjectId)) &&
@@ -258,15 +265,16 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
     ],
   );
   const stateCounts = useMemo(
-    () => ({
-      all: selectedConfirmTasks.length,
-      ai_ready: selectedConfirmTasks.filter((task) => statesByTask[task.id] === "ai_ready").length,
-      manual: selectedConfirmTasks.filter((task) => statesByTask[task.id] === "manual").length,
-      reviewed: selectedConfirmTasks.filter((task) => statesByTask[task.id] === "reviewed").length,
-      exception: selectedConfirmTasks.filter((task) => statesByTask[task.id] === "exception")
-        .length,
-    }),
-    [selectedConfirmTasks, statesByTask],
+    () =>
+      Object.fromEntries(
+        REVIEW_FILTERS.map(([filter]) => [
+          filter,
+          selectedConfirmTasks.filter((task) =>
+            matchesReviewFilter(filter, statesByTask[task.id], rows[task.id]),
+          ).length,
+        ]),
+      ) as Record<ReviewFilter, number>,
+    [selectedConfirmTasks, statesByTask, rows],
   );
   const visibleTaskIds =
     reviewFilter === "all"
@@ -274,17 +282,23 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
       : filterSnapshot?.filter === reviewFilter
         ? filterSnapshot.taskIds
         : selectedConfirmTasks
-            .filter((task) => statesByTask[task.id] === reviewFilter)
+            .filter((task) =>
+              matchesReviewFilter(reviewFilter, statesByTask[task.id], rows[task.id]),
+            )
             .map((task) => task.id);
   const visibleConfirmTasks = selectedConfirmTasks.filter((task) =>
     visibleTaskIds.includes(task.id),
   );
   const previewSummary = useMemo(
     () =>
-      `已核对 ${stateCounts.reviewed}/${selectedConfirmTasks.length} 条，仍有 ${missingDates} 条需补充形成日期`,
-    [missingDates, selectedConfirmTasks.length, stateCounts.reviewed],
+      `可确认 ${stateCounts.ai_ready + stateCounts.reviewed}/${selectedConfirmTasks.length} 条；缺密级 ${stateCounts.missing_confidentiality} 条，缺日期 ${missingDates} 条，待选目录 ${stateCounts.missing_directory} 条（原因可重叠）`,
+    [missingDates, selectedConfirmTasks.length, stateCounts],
   );
-  const warningNotices = selectedConfirmTasks.flatMap((task) => previews[task.id]?.notices ?? []);
+  const warningNotices = selectedConfirmTasks.flatMap((task) =>
+    (previews[task.id]?.notices ?? []).filter(
+      (notice) => notice.code !== "historical_naming_noncompliant",
+    ),
+  );
   const warningCodesByTask = Object.fromEntries(
     selectedConfirmTasks.map((task) => [
       task.id,
@@ -322,7 +336,7 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
         )
         .then((response) => {
           if (previewRunsRef.current[taskId] !== runId) return;
-          const preview = response?.items?.[0];
+          const preview = response?.items?.find((item) => item.task_id === taskId);
           if (!preview) throw new Error("empty naming preview response");
           setPreviews((current) => ({ ...current, [taskId]: preview }));
           // Preview subject belongs to the source-based filename, not the editable title.
@@ -349,7 +363,11 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
   };
 
   const updateRow = (taskId: string, patch: Partial<BatchNamingValuesDTO>) => {
-    const nextRow = { ...rows[taskId], ...patch };
+    const nextRow = {
+      ...rows[taskId],
+      ...patch,
+      ...(patch.subject !== undefined ? { subject_is_manual: true } : {}),
+    };
     setRows((current) => ({ ...current, [taskId]: nextRow }));
     // Keep the last canonical name visible as a reference, but revoke its submit
     // authority immediately. A fresh server preview is required for edited values.
@@ -390,7 +408,11 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
   const saveAiReviewDraft = () => {
     const saved = aiReview.saveDraft();
     if (!saved) return;
-    if (targetLibrary !== "personal" && saved.draft.title) {
+    if (
+      targetLibrary !== "personal" &&
+      saved.draft.title &&
+      saved.draft.title !== (aiReview.result?.suggested_title ?? "").trim()
+    ) {
       updateRow(saved.taskId, { subject: saved.draft.title });
     }
   };
@@ -505,7 +527,10 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
         Object.keys(previewRunsRef.current).forEach((taskId) => {
           previewRunsRef.current[taskId] += 1;
         });
-        const nextRows = initialRows(selectedConfirmTasks, value);
+        const nextRows = initialRows(selectedConfirmTasks, {
+          ...value,
+          directories: value.directories.filter((d) => d.scope === destination && d.enabled),
+        });
         if (bulkDirectoryKey) {
           selectedConfirmTasks.forEach((task) => {
             nextRows[task.id].directory_key = bulkDirectoryKey;
@@ -546,7 +571,9 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
       const response = await previewBatchIngestNaming({
         targetScope: targetLibrary,
         targetProjectId: targetProjectId || undefined,
-        items: selectedConfirmTasks.map((task) => ({ taskId: task.id, naming: rows[task.id] })),
+        items: selectedConfirmTasks
+          .filter((task) => rows[task.id] && !rowMissing(rows[task.id], company))
+          .map((task) => ({ taskId: task.id, naming: rows[task.id] })),
       });
       const currentItems = response.items.filter(
         (item) => previewRunsRef.current[item.task_id] === refreshRuns[item.task_id],
@@ -584,7 +611,14 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
     }
     const row = rows[task.id];
     const missing = row ? rowMissing(row, company) : null;
-    if (!row || missing || !previews[task.id]?.submittable) {
+    if (
+      !row ||
+      missing ||
+      !previews[task.id]?.submittable ||
+      !duplicateReady(task) ||
+      loading ||
+      previewBusyByTask[task.id]
+    ) {
       setPreviewFeedback((current) => ({
         ...current,
         [task.id]: missing?.message ?? "请先生成有效的规范名预览",
@@ -656,24 +690,29 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
   const submitBatchReview = () => {
     if (
       !allPreviewed ||
+      loading ||
       flow.batchBusy ||
       (targetLibrary !== "personal" && targetLibrary !== "project" && targetLibrary !== "company")
     ) {
       return;
     }
     const destination = targetLibrary;
+    const submittingTasks = destination === "personal" ? selectedConfirmTasks : readyConfirmTasks;
     const projectId = targetProjectId || undefined;
     const submittedRows =
       destination === "personal"
         ? undefined
-        : Object.fromEntries(selectedConfirmTasks.map((task) => [task.id, rows[task.id]]));
+        : Object.fromEntries(submittingTasks.map((task) => [task.id, rows[task.id]]));
     const onCompleted = (result: {
       succeededIds: string[];
       failedIds: string[];
       resultAssetIds?: Record<string, string>;
       resultIndexStatuses?: Record<string, string>;
     }) => {
-      if (result.failedIds.length === 0) {
+      if (
+        result.failedIds.length === 0 &&
+        result.succeededIds.length === selectedConfirmTasks.length
+      ) {
         closeAndResetReview();
         return;
       }
@@ -696,11 +735,13 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
       ]);
       setReviewTasks((current) => current.filter((task) => !succeeded.has(task.id)));
       setDialogError(
-        `${result.failedIds.length} 项资料确认未完成，已保留本次核对内容，请根据行内提示修正后重试。`,
+        result.failedIds.length
+          ? `${result.failedIds.length} 项资料确认未完成，已保留本次核对内容，请根据行内提示修正后重试。`
+          : null,
       );
     };
     const commonArgs = [
-      selectedConfirmTasks,
+      submittingTasks,
       destination,
       projectId,
       submittedRows,
@@ -879,6 +920,7 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
     aiReview,
     aiReviewDrafts,
     allPreviewed,
+    readyConfirmTasks,
     bulkDirectoryKey,
     bulkPersonalDirectoryKey,
     cancelPendingPreviews,

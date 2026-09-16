@@ -337,6 +337,7 @@ export function useUploadFlow() {
                   ? {
                       directory_key: selectedDirectory || governedNaming.directory_key,
                       subject: governedNaming.subject,
+                      ...(governedNaming.subject_is_manual ? { subject_is_manual: true } : {}),
                       formed_on: governedNaming.formed_on,
                       version: governedNaming.version,
                       applicable_to:

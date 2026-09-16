@@ -20,6 +20,7 @@ export default function PendingBatchActions({
     advanceTarget,
     aiReview,
     allPreviewed,
+    readyConfirmTasks,
     bulkDirectoryKey,
     bulkPersonalDirectoryKey,
     closeAndResetReview,
@@ -151,8 +152,8 @@ export default function PendingBatchActions({
             ? "重新加载规则"
             : stage === "review" || !targetLibrary
               ? warningNotices.length > 0
-                ? `仍然确认已选择的 ${selectedConfirmTasks.length} 项入库`
-                : `确认已选择的 ${selectedConfirmTasks.length} 项入库`
+                ? `仍然确认已选择的 ${stage === "review" ? readyConfirmTasks.length : selectedConfirmTasks.length} 项入库`
+                : `确认已选择的 ${stage === "review" ? readyConfirmTasks.length : selectedConfirmTasks.length} 项入库`
               : targetLibrary === "personal"
                 ? "下一步：核对入库"
                 : "下一步：核对命名"
