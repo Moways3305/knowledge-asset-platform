@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import uuid
 from datetime import datetime
@@ -52,7 +51,14 @@ from app.services import upload_sessions as upload_session_service
 from app.services.desensitization import DesensitizationEngine, get_desensitizer
 from app.services.generation_models import get_generation_llm_client
 from app.services.llm_client import LLMClient, NullLLMClient
-from app.services.storage import MAX_UPLOAD_BYTES, LocalFileStorage, StorageError, get_storage
+from app.services.storage import (
+    MAX_UPLOAD_BYTES,
+    LocalFileStorage,
+    StorageError,
+    UploadTooLarge,
+    get_storage,
+)
+from app.services.upload_transport import UploadPersistence, preflight_transport_item
 from app.services.weknora_client import (
     NullWeKnoraClient,
     WeKnoraClient,
@@ -242,30 +248,43 @@ async def append_upload_transport_batch(
             detail={"denied_reason": "transport_batch_too_large", "message": "上传批次超过 20 MiB"},
         )
     candidates: list[tuple[uuid.UUID, upload_session_service.UploadCandidate]] = []
-    persisted = False
+    # End the read-only preflight transaction before potentially slow disk I/O.
+    # Attachment starts a fresh transaction and rechecks current state under lock.
+    await session.rollback()
+    persistence = UploadPersistence()
+    attaching = False
     try:
         for item_id, file in zip(parsed_item_ids, files, strict=True):
-            content = await asyncio.wait_for(
-                file.read(MAX_UPLOAD_BYTES + 1), timeout=_UPLOAD_READ_TIMEOUT_SECONDS
-            )
-            if len(content) > MAX_UPLOAD_BYTES:
+            try:
+                stored = await storage.save_upload(
+                    file.read,
+                    original_name=file.filename or "file",
+                    max_bytes=MAX_UPLOAD_BYTES,
+                    timeout=_UPLOAD_READ_TIMEOUT_SECONDS,
+                )
+            except UploadTooLarge:
                 raise HTTPException(
                     status_code=413,
                     detail={"denied_reason": "file_too_large", "message": "文件超过 100 MB"},
-                )
-            storage_ref = storage.save(content, original_name=file.filename or "file")
+                ) from None
             candidates.append(
                 (
                     item_id,
                     upload_session_service.UploadCandidate(
                         file_name=file.filename or "file",
-                        file_size=len(content),
+                        file_size=stored.size,
                         file_type=file.content_type,
-                        storage_ref=storage_ref,
-                        content_hash=hashlib.sha256(content).hexdigest(),
+                        storage_ref=stored.ref,
+                        content_hash=stored.sha256,
                     ),
                 )
             )
+            if stored.size == 0:
+                raise HTTPException(
+                    status_code=422,
+                    detail={"denied_reason": "empty_file", "message": "不能上传空文件"},
+                )
+        attaching = True
         await upload_session_service.append_transport_batch(
             session,
             caller,
@@ -273,9 +292,11 @@ async def append_upload_transport_batch(
             batch_id=batch_id,
             batch_index=batch_index,
             candidates=candidates,
+            persistence=persistence,
         )
-        persisted = True
     except asyncio.TimeoutError:
+        if attaching:
+            raise
         await upload_session_service.fail_transport_items(
             session,
             caller,
@@ -289,6 +310,8 @@ async def append_upload_transport_batch(
             detail={"denied_reason": "upload_timeout", "message": "上传读取超时"},
         ) from None
     except StorageError:
+        if attaching:
+            raise
         await upload_session_service.fail_transport_items(
             session,
             caller,
@@ -302,7 +325,8 @@ async def append_upload_transport_batch(
             detail={"denied_reason": "storage_failed", "message": "文件保存失败"},
         ) from None
     finally:
-        if not persisted:
+        if not persistence.commit_started:
+            await session.rollback()
             for _item_id, candidate in candidates:
                 if candidate.storage_ref is not None:
                     try:
@@ -379,9 +403,33 @@ async def replace_upload_transport_item_bytes(
     llm: LLMClient | NullLLMClient = Depends(get_generation_llm_client),
     desensitizer: DesensitizationEngine = Depends(get_desensitizer),
 ) -> UploadSessionResponse:
+    _, item = await preflight_transport_item(
+        session,
+        caller,
+        session_id=session_id,
+        item_id=item_id,
+        file_name=file.filename or "file",
+        file_size=file.size or 0,
+    )
+    if item.ingest_task_id is not None:
+        return await upload_session_service.get_session(
+            session,
+            caller,
+            session_id,
+            storage=storage,
+            llm=llm,
+            desensitizer=desensitizer,
+            trace_id=get_trace_id(request),
+            promote=False,
+        )
+    # Release the preflight connection and expire cached state before copying.
+    await session.rollback()
     try:
-        content = await asyncio.wait_for(
-            file.read(MAX_UPLOAD_BYTES + 1), timeout=_UPLOAD_READ_TIMEOUT_SECONDS
+        stored = await storage.save_upload(
+            file.read,
+            original_name=file.filename or "file",
+            max_bytes=MAX_UPLOAD_BYTES,
+            timeout=_UPLOAD_READ_TIMEOUT_SECONDS,
         )
     except asyncio.TimeoutError:
         await upload_session_service.fail_transport_items(
@@ -396,13 +444,11 @@ async def replace_upload_transport_item_bytes(
             status_code=408,
             detail={"denied_reason": "upload_timeout", "message": "上传读取超时"},
         ) from None
-    if len(content) > MAX_UPLOAD_BYTES:
+    except UploadTooLarge:
         raise HTTPException(
             status_code=413,
             detail={"denied_reason": "file_too_large", "message": "文件超过 100 MB"},
-        )
-    try:
-        storage_ref = storage.save(content, original_name=file.filename or "file")
+        ) from None
     except StorageError:
         await upload_session_service.fail_transport_items(
             session,
@@ -416,27 +462,33 @@ async def replace_upload_transport_item_bytes(
             status_code=503,
             detail={"denied_reason": "storage_failed", "message": "文件保存失败"},
         ) from None
-    persisted = False
+    persistence = UploadPersistence()
     try:
+        if stored.size == 0:
+            raise HTTPException(
+                status_code=422,
+                detail={"denied_reason": "empty_file", "message": "不能上传空文件"},
+            )
         await upload_session_service.replace_transport_item_bytes(
             session,
             caller,
             session_id=session_id,
             item_id=item_id,
+            persistence=persistence,
             candidate=upload_session_service.UploadCandidate(
                 file_name=file.filename or "file",
-                file_size=len(content),
+                file_size=stored.size,
                 file_type=file.content_type,
-                storage_ref=storage_ref,
-                content_hash=hashlib.sha256(content).hexdigest(),
+                storage_ref=stored.ref,
+                content_hash=stored.sha256,
                 suggested_formed_on=_normalize_formed_on(formed_on),
             ),
         )
-        persisted = True
     finally:
-        if not persisted:
+        if not persistence.commit_started:
+            await session.rollback()
             try:
-                storage.delete(storage_ref)
+                storage.delete(stored.ref)
             except OSError:
                 pass
     return await upload_session_service.get_session(
@@ -498,36 +550,11 @@ async def create_upload(
             status_code=422,
             detail={"denied_reason": "macos_metadata", "message": metadata_message},
         )
-    try:
-        content = await asyncio.wait_for(
-            file.read(MAX_UPLOAD_BYTES + 1),
-            timeout=_UPLOAD_READ_TIMEOUT_SECONDS,
-        )
-    except asyncio.TimeoutError:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "denied_reason": "file_read_timeout",
-                "message": upload_session_service.UNREADABLE_FILE_MESSAGE,
-            },
-        ) from None
-    except (OSError, RuntimeError, ValueError):
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "denied_reason": "file_unreadable",
-                "message": upload_session_service.UNREADABLE_FILE_MESSAGE,
-            },
-        ) from None
-    if len(content) > MAX_UPLOAD_BYTES:
-        raise HTTPException(
-            status_code=413,
-            detail={"denied_reason": "file_too_large", "message": "文件超出大小上限"},
-        )
     return await ingest_service.create_upload(
         session,
         caller,
-        content=content,
+        upload_read=file.read,
+        upload_timeout=_UPLOAD_READ_TIMEOUT_SECONDS,
         file_name=file_name,
         file_mime_type=file.content_type,
         target_scope=target_scope,
@@ -666,119 +693,107 @@ async def create_upload_session(
     for entry in files or []:
         name = entry.filename or "file"
         file_name_counts[name] = file_name_counts.get(name, 0) + 1
-    for file_ordinal, file in enumerate(files or []):
-        file_name = file.filename or "file"
-        metadata_message = upload_session_service.macos_metadata_error(file_name)
-        if metadata_message is not None:
-            candidates.append(
-                upload_session_service.UploadCandidate(
-                    file_name=file_name,
-                    file_size=max(0, file.size or 0),
-                    file_type=file.content_type,
-                    error_code="macos_metadata",
-                    error_message=metadata_message,
+    try:
+        for file_ordinal, file in enumerate(files or []):
+            file_name = file.filename or "file"
+            metadata_message = upload_session_service.macos_metadata_error(file_name)
+            if metadata_message is not None:
+                candidates.append(
+                    upload_session_service.UploadCandidate(
+                        file_name=file_name,
+                        file_size=max(0, file.size or 0),
+                        file_type=file.content_type,
+                        error_code="macos_metadata",
+                        error_message=metadata_message,
+                    )
                 )
-            )
-            continue
-        extension = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
-        if extension not in _LOCAL_UPLOAD_EXTENSIONS:
-            candidates.append(
-                upload_session_service.UploadCandidate(
-                    file_name=file_name,
-                    file_size=max(0, file.size or 0),
-                    file_type=file.content_type,
-                    error_code="unsupported_file_type",
-                    error_message="该文件类型暂不支持上传",
+                continue
+            extension = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
+            if extension not in _LOCAL_UPLOAD_EXTENSIONS:
+                candidates.append(
+                    upload_session_service.UploadCandidate(
+                        file_name=file_name,
+                        file_size=max(0, file.size or 0),
+                        file_type=file.content_type,
+                        error_code="unsupported_file_type",
+                        error_message="该文件类型暂不支持上传",
+                    )
                 )
-            )
-            continue
-        if file.size is not None and file.size > MAX_UPLOAD_BYTES:
-            candidates.append(
-                upload_session_service.UploadCandidate(
-                    file_name=file_name,
-                    file_size=file.size,
-                    file_type=file.content_type,
-                    error_code="file_too_large",
-                    error_message="文件超过 100 MB 大小上限",
+                continue
+            if file.size is not None and file.size > MAX_UPLOAD_BYTES:
+                candidates.append(
+                    upload_session_service.UploadCandidate(
+                        file_name=file_name,
+                        file_size=file.size,
+                        file_type=file.content_type,
+                        error_code="file_too_large",
+                        error_message="文件超过 100 MB 大小上限",
+                    )
                 )
-            )
-            continue
-        try:
-            content = await asyncio.wait_for(
-                file.read(MAX_UPLOAD_BYTES + 1),
-                timeout=_UPLOAD_READ_TIMEOUT_SECONDS,
-            )
-        except asyncio.TimeoutError:
-            candidates.append(
-                upload_session_service.UploadCandidate(
-                    file_name=file_name,
-                    file_size=max(0, file.size or 0),
-                    file_type=file.content_type,
-                    error_code="file_read_timeout",
-                    error_message=upload_session_service.UNREADABLE_FILE_MESSAGE,
-                )
-            )
-            continue
-        except (OSError, RuntimeError, ValueError):
-            candidates.append(
-                upload_session_service.UploadCandidate(
-                    file_name=file_name,
-                    file_size=max(0, file.size or 0),
-                    file_type=file.content_type,
-                    error_code="file_unreadable",
-                    error_message=upload_session_service.UNREADABLE_FILE_MESSAGE,
-                )
-            )
-            continue
-        if len(content) > MAX_UPLOAD_BYTES:
-            candidates.append(
-                upload_session_service.UploadCandidate(
-                    file_name=file_name,
-                    file_size=len(content),
-                    file_type=file.content_type,
-                    error_code="file_too_large",
-                    error_message="文件超过 100 MB 大小上限",
-                )
-            )
-        elif not content:
-            candidates.append(
-                upload_session_service.UploadCandidate(
-                    file_name=file_name,
-                    file_size=0,
-                    file_type=file.content_type,
-                    error_code="empty_file",
-                    error_message="文件为空，请检查后重试",
-                )
-            )
-        else:
+                continue
             try:
-                storage_ref = storage.save(content, original_name=file_name)
+                stored = await storage.save_upload(
+                    file.read,
+                    original_name=file_name,
+                    max_bytes=MAX_UPLOAD_BYTES,
+                    timeout=_UPLOAD_READ_TIMEOUT_SECONDS,
+                )
+            except (asyncio.TimeoutError, OSError, RuntimeError, ValueError, StorageError) as exc:
+                code = (
+                    "file_too_large"
+                    if isinstance(exc, UploadTooLarge)
+                    else "storage_failed"
+                    if isinstance(exc, StorageError)
+                    else "file_read_timeout"
+                    if isinstance(exc, asyncio.TimeoutError)
+                    else "file_unreadable"
+                )
                 candidates.append(
                     upload_session_service.UploadCandidate(
                         file_name=file_name,
-                        file_size=len(content),
+                        file_size=max(0, file.size or 0),
                         file_type=file.content_type,
-                        storage_ref=storage_ref,
-                        content_hash=hashlib.sha256(content).hexdigest(),
-                        suggested_formed_on=(
-                            client_formed_dates[file_ordinal]
-                            if client_formed_dates is not None
-                            else _formed_on_for(client_formed_map, file_name)
-                            if file_name_counts.get(file.filename or "file") == 1
-                            else None
-                        ),
+                        error_code=code,
+                        error_message={
+                            "file_too_large": "文件超过 100 MB 大小上限",
+                            "storage_failed": "文件暂时无法安全保存，请重试",
+                        }.get(code, upload_session_service.UNREADABLE_FILE_MESSAGE),
                     )
                 )
-            except StorageError:
+                continue
+            if not stored.size:
+                storage.delete(stored.ref)
                 candidates.append(
                     upload_session_service.UploadCandidate(
                         file_name=file_name,
-                        file_size=len(content),
+                        file_size=0,
                         file_type=file.content_type,
-                        error_code="storage_failed",
-                        error_message="文件暂时无法安全保存，请重试",
+                        error_code="empty_file",
+                        error_message="文件为空，请检查后重试",
                     )
                 )
+                continue
+            candidates.append(
+                upload_session_service.UploadCandidate(
+                    file_name=file_name,
+                    file_size=stored.size,
+                    file_type=file.content_type,
+                    storage_ref=stored.ref,
+                    content_hash=stored.sha256,
+                    suggested_formed_on=(
+                        client_formed_dates[file_ordinal]
+                        if client_formed_dates is not None
+                        else _formed_on_for(client_formed_map, file_name)
+                        if file_name_counts.get(file.filename or "file") == 1
+                        else None
+                    ),
+                )
+            )
+    except BaseException:
+        for candidate in candidates:
+            if candidate.storage_ref:
+                storage.delete(candidate.storage_ref)
+        raise
     return await upload_session_service.create_session(
         session,
         caller,

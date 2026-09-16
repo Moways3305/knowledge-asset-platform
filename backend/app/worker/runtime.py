@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.core.config import get_settings
 from app.core.logging import bind_trace_id
+from app.services.http_pool import outbound_http_pool
 
 _T = TypeVar("_T")
 
@@ -54,7 +55,8 @@ def run_task(
         )
         maker = async_sessionmaker(bind=engine, expire_on_commit=False)
         try:
-            return await coro_fn(maker)
+            async with outbound_http_pool():
+                return await coro_fn(maker)
         finally:
             # 释放本次循环上的连接池，避免悬挂到下一个 asyncio.run 的新循环。
             await engine.dispose()

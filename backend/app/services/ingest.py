@@ -6,9 +6,11 @@ create_upload → 确定性 AI 建议占位 → get_ai_result（按权限裁剪�
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -166,7 +168,9 @@ async def create_upload(
     session: AsyncSession,
     caller: CallerContext,
     *,
-    content: bytes,
+    content: bytes = b"",
+    upload_read: Callable[[int], Awaitable[bytes]] | None = None,
+    upload_timeout: float = 120,
     file_name: str,
     file_mime_type: str | None,
     target_scope: str | None,
@@ -200,53 +204,72 @@ async def create_upload(
         )
         raise _denied(403, "admin_business_permission_denied", "仅业务用户可发起入库")
 
-    if not content:
+    if not content and upload_read is None:
         raise _denied(422, "empty_file", "上传文件为空")
 
     # 保留**原始文件名**作来源追溯与命名规范化输入（顾问文件名常含中文 / 【】，
     # 不应被清洗破坏）。它只是展示标签 / 命名信号，**绝不**用于拼接存储路径——
     # 真实存储 key 由 storage.save 内部 safe_filename + 随机段独立生成（防穿越）。
     try:
-        storage_ref = storage.save(content, original_name=file_name)
+        if upload_read is not None:
+            stored = await storage.save_upload(
+                upload_read, original_name=file_name, timeout=upload_timeout
+            )
+            storage_ref, content_size, content_hash = stored.ref, stored.size, stored.sha256
+            if not content_size:
+                storage.delete(storage_ref)
+                raise _denied(422, "empty_file", "上传文件为空")
+        else:
+            storage_ref = storage.save(content, original_name=file_name)
+            content_size = len(content)
+            content_hash = hashlib.sha256(content).hexdigest()
     except StorageError as exc:
         if str(exc) == "file_too_large":
             raise _denied(413, "file_too_large", "文件超出大小上限") from exc
         raise _denied(422, "invalid_file", "文件无法存储") from exc
+    except asyncio.TimeoutError:
+        raise _denied(422, "file_read_timeout", "文件读取超时，请重新选择文件后重试") from None
+    except (OSError, RuntimeError, ValueError):
+        raise _denied(422, "file_unreadable", "文件无法读取，请重新选择文件后重试") from None
 
     # 内容哈希（去重软提示，存任务上，作业按它做 dup 检测）。
-    content_hash = hashlib.sha256(content).hexdigest()
 
     # 请求路径只持久化字节 + 建任务（status=processing），重活（抽取 / 内容处理 /
     # 写 ai_result / 推进状态 / ai_extracted·failed 审计）迁到异步作业。
-    task = IngestTask(
-        source=IngestSource.path_b_upload.value,
-        # server-only 内部存储引用，不外泄前端。
-        source_file_ref=storage_ref,
-        source_file_name=file_name,
-        source_file_mime_type=file_mime_type,
-        source_file_size=len(content),
-        source_file_hash=content_hash,
-        suggested_formed_on=formed_on,
-        status=IngestStatus.processing.value,
-        processing_stage="upload_saved",
-        target_scope=target_scope,
-        target_project_id=target_project_id,
-        created_by=caller.user_id,
-    )
-    session.add(task)
-    await session.flush()  # 取得 task.id 供审计 target_id
+    try:
+        task = IngestTask(
+            source=IngestSource.path_b_upload.value,
+            # server-only 内部存储引用，不外泄前端。
+            source_file_ref=storage_ref,
+            source_file_name=file_name,
+            source_file_mime_type=file_mime_type,
+            source_file_size=content_size,
+            source_file_hash=content_hash,
+            suggested_formed_on=formed_on,
+            status=IngestStatus.processing.value,
+            processing_stage="upload_saved",
+            target_scope=target_scope,
+            target_project_id=target_project_id,
+            created_by=caller.user_id,
+        )
+        session.add(task)
+        await session.flush()  # 取得 task.id 供审计 target_id
 
-    await audit_service.record_event(
-        session,
-        caller=caller,
-        log_type=AuditLogType.operation,
-        action=AuditAction.ingest_task_created.value,
-        trace_id=trace_id,
-        target_type="ingest_task",
-        target_id=task.id,
-        after={"status": task.status, "source": task.source, "target_scope": task.target_scope},
-        project_id=target_project_id,
-    )
+        await audit_service.record_event(
+            session,
+            caller=caller,
+            log_type=AuditLogType.operation,
+            action=AuditAction.ingest_task_created.value,
+            trace_id=trace_id,
+            target_type="ingest_task",
+            target_id=task.id,
+            after={"status": task.status, "source": task.source, "target_scope": task.target_scope},
+            project_id=target_project_id,
+        )
+    except BaseException:
+        await session.rollback()
+        storage.delete(storage_ref)
+        raise
     await session.commit()
 
     # 入队异步处理：eager（默认/本地/测试）内联同步执行并返回最终 status；非 eager 排队

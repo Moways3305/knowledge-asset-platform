@@ -20,6 +20,7 @@ from app.services.jobs.ingest_cancellation import (
     mark_stopped_task_cancelled,
 )
 from app.services.storage import LocalFileStorage, StorageError
+from app.worker.queues import ingest_processing_queue
 
 ACTIVE_STAGES = {
     "processing_claimed",
@@ -57,29 +58,14 @@ def _has_source_bytes(storage: LocalFileStorage, task: IngestTask) -> bool:
         return False
 
 
-def _is_heavy(task: IngestTask) -> bool:
-    mime = (task.source_file_mime_type or "").lower()
-    name = task.source_file_name.lower()
-    return (
-        mime == "application/pdf"
-        or mime
-        in {"application/msword", "application/vnd.ms-powerpoint", "application/vnd.ms-excel"}
-        or mime.startswith("image/")
-        or name.endswith(
-            (".xls", ".doc", ".ppt", ".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp")
-        )
-    )
-
-
 def _recovery_queue(task: IngestTask) -> str:
     settings = get_settings()
-    if task.processing_stage in {
-        "canonical_markdown_generation",
-        "content_generation_queued",
-        "content_generation",
-    }:
-        return settings.celery_default_queue
-    return settings.celery_ocr_queue if _is_heavy(task) else settings.celery_default_queue
+    return ingest_processing_queue(
+        settings,
+        file_name=task.source_file_name,
+        mime_type=task.source_file_mime_type,
+        processing_stage=task.processing_stage,
+    )
 
 
 async def recover_stale_tasks(

@@ -14,10 +14,13 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import os
 import re
 import stat
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -34,6 +37,35 @@ _SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9._-]")
 
 class StorageError(Exception):
     """存储层错误（路径非法 / 引用不合法等）。"""
+
+
+class UploadTooLarge(StorageError):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class StoredUpload:
+    ref: str
+    size: int
+    sha256: str
+
+
+async def _disk_call(function, *args):
+    # A cancelled await must not leave a disk writer racing with file cleanup.
+    task = asyncio.create_task(asyncio.to_thread(function, *args))
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError as cancelled:
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                continue
+            except Exception:
+                break
+        if not task.cancelled():
+            task.exception()  # Retrieve a simultaneous disk failure; cancellation wins.
+        raise cancelled
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,6 +138,56 @@ class LocalFileStorage:
         if not _contains(self._root, path):
             raise StorageError("invalid_storage_path")
         return path
+
+    async def save_upload(
+        self,
+        read: Callable[[int], Awaitable[bytes]],
+        *,
+        original_name: str | None,
+        max_bytes: int = MAX_UPLOAD_BYTES,
+        timeout: float = 120,
+    ) -> StoredUpload:
+        """Copy a spooled upload in 1 MiB chunks; never buffer the complete file.
+
+        Disk writes run outside the event loop. One total read deadline prevents
+        a slow source from resetting the timeout after each chunk. The caller owns
+        the completed ref; partial files are removed on errors or cancellation.
+        """
+        ref = f"{_REF_PREFIX}{uuid.uuid4().hex}/{safe_filename(original_name)}"
+        path = self.resolve_path(ref)
+        digest = hashlib.sha256()
+        size = 0
+        deadline = asyncio.get_running_loop().time() + timeout
+
+        def write(chunk: bytes, first: bool) -> None:
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with path.open("xb" if first else "ab") as destination:
+                    destination.write(chunk)
+            except OSError as exc:
+                raise StorageError("storage_failed") from exc
+
+        first = True
+        try:
+            while True:
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    raise asyncio.TimeoutError
+                chunk = await asyncio.wait_for(
+                    read(min(1024 * 1024, max_bytes - size + 1)), remaining
+                )
+                size += len(chunk)
+                if size > max_bytes:
+                    raise UploadTooLarge("file_too_large")
+                if chunk or first:
+                    await _disk_call(write, chunk, first)
+                    first = False
+                    digest.update(chunk)
+                if not chunk:
+                    return StoredUpload(ref, size, digest.hexdigest())
+        except BaseException:
+            await _disk_call(self.delete, ref)
+            raise
 
     def exists(self, ref: str) -> bool:
         return self.inspect(ref).available

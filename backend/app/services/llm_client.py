@@ -21,6 +21,7 @@ import httpx
 
 from app.core.config import get_settings
 from app.core.logging import safe_log_exception
+from app.services.http_pool import pooled_http_client
 
 _logger = logging.getLogger(__name__)
 
@@ -235,7 +236,7 @@ class LLMClient:
                 raise LLMError("llm_request_error", "LLM 输出上限必须为正数")
             payload["max_tokens"] = max_tokens
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
+            async with pooled_http_client(timeout=self._timeout) as client:
                 resp = await client.post(
                     self._endpoint(), json=payload, headers=self._headers(trace_id)
                 )

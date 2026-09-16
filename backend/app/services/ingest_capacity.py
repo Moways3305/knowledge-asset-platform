@@ -10,6 +10,7 @@ from sqlalchemy import text
 
 from app.core.config import get_settings
 from app.models.ingest import IngestTask
+from app.worker.queues import ingest_processing_queue
 
 _GENERAL_LOCK = 1262571600
 _HEAVY_LOCK = 1262571700
@@ -39,15 +40,14 @@ async def processing_slot(maker, task_id):
                 yield True  # Let the existing cancellation/terminal handler acknowledge it.
                 return
             admitted = await _take_slot(gate, _GENERAL_LOCK, settings.ingest_processing_window)
-            content_only = task.processing_stage in {
-                "canonical_markdown_generation",
-                "content_generation_queued",
-                "content_generation",
-                "waiting_generation_config",
-                "content_generation_failed",
-            }
-            heavy = not content_only and not task.source_file_name.lower().endswith(
-                (".txt", ".md", ".markdown")
+            heavy = (
+                ingest_processing_queue(
+                    settings,
+                    file_name=task.source_file_name,
+                    mime_type=task.source_file_mime_type,
+                    processing_stage=task.processing_stage,
+                )
+                == settings.celery_ocr_queue
             )
             if admitted and heavy:
                 admitted = await _take_slot(

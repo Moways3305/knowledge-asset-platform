@@ -114,9 +114,21 @@ def test_missing_converter_is_not_file_corruption(monkeypatch):
         ("doc", "application/msword"),
         ("ppt", "application/vnd.ms-powerpoint"),
         ("xls", "application/vnd.ms-excel"),
+        (
+            "docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ),
+        (
+            "pptx",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ),
+        (
+            "xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ),
     ],
 )
-def test_legacy_recovery_uses_heavy_queue(extension, mime):
+def test_office_recovery_uses_heavy_queue(extension, mime):
     from app.core.config import get_settings
     from app.models.ingest import IngestTask
     from app.services.jobs.ingest_recovery import _recovery_queue
@@ -127,8 +139,29 @@ def test_legacy_recovery_uses_heavy_queue(extension, mime):
     assert _recovery_queue(task) == get_settings().celery_default_queue
 
 
-@pytest.mark.parametrize("extension", ["doc", "ppt", "xls"])
-async def test_legacy_first_dispatch_uses_heavy_queue(client, db_session, monkeypatch, extension):
+@pytest.mark.parametrize(
+    "extension,mime",
+    [
+        ("doc", "application/msword"),
+        ("ppt", "application/vnd.ms-powerpoint"),
+        ("xls", "application/vnd.ms-excel"),
+        (
+            "docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ),
+        (
+            "pptx",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ),
+        (
+            "xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ),
+    ],
+)
+async def test_office_first_dispatch_uses_heavy_queue(
+    client, db_session, monkeypatch, extension, mime
+):
     from app.core.config import get_settings
     from app.models.ingest import IngestTask
     from app.seed.dev_seed import USER_CONSULTANT
@@ -143,6 +176,7 @@ async def test_legacy_first_dispatch_uses_heavy_queue(client, db_session, monkey
         source="path_b_upload",
         source_file_ref="test-only",
         source_file_name=f"sample.{extension}",
+        source_file_mime_type=mime,
         status="processing",
         created_by=USER_CONSULTANT,
     )
@@ -157,6 +191,8 @@ async def test_legacy_first_dispatch_uses_heavy_queue(client, db_session, monkey
         trace_id=None,
     )
     assert calls[0]["queue"] == settings.celery_ocr_queue
+    await db_session.refresh(task)
+    assert task.processing_stage == "text_extraction"
 
 
 @pytest.mark.parametrize("extension", ["doc", "ppt", "xls"])
