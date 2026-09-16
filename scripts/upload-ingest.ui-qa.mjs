@@ -974,7 +974,12 @@ try {
                   ? row.scrollWidth <= row.clientWidth + 2
                   : batchRowAligned(row),
               ) &&
-              document.querySelectorAll(".upload77-batch-filter").length === 5 &&
+              document.querySelectorAll(".upload77-batch-filter").length === 8 &&
+              ["缺密级", "缺日期", "待选目录"].every((label) =>
+                [...document.querySelectorAll(".upload77-batch-filter")].some((button) =>
+                  button.textContent?.includes(label),
+                ),
+              ) &&
               document.querySelectorAll(".upload77-batch-delete").length === 2 &&
               Boolean(namingWorkspace && namingScroll) &&
               namingWorkspace.scrollWidth <= namingWorkspace.clientWidth + 2 &&
