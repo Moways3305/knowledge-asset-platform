@@ -66,6 +66,12 @@ def test_non_retryable(exc):
 
 
 def test_backoff_is_exponential():
-    assert backoff_countdown(0) == 60
-    assert backoff_countdown(1) == 120
-    assert backoff_countdown(2) == 240
+    for retries, low, high in [
+        (0, 30, 60),
+        (1, 60, 120),
+        (2, 120, 240),
+        (1000, 1800, 3600),
+        (-1, 30, 60),
+    ]:
+        for _ in range(20):
+            assert low <= backoff_countdown(retries) <= high

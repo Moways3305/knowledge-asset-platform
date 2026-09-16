@@ -10,6 +10,8 @@ HTTP 429 / 临时 DB 连接失败（SQLAlchemy OperationalError·InterfaceError�
 
 from __future__ import annotations
 
+import random
+
 import httpx
 from sqlalchemy.exc import InterfaceError, OperationalError
 
@@ -54,5 +56,10 @@ def is_retryable(exc: BaseException) -> bool:
 
 
 def backoff_countdown(retries: int) -> int:
-    """指数退避：第 0 / 1 / 2 次重试 → 60 / 120 / 240 秒。"""
-    return int(2**retries * 60)  # int() 收敛 pow 的 Any 标注；retries>=0 时为无操作
+    """Bounded equal jitter: stagger outages without allowing immediate retry storms.
+
+    First retries wait 30–60 / 60–120 / 120–240 seconds, capped at one hour.
+    This is scheduling jitter, not a security-sensitive random value.
+    """
+    ceiling = min(3600, 60 * 2 ** min(max(retries, 0), 6))
+    return random.randint(ceiling // 2, ceiling)

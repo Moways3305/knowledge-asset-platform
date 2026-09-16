@@ -392,6 +392,10 @@ describe("PendingBatchActions governed review", () => {
     expect(screen.getByLabelText("bulk-two.pdf 正式目录")).toHaveValue("project.key_materials");
     expect(screen.getByLabelText("bulk-one.pdf 密级")).toHaveValue("L3");
     expect(screen.getByLabelText("bulk-two.pdf 密级")).toHaveValue("L3");
+    await waitFor(() => expect(namingApi.previewBatchIngestNaming).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      await Promise.resolve();
+    });
   });
 
   it("loads AI extraction only on demand and retains the reviewed draft for final confirmation", async () => {
@@ -709,18 +713,51 @@ describe("PendingBatchActions governed review", () => {
     expect(screen.getByLabelText("empty-preview.pdf 主题")).toHaveValue("empty-preview");
   });
 
+  it("previews a large batch in chunks of 25 with at most four requests in flight", async () => {
+    const tasks = Array.from({ length: 128 }, (_, index) => task(`budget-${index}`));
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const implementation = namingApi.previewBatchIngestNaming.getMockImplementation()!;
+    let active = 0;
+    let peak = 0;
+    namingApi.previewBatchIngestNaming.mockImplementation(async (input) => {
+      active += 1;
+      peak = Math.max(peak, active);
+      expect(input.items.length).toBeLessThanOrEqual(25);
+      await gate;
+      active -= 1;
+      return implementation(input);
+    });
+    render(<PendingBatchActions tasks={tasks} flow={flowFixture(tasks)} />);
+    await openProjectReview(false);
+    await waitFor(() => expect(namingApi.previewBatchIngestNaming).toHaveBeenCalledTimes(4));
+    await act(async () => {
+      release();
+      await gate;
+    });
+    await screen.findByRole("button", { name: "可确认（128）" });
+    expect(peak).toBe(4);
+    expect(namingApi.previewBatchIngestNaming).toHaveBeenCalledTimes(6);
+  });
+
   it("cancels a pending delayed preview when the review dialog closes", async () => {
     const item = task("close-preview");
     namingApi.previewBatchIngestNaming.mockResolvedValue({ items: [] });
 
     render(<PendingBatchActions tasks={[item]} flow={flowFixture([item])} />);
     await openProjectReview(false);
+    fireEvent.change(screen.getByLabelText("close-preview.pdf 主题"), {
+      target: { value: "人工修改" },
+    });
+    const requestsBeforeClose = namingApi.previewBatchIngestNaming.mock.calls.length;
     fireEvent.click(within(topDialog()).getByRole("button", { name: "关闭批量命名核对" }));
     expect(topDialog()).toHaveTextContent("放弃本次批量命名核对");
     fireEvent.click(within(topDialog()).getByRole("button", { name: "放弃修改并关闭" }));
     await new Promise((resolve) => window.setTimeout(resolve, 300));
 
-    expect(namingApi.previewBatchIngestNaming).not.toHaveBeenCalled();
+    expect(namingApi.previewBatchIngestNaming).toHaveBeenCalledTimes(requestsBeforeClose);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "批量确认入库（1）" }));

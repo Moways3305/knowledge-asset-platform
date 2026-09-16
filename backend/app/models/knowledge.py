@@ -193,6 +193,11 @@ class KnowledgeAssetVersion(Base):
     index_last_reconcile_failed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Server-only cross-worker lease and fencing token; never serialized to clients.
+    parse_reconcile_token: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    parse_reconcile_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # Published naming facts captured at confirmation time. Historical versions
     # remain stable when later naming policies are published.
     naming_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)

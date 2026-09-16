@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PendingIngestItemDTO, UploadDuplicateDTO } from "../../types/ingest";
 import type { BatchNamingValuesDTO } from "../../types/naming";
 import {
@@ -29,6 +29,7 @@ import { usePendingBatchAiReview } from "./usePendingBatchAiReview";
 import { usePendingBatchTargetOptions } from "./usePendingBatchTargetOptions";
 import type { TargetLibrary } from "./uploadConstants";
 import type { UploadFlow } from "./useUploadFlow";
+import { createPreviewQueue } from "./previewQueue";
 
 const EMPTY_DUPLICATE: UploadDuplicateDTO = {
   duplicate_state: "none",
@@ -95,8 +96,12 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
   >([]);
   const previewRunsRef = useRef<Record<string, number>>({});
   const previewTimersRef = useRef<Record<string, number>>({});
+  const [previewQueue] = useState(() => createPreviewQueue());
+  const reviewEpoch = useRef(0);
 
-  const cancelPendingPreviews = () => {
+  const cancelPendingPreviews = useCallback(() => {
+    reviewEpoch.current += 1;
+    previewQueue.clear();
     Object.values(previewTimersRef.current).forEach((timer) => window.clearTimeout(timer));
     Object.keys(previewTimersRef.current).forEach((taskId) => {
       delete previewTimersRef.current[taskId];
@@ -104,13 +109,13 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
     Object.keys(previewRunsRef.current).forEach((taskId) => {
       previewRunsRef.current[taskId] += 1;
     });
-  };
+  }, [previewQueue]);
 
   useEffect(() => {
     if (!confirmOpen) {
       cancelPendingPreviews();
     }
-  }, [confirmOpen]);
+  }, [confirmOpen, cancelPendingPreviews]);
 
   useEffect(() => {
     if (!confirmOpen) return;
@@ -161,6 +166,8 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
     const timers = previewTimersRef.current;
     const runs = previewRunsRef.current;
     return () => {
+      reviewEpoch.current += 1;
+      previewQueue.clear();
       Object.values(timers).forEach((timer) => window.clearTimeout(timer));
       Object.keys(timers).forEach((taskId) => {
         delete timers[taskId];
@@ -169,7 +176,7 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
         runs[taskId] += 1;
       });
     };
-  }, []);
+  }, [previewQueue]);
 
   const liveSelectedConfirmTasks = tasks.filter(
     (task) => flow.batchSelection.includes(task.id) && task.can_batch_confirm,
@@ -286,9 +293,8 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
               matchesReviewFilter(reviewFilter, statesByTask[task.id], rows[task.id]),
             )
             .map((task) => task.id);
-  const visibleConfirmTasks = selectedConfirmTasks.filter((task) =>
-    visibleTaskIds.includes(task.id),
-  );
+  const visibleTaskIdSet = new Set(visibleTaskIds);
+  const visibleConfirmTasks = selectedConfirmTasks.filter((task) => visibleTaskIdSet.has(task.id));
   const previewSummary = useMemo(
     () =>
       `可确认 ${stateCounts.ai_ready + stateCounts.reviewed}/${selectedConfirmTasks.length} 条；缺密级 ${stateCounts.missing_confidentiality} 条，缺日期 ${missingDates} 条，待选目录 ${stateCounts.missing_directory} 条（原因可重叠）`,
@@ -326,14 +332,15 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
     });
     previewTimersRef.current[taskId] = window.setTimeout(() => {
       delete previewTimersRef.current[taskId];
-      void Promise.resolve()
-        .then(() =>
-          previewBatchIngestNaming({
+      void previewQueue
+        .run(() => {
+          if (previewRunsRef.current[taskId] !== runId) return Promise.resolve(undefined);
+          return previewBatchIngestNaming({
             targetScope: targetLibrary,
             targetProjectId: targetProjectId || undefined,
             items: [{ taskId, naming: row }],
-          }),
-        )
+          });
+        })
         .then((response) => {
           if (previewRunsRef.current[taskId] !== runId) return;
           const preview = response?.items?.find((item) => item.task_id === taskId);
@@ -383,6 +390,91 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
       return next;
     });
     scheduleRowPreview(taskId, nextRow);
+  };
+
+  const previewRowsInChunks = async (values: ReviewRows, markReviewed = false) => {
+    if (targetLibrary !== "company" && targetLibrary !== "project") return;
+    const runs: Record<string, number> = {};
+    const entries = Object.entries(values).filter(([, row]) => !rowMissing(row, company));
+    entries.forEach(([id]) => {
+      window.clearTimeout(previewTimersRef.current[id]);
+      delete previewTimersRef.current[id];
+      runs[id] = previewRunsRef.current[id] = (previewRunsRef.current[id] ?? 0) + 1;
+    });
+    setPreviewBusyByTask((current) => ({
+      ...current,
+      ...Object.fromEntries(entries.map(([id]) => [id, true])),
+    }));
+    const chunks = [];
+    for (let offset = 0; offset < entries.length; offset += 25) {
+      const chunk = entries.slice(offset, offset + 25);
+      chunks.push(
+        previewQueue.run(async () => {
+          const items = chunk.filter(([id]) => runs[id] === previewRunsRef.current[id]);
+          if (!items.length) return;
+          try {
+            const response = await previewBatchIngestNaming({
+              targetScope: targetLibrary,
+              targetProjectId: targetProjectId || undefined,
+              items: items.map(([taskId, naming]) => ({ taskId, naming })),
+            });
+            if (
+              !response?.items ||
+              items.some(([id]) => !response.items.some((item) => item.task_id === id))
+            )
+              throw new Error("empty naming preview response");
+            const fresh = response.items.filter(
+              (item) => runs[item.task_id] === previewRunsRef.current[item.task_id],
+            );
+            if (!fresh.length) return;
+            setPreviews((current) => ({
+              ...current,
+              ...Object.fromEntries(fresh.map((item) => [item.task_id, item])),
+            }));
+            setPreviewFeedback((current) => {
+              const next = { ...current };
+              fresh.forEach((item) => {
+                delete next[item.task_id];
+              });
+              return next;
+            });
+            if (markReviewed)
+              setReviewedTaskIds(
+                (current) =>
+                  new Set([
+                    ...current,
+                    ...fresh.filter((item) => item.submittable).map((item) => item.task_id),
+                  ]),
+              );
+          } catch (error) {
+            if (!items.some(([id]) => runs[id] === previewRunsRef.current[id])) return;
+            const message = commandErrorMessage(
+              error,
+              "规范名预览暂时失败，请重试；已保留上一次有效预览",
+            );
+            setPreviewFeedback((current) => ({
+              ...current,
+              ...Object.fromEntries(
+                items
+                  .filter(([id]) => runs[id] === previewRunsRef.current[id])
+                  .map(([id]) => [id, message]),
+              ),
+            }));
+          } finally {
+            if (items.some(([id]) => runs[id] === previewRunsRef.current[id]))
+              setPreviewBusyByTask((current) => ({
+                ...current,
+                ...Object.fromEntries(
+                  items
+                    .filter(([id]) => runs[id] === previewRunsRef.current[id])
+                    .map(([id]) => [id, false]),
+                ),
+              }));
+          }
+        }),
+      );
+    }
+    await Promise.all(chunks);
   };
 
   const resetTargetReviewContext = () => {
@@ -455,6 +547,7 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
 
   const advanceTarget = async () => {
     if (!targetReady) return;
+    const epoch = reviewEpoch.current;
     if (targetLibrary === "personal") {
       if (selectedConfirmTasks.some((task) => !hasReliableAiConfidentiality(task))) {
         setDialogError("部分资料的密级尚未确定，请打开单文件确认页选择密级后入库。");
@@ -472,27 +565,31 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
       setLoading(true);
       try {
         const values = await Promise.all(
-          selectedConfirmTasks.map(
-            async (task) =>
-              [
-                task.id,
-                (
-                  await previewIngestNaming(task.id, {
-                    target_scope: "personal",
-                    confidentiality_level: task.suggested_confidentiality_level!,
-                  })
-                ).duplicate ??
-                  task.duplicate ??
-                  EMPTY_DUPLICATE,
-              ] as const,
+          selectedConfirmTasks.map((task) =>
+            previewQueue.run(
+              async () =>
+                [
+                  task.id,
+                  (
+                    await previewIngestNaming(task.id, {
+                      target_scope: "personal",
+                      confidentiality_level: task.suggested_confidentiality_level!,
+                    })
+                  ).duplicate ??
+                    task.duplicate ??
+                    EMPTY_DUPLICATE,
+                ] as const,
+            ),
           ),
         );
-        setPersonalDuplicates(Object.fromEntries(values));
+        if (reviewEpoch.current !== epoch) return;
+        setPersonalDuplicates(Object.fromEntries(values.filter((value) => value !== undefined)));
       } catch (error) {
+        if (reviewEpoch.current !== epoch) return;
         setDialogError(commandErrorMessage(error, "重复状态暂时无法核对，请重试"));
         return;
       } finally {
-        setLoading(false);
+        if (reviewEpoch.current === epoch) setLoading(false);
       }
       setReviewTargetKey(targetKey);
       setStage("review");
@@ -504,6 +601,7 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
     setDialogError(null);
     try {
       const value = options ?? (await targetOptions.get(destination, targetProjectId || undefined));
+      if (reviewEpoch.current !== epoch) return;
       if (!value.required) {
         const projectId = targetProjectId || undefined;
         closeAndResetReview();
@@ -542,7 +640,7 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
         setReviewedTaskIds(new Set());
         setPreviewFeedback({});
         setReviewTargetKey(targetKey);
-        selectedConfirmTasks.forEach((task) => scheduleRowPreview(task.id, nextRows[task.id]));
+        void previewRowsInChunks(nextRows);
       }
       setStage("review");
     } catch (error) {
@@ -560,42 +658,20 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
     if (targetLibrary !== "project" && targetLibrary !== "company") return;
     setLoading(true);
     setDialogError(null);
-    const refreshRuns: Record<string, number> = {};
-    selectedConfirmTasks.forEach((task) => {
-      previewRunsRef.current[task.id] = (previewRunsRef.current[task.id] ?? 0) + 1;
-      refreshRuns[task.id] = previewRunsRef.current[task.id];
-      const timer = previewTimersRef.current[task.id];
-      if (timer) window.clearTimeout(timer);
-    });
+    const epoch = reviewEpoch.current;
     try {
-      const response = await previewBatchIngestNaming({
-        targetScope: targetLibrary,
-        targetProjectId: targetProjectId || undefined,
-        items: selectedConfirmTasks
-          .filter((task) => rows[task.id] && !rowMissing(rows[task.id], company))
-          .map((task) => ({ taskId: task.id, naming: rows[task.id] })),
-      });
-      const currentItems = response.items.filter(
-        (item) => previewRunsRef.current[item.task_id] === refreshRuns[item.task_id],
-      );
-      setPreviews((current) => ({
-        ...current,
-        ...Object.fromEntries(currentItems.map((item) => [item.task_id, item])),
-      }));
-      setReviewedTaskIds(
-        new Set(currentItems.filter((item) => item.submittable).map((item) => item.task_id)),
+      await previewRowsInChunks(
+        Object.fromEntries(
+          selectedConfirmTasks
+            .filter((task) => rows[task.id])
+            .map((task) => [task.id, rows[task.id]]),
+        ),
+        true,
       );
     } catch (error) {
       setDialogError(commandErrorMessage(error, "批量预览暂时失败，资料仍保留，可稍后重试"));
     } finally {
-      setLoading(false);
-      setPreviewBusyByTask((current) => {
-        const next = { ...current };
-        selectedConfirmTasks.forEach((task) => {
-          next[task.id] = false;
-        });
-        return next;
-      });
+      if (reviewEpoch.current === epoch) setLoading(false);
     }
   };
 
@@ -875,6 +951,7 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
 
   const closeAndResetReview = () => {
     cancelPendingPreviews();
+    setLoading(false);
     targetOptions.reset();
     aiReview.reset();
     setConfirmOpen(false);
