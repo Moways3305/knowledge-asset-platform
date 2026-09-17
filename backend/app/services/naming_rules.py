@@ -46,12 +46,18 @@ from app.schemas.upload_duplicates import UploadDuplicateReadModel
 from app.services import audit as audit_service
 from app.services.directories import (
     default_directory_config,
+    directories_from_revision,
     legacy_directory_key,
     published_directories,
     validate_directory,
 )
 from app.services.naming_advice import naming_preview_advice, safe_naming_advice
-from app.services.upload_duplicates import read_duplicate
+from app.services.upload_duplicates import (
+    DuplicatePreviewRows,
+    finish_duplicate_preview,
+    preload_duplicate_preview,
+    read_duplicate,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,11 +70,18 @@ class RenderedNaming:
 
 
 @dataclass(frozen=True)
+class _PreviewPolicy:
+    revision: NamingRuleRevision | None
+
+
+@dataclass(frozen=True)
 class _PreviewRows:
     """Request-local snapshots, never shared across users or requests."""
 
     tasks: dict[uuid.UUID, IngestTask]
     ai: dict[uuid.UUID, IngestTaskAiResult]
+    policy: _PreviewPolicy | None = None
+    duplicates: DuplicatePreviewRows | None = None
 
 
 def _denied(status: int, reason: str, message: str) -> HTTPException:
@@ -386,13 +399,17 @@ async def render(
     if scope == KnowledgeScope.personal.value:
         return None
     revision = (
-        await session.execute(
-            select(NamingRuleRevision)
-            .where(NamingRuleRevision.status == "published")
-            .order_by(NamingRuleRevision.version.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+        _rows.policy.revision
+        if _rows is not None and _rows.policy is not None
+        else (
+            await session.execute(
+                select(NamingRuleRevision)
+                .where(NamingRuleRevision.status == "published")
+                .order_by(NamingRuleRevision.version.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+    )
     # Fresh test/dev databases created from metadata may not have migration seed
     # rows yet. Until governance explicitly publishes, preserve the rollout's
     # non-enforcing baseline.
@@ -410,6 +427,7 @@ async def render(
             directory_key=directory_key,
             scope=scope,
             project_id=request.target_project_id,
+            published=directories_from_revision(revision),
         )
         directory_source = "formal_directory"
         naming_code = _directory_naming_code(directory)
@@ -434,6 +452,7 @@ async def render(
             directory_key=directory_key,
             scope=scope,
             project_id=request.target_project_id,
+            published=directories_from_revision(revision),
         )
         directory_source = "legacy_category_mapping"
         naming_code = (
@@ -568,6 +587,7 @@ async def render(
             scope=scope,
             project_id=request.target_project_id,
             metadata=metadata,
+            preview_rows=_rows.duplicates if _rows is not None else None,
         )
         if isinstance(task, IngestTask)
         else UploadDuplicateReadModel()
@@ -659,6 +679,7 @@ async def preview(
             scope=scope,
             project_id=request.target_project_id,
             metadata=request.naming.model_dump(mode="json") if request.naming else None,
+            preview_rows=rows.duplicates,
         )
         return NamingPreviewResponse(
             required=False,
@@ -723,12 +744,22 @@ async def batch_preview(
     request: BatchNamingPreviewRequest,
 ) -> BatchNamingPreviewResponse:
     """Preview governed names independently without leaking another item's data."""
+    if not caller.is_business_user:
+        raise _denied(403, "admin_business_permission_denied", "仅业务用户可读取命名选项")
+    revision = await session.scalar(
+        select(NamingRuleRevision)
+        .where(NamingRuleRevision.status == "published")
+        .order_by(NamingRuleRevision.version.desc())
+        .limit(1)
+    )
+    policy = _PreviewPolicy(revision)
     # Authorize the common destination before touching any task identifiers.
     destination = await options(
         session,
         caller,
         request.target_scope,
         request.target_project_id,
+        _policy=policy,
     )
     task_query = select(IngestTask).where(
         IngestTask.id.in_({item.task_id for item in request.items})
@@ -745,8 +776,21 @@ async def batch_preview(
         if tasks
         else []
     )
-    rows = _PreviewRows(tasks, {ai.ingest_task_id: ai for ai in ai_rows})
+    rows = _PreviewRows(
+        tasks,
+        {ai.ingest_task_id: ai for ai in ai_rows},
+        policy,
+        await preload_duplicate_preview(
+            session,
+            caller,
+            list(tasks.values()),
+            scope=request.target_scope.value,
+            project_id=request.target_project_id,
+        ),
+    )
     results: list[BatchNamingPreviewItemResponse] = []
+    if rows.duplicates is not None:
+        rows.duplicates.defer_suspected_details = True
     for item in request.items:
         try:
             item_request = NamingPreviewRequest.model_validate(
@@ -799,6 +843,8 @@ async def batch_preview(
                     message=message,
                 )
             )
+    if rows.duplicates is not None:
+        await finish_duplicate_preview(session, caller, rows.duplicates)
     return BatchNamingPreviewResponse(items=results)
 
 
@@ -807,11 +853,17 @@ async def options(
     caller: CallerContext,
     scope: KnowledgeScope,
     project_id: uuid.UUID | None,
+    *,
+    _policy: _PreviewPolicy | None = None,
 ) -> NamingOptionsResponse:
     if not caller.is_business_user:
         raise _denied(403, "admin_business_permission_denied", "仅业务用户可读取命名选项")
     if scope == KnowledgeScope.personal:
-        _version, directory_rows = await published_directories(session)
+        _version, directory_rows = (
+            directories_from_revision(_policy.revision)
+            if _policy is not None
+            else await published_directories(session)
+        )
         return NamingOptionsResponse(
             required=False,
             rule_version=None,
@@ -823,13 +875,17 @@ async def options(
             message="个人资料不强制规范命名",
         )
     revision = (
-        await session.execute(
-            select(NamingRuleRevision)
-            .where(NamingRuleRevision.status == "published")
-            .order_by(NamingRuleRevision.version.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+        _policy.revision
+        if _policy is not None
+        else (
+            await session.execute(
+                select(NamingRuleRevision)
+                .where(NamingRuleRevision.status == "published")
+                .order_by(NamingRuleRevision.version.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+    )
     config = _config(revision) if revision is not None else None
     if scope == KnowledgeScope.project:
         if project_id is None or project_id not in caller.active_project_ids:

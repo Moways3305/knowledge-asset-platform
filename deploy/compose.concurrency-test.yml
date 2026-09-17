@@ -1,0 +1,62 @@
+# Disposable only: no published ports, production env files, or production volumes.
+name: kap-concurrency-test
+x-app: &app
+  build: ../backend
+  environment: &env
+    KAP_ACCEPTANCE_ISOLATED: "1"
+    APP_ENV: dev
+    DATABASE_URL: postgresql+asyncpg://test:test@postgres:5432/kap_concurrency_test
+    REDIS_URL: redis://redis:6379/0
+    CELERY_TASK_ALWAYS_EAGER: "false"
+    INGEST_HEAVY_PROCESSING_WINDOW: "1"
+    PYTHONPATH: /app:/probe
+    LLM_PROVIDER: custom
+    LLM_API_KEY: acceptance-only
+    LLM_BASE_URL: http://llm:9000/v1
+    LLM_MODEL: acceptance
+    STORAGE_ROOT: /data/uploads
+  volumes:
+    - ../backend/tools:/probe:ro
+    - acceptance_uploads:/data/uploads
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+services:
+  llm:
+    <<: *app
+    command: [python, /probe/acceptance_llm.py]
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: kap_concurrency_test
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U test -d kap_concurrency_test"]
+      interval: 2s
+      retries: 30
+  redis:
+    image: redis:7-alpine
+    command: [redis-server, --save, "", --appendonly, "no"]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 2s
+      retries: 30
+  api:
+    <<: *app
+    command: [uvicorn, app.main:app, --host, 0.0.0.0, --port, "8000", --workers, "2"]
+  heavy:
+    <<: *app
+    command: [celery, -A, concurrency_probe:celery_app, worker, -Q, ocr, --concurrency=4, --prefetch-multiplier=1, --hostname=heavy@%h]
+  light:
+    <<: *app
+    command: [celery, -A, concurrency_probe:celery_app, worker, -Q, default, --concurrency=1, --prefetch-multiplier=1, --hostname=light@%h]
+  probe:
+    <<: *app
+    profiles: [probe]
+    command: [python, /probe/concurrency_probe.py]
+volumes:
+  acceptance_uploads:

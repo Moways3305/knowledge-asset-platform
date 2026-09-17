@@ -150,6 +150,11 @@ async def published_directories(session: AsyncSession) -> tuple[int | None, list
             .limit(1)
         )
     ).scalar_one_or_none()
+    return directories_from_revision(revision)
+
+
+def directories_from_revision(revision: NamingRuleRevision | None) -> tuple[int | None, list[dict]]:
+    """Resolve directory defaults from an already loaded published revision."""
     raw = (
         revision.config.get("directories")
         if revision and isinstance(revision.config, dict)
@@ -165,8 +170,9 @@ async def validate_directory(
     directory_key: str,
     scope: str,
     project_id: uuid.UUID | None,
+    published: tuple[int | None, list[dict]] | None = None,
 ) -> tuple[int | None, dict]:
-    version, rows = await published_directories(session)
+    version, rows = published if published is not None else await published_directories(session)
     if directory_key == UNCLASSIFIED_PROJECT_DIRECTORY_KEY:
         if scope != KnowledgeScope.project.value or project_id is None:
             raise HTTPException(
