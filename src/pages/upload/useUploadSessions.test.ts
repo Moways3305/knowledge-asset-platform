@@ -1,9 +1,10 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UploadSessionDTO } from "../../types/ingest";
 import { useUploadFlow } from "./useUploadFlow";
 import { mergeFileTasks } from "./UnifiedFileTasks";
 import type { PendingIngestItemDTO } from "../../types/ingest";
+import { fetchAuthMe } from "../../api/auth";
 
 vi.mock("../../hooks/useModelSelection", () => ({
   useModelSelection: () => ({
@@ -77,13 +78,105 @@ function session(total: number, status: "completed" | "waiting" = "completed"): 
 }
 
 describe("useUploadFlow persistent upload sessions", () => {
+  afterEach(() => vi.restoreAllMocks());
   beforeEach(() => {
+    vi.mocked(fetchAuthMe).mockResolvedValue({
+      userId: "test-user",
+      name: "Test",
+      email: "test@example.com",
+      companyRoles: ["consultant"],
+      activeCompanyRole: "consultant",
+      isBusinessUser: true,
+      canDiscoverL5: false,
+      projects: [],
+    });
     ingest.createUploadSession.mockReset();
     ingest.fetchUploadSessions.mockReset().mockResolvedValue([]);
     ingest.fetchUploadSession.mockReset();
+    ingest.fetchIngestTaskStatus.mockReset();
     ingest.retryUploadSessionItem.mockReset();
     ingest.removeUploadSessionItem.mockReset();
     ingest.fetchPendingIngestTasks.mockReset().mockResolvedValue([]);
+  });
+
+  it("polls a processing session once instead of every task and stops after unmount", async () => {
+    const uploaded = session(25, "waiting");
+    uploaded.items.forEach((item, index) => {
+      item.status = "processing";
+      item.ingest_task_id = `task-${index}`;
+    });
+    const callbacks: Array<() => void> = [];
+    vi.spyOn(window, "setInterval").mockImplementation((callback) => {
+      callbacks.push(callback as () => void);
+      return callbacks.length;
+    });
+    const clear = vi.spyOn(window, "clearInterval");
+    ingest.fetchUploadSessions.mockResolvedValue([uploaded]);
+    let resolve!: (value: UploadSessionDTO) => void;
+    ingest.fetchUploadSession.mockImplementation(
+      () =>
+        new Promise<UploadSessionDTO>((done) => {
+          resolve = done;
+        }),
+    );
+    const { result, unmount } = renderHook(() => useUploadFlow());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.localUploadQueue).toHaveLength(25);
+    await act(async () => {
+      callbacks.forEach((callback) => callback());
+    });
+    await act(async () => {
+      callbacks.forEach((callback) => callback());
+    });
+    expect(ingest.fetchUploadSession).toHaveBeenCalledTimes(1);
+    expect(ingest.fetchIngestTaskStatus).not.toHaveBeenCalled();
+    unmount();
+    expect(clear).toHaveBeenCalled();
+    expect(ingest.fetchUploadSession.mock.calls[0][1].aborted).toBe(true);
+    await act(async () => resolve(session(25)));
+    expect(ingest.fetchUploadSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("expires a stuck poll and ignores its late response without unlocking the replacement", async () => {
+    const uploaded = session(1, "waiting");
+    ingest.fetchUploadSessions.mockResolvedValue([uploaded]);
+    const intervals: Array<() => void> = [];
+    const deadlines: Array<() => void> = [];
+    const realTimeout = window.setTimeout.bind(window);
+    vi.spyOn(window, "setInterval").mockImplementation((callback) => {
+      intervals.push(callback as () => void);
+      return intervals.length;
+    });
+    vi.spyOn(window, "setTimeout").mockImplementation((callback, delay, ...args) => {
+      if (delay === 30_000) {
+        deadlines.push(callback as () => void);
+        return 100000 + deadlines.length;
+      }
+      return realTimeout(callback, delay, ...args);
+    });
+    const resolves: Array<(value: UploadSessionDTO) => void> = [];
+    ingest.fetchUploadSession.mockImplementation(
+      () => new Promise<UploadSessionDTO>((resolve) => resolves.push(resolve)),
+    );
+    const { result, unmount } = renderHook(() => useUploadFlow());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => intervals.forEach((callback) => callback()));
+    expect(ingest.fetchUploadSession).toHaveBeenCalledTimes(1);
+    await act(async () => deadlines[0]());
+    expect(ingest.fetchUploadSession.mock.calls[0][1].aborted).toBe(true);
+    await act(async () => intervals.forEach((callback) => callback()));
+    expect(ingest.fetchUploadSession).toHaveBeenCalledTimes(2);
+    await act(async () => resolves[0](session(1)));
+    expect(result.current.uploadSession?.status).toBe("active");
+    await act(async () => intervals.forEach((callback) => callback()));
+    expect(ingest.fetchUploadSession).toHaveBeenCalledTimes(2);
+    await act(async () => resolves[1](session(1)));
+    expect(result.current.uploadSession?.status).toBe("completed");
+    unmount();
   });
 
   it("restores the latest server-owned session after remount", async () => {
