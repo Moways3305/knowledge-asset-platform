@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 from app.models.identity import Project
 from app.models.naming import NamingRuleRevision
@@ -13,8 +15,210 @@ from app.seed.dev_seed import PROJECT_ALPHA, USER_BOSS, USER_CONSULTANT, USER_PR
 from app.services.directories import default_directory_config
 
 
+@pytest.mark.parametrize("snapshot_kind", ["published", "unpublished", "omitted"])
+async def test_personal_options_honor_explicit_snapshot(monkeypatch, snapshot_kind):
+    from app.schemas.enums import KnowledgeScope
+    from app.services import naming_rules
+
+    def directory(name):
+        return {
+            "directory_key": "personal.notes",
+            "scope": "personal",
+            "display_name": name,
+            "description": "",
+            "enabled": True,
+            "naming_code": "笔记",
+            "default_confidentiality": "L2",
+            "sort_order": 0,
+        }
+
+    latest = AsyncMock(return_value=(99, [directory("新版本")]))
+    monkeypatch.setattr(naming_rules, "published_directories", latest)
+    session = AsyncMock()
+    caller = SimpleNamespace(is_business_user=True)
+    kwargs = {}
+    if snapshot_kind != "omitted":
+        revision = (
+            NamingRuleRevision(version=1, config={"directories": [directory("快照版本")]})
+            if snapshot_kind == "published"
+            else None
+        )
+        kwargs["_policy"] = naming_rules._PreviewPolicy(revision)
+    result = await naming_rules.options(session, caller, KnowledgeScope.personal, None, **kwargs)
+    assert result.required is False
+    assert result.rule_version is None
+    if snapshot_kind == "omitted":
+        latest.assert_awaited_once_with(session)
+        assert [row.display_name for row in result.directories] == ["新版本"]
+    else:
+        latest.assert_not_called()
+        session.execute.assert_not_called()
+        expected = (
+            ["快照版本"]
+            if snapshot_kind == "published"
+            else [
+                row["display_name"]
+                for row in default_directory_config()
+                if row.get("enabled", True) and row.get("scope") == "personal"
+            ]
+        )
+        assert [row.display_name for row in result.directories] == expected
+
+
+@pytest.mark.parametrize("count", [1, 25])
+async def test_batch_preview_preloads_rows_and_preserves_item_permissions(
+    client, db_session, count
+):
+    from app.models.ingest import IngestTask
+
+    await _enable_project_code(client)
+    await _publish(client)
+    task_ids = [uuid.uuid4() for _ in range(count)]
+    foreign_id = uuid.uuid4()
+    for task_id in [*task_ids, foreign_id]:
+        db_session.add(
+            IngestTask(
+                id=task_id,
+                source="local_upload",
+                source_file_ref="private/ref",
+                source_file_name="source.txt",
+                created_by=(USER_CONSULTANT if task_id == foreign_id else USER_PROJECT_MANAGER),
+            )
+        )
+    await db_session.commit()
+    naming = {
+        "directory_key": "project.deliverables",
+        "subject": "人工标题",
+        "subject_is_manual": True,
+        "formed_on": "2026-08-31",
+        "version": "V1",
+    }
+    body = {
+        "target_scope": "project",
+        "target_project_id": str(PROJECT_ALPHA),
+        "confidentiality_level": "L2",
+        "naming": naming,
+    }
+    single = await client.post(
+        f"/api/v1/ingest/{task_ids[0]}/naming-preview",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json=body,
+    )
+    assert single.status_code == 200, single.text
+    queries = []
+    rule_queries = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _many):
+        if "FROM naming_rule_revisions" in statement:
+            rule_queries.append(statement)
+        if "FROM ingest_tasks " in statement or "FROM ingest_task_ai_results " in statement:
+            queries.append(statement)
+
+    engine = db_session.bind.sync_engine
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        response = await client.post(
+            "/api/v1/ingest/bulk-naming-preview",
+            headers=_hdr(USER_PROJECT_MANAGER),
+            json={
+                "target_scope": "project",
+                "target_project_id": str(PROJECT_ALPHA),
+                "items": [
+                    {"task_id": str(task_id), "confidentiality_level": "L2", "naming": naming}
+                    for task_id in [*task_ids, foreign_id, uuid.uuid4()]
+                ],
+            },
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    assert response.status_code == 200, response.text
+    items = response.json()["items"]
+    assert [item["task_id"] for item in items[:count]] == list(map(str, task_ids))
+    for key in ("canonical_name", "fields", "notices", "duplicate"):
+        assert items[0][key] == single.json()[key]
+    assert all(item["submittable"] for item in items[:count])
+    assert all(item["error_code"] == "item_unavailable" for item in items[count:])
+    assert len(queries) == 2
+    # Common destination validation and rendering share one batch policy snapshot.
+    # Neither directory validation nor rendering may re-query per row.
+    assert len(rule_queries) == 1
+
+
 def _hdr(user_id: uuid.UUID) -> dict[str, str]:
     return {"X-Dev-User-Id": str(user_id)}
+
+
+@pytest.mark.parametrize("initially_published", [False, True])
+async def test_batch_keeps_policy_when_new_revision_appears_after_options(
+    client, db_session, monkeypatch, initially_published
+):
+    from app.models.ingest import IngestTask
+    from app.services import naming_rules
+
+    await _enable_project_code(client)
+    if initially_published:
+        await _publish(client)
+    task_id = uuid.uuid4()
+    db_session.add(
+        IngestTask(
+            id=task_id,
+            source="local_upload",
+            source_file_ref="private/ref",
+            source_file_name="source.txt",
+            created_by=USER_PROJECT_MANAGER,
+        )
+    )
+    await db_session.commit()
+    original_options = naming_rules.options
+    observed = []
+
+    async def publish_after_options(session, *args, **kwargs):
+        destination = await original_options(session, *args, **kwargs)
+        observed.append(destination)
+        config = _config()
+        config["directories"][0]["naming_code"] = "NEW-POLICY"
+        session.add(
+            NamingRuleRevision(
+                version=999,
+                status="published",
+                base_published_version=0,
+                config=config,
+            )
+        )
+        await session.commit()
+        return destination
+
+    monkeypatch.setattr(naming_rules, "options", publish_after_options)
+    response = await client.post(
+        "/api/v1/ingest/bulk-naming-preview",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+            "items": [
+                {
+                    "task_id": str(task_id),
+                    "confidentiality_level": "L2",
+                    "naming": {
+                        "directory_key": "project.deliverables",
+                        "subject": "主题",
+                        "formed_on": "2026-08-31",
+                        "version": "V1",
+                    },
+                }
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+    item = response.json()["items"][0]
+    assert item["submittable"] is True
+    assert item["rule_version"] == observed[0].rule_version
+    if initially_published:
+        assert "交付成果" in item["canonical_name"]
+        assert "NEW-POLICY" not in item["canonical_name"]
+    else:
+        assert item["canonical_name"] is None
+        assert observed[0].required is False
 
 
 def _config(*, with_legacy_category: bool = False) -> dict:

@@ -25,6 +25,7 @@ import httpx
 
 from app.core.config import get_settings
 from app.core.logging import safe_log_exception
+from app.services.http_pool import pooled_http_client
 
 _logger = logging.getLogger(__name__)
 
@@ -120,7 +121,7 @@ class WeKnoraClient:
         if summary_model_id:
             payload["summary_model_id"] = summary_model_id
         start = time.perf_counter()
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with pooled_http_client(timeout=self._timeout) as client:
             resp = await client.post(
                 f"{self._base}/knowledge-bases", json=payload, headers=self._headers(trace_id)
             )
@@ -140,7 +141,7 @@ class WeKnoraClient:
         return str(kb_id)
 
     async def get_kb(self, kb_id: str, *, trace_id: str | None = None) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with pooled_http_client(timeout=self._timeout) as client:
             resp = await client.get(
                 f"{self._base}/knowledge-bases/{kb_id}", headers=self._headers(trace_id)
             )
@@ -164,7 +165,7 @@ class WeKnoraClient:
             payload["name"] = name
         if description is not None:
             payload["description"] = description
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with pooled_http_client(timeout=self._timeout) as client:
             resp = await client.put(
                 f"{self._base}/knowledge-bases/{kb_id}",
                 json=payload,
@@ -180,7 +181,7 @@ class WeKnoraClient:
         返回底座的脱敏展示配置。当前契约不保证返回模型 id；需要更新配置时应从
         `GET /knowledge-bases/:id` 读取完整的 server-only KB 配置。
         """
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with pooled_http_client(timeout=self._timeout) as client:
             resp = await client.get(
                 f"{self._base}/initialization/config/{kb_id}", headers=self._headers(trace_id)
             )
@@ -233,7 +234,7 @@ class WeKnoraClient:
                 "separators": separators or DEFAULT_INIT_SEPARATORS,
             },
         }
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with pooled_http_client(timeout=self._timeout) as client:
             resp = await client.post(
                 f"{self._base}/initialization/initialize/{kb_id}",
                 json=payload,
@@ -260,7 +261,7 @@ class WeKnoraClient:
         if channel:
             form["channel"] = channel
         start = time.perf_counter()
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with pooled_http_client(timeout=self._timeout) as client:
             resp = await client.post(
                 f"{self._base}/knowledge-bases/{kb_id}/knowledge/file",
                 files=files,
@@ -281,7 +282,7 @@ class WeKnoraClient:
     async def get_knowledge(
         self, knowledge_id: str, *, trace_id: str | None = None
     ) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with pooled_http_client(timeout=self._timeout) as client:
             resp = await client.get(
                 f"{self._base}/knowledge/{knowledge_id}", headers=self._headers(trace_id)
             )
@@ -300,7 +301,7 @@ class WeKnoraClient:
         Membership in this response is the ownership proof; individual document
         details in WeKnora v0.7.1 may omit ``knowledge_base_id``.
         """
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with pooled_http_client(timeout=self._timeout) as client:
             resp = await client.get(
                 f"{self._base}/knowledge-bases/{kb_id}/knowledge",
                 params={"page": max(1, page), "page_size": max(1, min(page_size, 1000))},
@@ -411,7 +412,7 @@ class WeKnoraClient:
         payload: dict[str, Any] = {"query": query, "knowledge_base_ids": kb_ids, "top_k": top_k}
         if knowledge_ids:
             payload["knowledge_ids"] = knowledge_ids
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with pooled_http_client(timeout=self._timeout) as client:
             resp = await client.post(
                 f"{self._base}/knowledge-search", json=payload, headers=self._headers(trace_id)
             )
@@ -433,7 +434,7 @@ class WeKnoraClient:
             body["vector_threshold"] = vector_threshold
         if keyword_threshold is not None:
             body["keyword_threshold"] = keyword_threshold
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with pooled_http_client(timeout=self._timeout) as client:
             # WeKnora hybrid-search 用 GET + JSON body（照 swagger）。
             resp = await client.request(
                 "GET",
@@ -444,7 +445,7 @@ class WeKnoraClient:
         return self._normalize_chunks(self._unwrap(resp))
 
     async def delete_knowledge(self, knowledge_id: str, *, trace_id: str | None = None) -> None:
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with pooled_http_client(timeout=self._timeout) as client:
             resp = await client.delete(
                 f"{self._base}/knowledge/{knowledge_id}", headers=self._headers(trace_id)
             )
@@ -459,7 +460,7 @@ class WeKnoraClient:
         kb_id / doc id 视同 storage_ref，绝不写日志。
         """
         start = time.perf_counter()
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with pooled_http_client(timeout=self._timeout) as client:
             resp = await client.delete(
                 f"{self._base}/knowledge-bases/{kb_id}", headers=self._headers(trace_id)
             )
@@ -484,7 +485,7 @@ class WeKnoraClient:
 
     async def _delete_kb_by_docs(self, kb_id: str, *, trace_id: str | None = None) -> None:
         """逐 doc 清理库下内容（整库删除不可用时的降级路径）。"""
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with pooled_http_client(timeout=self._timeout) as client:
             resp = await client.get(
                 f"{self._base}/knowledge-bases/{kb_id}/knowledge",
                 headers=self._headers(trace_id),
@@ -530,7 +531,7 @@ class WeKnoraClient:
         trace_id: str | None = None,
     ) -> Any:
         start = time.perf_counter()
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with pooled_http_client(timeout=self._timeout) as client:
             resp = await client.request(
                 method, f"{self._base}{path}", json=json, headers=self._headers(trace_id)
             )

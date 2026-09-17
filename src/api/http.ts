@@ -181,10 +181,11 @@ export async function handleResponse<T>(resp: Response): Promise<T> {
 
 // 所有请求带上 credentials，使会话 cookie（kap_session, httpOnly）随同发送。
 // 同源经 Vite /api 代理时 cookie 正常工作；X-Dev-User-Id 仍作为开发态回退。
-export async function apiGet<T>(path: string): Promise<T> {
+export async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
   const resp = await fetch(`${BASE_URL}${path}`, {
     headers: devHeaders(),
     credentials: "include",
+    signal,
   });
   return handleResponse<T>(resp);
 }

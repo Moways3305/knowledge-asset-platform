@@ -15,6 +15,7 @@ const taskId = "task-secret-77";
 const projectId = "project-secret-77";
 const assetId = "asset-result-77";
 const uploadSessionId = "upload-session-secret-77";
+const reviewBatchSize = Math.max(2, Math.min(1000, Number(process.env.UI_QA_BATCH_SIZE) || 2));
 const longPendingFileName =
   "2026年度华东区域重点客户战略经营计划执行复盘与下一阶段增长行动方案最终评审修订版_v12.pptx";
 const longPendingStem = longPendingFileName.slice(0, longPendingFileName.lastIndexOf("."));
@@ -435,6 +436,22 @@ try {
         }
         if (url.pathname === "/api/v1/ingest/bulk-naming-preview") {
           batchNamingPreviewCalls += 1;
+          if (scenario === "batch-naming-ready") {
+            const body = request.postDataJSON();
+            if (body.items.length > 25) throw new Error("preview chunk exceeds its budget");
+            return fulfill({
+              items: body.items.map((item) => ({
+                task_id: item.task_id,
+                submittable: true,
+                canonical_name: `【PROJECT-2021-交付成果】${item.naming.subject}_20210307_V1_L2.pdf`,
+                rule_version: 2,
+                fields: item.naming,
+                notices: [],
+                error_code: null,
+                message: null,
+              })),
+            });
+          }
           if (scenario === "batch-company-directory-ready") {
             const body = request.postDataJSON();
             return fulfill({
@@ -467,7 +484,7 @@ try {
           }
           const local = url.searchParams.get("source") === "path_b_upload";
           if (local) localPendingCalls += 1;
-          const items = local
+          let items = local
             ? localPendingAvailable
               ? scenario === "batch-naming-ready" || scenario === "batch-personal-ready"
                 ? [
@@ -492,6 +509,19 @@ try {
             : scenario === "wecom-empty"
               ? []
               : [pendingTask];
+          if (
+            local &&
+            localPendingAvailable &&
+            scenario === "batch-naming-ready" &&
+            reviewBatchSize > 2
+          ) {
+            items = Array.from({ length: reviewBatchSize }, (_, index) => ({
+              ...localPendingTask,
+              id: index === 0 ? taskId : `large-batch-${index}`,
+              source_file_name: index === 0 ? longPendingFileName : `批量资料-${index}.pdf`,
+              naming_parsed_fields: batchNamingFields,
+            }));
+          }
           return fulfill({ items, total: items.length });
         }
         if (url.pathname === "/api/v1/ingest/upload-sessions" && request.method() === "GET") {
@@ -756,17 +786,47 @@ try {
 
       if (scenario === "batch-naming-ready") {
         await page.getByRole("checkbox", { name: "全选当前可处理的待确认项" }).check();
-        await page.getByRole("button", { name: "批量确认入库（2）" }).click();
+        await page.getByRole("button", { name: `批量确认入库（${reviewBatchSize}）` }).click();
         await page.getByRole("combobox", { name: "批量入库目标知识库" }).selectOption("project");
         await page.getByRole("combobox", { name: "批量入库目标项目" }).selectOption(projectId);
         const batchDirectory = page.getByRole("combobox", { name: "本批正式目录" });
         await batchDirectory.waitFor();
         await batchDirectory.selectOption("project.deliverables");
         await page.getByRole("button", { name: "下一步：核对命名" }).click();
-        await page.getByRole("heading", { name: "逐条核对 2 项规范命名" }).waitFor();
+        await page
+          .getByRole("heading", { name: `逐条核对 ${reviewBatchSize} 项规范命名` })
+          .waitFor();
         const rowDirectories = page.getByRole("combobox", { name: /正式目录$/ });
-        if ((await rowDirectories.count()) !== 2)
+        if (reviewBatchSize <= 30 && (await rowDirectories.count()) !== reviewBatchSize)
           throw new Error("batch review must expose one formal directory input per item");
+        if (reviewBatchSize > 30) {
+          await rowDirectories.first().waitFor();
+          if ((await rowDirectories.count()) > 12) throw new Error("review window is not bounded");
+          const firstTitle = page.getByRole("textbox", {
+            name: `${longPendingFileName} 主题`,
+            exact: true,
+          });
+          await firstTitle.fill("人工修改保留验证");
+          await firstTitle.blur();
+          const scroller = page.locator(".upload77-batch-naming-scroll");
+          await scroller.evaluate((node) => {
+            node.scrollTop = node.scrollHeight;
+          });
+          await page
+            .getByRole("textbox", { name: `批量资料-${reviewBatchSize - 1}.pdf 主题`, exact: true })
+            .waitFor();
+          if ((await rowDirectories.count()) > 12)
+            throw new Error("scrolled window is not bounded");
+          await scroller.evaluate((node) => {
+            node.scrollTop = 0;
+          });
+          await firstTitle.waitFor();
+          if ((await firstTitle.inputValue()) !== "人工修改保留验证")
+            throw new Error("virtualization lost the edited draft");
+          await page
+            .getByRole("button", { name: `可确认（${reviewBatchSize}）`, exact: true })
+            .waitFor();
+        }
       }
       if (scenario === "batch-personal-ready") {
         await page.getByRole("checkbox", { name: "全选当前可处理的待确认项" }).check();
@@ -850,7 +910,7 @@ try {
       }
 
       const metrics = await page.evaluate(
-        ({ longPendingFileName, longPendingSubject }) => {
+        ({ longPendingFileName, longPendingSubject, reviewBatchSize }) => {
           const root = document.documentElement;
           const rail = document.querySelector(".rail")?.getBoundingClientRect();
           const deck = document.querySelector(".deck")?.getBoundingClientRect();
@@ -968,7 +1028,9 @@ try {
               verticalGap(oneLinerField, summaryField) <= 24 &&
               document.querySelector("#upload77-directory")?.value === "project.deliverables",
             batchNamingLayoutValid:
-              batchRows.length === 2 &&
+              (reviewBatchSize > 30
+                ? batchRows.length > 0 && batchRows.length <= 12
+                : batchRows.length === 2) &&
               batchRows.every((row) =>
                 window.innerWidth <= 900
                   ? row.scrollWidth <= row.clientWidth + 2
@@ -980,7 +1042,7 @@ try {
                   button.textContent?.includes(label),
                 ),
               ) &&
-              document.querySelectorAll(".upload77-batch-delete").length === 2 &&
+              document.querySelectorAll(".upload77-batch-delete").length === batchRows.length &&
               Boolean(namingWorkspace && namingScroll) &&
               namingWorkspace.scrollWidth <= namingWorkspace.clientWidth + 2 &&
               ["auto", "scroll"].includes(getComputedStyle(namingScroll).overflowY),
@@ -1007,7 +1069,7 @@ try {
               !document.querySelector('[name="category_id"], [name="asset_type"]'),
           };
         },
-        { longPendingFileName, longPendingSubject },
+        { longPendingFileName, longPendingSubject, reviewBatchSize },
       );
 
       const confirmPayloadValid = confirmPayload

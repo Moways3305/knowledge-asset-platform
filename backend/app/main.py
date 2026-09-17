@@ -47,6 +47,7 @@ from app.core.config import get_settings
 from app.core.csrf import CsrfMiddleware
 from app.core.logging import configure_logging
 from app.core.trace import TraceIdMiddleware
+from app.services.http_pool import outbound_http_pool
 from app.services.workbuddy_remote_mcp import (
     RemoteMcpOperationalGuard,
     build_remote_mcp,
@@ -116,7 +117,7 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def combined_lifespan(active_app: FastAPI):
-        async with original_lifespan(active_app):
+        async with outbound_http_pool(), original_lifespan(active_app):
             async with remote_mcp_app.router.lifespan_context(remote_mcp_app):
                 yield
 

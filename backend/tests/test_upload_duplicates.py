@@ -2,15 +2,313 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import func, select
+import pytest
+from sqlalchemy import event, func, select
 
 from app.models.audit import AuditEvent
 from app.models.ingest import IngestTask, UploadSessionItem
-from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
+from app.models.knowledge import (
+    KnowledgeAsset,
+    KnowledgeAssetFileObject,
+    KnowledgeAssetSummary,
+    KnowledgeAssetVersion,
+)
 from app.schemas.enums import AuditAction, IngestSource, IngestStatus
 from app.schemas.permission import CallerContext
-from app.seed.dev_seed import PROJECT_ALPHA, PROJECT_BETA, USER_CONSULTANT, USER_PROJECT_MANAGER
-from app.services.upload_duplicates import read_duplicate
+from app.seed.dev_seed import (
+    PROJECT_ALPHA,
+    PROJECT_BETA,
+    USER_BOSS,
+    USER_CONSULTANT,
+    USER_PROJECT_MANAGER,
+)
+from app.services.upload_duplicates import (
+    DuplicatePreviewRows,
+    finish_duplicate_preview,
+    preload_duplicate_preview,
+    read_duplicate,
+)
+
+
+@pytest.mark.parametrize("subjects", [[], ["missing"], ["s0"] * 25, ["s0", "s1"] * 25])
+async def test_suspected_details_load_only_selected_versions_once(client, db_session, subjects):
+    caller = CallerContext(
+        user_id=USER_CONSULTANT,
+        is_active=True,
+        active_company_roles={"consultant"},
+        active_project_ids=set(),
+    )
+
+    def metadata(subject):
+        return {
+            "category_id": "legacy",
+            "subject": subject,
+            "formed_on": "2026-09-17",
+            "version": "V1",
+        }
+
+    assets = [
+        KnowledgeAsset(
+            id=uuid.uuid4(),
+            title=f"candidate-{i}",
+            scope="company",
+            zone="material",
+            asset_type="document",
+            owner_user_id=USER_CONSULTANT,
+            confidentiality_level="L2",
+            asset_status="active",
+        )
+        for i in range(500)
+    ]
+    db_session.add_all(assets)
+    await db_session.flush()
+    versions = [
+        KnowledgeAssetVersion(
+            id=uuid.uuid4(),
+            asset_id=asset.id,
+            version_no="V1",
+            version_status="active",
+            created_by=USER_CONSULTANT,
+            naming_metadata=metadata(f"s{i}"),
+        )
+        for i, asset in enumerate(assets)
+    ]
+    db_session.add_all(versions)
+    await db_session.flush()
+    db_session.add_all(
+        [
+            KnowledgeAssetSummary(
+                asset_id=asset.id,
+                version_id=version.id,
+                summary_type="safe_summary",
+                content=f"summary-{i}",
+            )
+            for i, (asset, version) in enumerate(zip(assets, versions, strict=True))
+        ]
+    )
+    await db_session.commit()
+    rows = DuplicatePreviewRows(defer_suspected_details=True)
+    task = IngestTask(id=uuid.uuid4(), source_file_name="new.txt", source_file_hash=None)
+    queries = []
+
+    def capture(_conn, _cursor, statement, parameters, _context, _many):
+        queries.append((statement, parameters))
+
+    engine = db_session.bind.sync_engine
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        results = [
+            await read_duplicate(
+                db_session,
+                caller,
+                task,
+                scope="company",
+                project_id=None,
+                metadata=metadata(subject),
+                preview_rows=rows,
+            )
+            for subject in subjects
+        ]
+        assert not rows.summaries and not rows.files
+        await finish_duplicate_preview(db_session, caller, rows)
+        query_count = len(queries)
+        await finish_duplicate_preview(db_session, caller, rows)
+        assert len(queries) == query_count
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    matched = {subject for subject in subjects if subject != "missing"}
+    assert len(rows.details_loaded) == len(rows.summaries) == len(matched)
+    assert len(queries) == (1 if subjects else 0) + (2 if matched else 0)
+    for statement, parameters in queries:
+        if "knowledge_asset_summaries" in statement:
+            assert len(parameters) == len(matched)
+    for subject, result in zip(subjects, results, strict=True):
+        if subject == "missing":
+            assert result.duplicate_state == "none"
+        else:
+            assert result.preferred_candidate.safe_summary == f"summary-{subject[1:]}"
+    # The batch endpoint must finish hydration before serializing nested models.
+    if matched:
+        task.source = "path_b_upload"
+        task.source_file_ref = "test/ref"
+        task.created_by = USER_CONSULTANT
+        task.target_scope = "company"
+        task.status = "pending_confirmation"
+        db_session.add(task)
+        await db_session.commit()
+        response = await client.post(
+            "/api/v1/ingest/bulk-naming-preview",
+            headers=_headers(USER_BOSS),
+            json={
+                "target_scope": "company",
+                "items": [
+                    {
+                        "task_id": str(task.id),
+                        "confidentiality_level": "L2",
+                        "naming": metadata("s0"),
+                    }
+                ],
+            },
+        )
+        assert response.status_code == 200, response.text
+        candidate = response.json()["items"][0]["duplicate"]["preferred_candidate"]
+        assert candidate["safe_summary"] == "summary-0"
+
+
+@pytest.mark.parametrize("count", [1, 25, 100])
+@pytest.mark.parametrize("scope", ["company", "project", "personal"])
+async def test_preloaded_exact_task_matches_are_equivalent_with_constant_queries(
+    db_session, count, scope
+):
+    caller = CallerContext(
+        user_id=USER_CONSULTANT,
+        is_active=True,
+        active_company_roles={"consultant"},
+        active_project_ids={PROJECT_ALPHA},
+    )
+    tasks = [
+        IngestTask(
+            source="path_b_upload",
+            source_file_ref="test/ref",
+            source_file_name=f"file-{i}.txt",
+            source_file_hash="e" * 64,
+            status="pending_confirmation",
+            target_scope=scope,
+            target_project_id=PROJECT_ALPHA if scope == "project" else None,
+            created_by=USER_CONSULTANT if i % 2 == 0 else USER_PROJECT_MANAGER,
+        )
+        for i in range(count + 1)
+    ]
+    db_session.add_all(tasks)
+    await db_session.commit()
+    project_id = PROJECT_ALPHA if scope == "project" else None
+    expected = [
+        await read_duplicate(db_session, caller, task, scope=scope, project_id=project_id)
+        for task in tasks[:count]
+    ]
+    queries = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _many):
+        queries.append(statement)
+
+    engine = db_session.bind.sync_engine
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        rows = await preload_duplicate_preview(
+            db_session, caller, tasks[:count], scope=scope, project_id=project_id
+        )
+        actual = [
+            await read_duplicate(
+                db_session, caller, task, scope=scope, project_id=project_id, preview_rows=rows
+            )
+            for task in tasks[:count]
+        ]
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    assert actual == expected
+    assert len(queries) == 3
+
+
+@pytest.mark.parametrize("count", [1, 25, 100])
+async def test_preloaded_asset_details_are_bounded_and_equivalent(db_session, count):
+    caller = CallerContext(
+        user_id=USER_CONSULTANT,
+        is_active=True,
+        active_company_roles={"consultant"},
+        active_project_ids=set(),
+    )
+    tasks = []
+    for index in range(count):
+        digest = f"{index + 10000:064x}"
+        asset = KnowledgeAsset(
+            title=f"asset-{index}",
+            scope="personal",
+            zone="material",
+            asset_type="document",
+            owner_user_id=USER_CONSULTANT,
+            confidentiality_level="L2",
+            asset_status="active",
+        )
+        db_session.add(asset)
+        await db_session.flush()
+        version = KnowledgeAssetVersion(
+            asset_id=asset.id,
+            version_no="V1",
+            version_status="active",
+            file_hash=digest,
+            created_by=USER_CONSULTANT,
+        )
+        db_session.add(version)
+        await db_session.flush()
+        db_session.add_all(
+            [
+                KnowledgeAssetFileObject(
+                    asset_id=asset.id,
+                    version_id=version.id,
+                    file_variant="original",
+                    file_name=f"asset-{index}.txt",
+                    file_mime_type="text/plain",
+                    file_size=12,
+                    storage_ref=f"internal/never-expose-{index}",
+                    confidentiality_level="L2",
+                ),
+                KnowledgeAssetSummary(
+                    asset_id=asset.id,
+                    version_id=version.id,
+                    summary_type="safe_summary",
+                    content=f"Summary {index}",
+                ),
+            ]
+        )
+        tasks.append(
+            IngestTask(
+                source="path_b_upload",
+                source_file_ref="test/ref",
+                source_file_hash=digest,
+                source_file_name=f"file-{index}.txt",
+                status="pending_confirmation",
+                target_scope="personal",
+                created_by=USER_CONSULTANT,
+            )
+        )
+    db_session.add_all(tasks)
+    await db_session.commit()
+    expected = [
+        await read_duplicate(db_session, caller, task, scope="personal", project_id=None)
+        for task in tasks
+    ]
+    queries = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _many):
+        queries.append(statement)
+
+    engine = db_session.bind.sync_engine
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        rows = await preload_duplicate_preview(
+            db_session,
+            caller,
+            tasks,
+            scope="personal",
+            project_id=None,
+        )
+        actual = [
+            await read_duplicate(
+                db_session,
+                caller,
+                task,
+                scope="personal",
+                project_id=None,
+                preview_rows=rows,
+            )
+            for task in tasks
+        ]
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    assert actual == expected
+    assert len(queries) == 5
+    assert all(item.preferred_candidate.safe_summary for item in actual)
+    assert all("internal/never-expose" not in item.model_dump_json() for item in actual)
 
 
 def _headers(user_id: uuid.UUID = USER_CONSULTANT) -> dict[str, str]:
@@ -146,6 +444,29 @@ async def test_same_batch_keep_switch_is_atomic_and_survives_refresh(client, db_
     assert items[1]["duplicate"]["default_selected"] is False
     assert items[2]["duplicate"]["duplicate_state"] == "none"
 
+    caller = CallerContext(
+        user_id=USER_CONSULTANT,
+        is_active=True,
+        active_company_roles={"consultant"},
+        active_project_ids=set(),
+    )
+    tasks = list(
+        (
+            await db_session.scalars(
+                select(IngestTask).where(
+                    IngestTask.id.in_([uuid.UUID(item["ingest_task_id"]) for item in items])
+                )
+            )
+        ).all()
+    )
+    rows = await preload_duplicate_preview(
+        db_session, caller, tasks, scope="personal", project_id=None
+    )
+    for task in tasks:
+        assert await read_duplicate(
+            db_session, caller, task, scope="personal", project_id=None, preview_rows=rows
+        ) == await read_duplicate(db_session, caller, task, scope="personal", project_id=None)
+
     session_items = (
         (
             await db_session.execute(
@@ -239,6 +560,15 @@ async def test_restricted_match_exposes_no_asset_facts(db_session):
     )
 
     duplicate = await read_duplicate(db_session, caller, task, scope="company", project_id=None)
+    rows = await preload_duplicate_preview(
+        db_session, caller, [task], scope="company", project_id=None
+    )
+    assert (
+        await read_duplicate(
+            db_session, caller, task, scope="company", project_id=None, preview_rows=rows
+        )
+        == duplicate
+    )
 
     assert duplicate.duplicate_state == "exact_content"
     assert duplicate.match_type == "restricted_match"
@@ -337,6 +667,21 @@ async def test_project_duplicate_lookup_is_isolated_and_metadata_match_is_non_bl
     )
     assert suspected.duplicate_state == "suspected_metadata"
     assert suspected.default_selected is True
+    rows = await preload_duplicate_preview(
+        db_session, caller, [task], scope="project", project_id=PROJECT_ALPHA
+    )
+    assert (
+        await read_duplicate(
+            db_session,
+            caller,
+            task,
+            scope="project",
+            project_id=PROJECT_ALPHA,
+            metadata=metadata,
+            preview_rows=rows,
+        )
+        == suspected
+    )
 
 
 async def test_independent_decision_creates_once_and_history_excludes_other_users(

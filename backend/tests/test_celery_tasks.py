@@ -441,6 +441,148 @@ async def test_parse_reconcile_updates_and_tolerates_failure(db_session, monkeyp
     assert hb.processed == 1 and hb.updated == 1 and hb.failed == 1
 
 
+async def test_parse_reconcile_releases_transaction_during_upstream_io(db_session, monkeypatch):
+    monkeypatch.setattr(parse_reconcile, "weknora_enabled", lambda: True)
+    await _new_version(db_session, doc_id="unlocked-1", parse_status="processing")
+    await _new_version(db_session, doc_id="unlocked-2", parse_status="processing")
+
+    class UnlockedClient:
+        async def get_knowledge(self, knowledge_id, **kwargs):
+            assert not db_session.in_transaction()
+            return {"parse_status": "completed"}
+
+    result = await parse_reconcile.reconcile_parse_statuses(db_session, UnlockedClient())
+    assert result["updated"] == 2
+
+
+async def test_parse_reconcile_second_worker_skips_live_claim(db_session, monkeypatch):
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    monkeypatch.setattr(parse_reconcile, "weknora_enabled", lambda: True)
+    version = await _new_version(db_session, doc_id="shared-claim", parse_status="processing")
+    calls = []
+    sessions = async_sessionmaker(db_session.bind, expire_on_commit=False)
+
+    class OtherClient:
+        async def get_knowledge(self, knowledge_id, **kwargs):
+            calls.append("second")
+            return {"parse_status": "processing"}
+
+    class FirstClient:
+        async def get_knowledge(self, knowledge_id, **kwargs):
+            calls.append("first")
+            assert not db_session.in_transaction()
+            async with sessions() as second:
+                result = await parse_reconcile.reconcile_parse_statuses(second, OtherClient())
+                assert result["processed"] == 0
+            return {"parse_status": "processing"}
+
+    await parse_reconcile.reconcile_parse_statuses(db_session, FirstClient())
+    await db_session.refresh(version)
+    assert calls == ["first"]
+    assert version.parse_reconcile_token is None
+
+
+async def test_parse_reconcile_reclaims_expired_lease(db_session, monkeypatch):
+    monkeypatch.setattr(parse_reconcile, "weknora_enabled", lambda: True)
+    version = await _new_version(db_session, doc_id="expired-claim", parse_status="processing")
+    version.parse_reconcile_token = "dead-worker"
+    version.parse_reconcile_until = _now() - timedelta(seconds=1)
+    await db_session.commit()
+    result = await parse_reconcile.reconcile_parse_statuses(
+        db_session, FakeParseWeKnora({"expired-claim": "completed"})
+    )
+    await db_session.refresh(version)
+    assert result["updated"] == 1
+    assert version.parse_reconcile_token is None
+
+
+async def test_parse_reconcile_stale_snapshot_cannot_reclaim_after_release(db_session):
+    version = await _new_version(db_session, doc_id="claim-cas", parse_status="processing")
+    snapshot = (
+        await db_session.execute(
+            select(KnowledgeAssetVersion.id, KnowledgeAssetVersion.parse_reconcile_until).where(
+                KnowledgeAssetVersion.id == version.id
+            )
+        )
+    ).one()
+    await db_session.commit()
+    async with parse_reconcile._claim(db_session, snapshot) as first:
+        assert first is not None
+    async with parse_reconcile._claim(db_session, snapshot) as stale:
+        assert stale is None
+
+
+async def test_parse_reconcile_old_worker_cannot_release_reclaimed_lease(db_session, monkeypatch):
+    monkeypatch.setattr(parse_reconcile, "weknora_enabled", lambda: True)
+    version = await _new_version(db_session, doc_id="fenced-claim", parse_status="processing")
+
+    class ReclaimedClient:
+        async def get_knowledge(self, knowledge_id, **kwargs):
+            version.parse_reconcile_token = "new-worker"
+            version.parse_reconcile_until = _now() + timedelta(minutes=2)
+            await db_session.commit()
+            return {"parse_status": "completed"}
+
+    result = await parse_reconcile.reconcile_parse_statuses(db_session, ReclaimedClient())
+    await db_session.refresh(version)
+    assert result["updated"] == 0
+    assert version.weknora_parse_status == "processing"
+    assert version.parse_reconcile_token == "new-worker"
+
+
+async def test_parse_reconcile_timeout_releases_claim(db_session, monkeypatch):
+    import asyncio
+
+    monkeypatch.setattr(parse_reconcile, "weknora_enabled", lambda: True)
+    monkeypatch.setattr(parse_reconcile, "_REQUEST_TIMEOUT_SECONDS", 0.01)
+    version = await _new_version(db_session, doc_id="timeout-claim", parse_status="processing")
+
+    class SlowClient:
+        async def get_knowledge(self, knowledge_id, **kwargs):
+            await asyncio.sleep(10)
+
+    result = await parse_reconcile.reconcile_parse_statuses(db_session, SlowClient())
+    await db_session.refresh(version)
+    assert result["failed"] == 1
+    assert version.parse_reconcile_token is None
+
+
+async def test_parse_reconcile_discards_response_after_binding_changed(db_session, monkeypatch):
+    monkeypatch.setattr(parse_reconcile, "weknora_enabled", lambda: True)
+    version = await _new_version(db_session, doc_id="old-binding", parse_status="processing")
+
+    class ReboundClient:
+        async def get_knowledge(self, knowledge_id, **kwargs):
+            version.weknora_doc_id = "new-binding"
+            await db_session.commit()
+            return {"parse_status": "completed"}
+
+    result = await parse_reconcile.reconcile_parse_statuses(db_session, ReboundClient())
+    await db_session.refresh(version)
+    assert result["updated"] == 0
+    assert version.weknora_parse_status == "processing"
+    assert version.weknora_doc_id == "new-binding"
+
+
+async def test_parse_reconcile_does_not_overwrite_concurrent_terminal_state(
+    db_session, monkeypatch
+):
+    monkeypatch.setattr(parse_reconcile, "weknora_enabled", lambda: True)
+    version = await _new_version(db_session, doc_id="terminal-race", parse_status="pending")
+
+    class CompletedClient:
+        async def get_knowledge(self, knowledge_id, **kwargs):
+            version.weknora_parse_status = "completed"
+            await db_session.commit()
+            return {"parse_status": "processing"}
+
+    result = await parse_reconcile.reconcile_parse_statuses(db_session, CompletedClient())
+    await db_session.refresh(version)
+    assert result["updated"] == 0
+    assert version.weknora_parse_status == "completed"
+
+
 async def test_parse_reconcile_requires_age_and_consecutive_failure_evidence(
     db_session, monkeypatch
 ):

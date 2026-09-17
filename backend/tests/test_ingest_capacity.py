@@ -19,6 +19,7 @@ class Gate:
                 status="processing",
                 processing_stage="text_extraction",
                 source_file_name=name,
+                source_file_mime_type=None,
             )
         )
 
@@ -37,7 +38,12 @@ async def test_capacity_denial_does_not_enter_heavy_pool(monkeypatch):
     monkeypatch.setattr(
         ingest_capacity,
         "get_settings",
-        lambda: SimpleNamespace(ingest_processing_window=2, ingest_heavy_processing_window=1),
+        lambda: SimpleNamespace(
+            ingest_processing_window=2,
+            ingest_heavy_processing_window=1,
+            celery_default_queue="default",
+            celery_ocr_queue="ocr",
+        ),
     )
     gate = Gate([False, False])
     async with ingest_capacity.processing_slot(lambda: gate, uuid4()) as admitted:
@@ -51,7 +57,12 @@ async def test_heavy_capacity_denial_releases_general_slot(monkeypatch):
     monkeypatch.setattr(
         ingest_capacity,
         "get_settings",
-        lambda: SimpleNamespace(ingest_processing_window=2, ingest_heavy_processing_window=1),
+        lambda: SimpleNamespace(
+            ingest_processing_window=2,
+            ingest_heavy_processing_window=1,
+            celery_default_queue="default",
+            celery_ocr_queue="ocr",
+        ),
     )
     gate = Gate([True, False])
     async with ingest_capacity.processing_slot(lambda: gate, uuid4()) as admitted:

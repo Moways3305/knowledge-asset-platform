@@ -1,8 +1,10 @@
-# OCR 队列与事故恢复运行手册
+# 重型解析/OCR 队列与事故恢复运行手册
 
-生产 OCR worker 固定消费 `ocr` 队列，使用 `prefork`；2 GiB 容器的默认预算是
+生产重型解析 worker 固定消费 `ocr` 队列，使用 `prefork`。DOCX/PPTX/XLSX、PDF、图片、
+旧版 Office 和未知二进制格式都进入此队列；纯文本及内容生成续作留在轻量 `default` 队列。
+2 GiB 容器的默认预算是
 `concurrency=1`、`prefetch_multiplier=1`、`max_tasks_per_child=4`、
-`max_memory_per_child=700000 KiB`。普通 worker 只消费 `default`，因此 OCR 积压不会阻塞
+`max_memory_per_child=700000 KiB`。普通 worker 只消费 `default`，因此重型解析积压不会阻塞
 通知、扫描、对账和恢复扫描。并发与容器内存必须一起压测，禁止只提高并发。
 
 任务被 OOM、SIGKILL 或容器重启打断后，beat 每分钟在 `default` 队列触发业务租约扫描。
@@ -28,4 +30,4 @@ python -m app.commands.recover_ocr_incident --apply --confirm-ocr-ready \
 ```
 
 命令最多处理 31 条、默认批间隔 15 秒；若检测到新的 `oom_kill` 会停止后续批次。恢复期间同时
-观察 `docker stats`、`memory.events`、Redis `ocr` 队列长度、成功率、单页/整份 OCR 时延和安全错误码。
+观察 `docker stats`、`memory.events`、Redis `ocr` 队列长度、成功率、Office/PDF/OCR 时延和安全错误码。

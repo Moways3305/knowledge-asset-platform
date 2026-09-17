@@ -68,6 +68,7 @@ export function useUploadIntake({
 }: UploadIntakeOptions) {
   const [localUploadQueue, setLocalUploadQueue] = useState<LocalUploadQueueItem[]>([]);
   const [uploadSession, setUploadSession] = useState<UploadSessionDTO | null>(null);
+  const sessionTaskIdsRef = useRef(new Set<string>());
   const [folderDropNotice, setFolderDropNotice] = useState<string | null>(null);
   const [intakeFeedback, setIntakeFeedback] = useState<UploadIntakeFeedback | null>(null);
   const [pendingSelection, setPendingSelection] = useState<{
@@ -109,6 +110,9 @@ export function useUploadIntake({
 
   const applyUploadSession = useCallback((value: UploadSessionDTO) => {
     setUploadSession(value);
+    sessionTaskIdsRef.current = new Set(
+      value.items.flatMap((item) => (item.ingest_task_id ? [item.ingest_task_id] : [])),
+    );
     const previous = localUploadQueueRef.current;
     const next: LocalUploadQueueItem[] = value.items.map((item) => {
       const local =
@@ -375,25 +379,36 @@ export function useUploadIntake({
       return;
     }
     let active = true;
-    let inFlight = false;
+    let inFlight: AbortController | null = null;
+    let deadline: number | undefined;
     const refresh = async () => {
-      if (inFlight) return;
-      inFlight = true;
+      if (!active || inFlight) return;
+      const controller = new AbortController();
+      inFlight = controller;
+      const timeout = window.setTimeout(() => {
+        controller.abort();
+        if (inFlight === controller) inFlight = null;
+      }, 30_000);
+      deadline = timeout;
       try {
-        const next = await fetchUploadSession(uploadSession.id);
-        if (!active) return;
+        const next = await fetchUploadSession(uploadSession.id, controller.signal);
+        if (!active || controller.signal.aborted) return;
         applyUploadSession(next);
         if (next.completed_files > uploadSession.completed_files) void loadLocalPending();
       } catch {
         // Keep the last server-confirmed states; a later poll can recover.
       } finally {
-        inFlight = false;
+        window.clearTimeout(timeout);
+        if (inFlight === controller) inFlight = null;
       }
     };
     const timer = window.setInterval(() => void refresh(), POLL_INTERVAL_MS);
     return () => {
       active = false;
       window.clearInterval(timer);
+      window.clearTimeout(deadline);
+      inFlight?.abort();
+      inFlight = null;
     };
   }, [activePath, applyUploadSession, loadLocalPending, uploadSession]);
 
@@ -460,7 +475,10 @@ export function useUploadIntake({
     if (localStatusPollingRef.current) return;
     const runId = localStatusPollRunRef.current;
     const processing = localUploadQueueRef.current.filter(
-      (item) => item.status === "processing" && item.ingestTaskId,
+      (item) =>
+        item.status === "processing" &&
+        item.ingestTaskId &&
+        !sessionTaskIdsRef.current.has(item.ingestTaskId),
     );
     if (!processing.length) return;
     localStatusPollingRef.current = true;

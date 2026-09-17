@@ -157,7 +157,7 @@ services:
           cpus: "1.5"
           memory: 1G
 
-  # 普通 Celery worker：只消费 default，不执行 PDF 渲染/Tesseract。
+  # 轻量 Celery worker：只消费 default；不运行 Office/PDF/图片及未知二进制解析。
   worker:
     build: ./backend
     restart: unless-stopped
@@ -194,8 +194,8 @@ services:
           cpus: "1.0"
           memory: ${INGEST_WORKER_MEMORY_LIMIT:-4G}
 
-  # OCR 专用 prefork worker。2GiB 容器内默认只跑 1 个子进程、只预取 1 个任务；
-  # 每 4 份文件或子进程 RSS 超过约 700MiB 后回收，抑制 PyMuPDF/Tesseract 累计驻留。
+  # 重型解析/OCR prefork worker。DOCX/PPTX/XLSX、PDF、图片和旧版 Office 均走此队列。
+  # 2GiB 容器内默认只跑 1 个子进程、只预取 1 个任务；每 4 份文件或 RSS 超限后回收。
   # 不得改成 gevent/eventlet。提升 concurrency 前必须同步压测并调整 memory limit。
   ocr_worker:
     build: ./backend

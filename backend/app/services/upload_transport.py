@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +32,20 @@ from app.services.upload_session_types import (
 def _ensure_session_not_cancelled(value: UploadSession) -> None:
     if value.status == "cancelled":
         raise _denied(409, "upload_session_cancelled", "上传会话已取消")
+
+
+@dataclass
+class UploadPersistence:
+    """Once COMMIT starts, its outcome may be unknown; never unlink its files."""
+
+    commit_started: bool = False
+
+
+async def _commit_upload(session: AsyncSession, persistence: UploadPersistence | None) -> None:
+    await session.flush()
+    if persistence is not None:
+        persistence.commit_started = True
+    await session.commit()
 
 
 async def initialize_transport_session(
@@ -99,10 +114,13 @@ async def append_transport_batch(
     batch_id: str,
     batch_index: int,
     candidates: list[tuple[uuid.UUID, UploadCandidate]],
+    persistence: UploadPersistence | None = None,
 ) -> UploadSession:
     authorize_create(caller)
     if not 1 <= len(candidates) <= TRANSPORT_BATCH_MAX_FILES:
         raise _denied(422, "invalid_transport_batch_count", "每个上传批次最多包含 10 个文件")
+    if any(candidate.file_size <= 0 for _, candidate in candidates):
+        raise _denied(422, "empty_file", "不能上传空文件")
     raw_bytes = sum(candidate.file_size for _, candidate in candidates)
     if raw_bytes > TRANSPORT_BATCH_MAX_BYTES and not (
         len(candidates) == 1 and raw_bytes <= SINGLE_FILE_MAX_BYTES
@@ -170,7 +188,7 @@ async def append_transport_batch(
         )
     )
     value.next_transport_batch_index += 1
-    await session.commit()
+    await _commit_upload(session, persistence)
     return value
 
 
@@ -183,9 +201,9 @@ async def preflight_transport_batch(
     batch_index: int,
     manifest: list[tuple[uuid.UUID, str, int]],
 ) -> bool:
-    """Lock and validate ordering/manifest before any browser bytes are persisted."""
+    """Read-only preflight; attachment rechecks ordering/manifest under lock."""
     authorize_create(caller)
-    value = await _load_owned_session(session, caller, session_id, lock=True)
+    value = await _load_owned_session(session, caller, session_id)
     _ensure_session_not_cancelled(value)
     existing = await session.scalar(
         select(UploadTransportBatch).where(
@@ -280,17 +298,19 @@ async def fail_transport_items(
     return value
 
 
-async def replace_transport_item_bytes(
+async def preflight_transport_item(
     session: AsyncSession,
     caller: CallerContext,
     *,
     session_id: uuid.UUID,
     item_id: uuid.UUID,
-    candidate: UploadCandidate,
-) -> UploadSession:
-    """Atomically attach reselected browser bytes to one manifest row."""
+    file_name: str,
+    file_size: int,
+    lock: bool = False,
+) -> tuple[UploadSession, UploadSessionItem]:
+    """Authorize replacement before reading bytes; repeated under lock on attachment."""
     authorize_create(caller)
-    value = await _load_owned_session(session, caller, session_id, lock=True)
+    value = await _load_owned_session(session, caller, session_id, lock=lock)
     _ensure_session_not_cancelled(value)
     if value.upload_completed:
         raise _denied(409, "upload_session_already_completed", "上传会话已完成")
@@ -300,14 +320,37 @@ async def replace_transport_item_bytes(
     if item.status == "cancelled":
         raise _denied(409, "upload_item_cancelled", "上传文件已取消")
     if item.ingest_task_id is not None:
-        return value
-    if (
-        candidate.file_size != item.file_size
-        or _display_name(candidate.file_name) != item.file_name
-    ):
+        return value, item
+    if file_size <= 0:
+        raise _denied(422, "empty_file", "不能上传空文件")
+    if file_size != item.file_size or _display_name(file_name) != item.file_name:
         raise _denied(422, "upload_item_manifest_mismatch", "重新选择的文件与原清单不一致")
-    if candidate.file_size > SINGLE_FILE_MAX_BYTES:
+    if file_size > SINGLE_FILE_MAX_BYTES:
         raise _denied(413, "file_too_large", "文件超过 100 MB")
+    return value, item
+
+
+async def replace_transport_item_bytes(
+    session: AsyncSession,
+    caller: CallerContext,
+    *,
+    session_id: uuid.UUID,
+    item_id: uuid.UUID,
+    candidate: UploadCandidate,
+    persistence: UploadPersistence | None = None,
+) -> UploadSession:
+    """Atomically attach reselected browser bytes to one manifest row."""
+    value, item = await preflight_transport_item(
+        session,
+        caller,
+        session_id=session_id,
+        item_id=item_id,
+        file_name=candidate.file_name,
+        file_size=candidate.file_size,
+        lock=True,
+    )
+    if item.ingest_task_id is not None:
+        return value
     if candidate.storage_ref is None or candidate.content_hash is None:
         raise _denied(422, "upload_bytes_unavailable", "文件字节未安全保存")
     # A newly selected file owns its metadata. Missing metadata must clear stale
@@ -329,7 +372,7 @@ async def replace_transport_item_bytes(
     item.status = "waiting"
     item.safe_error_code = None
     item.safe_error_message = None
-    await session.commit()
+    await _commit_upload(session, persistence)
     return value
 
 

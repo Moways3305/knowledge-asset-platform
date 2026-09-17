@@ -1082,6 +1082,8 @@ describe("UploadStepB folder drop and batch rejection", () => {
   });
 
   it("keeps controls outside the scroll region with 213 long-name review rows", async () => {
+    const height = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(700);
+    const width = vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(1100);
     const longName = `${"超长项目资料文件名".repeat(12)}.pdf`;
     const tasks = Array.from({ length: 213 }, (_, index) => ({
       ...pending(`bulk-${index}`, `${index}-${longName}`),
@@ -1127,7 +1129,9 @@ describe("UploadStepB folder drop and batch rejection", () => {
     fireEvent.click(screen.getByRole("button", { name: "下一步：核对命名" }));
 
     await waitFor(() => {
-      expect(document.querySelectorAll(".upload77-batch-naming-row")).toHaveLength(213);
+      const count = document.querySelectorAll(".upload77-batch-naming-row").length;
+      expect(count).toBeGreaterThan(0);
+      expect(count).toBeLessThan(12);
     });
     const dialog = screen.getByRole("dialog", { name: "逐条核对 213 项规范命名" });
     const scrollRegion = dialog.querySelector(".upload77-batch-naming-scroll");
@@ -1143,6 +1147,8 @@ describe("UploadStepB folder drop and batch rejection", () => {
       "2026-08-02",
     );
     expect(screen.getAllByText(/可确认 0\/213 条/).length).toBeGreaterThan(0);
+    height.mockRestore();
+    width.mockRestore();
   });
 
   it("selects all actionable rows, exposes half-selected state, and excludes disabled rows", async () => {

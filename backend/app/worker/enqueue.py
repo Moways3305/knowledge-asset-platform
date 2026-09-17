@@ -20,6 +20,11 @@ from app.core.config import get_settings
 from app.services.desensitization import DesensitizationEngine
 from app.services.llm_client import LLMClient, NullLLMClient
 from app.services.storage import LocalFileStorage
+from app.worker.queues import (
+    ingest_processing_queue,
+    is_content_generation_stage,
+    is_ocr_candidate,
+)
 
 
 async def enqueue_outbox_delivery(session: AsyncSession) -> None:
@@ -63,38 +68,23 @@ async def enqueue_ingest_processing(
         await session.execute(select(IngestTask).where(IngestTask.id == task_id))
     ).scalar_one_or_none()
     settings = get_settings()
-    # PDF/image rendering is always isolated, even if a particular PDF later proves to have
-    # native text. This keeps memory-heavy format inspection away from ordinary jobs.
-    mime = (task.source_file_mime_type or "").lower() if task else ""
-    name = (task.source_file_name or "").lower() if task else ""
-    content_only_stage = bool(
-        task
-        and task.processing_stage
-        in {
-            "canonical_markdown_generation",
-            "content_generation_queued",
-            "content_generation",
-            "content_generation_failed",
-            "waiting_generation_config",
-        }
+    queue = ingest_processing_queue(
+        settings,
+        file_name=task.source_file_name if task else None,
+        mime_type=task.source_file_mime_type if task else None,
+        processing_stage=task.processing_stage if task else None,
     )
-    heavy = not content_only_stage and (
-        mime == "application/pdf"
-        or mime.startswith("image/")
-        or mime
-        in {"application/msword", "application/vnd.ms-powerpoint", "application/vnd.ms-excel"}
-        or name.endswith(
-            (".xls", ".doc", ".ppt", ".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp")
-        )
-    )
-    queue = settings.celery_ocr_queue if heavy else settings.celery_default_queue
     if task is not None:
         task.status = "processing"
         task.processing_stage = (
             "ocr_queued"
-            if heavy
+            if queue == settings.celery_ocr_queue
+            and is_ocr_candidate(
+                file_name=task.source_file_name,
+                mime_type=task.source_file_mime_type,
+            )
             else task.processing_stage
-            if content_only_stage
+            if is_content_generation_stage(task.processing_stage)
             else "text_extraction"
         )
         await session.commit()

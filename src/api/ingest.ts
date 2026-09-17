@@ -217,8 +217,11 @@ export async function fetchUploadSessions(): Promise<UploadSessionDTO[]> {
   return data.items;
 }
 
-export async function fetchUploadSession(sessionId: string): Promise<UploadSessionDTO> {
-  return apiGet<UploadSessionDTO>(`/api/v1/ingest/upload-sessions/${sessionId}`);
+export async function fetchUploadSession(
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<UploadSessionDTO> {
+  return apiGet<UploadSessionDTO>(`/api/v1/ingest/upload-sessions/${sessionId}`, signal);
 }
 
 export async function retryUploadSessionItem(

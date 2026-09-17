@@ -1,4 +1,5 @@
-import type { Dispatch, SetStateAction } from "react";
+import { useMemo, useRef, type Dispatch, type SetStateAction } from "react";
+import VirtualReviewList from "./VirtualReviewList";
 import { Check, Trash2 } from "lucide-react";
 import type { PendingIngestItemDTO } from "../../types/ingest";
 import type { BatchNamingValuesDTO, NamingOptionsDTO } from "../../types/naming";
@@ -103,6 +104,12 @@ export default function PendingBatchNamingReview(props: Props) {
     onDuplicateDecision,
   } = props;
 
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const ordinals = useMemo(
+    () => new Map(selectedConfirmTasks.map((task, index) => [task.id, index + 1])),
+    [selectedConfirmTasks],
+  );
+
   return (
     <div className="upload77-batch-naming-review">
       <div className="upload77-batch-naming-toolbar">
@@ -149,7 +156,7 @@ export default function PendingBatchNamingReview(props: Props) {
           </button>
         ))}
       </div>
-      <div className="upload77-batch-naming-scroll">
+      <div className="upload77-batch-naming-scroll" ref={scrollRef}>
         {skippedDuplicateItems.length > 0 && (
           <section className="upload77-batch-completed" aria-label="本次跳过的重复资料">
             <h4>本次不入库（{skippedDuplicateItems.length}）</h4>
@@ -222,278 +229,286 @@ export default function PendingBatchNamingReview(props: Props) {
               : "当前筛选下没有资料"}
           </div>
         )}
-        {visibleConfirmTasks.map((task) => {
-          const row = rows[task.id];
-          const preview = previews[task.id];
-          if (!row) return null;
-          const localError = rowMissing(row, company);
-          const serverError = previewError(preview);
-          const fieldError = localError ?? serverError;
-          return (
-            <article className="upload77-batch-naming-row" key={task.id}>
-              <header>
-                <strong title={task.source_file_name}>
-                  {selectedConfirmTasks.indexOf(task) + 1}. {task.source_file_name}
-                </strong>
-                <div className="upload77-batch-naming-row-actions">
-                  <span>
-                    {statesByTask[task.id] === "reviewed"
-                      ? "已核对"
-                      : statesByTask[task.id] === "ai_ready"
-                        ? "可确认"
-                        : statesByTask[task.id] === "exception"
-                          ? "异常/重复"
-                          : (localError?.message ?? "待生成有效预览")}
-                  </span>
-                  <button
-                    className="btn-secondary"
-                    onClick={() => void loadAiReview(task)}
-                    type="button"
-                  >
-                    查看 AI 提取
-                  </button>
-                  <button
-                    aria-label={`确认入库 ${task.source_file_name}`}
-                    className="btn-primary upload77-batch-confirm-one"
-                    disabled={
-                      flow.batchBusy ||
-                      deletingTaskId !== null ||
-                      Boolean(rowMissing(row, company)) ||
-                      !preview?.submittable ||
-                      statesByTask[task.id] === "exception" ||
-                      previewBusyByTask[task.id]
-                    }
-                    onClick={() => setConfirmCandidate(task)}
-                    type="button"
-                  >
-                    <Check aria-hidden="true" size={14} />
-                    确认入库
-                  </button>
-                  <button
-                    aria-label={`删除 ${task.source_file_name}`}
-                    className="upload77-batch-delete"
-                    disabled={
-                      !task.can_batch_reject ||
-                      flow.batchBusy ||
-                      confirmingTaskId !== null ||
-                      deletingTaskId === task.id
-                    }
-                    onClick={() => {
-                      setDeleteFeedback((current) => {
-                        const next = { ...current };
-                        delete next[task.id];
-                        return next;
-                      });
-                      setDeleteCandidate(task);
-                    }}
-                    title={task.can_batch_reject ? "永久删除错误上传资料" : "当前资料不能永久删除"}
-                    type="button"
-                  >
-                    <Trash2 aria-hidden="true" size={14} />
-                    删除
-                  </button>
-                </div>
-              </header>
-              <DuplicateComparisonPopover
-                duplicate={preview?.duplicate}
-                current={{
-                  fileName: task.source_file_name,
-                  fileSize: task.source_file_size,
-                  scopeLabel: targetLibrary === "company" ? "公司知识库" : "当前项目库",
-                  directory: row.directory_key ? directoryLabel(row.directory_key) : null,
-                  subject: row.subject,
-                  formedOn: row.formed_on,
-                  version: row.version,
-                }}
-                busy={duplicateDecisionTaskId === task.id}
-                onSkip={() => void onDuplicateDecision(task, "skip")}
-                onIndependent={() => void onDuplicateDecision(task, "independent")}
-                onKeep={() => void onDuplicateDecision(task, "keep")}
-              />
-              {deleteFeedback[task.id] && (
-                <div className="upload77-batch-delete-error" role="alert">
-                  <span>{deleteFeedback[task.id].message}</span>
-                  {deleteFeedback[task.id].retryable && (
-                    <button onClick={() => setDeleteCandidate(task)} type="button">
-                      重试删除
+        <VirtualReviewList
+          items={visibleConfirmTasks}
+          scrollRef={scrollRef}
+          resetKey={reviewFilter}
+        >
+          {(task) => {
+            const row = rows[task.id];
+            const preview = previews[task.id];
+            if (!row) return null;
+            const localError = rowMissing(row, company);
+            const serverError = previewError(preview);
+            const fieldError = localError ?? serverError;
+            return (
+              <article className="upload77-batch-naming-row" key={task.id}>
+                <header>
+                  <strong title={task.source_file_name}>
+                    {ordinals.get(task.id)}. {task.source_file_name}
+                  </strong>
+                  <div className="upload77-batch-naming-row-actions">
+                    <span>
+                      {statesByTask[task.id] === "reviewed"
+                        ? "已核对"
+                        : statesByTask[task.id] === "ai_ready"
+                          ? "可确认"
+                          : statesByTask[task.id] === "exception"
+                            ? "异常/重复"
+                            : (localError?.message ?? "待生成有效预览")}
+                    </span>
+                    <button
+                      className="btn-secondary"
+                      onClick={() => void loadAiReview(task)}
+                      type="button"
+                    >
+                      查看 AI 提取
                     </button>
-                  )}
-                </div>
-              )}
-              <div className="upload77-batch-naming-grid">
-                <label>
-                  <span>主题</span>
-                  <input
-                    aria-label={`${task.source_file_name} 主题`}
-                    value={row.subject}
-                    onChange={(event) => updateRow(task.id, { subject: event.target.value })}
-                  />
-                  {fieldError?.field === "subject" && (
-                    <small className="upload77-batch-naming-error">{fieldError.message}</small>
-                  )}
-                </label>
-                <label>
-                  <span>正式目录</span>
-                  <select
-                    aria-label={`${task.source_file_name} 正式目录`}
-                    value={row.directory_key}
-                    onChange={(event) => {
-                      const directoryKey = event.target.value;
-                      updateRow(task.id, {
-                        directory_key: directoryKey,
-                      });
-                    }}
-                  >
-                    <option value="">请选择</option>
-                    {(options?.directories ?? [])
-                      .filter((directory) => directory.scope === targetLibrary)
-                      .map((directory) => (
-                        <option key={directory.directory_key} value={directory.directory_key}>
-                          {directory.display_name}
-                        </option>
-                      ))}
-                  </select>
-                  {fieldError?.field === "directory_key" && (
-                    <small className="upload77-batch-naming-error">{fieldError.message}</small>
-                  )}
-                  <small className="upload77-batch-naming-notice">
-                    该目录将作为资产归属与规范命名的唯一依据。
-                  </small>
-                </label>
-                <label>
-                  <span>文件最后修改日期</span>
-                  <input
-                    aria-label={`${task.source_file_name} 文件最后修改日期`}
-                    type="date"
-                    value={row.formed_on}
-                    onChange={(event) => updateRow(task.id, { formed_on: event.target.value })}
-                  />
-                  {fieldError?.field === "formed_on" && (
-                    <small className="upload77-batch-naming-error">{fieldError.message}</small>
-                  )}
-                </label>
-                <label>
-                  <span>版本</span>
-                  <input
-                    aria-label={`${task.source_file_name} 版本`}
-                    placeholder="V1"
-                    value={row.version}
-                    onChange={(event) =>
-                      updateRow(task.id, { version: event.target.value.toUpperCase() })
-                    }
-                  />
-                  {fieldError?.field === "version" && (
-                    <small className="upload77-batch-naming-error">{fieldError.message}</small>
-                  )}
-                  <small
-                    className={`upload77-batch-naming-source ${
-                      row.version !== suggestedVersion(task) ||
-                      task.version_source === "default_needs_confirmation" ||
-                      !task.version_source
-                        ? "is-manual"
-                        : ""
-                    }`}
-                  >
-                    {row.version !== suggestedVersion(task)
-                      ? "已人工修改"
-                      : task.version_source === "source_filename"
-                        ? "来自源文件"
-                        : task.version_source === "ai_content"
-                          ? "AI 建议"
-                          : "规则默认，需核对"}
-                  </small>
-                </label>
-                {company && (
-                  <label>
-                    <span>适用对象</span>
-                    <input
-                      aria-label={`${task.source_file_name} 适用对象`}
-                      value={row.applicable_to ?? ""}
-                      onChange={(event) =>
-                        updateRow(task.id, { applicable_to: event.target.value })
+                    <button
+                      aria-label={`确认入库 ${task.source_file_name}`}
+                      className="btn-primary upload77-batch-confirm-one"
+                      disabled={
+                        flow.batchBusy ||
+                        deletingTaskId !== null ||
+                        Boolean(rowMissing(row, company)) ||
+                        !preview?.submittable ||
+                        statesByTask[task.id] === "exception" ||
+                        previewBusyByTask[task.id]
                       }
+                      onClick={() => setConfirmCandidate(task)}
+                      type="button"
+                    >
+                      <Check aria-hidden="true" size={14} />
+                      确认入库
+                    </button>
+                    <button
+                      aria-label={`删除 ${task.source_file_name}`}
+                      className="upload77-batch-delete"
+                      disabled={
+                        !task.can_batch_reject ||
+                        flow.batchBusy ||
+                        confirmingTaskId !== null ||
+                        deletingTaskId === task.id
+                      }
+                      onClick={() => {
+                        setDeleteFeedback((current) => {
+                          const next = { ...current };
+                          delete next[task.id];
+                          return next;
+                        });
+                        setDeleteCandidate(task);
+                      }}
+                      title={
+                        task.can_batch_reject ? "永久删除错误上传资料" : "当前资料不能永久删除"
+                      }
+                      type="button"
+                    >
+                      <Trash2 aria-hidden="true" size={14} />
+                      删除
+                    </button>
+                  </div>
+                </header>
+                <DuplicateComparisonPopover
+                  duplicate={preview?.duplicate}
+                  current={{
+                    fileName: task.source_file_name,
+                    fileSize: task.source_file_size,
+                    scopeLabel: targetLibrary === "company" ? "公司知识库" : "当前项目库",
+                    directory: row.directory_key ? directoryLabel(row.directory_key) : null,
+                    subject: row.subject,
+                    formedOn: row.formed_on,
+                    version: row.version,
+                  }}
+                  busy={duplicateDecisionTaskId === task.id}
+                  onSkip={() => void onDuplicateDecision(task, "skip")}
+                  onIndependent={() => void onDuplicateDecision(task, "independent")}
+                  onKeep={() => void onDuplicateDecision(task, "keep")}
+                />
+                {deleteFeedback[task.id] && (
+                  <div className="upload77-batch-delete-error" role="alert">
+                    <span>{deleteFeedback[task.id].message}</span>
+                    {deleteFeedback[task.id].retryable && (
+                      <button onClick={() => setDeleteCandidate(task)} type="button">
+                        重试删除
+                      </button>
+                    )}
+                  </div>
+                )}
+                <div className="upload77-batch-naming-grid">
+                  <label>
+                    <span>主题</span>
+                    <input
+                      aria-label={`${task.source_file_name} 主题`}
+                      value={row.subject}
+                      onChange={(event) => updateRow(task.id, { subject: event.target.value })}
                     />
-                    {fieldError?.field === "applicable_to" && (
+                    {fieldError?.field === "subject" && (
                       <small className="upload77-batch-naming-error">{fieldError.message}</small>
                     )}
                   </label>
-                )}
-                <label>
-                  <span>密级</span>
-                  <select
-                    aria-label={`${task.source_file_name} 密级`}
-                    value={row.confidentiality_level}
-                    onChange={(event) =>
-                      updateRow(task.id, { confidentiality_level: event.target.value })
-                    }
-                  >
-                    <option value="">请选择密级（AI 无可靠结论时需人工确认）</option>
-                    {["L1", "L2", "L3", "L4", "L5"].map((level) => (
-                      <option key={level}>{level}</option>
-                    ))}
-                  </select>
-                  <small
-                    className={`upload77-batch-naming-source ${
-                      row.confidentiality_level !== suggestedConfidentiality(task, options!) ||
-                      !hasReliableAiConfidentiality(task)
-                        ? "is-manual"
-                        : ""
-                    }`}
-                    title={task.confidentiality_reason ?? undefined}
-                  >
-                    {row.confidentiality_level !== suggestedConfidentiality(task, options!)
-                      ? "已人工修改"
-                      : hasReliableAiConfidentiality(task)
-                        ? `AI 内容建议 · ${
-                            task.confidentiality_confidence === "high" ? "高" : "中"
-                          }置信度`
-                        : "AI 未可靠判断，请人工选择"}
-                  </small>
-                </label>
-              </div>
-              <div
-                className="upload77-batch-naming-preview"
-                title={preview?.canonical_name ?? undefined}
-              >
-                <strong>规范名预览：</strong>
-                {rowMissing(row, company)?.message
-                  ? `${rowMissing(row, company)!.message}后生成规范名`
-                  : previewBusyByTask[task.id]
-                    ? "正在按当前填写内容生成…"
-                    : (preview?.canonical_name ?? "正在准备规范名预览")}
-              </div>
-              {previewFeedback[task.id] && (
-                <div className="upload77-batch-naming-error" role="alert">
-                  {previewFeedback[task.id]}
-                  {!localError && (
-                    <button
-                      className="upload77-batch-preview-retry"
-                      onClick={() => scheduleRowPreview(task.id, row)}
-                      type="button"
+                  <label>
+                    <span>正式目录</span>
+                    <select
+                      aria-label={`${task.source_file_name} 正式目录`}
+                      value={row.directory_key}
+                      onChange={(event) => {
+                        const directoryKey = event.target.value;
+                        updateRow(task.id, {
+                          directory_key: directoryKey,
+                        });
+                      }}
                     >
-                      重试预览
-                    </button>
+                      <option value="">请选择</option>
+                      {(options?.directories ?? [])
+                        .filter((directory) => directory.scope === targetLibrary)
+                        .map((directory) => (
+                          <option key={directory.directory_key} value={directory.directory_key}>
+                            {directory.display_name}
+                          </option>
+                        ))}
+                    </select>
+                    {fieldError?.field === "directory_key" && (
+                      <small className="upload77-batch-naming-error">{fieldError.message}</small>
+                    )}
+                    <small className="upload77-batch-naming-notice">
+                      该目录将作为资产归属与规范命名的唯一依据。
+                    </small>
+                  </label>
+                  <label>
+                    <span>文件最后修改日期</span>
+                    <input
+                      aria-label={`${task.source_file_name} 文件最后修改日期`}
+                      type="date"
+                      value={row.formed_on}
+                      onChange={(event) => updateRow(task.id, { formed_on: event.target.value })}
+                    />
+                    {fieldError?.field === "formed_on" && (
+                      <small className="upload77-batch-naming-error">{fieldError.message}</small>
+                    )}
+                  </label>
+                  <label>
+                    <span>版本</span>
+                    <input
+                      aria-label={`${task.source_file_name} 版本`}
+                      placeholder="V1"
+                      value={row.version}
+                      onChange={(event) =>
+                        updateRow(task.id, { version: event.target.value.toUpperCase() })
+                      }
+                    />
+                    {fieldError?.field === "version" && (
+                      <small className="upload77-batch-naming-error">{fieldError.message}</small>
+                    )}
+                    <small
+                      className={`upload77-batch-naming-source ${
+                        row.version !== suggestedVersion(task) ||
+                        task.version_source === "default_needs_confirmation" ||
+                        !task.version_source
+                          ? "is-manual"
+                          : ""
+                      }`}
+                    >
+                      {row.version !== suggestedVersion(task)
+                        ? "已人工修改"
+                        : task.version_source === "source_filename"
+                          ? "来自源文件"
+                          : task.version_source === "ai_content"
+                            ? "AI 建议"
+                            : "规则默认，需核对"}
+                    </small>
+                  </label>
+                  {company && (
+                    <label>
+                      <span>适用对象</span>
+                      <input
+                        aria-label={`${task.source_file_name} 适用对象`}
+                        value={row.applicable_to ?? ""}
+                        onChange={(event) =>
+                          updateRow(task.id, { applicable_to: event.target.value })
+                        }
+                      />
+                      {fieldError?.field === "applicable_to" && (
+                        <small className="upload77-batch-naming-error">{fieldError.message}</small>
+                      )}
+                    </label>
                   )}
+                  <label>
+                    <span>密级</span>
+                    <select
+                      aria-label={`${task.source_file_name} 密级`}
+                      value={row.confidentiality_level}
+                      onChange={(event) =>
+                        updateRow(task.id, { confidentiality_level: event.target.value })
+                      }
+                    >
+                      <option value="">请选择密级（AI 无可靠结论时需人工确认）</option>
+                      {["L1", "L2", "L3", "L4", "L5"].map((level) => (
+                        <option key={level}>{level}</option>
+                      ))}
+                    </select>
+                    <small
+                      className={`upload77-batch-naming-source ${
+                        row.confidentiality_level !== suggestedConfidentiality(task, options!) ||
+                        !hasReliableAiConfidentiality(task)
+                          ? "is-manual"
+                          : ""
+                      }`}
+                      title={task.confidentiality_reason ?? undefined}
+                    >
+                      {row.confidentiality_level !== suggestedConfidentiality(task, options!)
+                        ? "已人工修改"
+                        : hasReliableAiConfidentiality(task)
+                          ? `AI 内容建议 · ${
+                              task.confidentiality_confidence === "high" ? "高" : "中"
+                            }置信度`
+                          : "AI 未可靠判断，请人工选择"}
+                    </small>
+                  </label>
                 </div>
-              )}
-              {serverError?.field === null && (
-                <div className="upload77-batch-naming-error">
-                  <span>{serverError.message}</span>
+                <div
+                  className="upload77-batch-naming-preview"
+                  title={preview?.canonical_name ?? undefined}
+                >
+                  <strong>规范名预览：</strong>
+                  {rowMissing(row, company)?.message
+                    ? `${rowMissing(row, company)!.message}后生成规范名`
+                    : previewBusyByTask[task.id]
+                      ? "正在按当前填写内容生成…"
+                      : (preview?.canonical_name ?? "正在准备规范名预览")}
                 </div>
-              )}
-              {preview?.notices
-                .filter((notice) => notice.code !== "historical_naming_noncompliant")
-                .map((notice) => (
-                  <div
-                    className="upload77-batch-naming-notice"
-                    key={`${notice.kind}-${notice.message}`}
-                  >
-                    {notice.message}
+                {previewFeedback[task.id] && (
+                  <div className="upload77-batch-naming-error" role="alert">
+                    {previewFeedback[task.id]}
+                    {!localError && (
+                      <button
+                        className="upload77-batch-preview-retry"
+                        onClick={() => scheduleRowPreview(task.id, row)}
+                        type="button"
+                      >
+                        重试预览
+                      </button>
+                    )}
                   </div>
-                ))}
-            </article>
-          );
-        })}
+                )}
+                {serverError?.field === null && (
+                  <div className="upload77-batch-naming-error">
+                    <span>{serverError.message}</span>
+                  </div>
+                )}
+                {preview?.notices
+                  .filter((notice) => notice.code !== "historical_naming_noncompliant")
+                  .map((notice) => (
+                    <div
+                      className="upload77-batch-naming-notice"
+                      key={`${notice.kind}-${notice.message}`}
+                    >
+                      {notice.message}
+                    </div>
+                  ))}
+              </article>
+            );
+          }}
+        </VirtualReviewList>
       </div>
     </div>
   );

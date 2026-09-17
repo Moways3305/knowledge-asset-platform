@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Literal, cast
 
@@ -35,6 +36,153 @@ _HASH_TASK_STATES = {
     IngestStatus.waiting_review.value,
 }
 _NAMESPACE = uuid.UUID("d625311b-23d1-47c5-883c-b597272528ad")
+
+
+@dataclass
+class DuplicatePreviewRows:
+    """One caller/destination's read-only preview data; never used by confirmation."""
+
+    assets: dict[str, list[tuple[KnowledgeAsset, KnowledgeAssetVersion]]] = field(
+        default_factory=dict
+    )
+    tasks: dict[str, list[IngestTask]] = field(default_factory=dict)
+    items: dict[uuid.UUID, UploadSessionItem] = field(default_factory=dict)
+    groups: dict[tuple[uuid.UUID, str], list[tuple]] = field(default_factory=dict)
+    files: dict[uuid.UUID, KnowledgeAssetFileObject] = field(default_factory=dict)
+    summaries: dict[uuid.UUID, list[KnowledgeAssetSummary]] = field(default_factory=dict)
+    suspected: list[tuple[KnowledgeAsset, KnowledgeAssetVersion]] | None = None
+    details_loaded: set[uuid.UUID] = field(default_factory=set)
+    defer_suspected_details: bool = False
+    pending_details: list[
+        tuple[KnowledgeAsset, KnowledgeAssetVersion, DuplicateComparisonCandidate]
+    ] = field(default_factory=list)
+
+
+async def _preload_candidate_details(session, caller, rows, candidates):
+    candidates = [pair for pair in candidates if pair[1].id not in rows.details_loaded]
+    visible = {
+        version.id
+        for asset, version in candidates
+        if decide(caller, asset, AccessLayer.discovery).allowed
+    }
+    summary_visible = {
+        version.id
+        for asset, version in candidates
+        if version.id in visible and decide(caller, asset, AccessLayer.summary).allowed
+    }
+    if visible:
+        for item in (
+            await session.scalars(
+                select(KnowledgeAssetFileObject).where(
+                    KnowledgeAssetFileObject.version_id.in_(visible),
+                    KnowledgeAssetFileObject.file_variant == "original",
+                )
+            )
+        ).all():
+            rows.files.setdefault(item.version_id, item)
+    if summary_visible:
+        for item in (
+            await session.scalars(
+                select(KnowledgeAssetSummary).where(
+                    KnowledgeAssetSummary.version_id.in_(summary_visible)
+                )
+            )
+        ).all():
+            rows.summaries.setdefault(item.version_id, []).append(item)
+    rows.details_loaded.update(version.id for _, version in candidates)
+
+
+async def finish_duplicate_preview(session, caller, rows: DuplicatePreviewRows) -> None:
+    """Load only selected suspected matches, once for the entire batch."""
+    await _preload_candidate_details(
+        session, caller, rows, [(asset, version) for asset, version, _ in rows.pending_details]
+    )
+    for asset, version, candidate in rows.pending_details:
+        complete = await _asset_candidate(
+            session, caller, asset, version, match_type="suspected_metadata", preview_rows=rows
+        )
+        candidate.file_name = complete.file_name
+        candidate.file_size = complete.file_size
+        candidate.safe_summary = complete.safe_summary
+    rows.pending_details.clear()
+
+
+async def preload_duplicate_preview(
+    session: AsyncSession,
+    caller: CallerContext,
+    tasks: list[IngestTask],
+    *,
+    scope: str,
+    project_id: uuid.UUID | None,
+) -> DuplicatePreviewRows:
+    rows = DuplicatePreviewRows()
+    if scope == KnowledgeScope.project.value and project_id not in caller.active_project_ids:
+        return rows
+    hashes = {task.source_file_hash for task in tasks if task.source_file_hash}
+    if not hashes:
+        return rows
+    stmt = (
+        select(KnowledgeAsset, KnowledgeAssetVersion)
+        .join(KnowledgeAssetVersion, KnowledgeAssetVersion.asset_id == KnowledgeAsset.id)
+        .where(
+            KnowledgeAsset.asset_status == "active",
+            KnowledgeAssetVersion.version_status == "active",
+            KnowledgeAssetVersion.file_hash.in_(hashes),
+        )
+        .order_by(KnowledgeAsset.updated_at.desc(), KnowledgeAsset.id.asc())
+    )
+    for asset, version in (
+        await session.execute(_asset_scope(stmt, caller, scope, project_id))
+    ).all():
+        rows.assets.setdefault(version.file_hash, []).append((asset, version))
+    task_stmt = (
+        select(IngestTask)
+        .where(
+            IngestTask.source_file_hash.in_(hashes),
+            IngestTask.source_file_ref != "",
+            IngestTask.result_asset_id.is_(None),
+            IngestTask.status.in_(_HASH_TASK_STATES),
+        )
+        .order_by(IngestTask.updated_at.desc(), IngestTask.id.asc())
+    )
+    for task in (await session.scalars(_task_scope(task_stmt, caller, scope, project_id))).all():
+        rows.tasks.setdefault(task.source_file_hash, []).append(task)
+    items = (
+        await session.scalars(
+            select(UploadSessionItem).where(
+                UploadSessionItem.ingest_task_id.in_(
+                    [task.id for task in tasks if task.source_file_hash]
+                )
+            )
+        )
+    ).all()
+    rows.items = {item.ingest_task_id: item for item in items if item.ingest_task_id is not None}
+    if items:
+        group_stmt = (
+            select(
+                UploadSessionItem.session_id,
+                IngestTask.source_file_hash,
+                UploadSessionItem.ordinal,
+                IngestTask.id,
+                IngestTask.duplicate_decision,
+                IngestTask.status,
+            )
+            .join(IngestTask, IngestTask.id == UploadSessionItem.ingest_task_id)
+            .where(
+                UploadSessionItem.session_id.in_({item.session_id for item in items}),
+                UploadSessionItem.status != "cancelled",
+                IngestTask.source_file_hash.in_(hashes),
+                IngestTask.source_file_ref != "",
+                IngestTask.status != IngestStatus.failed.value,
+            )
+            .order_by(UploadSessionItem.ordinal.asc(), IngestTask.id.asc())
+        )
+        for row in (await session.execute(group_stmt)).all():
+            rows.groups.setdefault((row[0], row[1]), []).append(tuple(row[2:]))
+    await _preload_candidate_details(
+        session, caller, rows, [pair for values in rows.assets.values() for pair in values]
+    )
+    return rows
 
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:
@@ -86,6 +234,7 @@ async def _asset_candidate(
     version: KnowledgeAssetVersion,
     *,
     match_type: str,
+    preview_rows: DuplicatePreviewRows | None = None,
 ) -> DuplicateComparisonCandidate:
     discovery = decide(caller, asset, AccessLayer.discovery)
     if not discovery.allowed:
@@ -93,24 +242,32 @@ async def _asset_candidate(
 
     summary_decision = decide(caller, asset, AccessLayer.summary)
     original_decision = decide(caller, asset, AccessLayer.original)
-    file_object = await session.scalar(
-        select(KnowledgeAssetFileObject).where(
-            KnowledgeAssetFileObject.version_id == version.id,
-            KnowledgeAssetFileObject.file_variant == "original",
+    file_object = (
+        preview_rows.files.get(version.id)
+        if preview_rows is not None
+        else await session.scalar(
+            select(KnowledgeAssetFileObject).where(
+                KnowledgeAssetFileObject.version_id == version.id,
+                KnowledgeAssetFileObject.file_variant == "original",
+            )
         )
     )
     safe_summary: str | None = None
     if summary_decision.allowed:
         summaries = (
-            (
-                await session.execute(
-                    select(KnowledgeAssetSummary).where(
-                        KnowledgeAssetSummary.version_id == version.id
+            preview_rows.summaries.get(version.id, [])
+            if preview_rows is not None
+            else (
+                (
+                    await session.execute(
+                        select(KnowledgeAssetSummary).where(
+                            KnowledgeAssetSummary.version_id == version.id
+                        )
                     )
                 )
+                .scalars()
+                .all()
             )
-            .scalars()
-            .all()
         )
         preferred_types = (
             [SummaryType.redacted_summary.value, SummaryType.safe_summary.value]
@@ -193,34 +350,42 @@ async def _exact_tasks(
 
 
 async def _same_batch(
-    session: AsyncSession, task: IngestTask
+    session: AsyncSession, task: IngestTask, preview_rows: DuplicatePreviewRows | None = None
 ) -> tuple[uuid.UUID | None, int | None, int | None, int]:
     if not task.source_file_hash:
         return None, None, None, 0
-    current = await session.scalar(
-        select(UploadSessionItem).where(UploadSessionItem.ingest_task_id == task.id)
+    current = (
+        preview_rows.items.get(task.id)
+        if preview_rows is not None
+        else await session.scalar(
+            select(UploadSessionItem).where(UploadSessionItem.ingest_task_id == task.id)
+        )
     )
     if current is None:
         return None, None, None, 0
     rows = (
-        await session.execute(
-            select(
-                UploadSessionItem.ordinal,
-                IngestTask.id,
-                IngestTask.duplicate_decision,
-                IngestTask.status,
+        preview_rows.groups.get((current.session_id, task.source_file_hash), [])
+        if preview_rows is not None
+        else (
+            await session.execute(
+                select(
+                    UploadSessionItem.ordinal,
+                    IngestTask.id,
+                    IngestTask.duplicate_decision,
+                    IngestTask.status,
+                )
+                .join(IngestTask, IngestTask.id == UploadSessionItem.ingest_task_id)
+                .where(
+                    UploadSessionItem.session_id == current.session_id,
+                    UploadSessionItem.status != "cancelled",
+                    IngestTask.source_file_hash == task.source_file_hash,
+                    IngestTask.source_file_ref != "",
+                    IngestTask.status != IngestStatus.failed.value,
+                )
+                .order_by(UploadSessionItem.ordinal.asc(), IngestTask.id.asc())
             )
-            .join(IngestTask, IngestTask.id == UploadSessionItem.ingest_task_id)
-            .where(
-                UploadSessionItem.session_id == current.session_id,
-                UploadSessionItem.status != "cancelled",
-                IngestTask.source_file_hash == task.source_file_hash,
-                IngestTask.source_file_ref != "",
-                IngestTask.status != IngestStatus.failed.value,
-            )
-            .order_by(UploadSessionItem.ordinal.asc(), IngestTask.id.asc())
-        )
-    ).all()
+        ).all()
+    )
     if len(rows) < 2:
         return None, None, None, 0
     keeper = next(
@@ -251,6 +416,7 @@ async def _suspected_asset(
     scope: str,
     project_id: uuid.UUID | None,
     metadata: dict | None,
+    preview_rows: DuplicatePreviewRows | None = None,
 ) -> tuple[KnowledgeAsset, KnowledgeAssetVersion] | None:
     keys = ("category_id", "subject", "formed_on", "version")
     if not metadata or any(not metadata.get(key) for key in keys):
@@ -266,7 +432,18 @@ async def _suspected_asset(
         .order_by(KnowledgeAsset.updated_at.desc(), KnowledgeAsset.id.asc())
         .limit(500)
     )
-    rows = (await session.execute(_asset_scope(stmt, caller, scope, project_id))).all()
+    if preview_rows is not None:
+        if preview_rows.suspected is None:
+            preview_rows.suspected = list(
+                (await session.execute(_asset_scope(stmt, caller, scope, project_id)))
+                .tuples()
+                .all()
+            )
+        rows = preview_rows.suspected
+    else:
+        rows = list(
+            (await session.execute(_asset_scope(stmt, caller, scope, project_id))).tuples().all()
+        )
     return next(
         (
             (asset, version)
@@ -285,6 +462,7 @@ async def read_duplicate(
     scope: str,
     project_id: uuid.UUID | None,
     metadata: dict | None = None,
+    preview_rows: DuplicatePreviewRows | None = None,
 ) -> UploadDuplicateReadModel:
     """Recompute one task's duplicate state for the explicit destination."""
     if scope == KnowledgeScope.project.value and (
@@ -294,9 +472,23 @@ async def read_duplicate(
         # discovery oracle. The confirmation command returns the explicit
         # membership error; this read model remains neutral.
         return UploadDuplicateReadModel()
-    assets = await _exact_assets(session, caller, task, scope, project_id)
-    tasks = await _exact_tasks(session, caller, task, scope, project_id)
-    group_id, first_ordinal, comparison_ordinal, group_count = await _same_batch(session, task)
+    assets = (
+        preview_rows.assets.get(task.source_file_hash or "", [])
+        if preview_rows is not None
+        else await _exact_assets(session, caller, task, scope, project_id)
+    )
+    tasks = (
+        [
+            other
+            for other in preview_rows.tasks.get(task.source_file_hash or "", [])
+            if other.id != task.id
+        ]
+        if preview_rows is not None
+        else await _exact_tasks(session, caller, task, scope, project_id)
+    )
+    group_id, first_ordinal, comparison_ordinal, group_count = await _same_batch(
+        session, task, preview_rows
+    )
     decision = (
         task.duplicate_decision
         if task.duplicate_decision in {"skip", "independent", "batch_keep"}
@@ -305,7 +497,12 @@ async def read_duplicate(
 
     if assets:
         candidate = await _asset_candidate(
-            session, caller, assets[0][0], assets[0][1], match_type="exact_content"
+            session,
+            caller,
+            assets[0][0],
+            assets[0][1],
+            match_type="exact_content",
+            preview_rows=preview_rows,
         )
         restricted = candidate.match_type == "restricted_match"
         return UploadDuplicateReadModel(
@@ -340,7 +537,12 @@ async def read_duplicate(
                 or (
                     decision in {None, "batch_keep"}
                     and first_ordinal is not None
-                    and await _task_ordinal(session, task.id) == first_ordinal
+                    and (
+                        preview_rows.items[task.id].ordinal
+                        if preview_rows is not None
+                        else await _task_ordinal(session, task.id)
+                    )
+                    == first_ordinal
                 )
             ),
             decision=decision,  # type: ignore[arg-type]
@@ -372,12 +574,21 @@ async def read_duplicate(
             default_selected=decision == "independent",
             decision=decision,  # type: ignore[arg-type]
         )
-    suspected = await _suspected_asset(session, caller, scope, project_id, metadata)
+    suspected = await _suspected_asset(session, caller, scope, project_id, metadata, preview_rows)
     if suspected is not None:
+        if preview_rows is not None and not preview_rows.defer_suspected_details:
+            await _preload_candidate_details(session, caller, preview_rows, [suspected])
         candidate = await _asset_candidate(
-            session, caller, suspected[0], suspected[1], match_type="suspected_metadata"
+            session,
+            caller,
+            suspected[0],
+            suspected[1],
+            match_type="suspected_metadata",
+            preview_rows=preview_rows,
         )
         restricted = candidate.match_type == "restricted_match"
+        if preview_rows is not None and preview_rows.defer_suspected_details:
+            preview_rows.pending_details.append((*suspected, candidate))
         return UploadDuplicateReadModel(
             duplicate_state="suspected_metadata",
             match_type=candidate.match_type,
