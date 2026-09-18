@@ -16,6 +16,7 @@ export interface NotificationListParams {
 
 export function fetchNotifications(
   params: NotificationListParams = {},
+  signal?: AbortSignal,
 ): Promise<BusinessNotificationListResponseDTO> {
   const query = new URLSearchParams();
   if (params.page != null) query.set("page", String(params.page));
@@ -23,7 +24,7 @@ export function fetchNotifications(
   if (params.category) query.set("category", params.category);
   if (params.unreadOnly) query.set("unread_only", "true");
   const suffix = query.toString();
-  return apiGet(`/api/v1/notifications${suffix ? `?${suffix}` : ""}`);
+  return apiGet(`/api/v1/notifications${suffix ? `?${suffix}` : ""}`, signal);
 }
 
 export function fetchNotificationUnreadCount(): Promise<UnreadCountResponseDTO> {

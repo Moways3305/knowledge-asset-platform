@@ -185,6 +185,38 @@ async def preload_duplicate_preview(
     return rows
 
 
+async def read_duplicates_batch(session, caller, tasks, *, metadata_by_task=None, destination=None):
+    """Bound query work per destination and chunk, retaining per-task authorization."""
+    grouped = {}
+    for task in tasks:
+        key = (
+            destination
+            if destination is not None
+            else (task.target_scope or "", task.target_project_id)
+        )
+        grouped.setdefault(key, []).append(task)
+    result = {}
+    for (scope, project_id), group in grouped.items():
+        for offset in range(0, len(group), 100):
+            chunk = group[offset : offset + 100]
+            rows = await preload_duplicate_preview(
+                session, caller, chunk, scope=scope, project_id=project_id
+            )
+            rows.defer_suspected_details = True
+            for task in chunk:
+                result[task.id] = await read_duplicate(
+                    session,
+                    caller,
+                    task,
+                    scope=scope,
+                    project_id=project_id,
+                    metadata=(metadata_by_task or {}).get(task.id),
+                    preview_rows=rows,
+                )
+            await finish_duplicate_preview(session, caller, rows)
+    return result
+
+
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:
     return HTTPException(
         status_code=status_code,

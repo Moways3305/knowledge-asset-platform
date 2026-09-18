@@ -141,7 +141,19 @@ describe("UploadStepB folder drop and batch rejection", () => {
       },
     });
     namingApi.fetchNamingOptions.mockReset();
-    namingApi.previewBatchIngestNaming.mockReset();
+    namingApi.previewBatchIngestNaming.mockReset().mockImplementation(async (input) => ({
+      items: input.items.map((item: { taskId: string }) => ({
+        task_id: item.taskId,
+        submittable: input.targetScope === "personal",
+        error_code: null,
+        notices: [],
+        canonical_name: null,
+        fields: null,
+        rule_version: null,
+        message: null,
+        duplicate: { duplicate_state: "none", default_selected: true },
+      })),
+    }));
     namingApi.fetchNamingOptions.mockResolvedValue({
       required: true,
       rule_version: 2,

@@ -14,10 +14,12 @@ import hashlib
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from app.core.config import get_settings
 from app.db.utils import utc_now
@@ -449,11 +451,12 @@ async def serve_preview_file(
     fetch_token: str,
     *,
     storage: LocalFileStorage,
-) -> tuple[bytes, str, str]:
+) -> tuple[Path, str, str]:
     """ONLYOFFICE 受控取件端点：凭短时 fetch_token 取原文字节（供 Document Server 回取）。
 
     仅凭 fetch_token 授权（Document Server 无会话）——token 仅在持权请求人使用预览入口时
-    铸造，admin 无从取得。返回 (bytes, media_type, safe_filename)。任何校验失败 → 403/404，
+    铸造，admin 无从取得。返回服务端内部 (path, media_type, safe_filename)，由 API 分段发送。
+    任何校验失败 → 403/404，
     不泄露 storage_ref / 内部路径。
     """
     cred = (
@@ -490,8 +493,10 @@ async def serve_preview_file(
         raise _denied(404, "preview_source_unavailable", "无可用原文源")
     storage_ref, file_name, mime = original
     try:
-        data = storage.resolve_path(storage_ref).read_bytes()
+        path = storage.resolve_path(storage_ref)
+        if not await run_in_threadpool(path.is_file):
+            raise OSError("Missing source")
     except (OSError, ValueError):
         # 不回显 storage_ref / 真实路径。
         raise _denied(404, "preview_source_unavailable", "原文读取失败") from None
-    return data, (mime or "application/octet-stream"), safe_filename(file_name)
+    return path, (mime or "application/octet-stream"), safe_filename(file_name)

@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import NotificationBell from "./NotificationBell";
 import {
   fetchNotifications,
@@ -8,6 +8,7 @@ import {
   markNotificationsRead,
 } from "../api/notifications";
 import type { BusinessNotificationDTO } from "../types/notification";
+import { TASK_STATUS_INVALIDATED_EVENT } from "../workbench/taskStatusEvents";
 
 vi.mock("../api/notifications", () => ({
   fetchNotifications: vi.fn(),
@@ -48,6 +49,7 @@ function renderBell() {
 }
 
 describe("NotificationBell", () => {
+  afterEach(() => vi.restoreAllMocks());
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(fetchNotifications).mockReset();
@@ -81,6 +83,85 @@ describe("NotificationBell", () => {
     expect(await screen.findByText("项目事项待确认")).toBeInTheDocument();
     expect(screen.getByText("有一项项目事项等待你确认。")).toBeInTheDocument();
   });
+
+  it("coalesces focus refreshes and retains one invalidation after a slow request", async () => {
+    let resolve!: (value: Awaited<ReturnType<typeof fetchNotifications>>) => void;
+    const first = new Promise<Awaited<ReturnType<typeof fetchNotifications>>>((done) => {
+      resolve = done;
+    });
+    const value = {
+      items: [],
+      total: 0,
+      page: 1,
+      page_size: 20,
+      unread_count: 0,
+      pending_count: 0,
+      categories: [],
+    };
+    vi.mocked(fetchNotifications).mockReturnValueOnce(first).mockResolvedValue(value);
+    const view = renderBell();
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+      window.dispatchEvent(new Event("focus"));
+      window.dispatchEvent(new Event(TASK_STATUS_INVALIDATED_EVENT));
+    });
+    expect(fetchNotifications).toHaveBeenCalledTimes(1);
+    await act(async () => resolve(value));
+    expect(fetchNotifications).toHaveBeenCalledTimes(2);
+    view.unmount();
+  });
+
+  it.each(["resolve", "reject"])(
+    "drains queued refresh on timeout without focus, ignoring late %s",
+    async (settlement) => {
+      const nativeTimeout = window.setTimeout.bind(window);
+      let expire!: () => void;
+      vi.spyOn(window, "setTimeout").mockImplementation((handler, delay, ...args) => {
+        if (delay === 30_000 && typeof handler === "function") expire = handler as () => void;
+        return nativeTimeout(handler, delay, ...args);
+      });
+      type Response = Awaited<ReturnType<typeof fetchNotifications>>;
+      let resolve!: (value: Response) => void;
+      let reject!: (error: Error) => void;
+      const old = new Promise<Response>((done, fail) => {
+        resolve = done;
+        reject = fail;
+      });
+      vi.mocked(fetchNotifications).mockReturnValueOnce(old);
+      const view = renderBell();
+      const signal = vi.mocked(fetchNotifications).mock.calls[0][1]!;
+      act(() => {
+        window.dispatchEvent(new Event(TASK_STATUS_INVALIDATED_EVENT));
+        window.dispatchEvent(new Event(TASK_STATUS_INVALIDATED_EVENT));
+      });
+      vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+      await act(async () => expire());
+      expect(signal.aborted).toBe(true);
+      expect(fetchNotifications).toHaveBeenCalledTimes(2);
+      await act(async () => {
+        if (settlement === "reject") reject(new Error("late abort"));
+        else
+          resolve({
+            items: [],
+            total: 0,
+            page: 1,
+            page_size: 20,
+            unread_count: 0,
+            pending_count: 0,
+            categories: [],
+          });
+      });
+      expect(screen.getByText("1")).toBeInTheDocument();
+      expect(fetchNotifications).toHaveBeenCalledTimes(2);
+      vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+      vi.mocked(fetchNotifications).mockReturnValue(new Promise(() => {}));
+      act(() => window.dispatchEvent(new Event(TASK_STATUS_INVALIDATED_EVENT)));
+      act(() => window.dispatchEvent(new Event(TASK_STATUS_INVALIDATED_EVENT)));
+      view.unmount();
+      act(() => expire());
+      expect(fetchNotifications).toHaveBeenCalledTimes(3);
+    },
+  );
 
   it("marks a notification read when opened", async () => {
     renderBell();

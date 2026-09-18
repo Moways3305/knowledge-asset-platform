@@ -44,7 +44,7 @@ from app.schemas.notification import (
 )
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
-from app.services.notification_targets import VisibleNotificationTarget
+from app.services.notification_targets import VisibleNotificationTarget, preload_targets
 from app.services.notification_targets import resolve as resolve_notification_target
 from app.services.permission import build_caller_context
 from app.services.storage import LocalFileStorage
@@ -570,16 +570,16 @@ def _out(
     )
 
 
-async def _visible_rows(
+async def _visible_chunks(
     session: AsyncSession,
     caller: CallerContext,
     *,
     category: str | None = None,
     unread_only: bool = False,
     storage: LocalFileStorage | None = None,
-) -> list[tuple[BusinessNotification, VisibleNotificationTarget]]:
+):
     if not caller.is_business_user and not _is_ops_viewer(caller):
-        return []
+        return
     stmt = select(BusinessNotification).where(
         BusinessNotification.recipient_user_id == caller.user_id
     )
@@ -587,23 +587,45 @@ async def _visible_rows(
         stmt = stmt.where(BusinessNotification.category == category)
     if unread_only:
         stmt = stmt.where(BusinessNotification.read_at.is_(None))
-    rows = list(
-        (
-            await session.execute(
-                stmt.order_by(
-                    BusinessNotification.created_at.desc(), BusinessNotification.id.desc()
+    cursor = None
+    while True:
+        page_stmt = stmt
+        if cursor is not None:
+            created, row_id = cursor
+            page_stmt = page_stmt.where(
+                (BusinessNotification.created_at < created)
+                | (
+                    (BusinessNotification.created_at == created)
+                    & (BusinessNotification.id < row_id)
                 )
             )
+        rows = list(
+            (
+                await session.scalars(
+                    page_stmt.order_by(
+                        BusinessNotification.created_at.desc(), BusinessNotification.id.desc()
+                    ).limit(200)
+                )
+            ).all()
         )
-        .scalars()
-        .all()
-    )
-    visible: list[tuple[BusinessNotification, VisibleNotificationTarget]] = []
-    for row in rows:
-        target = await resolve_notification_target(session, caller, row, storage=storage)
-        if target is not None:
-            visible.append((row, target))
-    return visible
+        if not rows:
+            return
+        facts = await preload_targets(session, rows)
+        visible = []
+        for row in rows:
+            target = await resolve_notification_target(
+                session, caller, row, storage=storage, facts=facts
+            )
+            if target is not None:
+                visible.append((row, target))
+        yield visible
+        cursor = (rows[-1].created_at, rows[-1].id)
+        if len(rows) < 200:
+            return
+
+
+async def _visible_rows(session, caller, **kwargs):
+    return [item async for chunk in _visible_chunks(session, caller, **kwargs) for item in chunk]
 
 
 async def list_notifications(
@@ -616,11 +638,20 @@ async def list_notifications(
     unread_only: bool,
     storage: LocalFileStorage | None = None,
 ) -> BusinessNotificationListResponse:
-    visible = await _visible_rows(
-        session, caller, category=category, unread_only=unread_only, storage=storage
-    )
     start = (page - 1) * page_size
-    selected = visible[start : start + page_size]
+    selected = []
+    total = unread = pending = 0
+    categories = set()
+    async for chunk in _visible_chunks(session, caller, storage=storage):
+        for row, target in chunk:
+            unread += row.read_at is None
+            pending += target.action_required
+            categories.add(row.category)
+            if (category and row.category != category) or (unread_only and row.read_at is not None):
+                continue
+            if start <= total < start + page_size:
+                selected.append((row, target))
+            total += 1
     project_ids = {row.project_id for row, _ in selected if row.project_id is not None}
     project_names: dict[uuid.UUID, str] = {}
     if project_ids:
@@ -632,18 +663,17 @@ async def list_notifications(
                 )
             ).all()
         }
-    all_visible = await _visible_rows(session, caller, storage=storage)
     return BusinessNotificationListResponse(
         items=[
             _out(row, target, project_names.get(row.project_id) if row.project_id else None)
             for row, target in selected
         ],
-        total=len(visible),
+        total=total,
         page=page,
         page_size=page_size,
-        unread_count=sum(row.read_at is None for row, _ in all_visible),
-        pending_count=sum(target.action_required for _, target in all_visible),
-        categories=sorted({row.category for row, _ in all_visible}),
+        unread_count=unread,
+        pending_count=pending,
+        categories=sorted(categories),
     )
 
 
@@ -653,8 +683,10 @@ async def unread_count(
     *,
     storage: LocalFileStorage | None = None,
 ) -> UnreadCountResponse:
-    visible = await _visible_rows(session, caller, unread_only=True, storage=storage)
-    return UnreadCountResponse(unread_count=len(visible))
+    count = 0
+    async for chunk in _visible_chunks(session, caller, unread_only=True, storage=storage):
+        count += len(chunk)
+    return UnreadCountResponse(unread_count=count)
 
 
 async def _owned_visible(

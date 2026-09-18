@@ -13,6 +13,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.responses import FileResponse
 
 from app.api.deps import get_caller_context
 from app.core.trace import get_trace_id
@@ -66,9 +67,14 @@ async def serve_preview_file(
 
     仅返回经平台存储引用读出的原文字节；响应头不含 storage_ref / 内部路径。
     """
-    data, media_type, filename = await preview_service.serve_preview_file(
+    path, media_type, filename = await preview_service.serve_preview_file(
         session, credential_id, ft, storage=storage
     )
     # inline 展示安全文件名；不暴露任何内部引用。
-    headers = {"Content-Disposition": f'inline; filename="{filename}"', "Cache-Control": "no-store"}
-    return Response(content=data, media_type=media_type, headers=headers)
+    return FileResponse(
+        path,
+        media_type=media_type,
+        filename=filename,
+        content_disposition_type="inline",
+        headers={"Cache-Control": "no-store"},
+    )

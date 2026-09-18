@@ -195,7 +195,7 @@ function assertResult(result) {
       result.personalBatchReviewLayoutValid &&
       Boolean(result.personalBatchScreenshot) &&
       result.classificationCalls === 0 &&
-      result.batchNamingPreviewCalls === 0
+      result.batchNamingPreviewCalls === 1
     );
   }
   if (result.scenario === "batch-company-directory-ready") {
@@ -436,6 +436,38 @@ try {
         }
         if (url.pathname === "/api/v1/ingest/bulk-naming-preview") {
           batchNamingPreviewCalls += 1;
+          if (scenario === "batch-personal-ready") {
+            const body = request.postDataJSON();
+            if (
+              body.target_scope !== "personal" ||
+              body.items.length !== 2 ||
+              body.items.some((item) => item.naming !== null)
+            ) {
+              throw new Error("personal preview must use one batch without governed naming fields");
+            }
+            return fulfill({
+              items: body.items.map((item) => ({
+                task_id: item.task_id,
+                submittable: true,
+                canonical_name: null,
+                rule_version: null,
+                fields: null,
+                notices: [],
+                error_code: null,
+                message: null,
+                duplicate: {
+                  duplicate_state: "none",
+                  match_type: "none",
+                  match_count: 0,
+                  preferred_candidate: null,
+                  same_batch_group_id: null,
+                  same_batch_first_ordinal: null,
+                  default_selected: true,
+                  decision: null,
+                },
+              })),
+            });
+          }
           if (scenario === "batch-naming-ready") {
             const body = request.postDataJSON();
             if (body.items.length > 25) throw new Error("preview chunk exceeds its budget");
@@ -610,6 +642,9 @@ try {
           url.pathname === `/api/v1/ingest/${taskId}/naming-preview` ||
           url.pathname === "/api/v1/ingest/task-safe-78/naming-preview"
         ) {
+          if (scenario === "batch-personal-ready") {
+            throw new Error("personal batch review must not fall back to per-file previews");
+          }
           return fulfill({
             required: true,
             canonical_name: "【PROJECT-2021-交付成果】客户增长项目复盘方法论_20210307_V1_L2.md",

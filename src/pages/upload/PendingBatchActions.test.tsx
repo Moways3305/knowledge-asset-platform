@@ -212,6 +212,7 @@ describe("PendingBatchActions governed review", () => {
         error_code: null,
         message: null,
         rule_version: 3,
+        duplicate: { duplicate_state: "none", default_selected: true },
       })),
     }));
     ingestApi.fetchIngestAiResult.mockReset().mockResolvedValue({
@@ -247,7 +248,25 @@ describe("PendingBatchActions governed review", () => {
     );
   });
 
-  it("requires a formal personal directory, keeps item exceptions, and submits no naming requests", async () => {
+  it("bounds a 101-file personal review to three batch requests", async () => {
+    const tasks = Array.from({ length: 101 }, (_, i) => task(`personal-${i}`));
+    render(<PendingBatchActions tasks={tasks} flow={flowFixture(tasks)} />);
+    fireEvent.click(screen.getByRole("button", { name: /批量确认入库/ }));
+    fireEvent.change(screen.getByRole("combobox", { name: "批量入库目标知识库" }), {
+      target: { value: "personal" },
+    });
+    fireEvent.change(await screen.findByRole("combobox", { name: "本批个人目录" }), {
+      target: { value: "personal.learning_notes" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "下一步：核对入库" }));
+    expect(await screen.findByRole("button", { name: "确认已选择的 101 项入库" })).toBeEnabled();
+    expect(
+      namingApi.previewBatchIngestNaming.mock.calls.map(([input]) => input.items.length),
+    ).toEqual([50, 50, 1]);
+    expect(namingApi.previewIngestNaming).not.toHaveBeenCalled();
+  });
+
+  it("requires a formal personal directory and batches personal duplicate previews", async () => {
     const tasks = [task("personal-one"), task("personal-two")];
     const handleBatchConfirm = vi.fn();
     render(<PendingBatchActions tasks={tasks} flow={flowFixture(tasks, { handleBatchConfirm })} />);
@@ -271,7 +290,14 @@ describe("PendingBatchActions governed review", () => {
     expect(screen.queryByText("文件最后修改日期")).not.toBeInTheDocument();
     expect(screen.queryByText("规范名预览")).not.toBeInTheDocument();
     expect(namingApi.classifyBatchNamingCategories).not.toHaveBeenCalled();
-    expect(namingApi.previewBatchIngestNaming).not.toHaveBeenCalled();
+    expect(namingApi.previewBatchIngestNaming).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetScope: "personal",
+        items: expect.arrayContaining([
+          { taskId: "personal-one", naming: { confidentiality_level: "L3" } },
+        ]),
+      }),
+    );
 
     fireEvent.change(screen.getByLabelText("personal-two.pdf 个人目录"), {
       target: { value: "personal.project_materials" },
@@ -1144,6 +1170,14 @@ describe("PendingBatchActions governed review", () => {
         duplicate: sameBatch(taskId),
       }),
     );
+    namingApi.previewBatchIngestNaming.mockImplementation(async (input) => ({
+      items: input.items.map((item: { taskId: string }) => ({
+        task_id: item.taskId,
+        submittable: true,
+        error_code: null,
+        duplicate: sameBatch(item.taskId),
+      })),
+    }));
     ingestApi.decideUploadDuplicate.mockResolvedValue({
       task_id: second.id,
       status: "pending_confirmation",

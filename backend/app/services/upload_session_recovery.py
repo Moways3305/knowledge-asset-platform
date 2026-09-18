@@ -209,6 +209,7 @@ async def list_sessions(
     llm: LLMClient | NullLLMClient,
     desensitizer: DesensitizationEngine,
     trace_id: str,
+    limit: int = 10,
 ) -> UploadSessionListResponse:
     if not caller.is_business_user:
         raise _denied(403, "admin_business_permission_denied", "仅业务用户可查看上传会话")
@@ -221,7 +222,7 @@ async def list_sessions(
                     UploadSession.status != "cancelled",
                 )
                 .order_by(UploadSession.created_at.desc())
-                .limit(10)
+                .limit(max(1, min(limit, 10)))
             )
         ).scalars()
     )

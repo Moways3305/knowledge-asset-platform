@@ -45,20 +45,38 @@ export default function NotificationBell() {
   const [error, setError] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
   const sequence = useRef(0);
+  const inFlight = useRef<AbortController | null>(null);
+  const needsRefresh = useRef(false);
   const mutationIds = useRef(new Set<string>());
   const navigate = useNavigate();
 
   const load = useCallback(async (nextPage = 1, append = false, quiet = false) => {
+    if (quiet && inFlight.current) return;
+    inFlight.current?.abort();
+    const controller = new AbortController();
+    inFlight.current = controller;
+    needsRefresh.current = false;
+    const deadline = window.setTimeout(() => {
+      if (inFlight.current !== controller) return;
+      controller.abort();
+      inFlight.current = null;
+      if (!quiet) setBusy(false);
+      // Do not leave a queued invalidation dependent on the next polling tick.
+      if (needsRefresh.current) void load(1, false, true);
+    }, 30_000);
     const request = ++sequence.current;
     if (!quiet) setBusy(true);
     setError(null);
     try {
-      const data = await fetchNotifications({
-        page: nextPage,
-        pageSize: PAGE_SIZE,
-        unreadOnly: false,
-      });
-      if (request !== sequence.current) return;
+      const data = await fetchNotifications(
+        {
+          page: nextPage,
+          pageSize: PAGE_SIZE,
+          unreadOnly: false,
+        },
+        controller.signal,
+      );
+      if (request !== sequence.current || controller.signal.aborted) return;
       setItems((current) =>
         append
           ? [...current, ...data.items.filter((item) => !current.some((old) => old.id === item.id))]
@@ -71,9 +89,15 @@ export default function NotificationBell() {
       setTotal(data.total);
       setPage(nextPage);
     } catch {
-      if (request === sequence.current && !quiet) setError("通知暂时无法加载，请稍后重试。");
+      if (request === sequence.current && !controller.signal.aborted && !quiet)
+        setError("通知暂时无法加载，请稍后重试。");
     } finally {
+      window.clearTimeout(deadline);
       if (request === sequence.current && !quiet) setBusy(false);
+      if (inFlight.current === controller) {
+        inFlight.current = null;
+        if (needsRefresh.current && !controller.signal.aborted) void load(1, false, true);
+      }
     }
   }, []);
 
@@ -81,14 +105,26 @@ export default function NotificationBell() {
     void load(1, false, true);
   }, [load]);
   useEffect(() => {
-    const refresh = () => void load(1, false, true);
+    const refresh = () => {
+      if (document.visibilityState === "visible") void load(1, false, true);
+    };
     const timer = window.setInterval(refresh, POLL_MS);
+    const onInvalidated = () => {
+      if (inFlight.current) needsRefresh.current = true;
+      else refresh();
+    };
     window.addEventListener("focus", refresh);
-    window.addEventListener(TASK_STATUS_INVALIDATED_EVENT, refresh);
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener(TASK_STATUS_INVALIDATED_EVENT, onInvalidated);
     return () => {
       window.clearInterval(timer);
+      sequence.current += 1;
+      inFlight.current?.abort();
+      inFlight.current = null;
+      needsRefresh.current = false;
       window.removeEventListener("focus", refresh);
-      window.removeEventListener(TASK_STATUS_INVALIDATED_EVENT, refresh);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener(TASK_STATUS_INVALIDATED_EVENT, onInvalidated);
     };
   }, [load]);
 

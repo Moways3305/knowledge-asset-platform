@@ -7,7 +7,9 @@ invokes review, ingest, original-access, or knowledge command services.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.indexing_job import IndexingOperationJob
@@ -68,7 +70,13 @@ async def resolve(
     row: BusinessNotification,
     *,
     storage: LocalFileStorage | None = None,
+    facts: dict | None = None,
 ) -> VisibleNotificationTarget | None:
+    async def get(model, key):
+        if facts is not None:
+            return facts.get(model, {}).get(key)
+        return await session.get(model, key)
+
     if not caller.is_active or (not caller.is_business_user and not _ops_viewer(caller)):
         return None
     if (
@@ -86,7 +94,7 @@ async def resolve(
     recovery_suggestion = None
     next_action_label = None
     if row.target_kind == "review":
-        review_task = await session.get(ReviewTask, row.target_id)
+        review_task = await get(ReviewTask, row.target_id)
         if review_task is None:
             return None
         if row.event_type == "review.decided":
@@ -112,10 +120,10 @@ async def resolve(
                 return None
             status, action_required = _review_status(review_task, can_decide)
     elif row.target_kind == "original_access_request":
-        request = await session.get(OriginalAccessRequest, row.target_id)
+        request = await get(OriginalAccessRequest, row.target_id)
         if request is None:
             return None
-        asset = await session.get(KnowledgeAsset, request.asset_id)
+        asset = await get(KnowledgeAsset, request.asset_id)
         if asset is None:
             return None
         if row.event_type == "original_access.decided":
@@ -140,7 +148,7 @@ async def resolve(
             action_required = request.status == AccessRequestStatus.pending.value
             status = "needs_action" if action_required else "completed"
     elif row.target_kind == "ingest_task":
-        ingest_task = await session.get(IngestTask, row.target_id)
+        ingest_task = await get(IngestTask, row.target_id)
         if ingest_task is None or ingest_task.created_by != caller.user_id:
             return None
         if ingest_task.cancel_requested or ingest_task.status == "cancelled":
@@ -190,18 +198,18 @@ async def resolve(
         action_required = False
         status = "failed"
     elif row.target_kind == "knowledge_asset":
-        asset = await session.get(KnowledgeAsset, row.target_id)
+        asset = await get(KnowledgeAsset, row.target_id)
         if asset is None or not decide(caller, asset, AccessLayer.discovery).allowed:
             return None
         version = (
-            await session.get(KnowledgeAssetVersion, asset.current_version_id)
+            await get(KnowledgeAssetVersion, asset.current_version_id)
             if asset.current_version_id is not None
             else None
         )
         action_required = version is not None and version.index_status == "index_failed"
         status = "failed" if action_required else "completed"
     else:
-        job = await session.get(IndexingOperationJob, row.target_id)
+        job = await get(IndexingOperationJob, row.target_id)
         if job is None or (job.requested_by_user_id != caller.user_id and not _ops_viewer(caller)):
             return None
         action_required = False
@@ -223,3 +231,53 @@ async def resolve(
         recovery_suggestion=recovery_suggestion,
         next_action_label=next_action_label,
     )
+
+
+async def preload_targets(session: AsyncSession, rows: list[BusinessNotification]) -> dict:
+    """Request-local facts for one bounded chunk; resolve still enforces permissions."""
+    facts: dict[type, dict[Any, Any]] = {}
+    models: dict[str, Any] = {
+        "review": ReviewTask,
+        "original_access_request": OriginalAccessRequest,
+        "ingest_task": IngestTask,
+        "knowledge_asset": KnowledgeAsset,
+        "indexing_job": IndexingOperationJob,
+    }
+    for kind, model in models.items():
+        ids = {row.target_id for row in rows if row.target_kind == kind}
+        facts[model] = {
+            item.id: item
+            for item in (
+                (await session.scalars(select(model).where(model.id.in_(ids)))).all() if ids else []
+            )
+        }
+    asset_ids = {item.asset_id for item in facts[OriginalAccessRequest].values()}
+    if asset_ids:
+        facts[KnowledgeAsset].update(
+            {
+                item.id: item
+                for item in (
+                    await session.scalars(
+                        select(KnowledgeAsset).where(KnowledgeAsset.id.in_(asset_ids))
+                    )
+                ).all()
+            }
+        )
+    version_ids = {
+        item.current_version_id
+        for item in facts[KnowledgeAsset].values()
+        if item.current_version_id is not None
+    }
+    facts[KnowledgeAssetVersion] = {
+        item.id: item
+        for item in (
+            (
+                await session.scalars(
+                    select(KnowledgeAssetVersion).where(KnowledgeAssetVersion.id.in_(version_ids))
+                )
+            ).all()
+            if version_ids
+            else []
+        )
+    }
+    return facts

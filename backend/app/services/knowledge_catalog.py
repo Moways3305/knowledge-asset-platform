@@ -197,6 +197,7 @@ async def list_knowledge(
     granted = await original_access.active_grant_asset_ids(session, caller, [a.id for a in visible])
     vindex = await _version_index_map(session, visible)
     summary_maps = await _list_summary_maps(session, visible)
+    published = await directories.published_directories(session)
     items = []
     for asset in visible:
         item = _to_list_item(
@@ -210,7 +211,7 @@ async def list_knowledge(
         )
         version = vindex.get(asset.current_version_id) if asset.current_version_id else None
         key = directories.version_directory_key(version)
-        path = await directories.display_path(session, key, asset.project_id)
+        path = await directories.display_path(session, key, asset.project_id, published=published)
         items.append(item.model_copy(update={"directory_key": key, "directory_path": path}))
     return KnowledgeListResponse(
         items=items,

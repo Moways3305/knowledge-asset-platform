@@ -10,7 +10,6 @@ import {
 import { fetchWorkbenchOverview } from "../api/workbench";
 import type { WorkbenchOverviewDTO } from "../types/workbench";
 import { useAuth } from "../auth/AuthContext";
-import { useLocation } from "react-router-dom";
 import { TASK_STATUS_INVALIDATED_EVENT } from "./taskStatusEvents";
 
 type WorkbenchState = "loading" | "ready" | "error";
@@ -25,24 +24,49 @@ const WorkbenchContext = createContext<WorkbenchContextValue | null>(null);
 
 export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const { status: authStatus } = useAuth();
-  const location = useLocation();
   const [overview, setOverview] = useState<WorkbenchOverviewDTO | null>(null);
   const [state, setState] = useState<WorkbenchState>("loading");
   const requestRef = useRef(0);
   const hasDataRef = useRef(false);
+  const inFlight = useRef<AbortController | null>(null);
+  const needsRefresh = useRef(false);
 
   const refresh = useCallback(async () => {
+    if (inFlight.current) {
+      needsRefresh.current = true;
+      return;
+    }
+    const controller = new AbortController();
+    needsRefresh.current = false;
+    inFlight.current = controller;
+    const deadline = window.setTimeout(() => {
+      if (inFlight.current !== controller) return;
+      controller.abort();
+      inFlight.current = null;
+      // Drain invalidations here: an aborted transport may never settle.
+      if (needsRefresh.current) void refresh();
+    }, 30_000);
     const requestId = ++requestRef.current;
     setState((current) => (hasDataRef.current || current === "ready" ? current : "loading"));
     try {
-      const next = await fetchWorkbenchOverview();
-      if (requestId !== requestRef.current) return;
+      const next = await fetchWorkbenchOverview(controller.signal);
+      if (requestId !== requestRef.current || controller.signal.aborted || needsRefresh.current)
+        return;
       hasDataRef.current = true;
       setOverview(next);
       setState("ready");
     } catch {
-      if (requestId !== requestRef.current) return;
+      if (requestId !== requestRef.current || controller.signal.aborted) return;
       setState("error");
+    } finally {
+      window.clearTimeout(deadline);
+      if (inFlight.current === controller) {
+        inFlight.current = null;
+        if (needsRefresh.current && !controller.signal.aborted) {
+          needsRefresh.current = false;
+          void refresh();
+        }
+      }
     }
   }, []);
 
@@ -55,9 +79,11 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       return;
     }
     void refresh();
-    const interval = window.setInterval(() => void refresh(), 30_000);
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible" && !inFlight.current) void refresh();
+    }, 30_000);
     const onVisible = () => {
-      if (document.visibilityState === "visible") void refresh();
+      if (document.visibilityState === "visible" && !inFlight.current) void refresh();
     };
     const onTaskInvalidated = () => void refresh();
     window.addEventListener("focus", onVisible);
@@ -65,12 +91,15 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       requestRef.current += 1;
+      inFlight.current?.abort();
+      inFlight.current = null;
+      needsRefresh.current = false;
       window.clearInterval(interval);
       window.removeEventListener("focus", onVisible);
       window.removeEventListener(TASK_STATUS_INVALIDATED_EVENT, onTaskInvalidated);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [authStatus, location.pathname, refresh]);
+  }, [authStatus, refresh]);
 
   return (
     <WorkbenchContext.Provider value={{ overview, state, refresh }}>

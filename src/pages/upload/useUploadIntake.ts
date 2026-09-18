@@ -356,7 +356,7 @@ export function useUploadIntake({
     if (activePath !== "b") return;
     if (typeof fetchUploadSessions !== "function") return;
     let active = true;
-    void fetchUploadSessions()
+    void fetchUploadSessions(1)
       .then((sessions) => {
         if (active && sessions[0]) applyUploadSession(sessions[0]);
       })
