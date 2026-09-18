@@ -73,9 +73,12 @@ export function previewIngestNaming(
 }
 
 export async function previewBatchIngestNaming(input: {
-  targetScope: "project" | "company";
+  targetScope: "personal" | "project" | "company";
   targetProjectId?: string;
-  items: Array<{ taskId: string; naming: BatchNamingValuesDTO }>;
+  items: Array<{
+    taskId: string;
+    naming: Partial<BatchNamingValuesDTO> & { confidentiality_level: string };
+  }>;
 }): Promise<BatchNamingPreviewResponseDTO> {
   const result: BatchNamingPreviewResponseDTO = { items: [] };
   // Large review sessions must not exceed the endpoint's 500-item contract.
@@ -89,16 +92,19 @@ export async function previewBatchIngestNaming(input: {
         items: input.items.slice(offset, offset + 50).map((item) => ({
           task_id: item.taskId,
           confidentiality_level: item.naming.confidentiality_level,
-          naming: {
-            directory_key: item.naming.directory_key,
-            subject: item.naming.subject,
-            ...(item.naming.subject_is_manual ? { subject_is_manual: true } : {}),
-            formed_on: item.naming.formed_on,
-            version: item.naming.version,
-            ...(input.targetScope === "company"
-              ? { applicable_to: item.naming.applicable_to }
-              : {}),
-          },
+          naming:
+            input.targetScope === "personal"
+              ? null
+              : {
+                  directory_key: item.naming.directory_key,
+                  subject: item.naming.subject,
+                  ...(item.naming.subject_is_manual ? { subject_is_manual: true } : {}),
+                  formed_on: item.naming.formed_on,
+                  version: item.naming.version,
+                  ...(input.targetScope === "company"
+                    ? { applicable_to: item.naming.applicable_to }
+                    : {}),
+                },
         })),
       },
     );

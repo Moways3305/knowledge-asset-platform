@@ -546,6 +546,8 @@ section.kdetail-panel {
 
 .preview-modal-frame-wrap {
   position: relative;
+  width: 100%;
+  min-width: 0;
   min-height: 360px;
   flex: 1;
   background: var(--color-bg-muted);
@@ -554,6 +556,11 @@ section.kdetail-panel {
 .preview-modal-frame {
   position: absolute;
   inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  border: 0;
   background: #fff;
 }
 

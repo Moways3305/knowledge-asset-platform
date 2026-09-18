@@ -212,8 +212,8 @@ export function localDateFromMs(ms: number): string | null {
   return `${y}-${m}-${day}`;
 }
 
-export async function fetchUploadSessions(): Promise<UploadSessionDTO[]> {
-  const data = await apiGet<UploadSessionListDTO>("/api/v1/ingest/upload-sessions");
+export async function fetchUploadSessions(limit = 10): Promise<UploadSessionDTO[]> {
+  const data = await apiGet<UploadSessionListDTO>(`/api/v1/ingest/upload-sessions?limit=${limit}`);
   return data.items;
 }
 

@@ -811,6 +811,7 @@ async def create_upload_session(
 @router.get("/ingest/upload-sessions", response_model=UploadSessionListResponse)
 async def list_upload_sessions(
     request: Request,
+    limit: int = Query(10, ge=1, le=10),
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
     storage: LocalFileStorage = Depends(get_storage),
@@ -824,6 +825,7 @@ async def list_upload_sessions(
         llm=llm,
         desensitizer=desensitizer,
         trace_id=get_trace_id(request),
+        limit=limit,
     )
 
 

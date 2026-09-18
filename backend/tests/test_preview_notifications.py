@@ -217,6 +217,31 @@ async def test_controlled_file_serves_bytes(client, monkeypatch):
     _assert_no_leak(str(dict(resp.headers)))
 
 
+async def test_controlled_file_ranges_do_not_buffer_full_file(client, monkeypatch):
+    from pathlib import Path
+
+    content = b"0123456789" * 100
+    asset_id = await _upload_confirm_personal(client, content=content)
+    cred_id = (await _issue(client, asset_id)).json()["credential_id"]
+    ft = await _entry_fetch_token(client, cred_id)
+
+    def no_read_bytes(_path):
+        raise AssertionError("Preview must not buffer the whole file")
+
+    monkeypatch.setattr(Path, "read_bytes", no_read_bytes)
+    response = await client.get(
+        f"/api/v1/preview/{cred_id}/file", params={"ft": ft}, headers={"Range": "bytes=10-19"}
+    )
+    assert response.status_code == 206
+    assert response.content == content[10:20]
+    assert response.headers["content-range"] == "bytes 10-19/1000"
+    assert response.headers["cache-control"] == "no-store"
+    denied = await client.get(
+        f"/api/v1/preview/{cred_id}/file", params={"ft": "wrong"}, headers={"Range": "bytes=0-5"}
+    )
+    assert denied.status_code == 403
+
+
 async def test_controlled_file_wrong_token_rejected(client, monkeypatch):
     _enable_onlyoffice(monkeypatch)
     asset_id = await _upload_confirm_personal(client)

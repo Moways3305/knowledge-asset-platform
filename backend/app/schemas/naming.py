@@ -355,8 +355,6 @@ class BatchNamingPreviewRequest(BaseModel):
             raise ValueError("task ids must not contain duplicates")
         if self.target_scope == KnowledgeScope.project and self.target_project_id is None:
             raise ValueError("target_project_id is required for project scope")
-        if self.target_scope == KnowledgeScope.personal:
-            raise ValueError("personal scope does not require governed naming preview")
         return self
 
 

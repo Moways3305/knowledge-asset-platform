@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-import uuid
-from datetime import datetime
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from app.models.ingest import IngestTask, UploadSession
 from app.schemas.ingest import UploadSessionItemResponse, UploadSessionResponse
 from app.schemas.permission import CallerContext
 from app.services.storage import LocalFileStorage
-from app.services.upload_duplicates import read_duplicate
+from app.services.upload_duplicates import read_duplicates_batch
 from app.services.upload_session_state import COMPLETED_ITEM_STATES, TERMINAL_ITEM_STATES
 
 _VISIBLE_PROCESSING_STAGES = {
@@ -43,20 +41,6 @@ async def build_response(
 ) -> UploadSessionResponse:
     visible_items = [item for item in value.items if item.status != "cancelled"]
     task_ids = [item.ingest_task_id for item in visible_items if item.ingest_task_id]
-    task_facts: dict[uuid.UUID, tuple[str | None, int, str | None, datetime | None]] = {
-        task_id: (processing_stage, retry_count, error_type, updated_at)
-        for task_id, processing_stage, retry_count, error_type, updated_at in (
-            await session.execute(
-                select(
-                    IngestTask.id,
-                    IngestTask.processing_stage,
-                    IngestTask.retry_count,
-                    IngestTask.error_type,
-                    IngestTask.updated_at,
-                ).where(IngestTask.id.in_(task_ids))
-            )
-        ).all()
-    }
     tasks = {
         task.id: task
         for task in (
@@ -65,19 +49,20 @@ async def build_response(
             .all()
         )
     }
-    source_available = {
-        task_id: storage.inspect(task.source_file_ref).available for task_id, task in tasks.items()
+    task_facts = {
+        task.id: (task.processing_stage, task.retry_count, task.error_type, task.updated_at)
+        for task in tasks.values()
     }
-    duplicates = {
-        task_id: await read_duplicate(
-            session,
-            caller,
-            task,
-            scope=value.target_scope or "",
-            project_id=value.target_project_id,
-        )
-        for task_id, task in tasks.items()
-    }
+    source_refs = {task_id: task.source_file_ref for task_id, task in tasks.items()}
+    source_available = await run_in_threadpool(
+        lambda: {task_id: storage.inspect(ref).available for task_id, ref in source_refs.items()}
+    )
+    duplicates = await read_duplicates_batch(
+        session,
+        caller,
+        list(tasks.values()),
+        destination=(value.target_scope or "", value.target_project_id),
+    )
     states = [item.status for item in visible_items]
     active_batches = [
         item.batch_index for item in visible_items if item.status not in TERMINAL_ITEM_STATES

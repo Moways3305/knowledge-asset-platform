@@ -223,11 +223,15 @@ async def validate_directory(
 
 
 async def display_path(
-    session: AsyncSession, directory_key: str | None, project_id: uuid.UUID | None
+    session: AsyncSession,
+    directory_key: str | None,
+    project_id: uuid.UUID | None,
+    *,
+    published: tuple[int | None, list[dict]] | None = None,
 ) -> str | None:
     if not directory_key:
         return "未分类 / 待治理"
-    _, rows = await published_directories(session)
+    _, rows = published if published is not None else await published_directories(session)
     item = next((row for row in rows if row.get("directory_key") == directory_key), None)
     if item is None:
         standard = STANDARD_BY_KEY.get(directory_key)

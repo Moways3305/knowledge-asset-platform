@@ -178,12 +178,15 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
     };
   }, [previewQueue]);
 
-  const liveSelectedConfirmTasks = tasks.filter(
-    (task) => flow.batchSelection.includes(task.id) && task.can_batch_confirm,
+  const selection = useMemo(() => new Set(flow.batchSelection), [flow.batchSelection]);
+  const liveSelectedConfirmTasks = useMemo(
+    () => tasks.filter((task) => selection.has(task.id) && task.can_batch_confirm),
+    [tasks, selection],
   );
   const selectedConfirmTasks = confirmOpen ? reviewTasks : liveSelectedConfirmTasks;
-  const selectedRejectTasks = tasks.filter(
-    (task) => flow.batchSelection.includes(task.id) && task.can_batch_reject,
+  const selectedRejectTasks = useMemo(
+    () => tasks.filter((task) => selection.has(task.id) && task.can_batch_reject),
+    [tasks, selection],
   );
   const company = targetLibrary === "company";
   const formalDirectories = useMemo(
@@ -564,24 +567,30 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
       );
       setLoading(true);
       try {
-        const values = await Promise.all(
-          selectedConfirmTasks.map((task) =>
-            previewQueue.run(
-              async () =>
-                [
-                  task.id,
-                  (
-                    await previewIngestNaming(task.id, {
-                      target_scope: "personal",
-                      confidentiality_level: task.suggested_confidentiality_level!,
-                    })
-                  ).duplicate ??
-                    task.duplicate ??
-                    EMPTY_DUPLICATE,
-                ] as const,
-            ),
-          ),
-        );
+        const values: Array<readonly [string, UploadDuplicateDTO]> = [];
+        for (let offset = 0; offset < selectedConfirmTasks.length; offset += 50) {
+          if (reviewEpoch.current !== epoch) return;
+          const chunk = selectedConfirmTasks.slice(offset, offset + 50);
+          const response = await previewQueue.run(() =>
+            previewBatchIngestNaming({
+              targetScope: "personal",
+              items: chunk.map((task) => ({
+                taskId: task.id,
+                naming: {
+                  confidentiality_level: task.suggested_confidentiality_level!,
+                },
+              })),
+            }),
+          );
+          if (reviewEpoch.current !== epoch) return;
+          for (const task of chunk) {
+            const item = response?.items.find((item) => item.task_id === task.id);
+            if (!item || item.error_code || !item.submittable || !item.duplicate) {
+              throw new Error(item?.message || "部分资料的重复状态未能核对，请重试");
+            }
+            values.push([task.id, item.duplicate]);
+          }
+        }
         if (reviewEpoch.current !== epoch) return;
         setPersonalDuplicates(Object.fromEntries(values.filter((value) => value !== undefined)));
       } catch (error) {

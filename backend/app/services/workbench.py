@@ -10,7 +10,7 @@ from typing import TypeVar
 
 from fastapi import HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import safe_log_exception
@@ -185,6 +185,7 @@ async def build_task_center(
     caller: CallerContext,
     *,
     storage: LocalFileStorage | None = None,
+    shared: dict | None = None,
 ) -> WorkbenchTaskCenterSection:
     """Aggregate real task sources through their existing permission-filtered services."""
     is_ops_viewer = "admin" in caller.active_company_roles or caller.can_discover_l5
@@ -199,6 +200,8 @@ async def build_task_center(
 
     if caller.is_business_user:
         reviews = await review_service.list_reviews(session, caller)
+        if shared is not None:
+            shared["reviews"] = reviews
         for review_item in reviews:
             waiting = _waiting_minutes(review_item.created_at)
             actionable = review_item.can_decide and review_item.status in {
@@ -286,6 +289,7 @@ async def build_task_center(
             session,
             caller,
             storage=storage,
+            include_duplicates=False,
             statuses={
                 "pending",
                 "processing",
@@ -579,21 +583,36 @@ async def build_task_center(
     )
 
 
-async def build_todos(session: AsyncSession, caller: CallerContext) -> WorkbenchTodosSection:
+async def build_todos(
+    session: AsyncSession, caller: CallerContext, *, shared: dict | None = None
+) -> WorkbenchTodosSection:
     if not caller.is_business_user:
         raise HTTPException(status_code=403)
 
-    reviews = await review_service.list_reviews(session, caller)
+    reviews = (
+        shared["reviews"]
+        if shared is not None and "reviews" in shared
+        else await review_service.list_reviews(session, caller)
+    )
     pending_reviews = sum(item.can_decide and item.status == "pending_reviewer" for item in reviews)
     failed_reviews = sum(item.can_decide and item.status == "approval_failed" for item in reviews)
-    pending_ingest_items = await ingest_service.list_pending(
-        session, caller, statuses=_INGEST_PENDING_STATUSES
-    )
-    failed_ingest_items = await ingest_service.list_pending(
-        session, caller, statuses=_INGEST_FAILED_STATUSES
-    )
-    pending_ingest = len(pending_ingest_items)
-    failed_ingest = len(failed_ingest_items)
+    counts_by_status = {
+        status: count
+        for status, count in (
+            await session.execute(
+                select(IngestTask.status, func.count())
+                .where(
+                    IngestTask.created_by == caller.user_id,
+                    IngestTask.result_asset_id.is_(None),
+                    IngestTask.cancel_requested.is_(False),
+                    IngestTask.status.in_(_INGEST_PENDING_STATUSES | _INGEST_FAILED_STATUSES),
+                )
+                .group_by(IngestTask.status)
+            )
+        ).all()
+    }
+    pending_ingest = sum(counts_by_status.get(status, 0) for status in _INGEST_PENDING_STATUSES)
+    failed_ingest = sum(counts_by_status.get(status, 0) for status in _INGEST_FAILED_STATUSES)
     access_inbox = await original_access_service.list_requests(
         session, caller, box="inbox", status="pending"
     )
@@ -748,16 +767,17 @@ async def get_overview(
     storage: LocalFileStorage | None = None,
 ) -> WorkbenchOverviewResponse:
     """Return all partitions even when one internal dependency fails."""
+    shared: dict = {}
     task_center = await _load_section(
         session,
         "task_center",
-        lambda: build_task_center(session, caller, storage=storage),
+        lambda: build_task_center(session, caller, storage=storage, shared=shared),
         WorkbenchTaskCenterSection,
     )
     todos = await _load_section(
         session,
         "todos",
-        lambda: build_todos(session, caller),
+        lambda: build_todos(session, caller, shared=shared),
         WorkbenchTodosSection,
     )
     operations = await _load_section(

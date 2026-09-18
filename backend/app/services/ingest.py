@@ -957,6 +957,7 @@ async def list_pending(
     source: str | None = None,
     statuses: set[str] | None = None,
     storage: LocalFileStorage | None = None,
+    include_duplicates: bool = True,
 ) -> list[PendingIngestItem]:
     """业务侧待确认任务列表。
 
@@ -997,6 +998,20 @@ async def list_pending(
         stmt = stmt.where(IngestTask.status.in_(statuses))
 
     tasks = list((await session.execute(stmt)).scalars().all())
+    duplicates = (
+        await upload_duplicates.read_duplicates_batch(
+            session,
+            caller,
+            tasks,
+            metadata_by_task={
+                task.id: task.ai_result.naming_parsed_fields
+                for task in tasks
+                if task.ai_result and isinstance(task.ai_result.naming_parsed_fields, dict)
+            },
+        )
+        if include_duplicates
+        else {}
+    )
     items: list[PendingIngestItem] = []
     for t in tasks:
         timeout_source_available = bool(
@@ -1080,18 +1095,7 @@ async def list_pending(
                 updated_at=t.updated_at,
                 last_progress_at=t.processing_heartbeat_at or t.updated_at,
                 next_retry_at=t.recovery_not_before,
-                duplicate=await upload_duplicates.read_duplicate(
-                    session,
-                    caller,
-                    t,
-                    scope=t.target_scope or "",
-                    project_id=t.target_project_id,
-                    metadata=(
-                        ai.naming_parsed_fields
-                        if ai and isinstance(ai.naming_parsed_fields, dict)
-                        else None
-                    ),
-                ),
+                duplicate=duplicates.get(t.id),
             )
         )
     return items

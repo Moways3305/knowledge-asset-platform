@@ -28816,6 +28816,18 @@
         "operationId": "list_upload_sessions_api_v1_ingest_upload_sessions_get",
         "parameters": [
           {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "maximum": 10,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
             "in": "header",
             "name": "X-Dev-User-Id",
             "required": false,
