@@ -25,6 +25,10 @@ describe("upload source metadata", () => {
       setLocalPendingTasks: vi.fn(),
     };
     const { result, unmount } = renderHook(() => useUploadIntake(options));
+    // Confirmation is gated until the initial session recovery has finished.
+    await act(async () => {
+      await api.fetchUploadSessions.mock.results[0].value;
+    });
     act(() => result.current.handleFileDrop([file]));
     await act(async () => result.current.confirmPendingSelection());
     await waitFor(() =>
