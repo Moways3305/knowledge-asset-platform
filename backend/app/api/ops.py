@@ -99,8 +99,6 @@ _logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["ops"])
 
-_VERSION = "0.1.0"
-
 
 async def _db_ready(session: AsyncSession) -> bool:
     try:
@@ -320,7 +318,7 @@ async def health_config(session: AsyncSession = Depends(get_db)) -> dict:
     )
     return {
         "app_env": s.app_env,
-        "version": _VERSION,
+        "version": get_settings().app_version,
         "integrations": {
             "weknora_enabled": weknora_enabled(),
             "weknora_foundation_defaults_configured": default_embedding_ok and default_chat_ok,
@@ -397,7 +395,7 @@ async def ops_summary(
     )
     return {
         "app_env": s.app_env,
-        "version": _VERSION,
+        "version": get_settings().app_version,
         "db_ready": await _db_ready(session),
         "redis_ready": await _redis_ready(),
         "celery_eager": bool(s.celery_task_always_eager),

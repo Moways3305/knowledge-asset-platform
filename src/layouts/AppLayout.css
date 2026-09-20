@@ -6808,3 +6808,12 @@ body {
     flex: 1;
   }
 }
+
+.release-unread-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: #dfbd75;
+  box-shadow: 0 0 0 3px rgba(223, 189, 117, 0.12);
+}

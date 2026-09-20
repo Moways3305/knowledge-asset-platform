@@ -21,6 +21,20 @@ type BusinessOptionContract = {
 
 const routes: RouteContract[] = [
   {
+    route: "/release-notes",
+    component: "ReleaseNotesPage",
+    guard: "public",
+    owners: ["pages/ReleaseNotesPage.tsx"],
+    apiModules: ["releaseNotes"],
+  },
+  {
+    route: "/admin/release-notes",
+    component: "AdminReleaseNotesPage",
+    guard: "manageReleaseNotes",
+    owners: ["pages/AdminReleaseNotesPage.tsx"],
+    apiModules: ["http", "releaseNotes"],
+  },
+  {
     route: "/",
     component: "HomeDashboardPage",
     guard: "public",
@@ -366,7 +380,7 @@ function appRouteOwnership() {
 describe("frontend route takeover gate", () => {
   it("assigns every formal App route to the registered page and capability", () => {
     const actual = appRouteOwnership();
-    expect(actual.size).toBe(23);
+    expect(actual.size).toBe(25);
     expect([...actual.keys()].sort()).toEqual(routes.map((item) => item.route).sort());
     for (const contract of routes) {
       expect(actual.get(contract.route), contract.route).toEqual({

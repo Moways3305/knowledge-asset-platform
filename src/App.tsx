@@ -32,6 +32,8 @@ const ProjectOverviewPage = lazy(() => import("./pages/ProjectOverviewPage"));
 const ProjectKnowledgePage = lazy(() => import("./pages/ProjectKnowledgePage"));
 const ProjectSettingsPage = lazy(() => import("./pages/ProjectSettingsPage"));
 const HelpPage = lazy(() => import("./pages/HelpPage"));
+const ReleaseNotesPage = lazy(() => import("./pages/ReleaseNotesPage"));
+const AdminReleaseNotesPage = lazy(() => import("./pages/AdminReleaseNotesPage"));
 const WorkbuddyAccessPage = lazy(() => import("./pages/WorkbuddyAccessPage"));
 
 export default function App() {
@@ -215,6 +217,15 @@ export default function App() {
               }
             />
             <Route path="help" element={<HelpPage />} />
+            <Route path="release-notes" element={<ReleaseNotesPage />} />
+            <Route
+              path="admin/release-notes"
+              element={
+                <RouteGuard cap={can.manageReleaseNotes}>
+                  <AdminReleaseNotesPage />
+                </RouteGuard>
+              }
+            />
             {/* 未知路由兜底（渲染在 AppLayout 内，导航仍可用）。 */}
             <Route path="*" element={<NotFoundPage />} />
           </Route>

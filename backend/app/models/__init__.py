@@ -50,6 +50,7 @@ from app.models.original_access import AccessGrant, OriginalAccessRequest
 from app.models.outbox import DomainEventOutbox
 from app.models.permission_rule import PermissionRule
 from app.models.preview import PreviewCredential
+from app.models.release_note import ReleaseNote, ReleaseNoteRead
 from app.models.review import (
     CompanyAssetReviewDecision,
     PersonalKnowledgeSubmission,
@@ -63,6 +64,8 @@ from app.models.weknora_defaults import WeknoraDefaultModels
 
 __all__ = [
     "User",
+    "ReleaseNote",
+    "ReleaseNoteRead",
     "UserCompanyRole",
     "Project",
     "ProjectMember",

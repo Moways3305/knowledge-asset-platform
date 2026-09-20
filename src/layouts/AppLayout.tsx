@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import IdentityMenu from "../components/IdentityMenu";
 import NotificationBell from "../components/NotificationBell";
+import ReleaseNotesLink from "../components/ReleaseNotesLink";
 import GlobalTaskStatus from "../components/GlobalTaskStatus";
 import ErrorBoundary from "../components/ErrorBoundary";
 import LoadingError from "../components/LoadingError";
@@ -112,6 +113,12 @@ const navGroups: NavGroup[] = [
     label: "运行与接入",
     items: [
       { to: "/admin/ingest", label: "入库管理", icon: Inbox, cap: can.viewIngestAdmin },
+      {
+        to: "/admin/release-notes",
+        label: "版本日志管理",
+        icon: ScrollText,
+        cap: can.manageReleaseNotes,
+      },
       { to: "/admin/wecom-scan", label: "微盘扫描", icon: ScanLine, cap: can.viewWecomScan },
       { to: "/admin/weknora-models", label: "模型配置", icon: Cpu, cap: can.viewModels },
     ],
@@ -164,6 +171,8 @@ const moduleTitles: Array<[prefix: string, title: string]> = [
   ["/admin/naming-rules", "目录治理"],
   ["/admin/company-kb", "公司知识库"],
   ["/help", "帮助"],
+  ["/admin/release-notes", "版本日志管理"],
+  ["/release-notes", "更新日志"],
   ["/", "今日工作台"],
 ];
 
@@ -314,6 +323,7 @@ function AppShell() {
         </div>
         <RailNav capabilities={capabilities} projectId={projectId} collapsed={railCollapsed} />
         <div className="rail-foot">
+          <ReleaseNotesLink />
           {can.viewHelp(capabilities) && (
             <Link
               to="/help"
