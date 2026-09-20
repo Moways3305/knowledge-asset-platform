@@ -248,7 +248,7 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
               <dd>{intakeFeedback.total}</dd>
             </div>
             <div>
-              <dt>接收</dt>
+              <dt>已接收</dt>
               <dd>{intakeFeedback.accepted}</dd>
             </div>
             <div>
@@ -256,12 +256,22 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
               <dd>{intakeFeedback.waitingBatches}</dd>
             </div>
             <div>
-              <dt>拒绝</dt>
+              <dt>{flow.uploadSession ? "失败" : "拒绝"}</dt>
               <dd>{intakeFeedback.rejected}</dd>
             </div>
           </dl>
+          {intakeFeedback.unuploaded != null && (
+            <p>
+              未接收 {intakeFeedback.unuploaded} · 已取消/移除 {intakeFeedback.cancelled ?? 0}
+              {(intakeFeedback.unaccounted ?? 0) > 0 && ` · 待核实 ${intakeFeedback.unaccounted}`}
+              {intakeFeedback.rejected > 0 && "（失败数可能包含已接收文件的处理失败）"}
+            </p>
+          )}
           {intakeFeedback.batchSizes.length > 1 && (
-            <p>批次分布：{intakeFeedback.batchSizes.join(" + ")}</p>
+            <details>
+              <summary>传输批次详情</summary>
+              <p>批次分布：{intakeFeedback.batchSizes.join(" + ")}</p>
+            </details>
           )}
         </section>
       )}

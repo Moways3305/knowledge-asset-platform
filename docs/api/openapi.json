@@ -15965,6 +15965,11 @@
       },
       "UploadSessionResponse": {
         "properties": {
+          "cancelled_files": {
+            "default": 0,
+            "title": "Cancelled Files",
+            "type": "integer"
+          },
           "completed_files": {
             "title": "Completed Files",
             "type": "integer"
@@ -16015,6 +16020,16 @@
           },
           "total_files": {
             "title": "Total Files",
+            "type": "integer"
+          },
+          "unaccounted_files": {
+            "default": 0,
+            "title": "Unaccounted Files",
+            "type": "integer"
+          },
+          "unuploaded_files": {
+            "default": 0,
+            "title": "Unuploaded Files",
             "type": "integer"
           },
           "updated_at": {

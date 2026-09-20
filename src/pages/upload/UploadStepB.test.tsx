@@ -92,6 +92,45 @@ function flowFixture(overrides: Record<string, unknown> = {}): UploadFlow {
 }
 
 describe("UploadStepB folder drop and batch rejection", () => {
+  it("removes finished rows from the default view while keeping them in history", () => {
+    const queue: LocalUploadQueueItem[] = ["processing", "failed", "awaiting_confirmation"].map(
+      (status, index) => ({
+        id: `item-${index}`,
+        file: null,
+        fileName: `item-${index}.pdf`,
+        fileSize: 1,
+        fileType: "PDF",
+        status: status as LocalUploadQueueItem["status"],
+        error: null,
+        ingestTaskId: `task-${index}`,
+        pollAttempts: 0,
+      }),
+    );
+    const view = render(
+      <UploadStepB flow={flowFixture({ localUploadQueue: queue, localPendingTasks: [] })} />,
+    );
+    expect(screen.getByText("item-0.pdf")).toBeInTheDocument();
+    const finished = queue.map((row, i) =>
+      i === 0 ? { ...row, status: "completed" as const } : row,
+    );
+    view.rerender(
+      <UploadStepB flow={flowFixture({ localUploadQueue: finished, localPendingTasks: [] })} />,
+    );
+    expect(screen.queryByText("item-0.pdf")).not.toBeInTheDocument();
+    expect(screen.getByText("item-1.pdf")).toBeInTheDocument();
+    expect(screen.getByText("item-2.pdf")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "已处理 1" }));
+    expect(screen.getByText("item-0.pdf")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "待处理 2" }));
+    expect(screen.queryByText("item-0.pdf")).not.toBeInTheDocument();
+    view.rerender(
+      <UploadStepB
+        flow={flowFixture({ localUploadQueue: [finished[0]], localPendingTasks: [] })}
+      />,
+    );
+    expect(screen.getByText(/当前没有待处理文件/)).toBeInTheDocument();
+  });
+
   it("merges by task identity without collapsing distinct same-name files", () => {
     const local = [
       { id: "item-a", ingestTaskId: "a", fileName: "same.pdf" },

@@ -16,7 +16,7 @@ import type { PendingIngestItemDTO } from "../../types/ingest";
 import { formatBeijingTime } from "../../utils/time";
 
 type Row = { id: string; local?: LocalUploadQueueItem; task?: PendingIngestItemDTO };
-type Filter = "all" | "active" | "ready" | "failed" | "completed" | "cancelled";
+type Filter = "actionable" | "all" | "active" | "ready" | "failed" | "completed" | "cancelled";
 
 export function mergeFileTasks(
   local: LocalUploadQueueItem[],
@@ -50,13 +50,17 @@ function state(row: Row): Filter {
 }
 
 export default function UnifiedFileTasks({ flow }: { flow: UploadFlow }) {
-  const [filter, setFilter] = useState<Filter>("all");
+  const [filter, setFilter] = useState<Filter>("actionable");
   const [page, setPage] = useState(1);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const rows = mergeFileTasks(flow.localUploadQueue, flow.localPendingTasks);
-  const filtered = rows.filter((row) => filter === "all" || state(row) === filter);
+  const actionable = rows.filter((row) => !["completed", "cancelled"].includes(state(row)));
+  const filtered =
+    filter === "actionable"
+      ? actionable
+      : rows.filter((row) => filter === "all" || state(row) === filter);
   const totalPages = Math.max(1, Math.ceil(filtered.length / 8));
   const currentPage = Math.min(page, totalPages);
   const visible = filtered.slice((currentPage - 1) * 8, currentPage * 8);
@@ -163,6 +167,7 @@ export default function UnifiedFileTasks({ flow }: { flow: UploadFlow }) {
         <div>
           {(
             [
+              ["actionable", "待处理"],
               ["all", "全部"],
               ["active", "传输/处理中"],
               ["ready", "待确认"],
@@ -181,7 +186,11 @@ export default function UnifiedFileTasks({ flow }: { flow: UploadFlow }) {
               }}
             >
               {label}{" "}
-              {value === "all" ? rows.length : rows.filter((row) => state(row) === value).length}
+              {value === "actionable"
+                ? actionable.length
+                : value === "all"
+                  ? rows.length
+                  : rows.filter((row) => state(row) === value).length}
             </button>
           ))}
         </div>
@@ -388,7 +397,11 @@ export default function UnifiedFileTasks({ flow }: { flow: UploadFlow }) {
         </table>
         {filtered.length === 0 && (
           <div className="upload77-state">
-            {flow.localPendingLoading ? "正在加载文件任务…" : "暂无文件任务，请先选择文件上传。"}
+            {flow.localPendingLoading
+              ? "正在加载文件任务…"
+              : filter === "actionable" && rows.length > 0
+                ? "当前没有待处理文件，已结束项目可在“已处理”中查看。"
+                : "暂无文件任务，请先选择文件上传。"}
           </div>
         )}
       </div>

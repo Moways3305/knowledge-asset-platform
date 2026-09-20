@@ -161,7 +161,15 @@ export function useUploadIntake({
     });
     localUploadQueueRef.current = next;
     setLocalUploadQueue(next);
-    const accepted = value.completed_files + value.processing_files + value.waiting_files;
+    const accepted =
+      value.uploaded_files ?? value.items.filter((item) => item.ingest_task_id).length;
+    const unuploaded =
+      value.unuploaded_files ??
+      value.items.filter((item) => !item.ingest_task_id && item.status !== "cancelled").length;
+    const cancelled =
+      value.cancelled_files ?? value.items.filter((item) => item.status === "cancelled").length;
+    const unaccounted =
+      value.unaccounted_files ?? Math.max(0, value.total_files - accepted - unuploaded - cancelled);
     const transportCounts = Array.from({ length: value.total_batches }, () => 0);
     for (const item of value.items) {
       if (item.transport_batch_number) transportCounts[item.transport_batch_number - 1] += 1;
@@ -179,17 +187,26 @@ export function useUploadIntake({
       kind,
       total: value.total_files,
       accepted,
+      unuploaded,
+      cancelled,
+      unaccounted,
       rejected: value.failed_files,
       waitingBatches: Math.max(0, value.total_batches - (value.uploaded_batches ?? 0)),
       batchSizes: sizes,
       message:
-        value.items.length === 0 && value.total_files > 0
-          ? "失败项已清理；本次队列当前无可处理项目。"
-          : kind === "rejected"
-            ? "本次文件全部被安全门禁拒绝，请按每项原因处理后重新选择。"
-            : kind === "partial"
-              ? "本次文件已接收，部分项目被拒绝；队列中的逐项状态为最终依据。"
-              : `已上传 ${value.uploaded_files ?? 0} / ${value.total_files} 项，第 ${value.uploaded_batches ?? 0} / ${value.total_batches} 批。`,
+        value.status === "completed" &&
+        value.items.every((item) => ["completed", "duplicate_skipped"].includes(item.status)) &&
+        unaccounted === 0
+          ? "本批处理已结束，可在“已处理”中查看记录。"
+          : unaccounted > 0
+            ? "本批部分记录状态待核实，请刷新后检查。"
+            : value.items.length === 0 && value.total_files > 0
+              ? "本批已无待处理项目。"
+              : kind === "rejected"
+                ? "本批文件未能接收，请查看逐项失败原因。"
+                : kind === "partial"
+                  ? "本批存在上传或处理失败，请查看逐项原因。"
+                  : `本批共 ${value.total_files} 项，已接收 ${accepted} 项。`,
     });
   }, []);
 
@@ -222,10 +239,11 @@ export function useUploadIntake({
         if (plan.cancelled) return;
         plan.nextIndex = index + 1;
         applyUploadSession(value);
-        setIntakeFeedback(() => ({
+        setIntakeFeedback((current) => ({
+          ...current,
           kind: value.failed_files > 0 ? "partial" : "accepted",
           total: value.total_files,
-          accepted: value.uploaded_files ?? 0,
+          accepted: value.uploaded_files ?? current?.accepted ?? 0,
           rejected: value.failed_files,
           waitingBatches: Math.max(0, value.total_batches - (value.uploaded_batches ?? 0)),
           batchSizes: plan.batches.map((entry) => entry.length),
@@ -324,15 +342,16 @@ export function useUploadIntake({
       const value = await cancelUploadSession(sessionId);
       transportPlanRef.current = null;
       applyUploadSession(value);
-      setIntakeFeedback({
+      setIntakeFeedback((current) => ({
+        ...current,
         kind: "cancelled",
         total: value.total_files,
-        accepted: value.completed_files,
-        rejected: 0,
+        accepted: value.uploaded_files ?? current?.accepted ?? 0,
+        rejected: value.failed_files,
         waitingBatches: 0,
         batchSizes: [],
         message: "本批未完成上传已取消；已完成项目保持不变。",
-      });
+      }));
       void loadLocalPending();
     } catch (error) {
       setIntakeFeedback((current) => ({

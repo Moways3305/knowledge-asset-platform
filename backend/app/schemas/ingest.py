@@ -70,6 +70,9 @@ class UploadSessionResponse(BaseModel):
     current_batch_number: int | None
     total_batches: int
     uploaded_files: int = 0
+    unuploaded_files: int = 0
+    cancelled_files: int = 0
+    unaccounted_files: int = 0
     uploaded_batches: int = 0
     upload_completed: bool = False
     created_at: datetime
