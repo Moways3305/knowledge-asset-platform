@@ -4,6 +4,26 @@ export const acceptanceViewports = ["1440", "1024", "390"];
 
 export const routeDefinitions = [
   {
+    route: "/release-notes",
+    suite: "release-notes",
+    states: [
+      { name: "normal", scenario: "reader" },
+      { name: "empty", scenario: "empty" },
+      { name: "failure", scenario: "error" },
+    ],
+  },
+  {
+    route: "/admin/release-notes",
+    suite: "release-notes",
+    states: [
+      { name: "normal", scenario: "published" },
+      { name: "empty", scenario: "admin-empty" },
+      { name: "editing", scenario: "editor" },
+      { name: "preview", scenario: "preview" },
+      { name: "forbidden", scenario: "forbidden" },
+    ],
+  },
+  {
     route: "/",
     suite: "workbench",
     states: [

@@ -30,6 +30,8 @@ const SafeNavigationContext = createContext<SafeNavigationValue | null>(null);
 const staticRoutes: Array<[RegExp, (capabilities: Capabilities) => boolean]> = [
   [/^\/$/, can.viewHome],
   [/^\/help$/, can.viewHelp],
+  [/^\/release-notes$/, can.viewReleaseNotes],
+  [/^\/admin\/release-notes$/, can.manageReleaseNotes],
   [/^\/knowledge$/, can.viewKnowledge],
   [/^\/my\/knowledge$/, can.viewMyKnowledge],
   [/^\/upload$/, can.viewUpload],

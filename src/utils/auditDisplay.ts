@@ -7,6 +7,9 @@
 import type { AuditEventDTO } from "../types/audit";
 
 const ACTION_LABELS: Record<string, string> = {
+  "release_note.created": "创建版本日志草稿",
+  "release_note.updated": "修改版本日志草稿",
+  "release_note.published": "发布版本日志",
   // 入库
   "ingest.task_created": "创建入库任务",
   "ingest.ai_extracted": "完成文本抽取与内容建议",
@@ -78,6 +81,7 @@ const ACTION_LABELS: Record<string, string> = {
 };
 
 const TARGET_TYPE_LABELS: Record<string, string> = {
+  release_note: "版本日志",
   ingest_task: "入库任务",
   knowledge_asset: "知识资产",
   knowledge_search: "知识检索",

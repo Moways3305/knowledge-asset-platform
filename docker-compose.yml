@@ -21,6 +21,7 @@
 x-backend-env: &backend-env
   APP_NAME: knowledge-asset-platform
   APP_ENV: ${APP_ENV:-prod}
+  APP_VERSION: ${APP_VERSION:-0.1.0}
   LOG_LEVEL: INFO
   # DATABASE_URL 的密码部分不在此拼接——避免密码含 URL 特殊字符（% @ / # 等）
   # 时被 URL 解析器误处理。POSTGRES_PASSWORD 作为独立变量，postgres 服务用它

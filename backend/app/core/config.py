@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "knowledge-asset-platform"
+    # Deployed application version; release-note publishing never changes this value.
+    app_version: str = Field(default="0.1.0", min_length=1, max_length=40)
     app_env: str = "local"
     log_level: str = "INFO"
 

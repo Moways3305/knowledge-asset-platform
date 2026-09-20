@@ -62,6 +62,8 @@ const businessOnly: Capability = (c) => c.isBusinessUser;
 export const can = {
   viewHome: always,
   viewHelp: always,
+  viewReleaseNotes: always,
+  manageReleaseNotes: adminOnly,
 
   // 业务功能：业务用户可见；纯 admin / 匿名不显示业务知识入口。
   viewKnowledge: businessOnly,

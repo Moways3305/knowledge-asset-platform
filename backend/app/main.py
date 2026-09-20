@@ -36,6 +36,7 @@ from app.api import (
     personal_kb,
     preview,
     projects,
+    release_notes,
     review,
     search,
     wecom_scan,
@@ -62,7 +63,7 @@ def create_app() -> FastAPI:
     configure_logging()
     app = FastAPI(
         title=settings.app_name,
-        version="0.1.0",
+        version=settings.app_version,
         description="AI Knowledge Asset Platform backend。",
     )
 
@@ -88,6 +89,7 @@ def create_app() -> FastAPI:
     app.include_router(model_connections.router)
     app.include_router(naming.router)
     app.include_router(notifications.router)
+    app.include_router(release_notes.router)
     app.include_router(agent.router)
     app.include_router(agent_registry_api.router)
     app.include_router(search.router)
