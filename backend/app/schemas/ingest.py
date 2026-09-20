@@ -108,7 +108,7 @@ class UploadManifestItem(BaseModel):
     file_size: int = Field(ge=0)
     file_type: str | None = Field(default=None, max_length=100)
     formed_on: str | None = None
-    transport_batch_index: int | None = Field(default=None, ge=0, le=999)
+    transport_batch_index: int | None = Field(default=None, ge=0, le=4999)
     rejection: UploadClientRejection | None = None
 
 
@@ -116,8 +116,8 @@ class UploadSessionInitRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     session_id: uuid.UUID
-    manifest: list[UploadManifestItem] = Field(min_length=1, max_length=1000)
-    total_transport_batches: int = Field(ge=0, le=1000)
+    manifest: list[UploadManifestItem] = Field(min_length=1, max_length=5000)
+    total_transport_batches: int = Field(ge=0, le=5000)
     target_scope: str | None = None
     target_project_id: uuid.UUID | None = None
 

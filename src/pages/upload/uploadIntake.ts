@@ -52,6 +52,7 @@ export interface UploadIntakeFeedback {
 }
 
 export const LOCAL_UPLOAD_MAX_BYTES = 100_000_000;
+export const UPLOAD_SELECTION_MAX_FILES = 5000;
 export const TRANSPORT_BATCH_MAX_BYTES = 20 * 1024 * 1024;
 export const TRANSPORT_BATCH_MAX_FILES = 10;
 const LOCAL_UPLOAD_EXTENSIONS = new Set([

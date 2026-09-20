@@ -254,6 +254,9 @@ describe("useUploadFlow persistent upload sessions", () => {
   it("restores legacy processing batches without presenting them as transport batches", async () => {
     ingest.createUploadSession.mockResolvedValue(session(700));
     const { result } = renderHook(() => useUploadFlow());
+    await act(async () => {
+      await Promise.resolve();
+    });
     const files = Array.from(
       { length: 700 },
       (_, index) => new File(["x"], `file-${index}.txt`, { type: "text/plain" }),
@@ -278,6 +281,9 @@ describe("useUploadFlow persistent upload sessions", () => {
   it("does not send macOS metadata bytes and keeps a real hidden document", async () => {
     ingest.createUploadSession.mockResolvedValue(session(3));
     const { result } = renderHook(() => useUploadFlow());
+    await act(async () => {
+      await Promise.resolve();
+    });
     const files = [
       new File(["metadata"], "._foo.md", { type: "text/markdown" }),
       new File(["finder"], ".DS_Store"),
@@ -301,6 +307,9 @@ describe("useUploadFlow persistent upload sessions", () => {
     ingest.createUploadSession.mockRejectedValue(new Error("network interrupted"));
     ingest.fetchUploadSession.mockResolvedValue(session(2));
     const { result } = renderHook(() => useUploadFlow());
+    await act(async () => {
+      await Promise.resolve();
+    });
     const files = [
       new File(["a"], "a.txt", { type: "text/plain" }),
       new File(["b"], "b.txt", { type: "text/plain" }),
