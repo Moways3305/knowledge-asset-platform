@@ -42,6 +42,9 @@ export interface UploadIntakeFeedback {
   kind: "checking" | "accepted" | "partial" | "rejected" | "network_error" | "cancelled";
   total: number;
   accepted: number;
+  unuploaded?: number;
+  cancelled?: number;
+  unaccounted?: number;
   rejected: number;
   waitingBatches: number;
   batchSizes: number[];

@@ -78,6 +78,34 @@ function session(total: number, status: "completed" | "waiting" = "completed"): 
 }
 
 describe("useUploadFlow persistent upload sessions", () => {
+  it.each([true, false])(
+    "accounts for hidden removed items without inventing unuploaded files (new API: %s)",
+    async (newApi) => {
+      const recovered = session(654);
+      recovered.total_files = 780;
+      recovered.uploaded_files = 654;
+      recovered.items.forEach((item, i) => {
+        item.ingest_task_id = `task-${i}`;
+      });
+      if (newApi) {
+        recovered.unuploaded_files = 0;
+        recovered.cancelled_files = 126;
+        recovered.unaccounted_files = 0;
+      }
+      ingest.fetchUploadSessions.mockResolvedValue([recovered]);
+      const { result, unmount } = renderHook(() => useUploadFlow());
+      await waitFor(() => expect(result.current.uploadSession?.id).toBe(recovered.id));
+      expect(result.current.intakeFeedback).toMatchObject({
+        total: 780,
+        accepted: 654,
+        unuploaded: 0,
+        cancelled: newApi ? 126 : 0,
+        unaccounted: newApi ? 0 : 126,
+      });
+      if (!newApi) expect(result.current.intakeFeedback?.message).toContain("待核实");
+      unmount();
+    },
+  );
   afterEach(() => vi.restoreAllMocks());
   beforeEach(() => {
     vi.mocked(fetchAuthMe).mockResolvedValue({

@@ -92,6 +92,51 @@ async def test_upload_poll_and_pending_query_budgets(db_session, tmp_path, count
     assert len(sql) <= 2 + 4 * chunks
 
 
+async def test_session_counts_account_for_hidden_cancelled_and_missing_items(db_session, tmp_path):
+    task = IngestTask(
+        source="path_b_upload",
+        source_file_ref="missing/ref",
+        source_file_name="failed.txt",
+        status="failed",
+        created_by=USER_CONSULTANT,
+    )
+    db_session.add(task)
+    await db_session.flush()
+    value = UploadSession(
+        created_by=USER_CONSULTANT,
+        total_files=6,
+        total_batches=1,
+        items=[
+            UploadSessionItem(
+                ordinal=i,
+                batch_index=0,
+                file_name=f"{i}.txt",
+                file_size=1,
+                status=status,
+                ingest_task_id=task.id if i == 0 else None,
+            )
+            for i, status in enumerate(
+                ["failed", "waiting_upload", "failed", "cancelled", "cancelled"]
+            )
+        ],
+    )
+    db_session.add(value)
+    await db_session.commit()
+    result = await build_response(db_session, caller(), value, storage=LocalFileStorage(tmp_path))
+    assert result.uploaded_files == 1
+    assert result.unuploaded_files == 2
+    assert result.cancelled_files == 2
+    assert result.unaccounted_files == 1
+    assert result.failed_files == 2
+    assert len(result.items) == 3
+    assert result.total_files == (
+        result.uploaded_files
+        + result.unuploaded_files
+        + result.cancelled_files
+        + result.unaccounted_files
+    )
+
+
 async def test_notification_pagination_crosses_hidden_rows_with_bounded_queries(db_session):
     tasks = [
         IngestTask(

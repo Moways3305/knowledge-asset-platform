@@ -84,6 +84,9 @@ export interface UploadSessionDTO {
   current_batch_number: number | null;
   total_batches: number;
   uploaded_files?: number;
+  unuploaded_files?: number;
+  cancelled_files?: number;
+  unaccounted_files?: number;
   uploaded_batches?: number;
   upload_completed?: boolean;
   created_at: string;
