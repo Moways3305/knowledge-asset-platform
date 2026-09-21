@@ -214,7 +214,9 @@ async def workspace(
         )
     if directory_key:
         conditions.append(DirectoryMigrationCandidate.suggested_directory_key == directory_key)
-    if status:
+    if status == "pending":
+        conditions.append(DirectoryMigrationCandidate.status != "migrated")
+    elif status:
         conditions.append(DirectoryMigrationCandidate.status == status)
     if conditions:
         base = base.where(*conditions)
@@ -222,7 +224,9 @@ async def workspace(
     candidates = list(
         (
             await session.execute(
-                base.order_by(DirectoryMigrationCandidate.updated_at.desc())
+                base.order_by(
+                    DirectoryMigrationCandidate.created_at.desc(), DirectoryMigrationCandidate.id
+                )
                 .offset((page - 1) * page_size)
                 .limit(page_size)
             )
@@ -330,6 +334,7 @@ async def confirm(
                 await session.execute(
                     select(DirectoryMigrationCandidate)
                     .where(DirectoryMigrationCandidate.id == item.candidate_id)
+                    .execution_options(populate_existing=True)
                     .with_for_update()
                 )
             ).scalar_one_or_none()
@@ -342,14 +347,31 @@ async def confirm(
                     )
                 )
                 continue
+            if candidate.status == "migrated":
+                results.append(
+                    DirectoryMigrationConfirmResult(
+                        candidate_id=item.candidate_id,
+                        status="skipped",
+                        reason_code="candidate_already_migrated",
+                    )
+                )
+                continue
             version = (
                 await session.execute(
                     select(KnowledgeAssetVersion)
                     .where(KnowledgeAssetVersion.id == candidate.version_id)
+                    .execution_options(populate_existing=True)
                     .with_for_update()
                 )
             ).scalar_one_or_none()
-            asset = await session.get(KnowledgeAsset, candidate.asset_id)
+            asset = (
+                await session.execute(
+                    select(KnowledgeAsset)
+                    .where(KnowledgeAsset.id == candidate.asset_id)
+                    .execution_options(populate_existing=True)
+                    .with_for_update()
+                )
+            ).scalar_one_or_none()
             if (
                 version is None
                 or asset is None
@@ -367,7 +389,7 @@ async def confirm(
                 )
                 await session.commit()
                 continue
-            if candidate.candidate_source == "approval_snapshot" and version.directory_key:
+            if version.directory_key is not None:
                 results.append(
                     DirectoryMigrationConfirmResult(
                         candidate_id=item.candidate_id,
@@ -399,16 +421,6 @@ async def confirm(
                 session, directory_key=key, scope=asset.scope, project_id=asset.project_id
             )
             rule_version = rule_version or 1
-            if version.directory_key == key and version.directory_rule_version == rule_version:
-                candidate.status = "migrated"
-                candidate.failure_code = None
-                results.append(
-                    DirectoryMigrationConfirmResult(
-                        candidate_id=item.candidate_id, status="migrated"
-                    )
-                )
-                await session.commit()
-                continue
             version.directory_key = key
             version.directory_rule_version = rule_version
             version.directory_confirmed_by = caller.user_id

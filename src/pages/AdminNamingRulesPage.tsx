@@ -30,9 +30,16 @@ export default function AdminNamingRulesPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [migration, setMigration] = useState<DirectoryMigrationWorkspaceDTO | null>(null);
+  const [migrationPage, setMigrationPage] = useState(1);
   const [migrationOpen, setMigrationOpen] = useState(false);
   const [migrationBusy, setMigrationBusy] = useState(false);
   const [migrationSelection, setMigrationSelection] = useState<string[]>([]);
+  const selectableMigrationIds = (migration?.items ?? [])
+    .filter(
+      (item) =>
+        item.suggested_directory_key && item.confidence === "clear" && item.status !== "migrated",
+    )
+    .map((item) => item.id);
   const editRevision = useRef(0);
 
   const load = async () => {
@@ -114,12 +121,15 @@ export default function AdminNamingRulesPage() {
     }
   };
 
-  const openMigration = async () => {
+  const openMigration = async (page = 1) => {
+    if (migrationBusy) return;
+    setMigrationSelection([]);
     setMigrationOpen(true);
     setMigrationBusy(true);
     setError(null);
     try {
-      setMigration(await fetchDirectoryMigration());
+      setMigration(await fetchDirectoryMigration({ status: "pending", page }));
+      setMigrationPage(page);
     } catch (reason) {
       setError(reason instanceof ApiError ? reason.message : "历史待治理队列暂时无法加载");
     } finally {
@@ -128,17 +138,22 @@ export default function AdminNamingRulesPage() {
   };
 
   const migrateSelected = async () => {
-    if (!migration || migrationSelection.length === 0) return;
+    if (!migration || migrationBusy || migrationSelection.length === 0) return;
+    const items = migration.items
+      .filter(
+        (item) => migrationSelection.includes(item.id) && selectableMigrationIds.includes(item.id),
+      )
+      .map((item) => ({ candidate_id: item.id }));
+    if (items.length === 0) return;
     setMigrationBusy(true);
     try {
-      await confirmDirectoryMigration(
-        migration.items
-          .filter((item) => migrationSelection.includes(item.id) && item.suggested_directory_key)
-          .map((item) => ({ candidate_id: item.id, directory_key: item.suggested_directory_key! })),
-      );
+      const result = await confirmDirectoryMigration(items);
       setMigrationSelection([]);
-      setMigration(await fetchDirectoryMigration());
-      setNotice("已提交明确映射项；无明确候选的资料仍保留在待治理队列。");
+      setMigration(await fetchDirectoryMigration({ status: "pending", page: 1 }));
+      setMigrationPage(1);
+      setNotice(
+        `迁移成功 ${result.migrated} 项 · 跳过 ${result.skipped} 项 · 失败 ${result.failed} 项。`,
+      );
     } catch (reason) {
       setError(reason instanceof ApiError ? reason.message : "历史目录迁移失败，未迁移项已保留");
     } finally {
@@ -330,15 +345,31 @@ export default function AdminNamingRulesPage() {
           {migration && (
             <>
               <p>
-                总计 {migration.overview.total} · 待人工 {migration.overview.manual_required} ·
-                无明确候选 {migration.overview.no_candidate}
+                资产总计 {migration.overview.total} · 已归类 {migration.overview.migrated} · 待治理{" "}
+                {migration.total} · 待人工 {migration.overview.manual_required} · 无明确候选{" "}
+                {migration.overview.no_candidate}
               </p>
+              <div>
+                <Button
+                  disabled={migrationBusy || selectableMigrationIds.length === 0}
+                  onClick={() => setMigrationSelection(selectableMigrationIds)}
+                >
+                  全选本页可迁移项
+                </Button>
+                <Button
+                  disabled={migrationBusy || migrationSelection.length === 0}
+                  onClick={() => setMigrationSelection([])}
+                >
+                  取消全选
+                </Button>
+                <span>已选 {migrationSelection.length} 项</span>
+              </div>
               <div className="naming-migration-list">
                 {migration.items.map((item) => (
                   <label key={item.id}>
                     <input
                       type="checkbox"
-                      disabled={!item.suggested_directory_key}
+                      disabled={migrationBusy || !selectableMigrationIds.includes(item.id)}
                       checked={migrationSelection.includes(item.id)}
                       onChange={(event) =>
                         setMigrationSelection((current) =>
@@ -351,9 +382,32 @@ export default function AdminNamingRulesPage() {
                     <span>
                       <strong>{item.asset_title}</strong>
                       <small>{item.suggested_directory_name ?? "无明确目录候选，继续待治理"}</small>
+                      {item.confidence !== "clear" && item.suggested_directory_key && (
+                        <small>需人工确认目录，暂不可迁移</small>
+                      )}
                     </span>
                   </label>
                 ))}
+              </div>
+              <div aria-label="历史待治理分页">
+                <button
+                  type="button"
+                  disabled={migrationBusy || migrationPage <= 1}
+                  onClick={() => void openMigration(migrationPage - 1)}
+                >
+                  上一页
+                </button>
+                <span>
+                  第 {migrationPage} / {Math.max(1, Math.ceil(migration.total / 50))} 页 · 本页{" "}
+                  {migration.items.length} 项
+                </span>
+                <button
+                  type="button"
+                  disabled={migrationBusy || migrationPage * 50 >= migration.total}
+                  onClick={() => void openMigration(migrationPage + 1)}
+                >
+                  下一页
+                </button>
               </div>
               <Button
                 disabled={migrationBusy || migrationSelection.length === 0}

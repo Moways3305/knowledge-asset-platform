@@ -1,6 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchDirectoryMigration, fetchNamingRuleCenter, saveNamingRuleDraft } from "../api/naming";
+import {
+  confirmDirectoryMigration,
+  fetchDirectoryMigration,
+  fetchNamingRuleCenter,
+  saveNamingRuleDraft,
+} from "../api/naming";
 import type { NamingRuleCenterDTO } from "../types/naming";
 import AdminNamingRulesPage from "./AdminNamingRulesPage";
 
@@ -120,6 +125,100 @@ describe("AdminNamingRulesPage directory governance", () => {
     render(<AdminNamingRulesPage />);
     await screen.findByText("目录治理");
     fireEvent.click(screen.getByRole("button", { name: /历史待治理/ }));
-    expect(await screen.findByText(/总计 3 · 待人工 1 · 无明确候选 1/)).toBeInTheDocument();
+    expect(fetchDirectoryMigration).toHaveBeenCalledWith({ status: "pending", page: 1 });
+    expect(
+      await screen.findByText(/资产总计 3 · 已归类 1 · 待治理 0 · 待人工 1 · 无明确候选 1/),
+    ).toBeInTheDocument();
+  });
+  it("loads subsequent pending pages", async () => {
+    vi.mocked(fetchDirectoryMigration).mockResolvedValue({
+      overview: {
+        total: 100,
+        migrated: 49,
+        clear_match: 51,
+        manual_required: 0,
+        no_candidate: 0,
+        failed: 0,
+        rule_version: 1,
+      },
+      items: [],
+      total: 51,
+      directories: [],
+    });
+    render(<AdminNamingRulesPage />);
+    await screen.findByText("目录治理");
+    fireEvent.click(screen.getByRole("button", { name: /历史待治理/ }));
+    await screen.findByText(/第 1 \/ 2 页/);
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    await screen.findByText(/第 2 \/ 2 页/);
+    expect(fetchDirectoryMigration).toHaveBeenLastCalledWith({ status: "pending", page: 2 });
+    expect(screen.getByRole("button", { name: "下一页" })).toBeDisabled();
+  });
+  it("selects only clear candidates, clears selection, and submits without overriding confidence", async () => {
+    const item = (id: string, confidence: string, status: string, key: string | null) => ({
+      id,
+      asset_title: id,
+      scope: "project",
+      project_id: null,
+      project_name: null,
+      old_category: null,
+      suggested_directory_key: key,
+      suggested_directory_name: key,
+      candidate_source: "legacy",
+      confidence,
+      status,
+      failure_code: null,
+      updated_at: null,
+    });
+    vi.mocked(fetchDirectoryMigration).mockResolvedValue({
+      overview: {
+        total: 51,
+        migrated: 1,
+        clear_match: 1,
+        manual_required: 1,
+        no_candidate: 1,
+        failed: 0,
+        rule_version: 1,
+      },
+      items: [
+        item("clear", "clear", "clear_match", "project.deliverables"),
+        item("low", "low", "manual_required", "project.deliverables"),
+        item("missing", "none", "no_candidate", null),
+        item("done", "clear", "migrated", "project.deliverables"),
+      ],
+      total: 51,
+      directories: [],
+    });
+    vi.mocked(confirmDirectoryMigration).mockResolvedValue({
+      submitted: 1,
+      migrated: 1,
+      skipped: 0,
+      failed: 0,
+    });
+    render(<AdminNamingRulesPage />);
+    await screen.findByText("目录治理");
+    fireEvent.click(screen.getByRole("button", { name: /历史待治理/ }));
+    const clear = await screen.findByRole("checkbox", { name: /^clear/ });
+    for (const name of [/^low/, /^missing/, /^done/]) {
+      expect(screen.getByRole("checkbox", { name })).toBeDisabled();
+    }
+    fireEvent.click(screen.getByRole("button", { name: "全选本页可迁移项" }));
+    expect(clear).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /^low/ })).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "确认迁移 1 项" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "取消全选" }));
+    expect(clear).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "确认迁移 0 项" })).toBeDisabled();
+    fireEvent.click(clear);
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    await screen.findByText(/第 2 \/ 2 页/);
+    expect(clear).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "确认迁移 0 项" })).toBeDisabled();
+    fireEvent.click(clear);
+    fireEvent.click(screen.getByRole("button", { name: "确认迁移 1 项" }));
+    await waitFor(() =>
+      expect(confirmDirectoryMigration).toHaveBeenCalledWith([{ candidate_id: "clear" }]),
+    );
+    await screen.findByText(/迁移成功 1 项/);
   });
 });
