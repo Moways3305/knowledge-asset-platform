@@ -526,6 +526,54 @@ async def approve_project_ingest_review(
     storage: LocalFileStorage,
     weknora: WeKnoraClient | NullWeKnoraClient,
 ) -> ReviewActionResponse:
+    """Release a committed approval claim when validation or materialization fails."""
+    review_id = review.id
+    try:
+        return await _approve_project_ingest_review(
+            session, caller, review, comment, trace_id, storage=storage, weknora=weknora
+        )
+    except Exception:
+        await session.rollback()
+        persisted = await session.get(ReviewTask, review_id, with_for_update=True)
+        if persisted is not None and persisted.status == ReviewTaskStatus.approving.value:
+            persisted.status = ReviewTaskStatus.approval_failed.value
+            persisted.review_comment = comment
+            persisted.reviewed_at = None
+            source = (
+                await session.get(IngestTask, persisted.source_ingest_task_id)
+                if persisted.source_ingest_task_id
+                else None
+            )
+            if source is not None and source.status != IngestStatus.cancelled.value:
+                source.status = IngestStatus.waiting_review.value
+            await audit_service.record_event(
+                session,
+                caller=caller,
+                log_type=AuditLogType.exception,
+                action=AuditAction.review_approval_failed.value,
+                trace_id=trace_id,
+                target_type="review_task",
+                target_id=review_id,
+                after={
+                    "status": persisted.status,
+                    "failure_stage": "approval_validation_or_materialization",
+                },
+                project_id=persisted.target_project_id,
+            )
+            await session.commit()
+        raise
+
+
+async def _approve_project_ingest_review(
+    session: AsyncSession,
+    caller: CallerContext,
+    review: ReviewTask,
+    comment: str | None,
+    trace_id: str,
+    *,
+    storage: LocalFileStorage,
+    weknora: WeKnoraClient | NullWeKnoraClient,
+) -> ReviewActionResponse:
     """Materialize an approved project submission without exposing partial assets."""
     if review.source_ingest_task_id is None or review.confirmation_snapshot is None:
         raise _denied(409, "project_ingest_snapshot_missing", "项目提交确认快照不可用")
@@ -663,6 +711,23 @@ async def approve_project_ingest_review(
             naming_result=naming_result,
         )
         asset_type, visibility = ingest_persistence.derived_confirmation_properties(review_context)
+        directory_key = (
+            naming_result.metadata.get("directory_key")
+            if naming_result is not None
+            else req.naming.directory_key
+            if req.naming is not None
+            else req.directory_key
+        )
+        from app.services.directories import validate_directory
+
+        if not directory_key:
+            raise _denied(422, "directory_required", "请选择一个正式入库目录")
+        directory_rule_version, _ = await validate_directory(
+            session,
+            directory_key=directory_key,
+            scope=KnowledgeScope.project.value,
+            project_id=req.target_project_id,
+        )
         asset = KnowledgeAsset(
             title=req.title,
             scope=KnowledgeScope.project.value,
@@ -686,6 +751,9 @@ async def approve_project_ingest_review(
             source_hash=task.source_file_hash,
             naming_metadata=naming_result.metadata if naming_result is not None else None,
             naming_rule_version=naming_result.rule_version if naming_result is not None else None,
+            directory_key=directory_key,
+            directory_rule_version=directory_rule_version,
+            directory_confirmed_by=submitter_id,
         )
         asset.versions.append(version)
         for summary in ingest_persistence.build_summaries(
