@@ -16,12 +16,14 @@ export function fetchDirectoryMigration(
     scope?: string;
     projectId?: string;
     status?: string;
+    page?: number;
   } = {},
 ): Promise<DirectoryMigrationWorkspaceDTO> {
   const qs = new URLSearchParams();
   if (params.scope) qs.set("scope", params.scope);
   if (params.projectId) qs.set("project_id", params.projectId);
   if (params.status) qs.set("status", params.status);
+  if (params.page) qs.set("page", String(params.page));
   return apiGet(`/api/v1/admin/directory-migration?${qs.toString()}`);
 }
 
