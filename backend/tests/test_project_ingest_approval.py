@@ -12,7 +12,7 @@ from app.main import app
 from app.models.audit import AuditEvent
 from app.models.identity import ProjectMember
 from app.models.ingest import IngestTask, IngestTaskDerivative
-from app.models.knowledge import KnowledgeAsset
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.review import CompanyAssetReviewDecision, ReviewTask
 from app.seed.dev_seed import (
     PROJECT_ALPHA,
@@ -136,6 +136,10 @@ async def test_target_project_manager_approves_then_duplicate_is_audited(client,
     assert detail.json()["title"] == "审批后可见项目知识"
     asset = await db_session.get(KnowledgeAsset, uuid.UUID(asset_id))
     assert asset is not None and asset.asset_status == "active"
+    version = await db_session.get(KnowledgeAssetVersion, asset.current_version_id)
+    assert version is not None
+    assert version.directory_key == "project.deliverables"
+    assert version.directory_confirmed_by == USER_CONSULTANT
 
     duplicate = await client.post(
         f"{REVIEWS}/{review_id}/approve",
@@ -396,3 +400,124 @@ async def test_approval_revalidates_canonical_markdown_before_materialization(
         .where(KnowledgeAsset.title == "Markdown 完整性审批保护")
     )
     assert asset_count == 0
+
+
+async def test_render_failure_releases_claim_and_audits_then_can_retry(
+    client, db_session, monkeypatch
+):
+    from fastapi import HTTPException
+
+    from app.services import naming_rules
+
+    task_id, review_id = await _submit(client)
+    original = naming_rules.render
+
+    async def unavailable(*args, **kwargs):
+        raise HTTPException(422, detail={"denied_reason": "directory_disabled"})
+
+    monkeypatch.setattr(naming_rules, "render", unavailable)
+    response = await client.post(
+        f"{REVIEWS}/{review_id}/approve", headers=_hdr(USER_PROJECT_MANAGER), json={}
+    )
+    assert response.status_code == 422
+    db_session.expire_all()
+    review = await db_session.get(ReviewTask, uuid.UUID(review_id))
+    task = await db_session.get(IngestTask, uuid.UUID(task_id))
+    assert review.status == "approval_failed"
+    assert task.status == "waiting_review"
+    assert review.target_asset_id is None
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(AuditEvent)
+            .where(
+                AuditEvent.target_id == uuid.UUID(review_id),
+                AuditEvent.action == "review.approval_failed",
+            )
+        )
+        == 1
+    )
+    monkeypatch.setattr(naming_rules, "render", original)
+    retried = await client.post(
+        f"{REVIEWS}/{review_id}/approve", headers=_hdr(USER_PROJECT_MANAGER), json={}
+    )
+    assert retried.json()["status"] == "approved"
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "top_level",
+        "nested",
+        "wrong_project",
+        "wrong_version",
+        "classified",
+        "assigned_later",
+        "conflict",
+    ],
+)
+async def test_migration_uses_only_matching_approved_snapshot(client, db_session, scenario):
+    from app.models.directory_migration import DirectoryMigrationCandidate
+
+    task_id, review_id = await _submit(client)
+    approved = await client.post(
+        f"{REVIEWS}/{review_id}/approve", headers=_hdr(USER_PROJECT_MANAGER), json={}
+    )
+    asset_id = uuid.UUID(approved.json()["target_asset_id"])
+    asset = await db_session.get(KnowledgeAsset, asset_id)
+    version = await db_session.get(KnowledgeAssetVersion, asset.current_version_id)
+    version_id = version.id
+    version.directory_key = None if scenario != "classified" else "project.deliverables"
+    version.naming_metadata = None
+    review = await db_session.get(ReviewTask, uuid.UUID(review_id))
+    snapshot = dict(review.confirmation_snapshot)
+    if scenario == "nested":
+        snapshot["naming"] = {"directory_key": snapshot.pop("directory_key")}
+    if scenario == "conflict":
+        snapshot["naming"] = {"directory_key": "project.unknown"}
+    if scenario == "wrong_project":
+        snapshot["target_project_id"] = str(PROJECT_BETA)
+    review.confirmation_snapshot = snapshot
+    if scenario == "wrong_version":
+        task = await db_session.get(IngestTask, uuid.UUID(task_id))
+        task.result_version_id = None
+    await db_session.commit()
+    response = await client.get("/api/v1/admin/directory-migration", headers=_hdr(USER_BOSS))
+    assert response.status_code == 200
+    db_session.expire_all()
+    candidate = await db_session.scalar(
+        select(DirectoryMigrationCandidate).where(
+            DirectoryMigrationCandidate.version_id == version_id
+        )
+    )
+    if scenario == "classified":
+        assert candidate is None
+        return
+    assert candidate is not None
+    if scenario in {"wrong_project", "wrong_version", "conflict"}:
+        assert candidate.status == "no_candidate"
+        return
+    assert candidate.candidate_source == "approval_snapshot"
+    assert candidate.suggested_directory_key == "project.deliverables"
+    assert (await db_session.get(KnowledgeAssetVersion, version_id)).directory_key is None
+    if scenario == "assigned_later":
+        current = await db_session.get(KnowledgeAssetVersion, version_id)
+        current.directory_key = "project.deliverables"
+        current.directory_confirmed_by = USER_CONSULTANT
+        await db_session.commit()
+    confirmed = await client.post(
+        "/api/v1/admin/directory-migration/confirm",
+        headers=_hdr(USER_BOSS),
+        json={"items": [{"candidate_id": str(candidate.id)}]},
+    )
+    if scenario == "assigned_later":
+        assert confirmed.json()["skipped"] == 1
+        db_session.expire_all()
+        current = await db_session.get(KnowledgeAssetVersion, version_id)
+        assert current.directory_confirmed_by == USER_CONSULTANT
+        return
+    assert confirmed.json()["migrated"] == 1
+    db_session.expire_all()
+    assert (
+        await db_session.get(KnowledgeAssetVersion, version_id)
+    ).directory_key == "project.deliverables"
