@@ -11,7 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.directory_migration import DirectoryMigrationCandidate
 from app.models.identity import Project
+from app.models.ingest import IngestTask
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
+from app.models.review import ReviewTask
 from app.schemas.directory_migration import (
     DirectoryMigrationCandidateOut,
     DirectoryMigrationConfirmRequest,
@@ -102,6 +104,22 @@ async def refresh_candidates(session: AsyncSession, caller: CallerContext) -> No
         for row in directories
         if row.get("enabled", True)
     }
+    # Bind the approved snapshot to its exact resulting version, never a later replacement.
+    snapshots = {
+        task.result_version_id: (review.confirmation_snapshot, review.target_project_id)
+        for review, task in (
+            await session.execute(
+                select(ReviewTask, IngestTask)
+                .join(IngestTask, IngestTask.id == ReviewTask.source_ingest_task_id)
+                .where(
+                    ReviewTask.review_type == "project_ingest_approval",
+                    ReviewTask.status == "approved",
+                    ReviewTask.target_asset_id == IngestTask.result_asset_id,
+                    IngestTask.result_version_id.is_not(None),
+                )
+            )
+        ).all()
+    }
     for asset, version in records:
         if version.directory_key and (asset.scope, version.directory_key) in valid:
             row = existing.get(version.id)
@@ -113,6 +131,34 @@ async def refresh_candidates(session: AsyncSession, caller: CallerContext) -> No
         old_category, suggested, legacy, source, confidence, status = _candidate_for(
             asset, version, directories
         )
+        metadata = version.naming_metadata if isinstance(version.naming_metadata, dict) else {}
+        if not version.directory_key and not metadata.get("directory_key"):
+            snapshot, project_id = snapshots.get(version.id, (None, None))
+            if (
+                isinstance(snapshot, dict)
+                and asset.scope == "project"
+                and project_id == asset.project_id
+                and snapshot.get("target_scope") == "project"
+                and str(snapshot.get("target_project_id")) == str(asset.project_id)
+            ):
+                naming = snapshot.get("naming")
+                keys = {
+                    key
+                    for key in (
+                        snapshot.get("directory_key"),
+                        naming.get("directory_key") if isinstance(naming, dict) else None,
+                    )
+                    if isinstance(key, str) and key
+                }
+                if len(keys) == 1:
+                    key = next(iter(keys))
+                    if (asset.scope, key) in valid:
+                        suggested, source, confidence, status = (
+                            key,
+                            "approval_snapshot",
+                            "clear",
+                            "clear_match",
+                        )
         row = existing.get(version.id)
         if row is None:
             row = DirectoryMigrationCandidate(
@@ -320,6 +366,15 @@ async def confirm(
                     )
                 )
                 await session.commit()
+                continue
+            if candidate.candidate_source == "approval_snapshot" and version.directory_key:
+                results.append(
+                    DirectoryMigrationConfirmResult(
+                        candidate_id=item.candidate_id,
+                        status="skipped",
+                        reason_code="directory_already_assigned",
+                    )
+                )
                 continue
             key = item.directory_key or candidate.suggested_directory_key
             if not key:
