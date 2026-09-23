@@ -12,7 +12,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
-SERVICES = ("migrate", "backend", "worker", "beat", "frontend")
+APPLICATION_SERVICES = ("backend", "worker", "ocr_worker", "beat", "frontend")
+SERVICES = ("migrate", *APPLICATION_SERVICES)
 
 
 def git(*args: str) -> str:
@@ -104,7 +105,17 @@ def execute(args, manifest: dict) -> None:
         or url.fragment
     ):
         raise ValueError("--origin 必须为生产用户入口 HTTPS origin")
-    compose = ["docker", "compose", "-f", "docker-compose.yml", "-f", "docker-compose.prod.yml"]
+    # Explicitly select the existing production stack, regardless of cwd or ambient env.
+    compose = [
+        "docker",
+        "compose",
+        "-p",
+        "kap",
+        "-f",
+        "docker-compose.yml",
+        "-f",
+        "docker-compose.prod.yml",
+    ]
 
     def run(*command: str) -> None:
         subprocess.run([*compose, *command], cwd=ROOT, check=True)
@@ -142,10 +153,7 @@ def execute(args, manifest: dict) -> None:
             "--wait",
             "--wait-timeout",
             "300",
-            "backend",
-            "worker",
-            "beat",
-            "frontend",
+            *APPLICATION_SERVICES,
         )
     run(
         "exec",
