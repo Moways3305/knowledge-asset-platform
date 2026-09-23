@@ -77,13 +77,14 @@ async def require_bound_caller(
     rule = await agent_registry.lookup_enabled_rule(session, token)
     if rule is None:
         raise denied(403, "agent_not_whitelisted", "接入未注册或未启用")
-    if rule.capability != _REQUIRED_CAPABILITY:
+    if rule.capability not in {_REQUIRED_CAPABILITY, "qa_operations"}:
         raise denied(403, "agent_capability_denied", "该接入未启用 qa 能力")
     if rule.bound_user_id is None:
         raise denied(403, "caller_unbound", "该 token 未绑定平台用户")
     caller = await gateway.resolve_caller(session, rule.bound_user_id)
     if caller is None or not caller.is_business_user:
         raise denied(403, "caller_unresolved", "绑定用户无法解析或非业务用户")
+    provider, rule_id = rule.provider, rule.id
     try:
         yield rule, caller
     except BaseException:
@@ -91,8 +92,8 @@ async def require_bound_caller(
         raise
     else:
         # 只有完整成功返回的 WorkBuddy 请求才记录活动；不写审计 extra/请求内容。
-        if rule.provider == "workbuddy":
-            await agent_registry.record_successful_connection(session, rule.id)
+        if provider == "workbuddy":
+            await agent_registry.record_successful_connection(session, rule_id)
 
 
 @router.post("/tools/knowledge-search", response_model=SearchResponse)

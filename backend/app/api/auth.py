@@ -786,6 +786,7 @@ async def regenerate_workbuddy_token(
         platform=body.platform,
         mode=body.mode,
         connector_path=body.connector_path,
+        operations_enabled=body.operations_enabled,
         trace_id=get_trace_id(request),
     )
 

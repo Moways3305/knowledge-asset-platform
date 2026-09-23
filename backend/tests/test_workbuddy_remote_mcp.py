@@ -76,8 +76,8 @@ async def _remote_token(client) -> tuple[str, dict]:
     return response.json()["token"], response.json()
 
 
-async def _mcp_session(token: str):
-    transport = httpx.ASGITransport(app=app)
+async def _mcp_session(token: str, target_app=app):
+    transport = httpx.ASGITransport(app=target_app)
     http = httpx.AsyncClient(
         transport=transport,
         base_url="https://test",
@@ -177,7 +177,7 @@ async def test_initialize_lists_all_tools_and_real_read_matches_gateway(client):
             },
         )
 
-    assert initialized.serverInfo.name == "KAP WorkBuddy"
+    assert initialized.serverInfo.name == "KAP MCP"
     assert {tool.name for tool in tools.tools} == set(_TOOL_NAMES)
     assert result.isError is False
     failures = {

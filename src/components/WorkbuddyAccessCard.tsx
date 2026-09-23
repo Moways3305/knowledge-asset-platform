@@ -44,11 +44,14 @@ export default function WorkbuddyAccessCard() {
   const [loadingManifest, setLoadingManifest] = useState(false);
   const [localOpen, setLocalOpen] = useState(false);
   const [localConnectorPath, setLocalConnectorPath] = useState("");
+  const [operationsEnabled, setOperationsEnabled] = useState(false);
 
   const loadStatus = useCallback(async () => {
     setLoadingStatus(true);
     try {
-      setStatus(await fetchWorkbuddyToken());
+      const nextStatus = await fetchWorkbuddyToken();
+      setStatus(nextStatus);
+      setOperationsEnabled(Boolean(nextStatus.enabled && nextStatus.operationsEnabled));
       setError(null);
     } catch (nextError) {
       setError(safeMessage(nextError));
@@ -84,7 +87,7 @@ export default function WorkbuddyAccessCard() {
     setError(null);
     setConfirmRegeneration(false);
     try {
-      setOneTime(await regenerateWorkbuddyToken("remote"));
+      setOneTime(await regenerateWorkbuddyToken("remote", "windows", undefined, operationsEnabled));
       await loadStatus();
     } catch (nextError) {
       setError(safeMessage(nextError));
@@ -157,20 +160,23 @@ export default function WorkbuddyAccessCard() {
   }
 
   return (
-    <section className="wb-card" aria-label="WorkBuddy 接入">
+    <section className="wb-card" aria-label="MCP 接入">
       <header className="wb-hero">
         <div>
-          <span className="wb-kicker">REMOTE MCP · WORKBUDDY 5.4.5</span>
-          <h2>把你的 KAP 权限，安全地带进 WorkBuddy</h2>
+          <span className="wb-kicker">KAP MCP</span>
+          <h2>把你的 KAP 权限，安全地带进智能体</h2>
           <p>无需安装连接器。短期凭证只显示一次，服务端仅保存摘要，撤销后立即失效。</p>
         </div>
-        <div className="wb-signal" aria-label="KAP 到 WorkBuddy 的加密连接">
+        <div className="wb-signal" aria-label="KAP 到 MCP 客户端的加密连接">
           <span>KAP /mcp</span>
           <i>TLS</i>
-          <span>WorkBuddy</span>
+          <span>MCP 客户端</span>
         </div>
       </header>
       <div className="wb-status-row">
+        {status?.enabled && (
+          <span>{status.operationsEnabled ? "已授权上传与审批操作" : "只读接入"}</span>
+        )}
         <span className={`wb-status-pill ${connected ? "is-enabled" : ""}`}>
           {loadingStatus ? "状态加载中" : connectionLabel}
         </span>
@@ -195,12 +201,22 @@ export default function WorkbuddyAccessCard() {
           <div className="wb-step-number">1</div>
           <div className="wb-step-body">
             <h3>生成远程连接</h3>
+            <label>
+              <input
+                type="checkbox"
+                checked={operationsEnabled}
+                disabled={busy || loadingStatus || !status}
+                onChange={(event) => setOperationsEnabled(event.target.checked)}
+              />
+              允许智能体上传、确认入库和审批（仍受本人业务权限限制）
+            </label>
+            <p>默认只读。授权仅在重新生成远程配置后生效；本地兼容连接器继续仅支持原查询工具。</p>
             <p>生成会让旧配置立即失效。Bearer 凭证与当前 KAP 用户及租户绑定。</p>
             {!confirmRegeneration ? (
               <button
                 className="wb-primary-action"
                 type="button"
-                disabled={busy}
+                disabled={busy || loadingStatus || !status}
                 onClick={() =>
                   status?.enabled || oneTime ? setConfirmRegeneration(true) : void generateRemote()
                 }
@@ -210,7 +226,20 @@ export default function WorkbuddyAccessCard() {
             ) : (
               <div className="wb-regenerate-confirm" role="alert">
                 <p>旧 token 和旧配置会立即失效，是否继续？</p>
-                <button type="button" onClick={() => void generateRemote()} disabled={busy}>
+                <p>
+                  当前权限：{status?.operationsEnabled ? "查询及上传、入库确认、审批" : "只读"}；
+                  新凭证权限：{operationsEnabled ? "查询及上传、入库确认、审批" : "只读"}。
+                  {Boolean(status?.operationsEnabled) === operationsEnabled
+                    ? "权限保持不变。"
+                    : operationsEnabled
+                      ? "将新增操作权限，仍受本人业务权限限制。"
+                      : "将撤销操作权限，智能体将不能上传、确认入库或审批。"}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void generateRemote()}
+                  disabled={busy || loadingStatus || !status}
+                >
                   确认重新生成
                 </button>
                 <button type="button" onClick={() => setConfirmRegeneration(false)}>
@@ -226,13 +255,13 @@ export default function WorkbuddyAccessCard() {
           <div className="wb-step-body">
             <h3>复制仅显示一次的配置</h3>
             {oneTime ? (
-              <div className="wb-onetime" role="region" aria-label="WorkBuddy 配置（仅显示一次）">
+              <div className="wb-onetime" role="region" aria-label="MCP 配置（仅显示一次）">
                 <p className="wb-warn">这段配置含个人凭证。不要截图、转发或保存到共享文档。</p>
                 <textarea
                   readOnly
                   rows={9}
                   value={oneTime.mcpConfigJson}
-                  aria-label="WorkBuddy MCP JSON 配置"
+                  aria-label="MCP JSON 配置"
                 />
                 <button type="button" onClick={() => void copyConfig()}>
                   {copied ? "已复制" : "复制配置"}
@@ -250,9 +279,13 @@ export default function WorkbuddyAccessCard() {
         <li className="wb-guide-step">
           <div className="wb-step-number">3</div>
           <div className="wb-step-body">
-            <h3>在 WorkBuddy 5.4.5 合并并重启</h3>
+            <h3>导入智能体平台的 MCP 设置</h3>
+            <p>
+              远程地址及 Bearer 凭证可用于支持该鉴权方式的 MCP
+              客户端；按客户端格式填写，勿覆盖已有配置。
+            </p>
             <ol className="wb-client-steps">
-              <li>打开“专家·技能·连接器” → “自定义连接器” → “配置 MCP”。</li>
+              <li>WorkBuddy 示例：打开“专家·技能·连接器” → “自定义连接器” → “配置 MCP”。</li>
               <li>
                 只合并 <code>mcpServers.kap</code>，保留已有 MCP 节点并保存。
               </li>
