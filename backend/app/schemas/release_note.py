@@ -44,6 +44,9 @@ class ReleaseOut(BaseModel):
     updated_at: datetime
     published_at: datetime | None
     is_unread: bool = False
+    source_commit: str | None = None
+    previous_commit: str | None = None
+    deployed_at: datetime | None = None
 
 
 class ReleaseList(BaseModel):

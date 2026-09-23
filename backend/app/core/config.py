@@ -24,6 +24,16 @@ class Settings(BaseSettings):
     app_name: str = "knowledge-asset-platform"
     # Deployed application version; release-note publishing never changes this value.
     app_version: str = Field(default="0.1.0", min_length=1, max_length=40)
+
+    @model_validator(mode="after")
+    def _use_baked_release_version(self) -> Settings:
+        from app.core.release_manifest import load_manifest
+
+        manifest = load_manifest()
+        if manifest is not None:
+            self.app_version = manifest.version.removeprefix("v")
+        return self
+
     app_env: str = "local"
     log_level: str = "INFO"
 

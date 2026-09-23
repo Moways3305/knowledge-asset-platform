@@ -51,6 +51,7 @@ function ReleaseEditor({
   const [message, setMessage] = useState("");
   const locked = useRef(false);
   const readOnly = Boolean(note?.published_at);
+  const deployed = Boolean(note?.source_commit && note?.deployed_at);
   const dirty = JSON.stringify(draft) !== baseline;
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => {
@@ -170,7 +171,7 @@ function ReleaseEditor({
                     </button>
                     <button
                       className="btn-primary"
-                      disabled={busy}
+                      disabled={busy || !deployed}
                       onClick={() => void persist(true)}
                     >
                       <Send size={16} />
@@ -198,6 +199,13 @@ function ReleaseEditor({
             {message}
           </p>
         )}
+        {!readOnly && (
+          <p className="release-publish-note">
+            {deployed
+              ? `已验证部署 · ${note?.source_commit?.slice(0, 12)} · ${releaseDate(note!.deployed_at!)}。请核对说明后发布。`
+              : "待部署验证：可先保存和预览草稿，完成对应版本部署验证后才能发布公告。"}
+          </p>
+        )}
         {preview ? (
           <div className="release-preview">
             <ReleaseNoteCard note={readOnly && note ? note : cleaned()} />
@@ -217,6 +225,7 @@ function ReleaseEditor({
                 <input
                   autoFocus
                   value={draft.version}
+                  readOnly={deployed}
                   maxLength={40}
                   placeholder="例如 v1.0.0"
                   onChange={(event) => setDraft({ ...draft, version: event.target.value })}
@@ -359,7 +368,7 @@ export default function AdminReleaseNotesPage() {
       <PageHeader
         className="release-hero"
         title="版本日志管理"
-        description="把每一次改进，清楚地传达给同事。"
+        description="部署验证后自动生成草稿，审核确认后再通知同事。"
         actions={
           <>
             <Link className="btn-secondary" to="/release-notes">
@@ -417,7 +426,7 @@ export default function AdminReleaseNotesPage() {
             <h3>{state === "draft" ? "从一次值得记录的改进开始" : "还没有发布记录"}</h3>
             <p>
               {state === "draft"
-                ? "创建草稿，预览确认后再发布给所有用户。"
+                ? "完成版本化部署后，待审核草稿会自动出现在这里；也可提前编写。"
                 : "草稿发布后，会保留在这里供你查阅。"}
             </p>
             {state === "draft" && (
@@ -439,6 +448,7 @@ export default function AdminReleaseNotesPage() {
                   <strong>{note.title}</strong>
                   <small>
                     {note.entries.length} 条更新 · {note.notify_users ? "提醒用户" : "静默发布"}
+                    {note.deployed_at ? " · 已验证部署" : " · 无部署验证记录"}
                   </small>
                 </span>
                 <span className="release-row-date">

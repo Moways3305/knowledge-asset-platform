@@ -4,7 +4,7 @@ import uuid
 from typing import Literal
 
 from fastapi import HTTPException
-from sqlalchemy import exists, func, select, update
+from sqlalchemy import exists, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -157,6 +157,7 @@ async def edit(
                 ReleaseNote.id == note_id,
                 ReleaseNote.published_at.is_(None),
                 ReleaseNote.revision == body.revision,
+                or_(ReleaseNote.source_commit.is_(None), ReleaseNote.version == body.version),
             )
             .values(
                 **body.model_dump(exclude={"revision"}),
@@ -190,12 +191,16 @@ async def publish(
         raise _error(409, "日志已变更或已发布，请重新加载后再操作")
     if not note.entries:
         raise _error(422, "请至少添加一条更新内容后再发布")
+    if not note.source_commit or not note.deployed_at:
+        raise _error(409, "该版本尚无部署验证记录，请先完成对应版本的部署验证")
     changed = await session.scalar(
         update(ReleaseNote)
         .where(
             ReleaseNote.id == note_id,
             ReleaseNote.published_at.is_(None),
             ReleaseNote.revision == revision,
+            ReleaseNote.source_commit.is_not(None),
+            ReleaseNote.deployed_at.is_not(None),
         )
         .values(
             published_at=utc_now(),

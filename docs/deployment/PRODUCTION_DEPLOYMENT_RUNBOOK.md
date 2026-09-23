@@ -75,6 +75,11 @@
 
 > 顺序要点：**先迁移、再起服务、最后放流量并验证**。迁移只在一处执行，避免多副本并发迁移。
 
+正式发布使用 [`scripts/deploy_release.py`](../../scripts/deploy_release.py) 统一入口，
+按 [`deploy/RELEASE_NOTES.md`](../../deploy/RELEASE_NOTES.md) 先预览清单、确认备份，再执行部署。
+它覆盖以下构建、迁移、启动与基础探测步骤，并在前后端版本核对成功后自动登记待审核日志。
+管理员人工确认公告、业务 live smoke 和宿主机代理配置仍须完成；以下步骤保留作运行说明与故障诊断，不应另起一套并行部署。
+
 1. **拉取 / 构建镜像**
    - CI 推送：`docker pull <registry>/<image>:<image-tag>`（五角色同 tag）。
    - 单机自建：`docker compose build`。

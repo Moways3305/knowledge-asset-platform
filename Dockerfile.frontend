@@ -19,6 +19,10 @@ COPY . .
 # /api/v1 paths; nginx is responsible for routing those requests.
 RUN npm run build
 
+# Same identity as the backend image; public, no release text or secrets.
+ARG KAP_RELEASE_MANIFEST_B64=""
+RUN node -e "const fs=require('fs'); const raw=process.env.KAP_RELEASE_MANIFEST_B64; if(raw){const m=JSON.parse(Buffer.from(raw,'base64').toString('utf8'));fs.writeFileSync('dist/release-identity.json',JSON.stringify({version:m.version,commit:m.commit}));}"
+
 # ---- serve stage ----
 FROM nginx:1.27-alpine
 

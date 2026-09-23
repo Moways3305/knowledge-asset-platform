@@ -10,6 +10,7 @@ const ACTION_LABELS: Record<string, string> = {
   "release_note.created": "创建版本日志草稿",
   "release_note.updated": "修改版本日志草稿",
   "release_note.published": "发布版本日志",
+  "release_note.deployment_verified": "验证部署并生成版本草稿",
   // 入库
   "ingest.task_created": "创建入库任务",
   "ingest.ai_extracted": "完成文本抽取与内容建议",

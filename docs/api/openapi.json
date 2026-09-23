@@ -14389,6 +14389,24 @@
         "title": "ReleaseEntry",
         "type": "object"
       },
+      "ReleaseIdentity": {
+        "properties": {
+          "commit": {
+            "title": "Commit",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "commit"
+        ],
+        "title": "ReleaseIdentity",
+        "type": "object"
+      },
       "ReleaseList": {
         "properties": {
           "items": {
@@ -14427,6 +14445,18 @@
             "title": "Created At",
             "type": "string"
           },
+          "deployed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deployed At"
+          },
           "entries": {
             "items": {
               "$ref": "#/components/schemas/ReleaseEntry"
@@ -14448,6 +14478,17 @@
             "title": "Notify Users",
             "type": "boolean"
           },
+          "previous_commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Commit"
+          },
           "published_at": {
             "anyOf": [
               {
@@ -14463,6 +14504,17 @@
           "revision": {
             "title": "Revision",
             "type": "integer"
+          },
+          "source_commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Commit"
           },
           "title": {
             "title": "Title",
@@ -40374,6 +40426,35 @@
         "summary": "Health Ready",
         "tags": [
           "ops"
+        ]
+      }
+    },
+    "/health/release": {
+      "get": {
+        "operationId": "release_identity_health_release_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ReleaseIdentity"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Release Identity Health Release Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Release Identity",
+        "tags": [
+          "health"
         ]
       }
     }

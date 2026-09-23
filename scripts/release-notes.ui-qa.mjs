@@ -208,6 +208,20 @@ try {
     await page.getByRole("dialog", { name: "发布预览" }).waitFor();
     assert.equal(publishes, 0);
     await layout(page, `preview-${width}`);
+    assert.equal(await page.getByRole("button", { name: "确认发布" }).isDisabled(), true);
+    await page.getByRole("button", { name: "保存草稿" }).click();
+    await page.getByText("草稿已保存", { exact: true }).first().waitFor();
+    await page.getByRole("button", { name: "关闭弹窗" }).click();
+    // Simulate a successful deployment registration, not an automatic approval.
+    const deployedDraft = notes.find((n) => n.id === "note-created");
+    Object.assign(deployedDraft, {
+      source_commit: "a".repeat(40),
+      deployed_at: "2026-09-20T01:30:00Z",
+      revision: 2,
+    });
+    await page.reload();
+    await page.getByRole("button", { name: /文件预览体验优化/ }).click();
+    await page.getByRole("button", { name: "预览并发布" }).click();
     await page.getByRole("button", { name: "确认发布" }).click();
     await page.getByText("版本日志已发布，所有登录用户均可查看。").waitFor();
     assert.equal(publishes, 1);

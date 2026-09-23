@@ -29,6 +29,11 @@ RUN pip install --no-cache-dir --no-deps --no-build-isolation .
 COPY alembic.ini ./
 COPY alembic ./alembic
 
+# Public release metadata, generated from a clean Git checkout by scripts/deploy_release.py.
+# Empty for local/legacy builds; never contains credentials or commit message bodies.
+ARG KAP_RELEASE_MANIFEST_B64=""
+RUN python -c "import os,base64,pathlib; from app.core.release_manifest import ReleaseManifest; raw=os.environ.get('KAP_RELEASE_MANIFEST_B64',''); raw and pathlib.Path('/app/release-manifest.json').write_text(ReleaseManifest.model_validate_json(base64.b64decode(raw)).model_dump_json(), encoding='utf-8')"
+
 # 非 root 运行。/app 目录属主给 appuser（celery beat 需在 CWD 写 celerybeat-schedule）；
 # /data/uploads 预建并授权，使**新建**的命名卷在首挂载时继承 appuser 属主。
 # 注意：已存在的 upload_storage 卷仍是 root 属主，升级镜像后需重建卷或手动 chown。
