@@ -67,7 +67,7 @@ def candidate_signals(asset, summary, title_counts):
 
 async def list_company(
     session, caller, *, view="candidates", signal=None, keyword="", page=1, page_size=25
-):
+) -> GovernancePage:
     require_governor(caller)
     assets = list(
         (
@@ -156,7 +156,7 @@ async def _company_asset(session, caller, asset_id):
     return asset
 
 
-async def apply_batch(session, caller, body, trace_id):
+async def apply_batch(session, caller, body, trace_id) -> GovernanceBatchResult:
     require_governor(caller)
     if (
         body.action == "archive"

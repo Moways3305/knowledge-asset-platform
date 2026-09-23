@@ -1,6 +1,9 @@
 """Small, explicit operation tool registry. Binary transport remains authenticated HTTP."""
 
+from __future__ import annotations
+
 import uuid
+from typing import Any, Protocol
 
 from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
@@ -9,6 +12,20 @@ from app.api.agent_operations import ConfirmCommand, ReviewCommand
 from app.schemas.enums import KnowledgeScope
 from app.schemas.ingest import UploadSessionInitRequest
 from app.schemas.naming import NamingPreviewRequest
+
+
+class OperationGateway(Protocol):
+    async def request(
+        self,
+        ctx: Context | None,
+        tool_name: str,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        body: dict[str, Any] | None = None,
+    ) -> dict[str, Any]: ...
+
 
 OPERATION_TOOL_NAMES = (
     "kap_get_naming_options",
@@ -24,7 +41,7 @@ OPERATION_TOOL_NAMES = (
 PREFIX = "/api/v1/agent-gateway/operations"
 
 
-def register_operation_tools(mcp, gateway, enabled):
+def register_operation_tools(mcp, gateway: OperationGateway, enabled):
     read = ToolAnnotations(readOnlyHint=True, destructiveHint=False)
     write = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False)
 
