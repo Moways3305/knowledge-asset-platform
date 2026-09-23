@@ -24,15 +24,24 @@ RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 # 已锁定安装的 build backend（hatchling），不在构建时临时下载未锁定依赖。
 COPY pyproject.toml ./
 COPY app ./app
+# Git checkout under umask 077 can produce 0600 files / 0700 directories.
+# Normalize only image-local application code, never host secrets or runtime volumes.
+RUN find /app/app -type d -exec chmod 0755 {} + \
+    && find /app/app -type f -exec chmod 0644 {} + \
+    && chmod 0644 /app/pyproject.toml /app/requirements.lock
 RUN pip install --no-cache-dir --no-deps --no-build-isolation .
 
 COPY alembic.ini ./
 COPY alembic ./alembic
+RUN find /app/alembic -type d -exec chmod 0755 {} + \
+    && find /app/alembic -type f -exec chmod 0644 {} + \
+    && chmod 0644 /app/alembic.ini
 
 # Public release metadata, generated from a clean Git checkout by scripts/deploy_release.py.
 # Empty for local/legacy builds; never contains credentials or commit message bodies.
 ARG KAP_RELEASE_MANIFEST_B64=""
 RUN python -c "import os,base64,pathlib; from app.core.release_manifest import ReleaseManifest; raw=os.environ.get('KAP_RELEASE_MANIFEST_B64',''); raw and pathlib.Path('/app/release-manifest.json').write_text(ReleaseManifest.model_validate_json(base64.b64decode(raw)).model_dump_json(), encoding='utf-8')"
+RUN if [ -f /app/release-manifest.json ]; then chmod 0644 /app/release-manifest.json; fi
 
 # 非 root 运行。/app 目录属主给 appuser（celery beat 需在 CWD 写 celerybeat-schedule）；
 # /data/uploads 预建并授权，使**新建**的命名卷在首挂载时继承 appuser 属主。

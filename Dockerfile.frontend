@@ -30,8 +30,8 @@ FROM nginx:1.27-alpine
 # server block as an envsubst template. The nginx image entrypoint renders
 # /etc/nginx/templates/*.template -> /etc/nginx/conf.d/ at startup, substituting
 # only ${ONLYOFFICE_ORIGIN} (constrained by NGINX_ENVSUBST_FILTER).
-COPY deploy/nginx-main.conf /etc/nginx/nginx.conf
-COPY deploy/nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY --chmod=0644 deploy/nginx-main.conf /etc/nginx/nginx.conf
+COPY --chmod=0644 deploy/nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --chmod=0555 deploy/validate-onlyoffice-origin.sh /docker-entrypoint.d/19-validate-onlyoffice-origin.sh
 COPY --from=build /app/dist /usr/share/nginx/html
 
