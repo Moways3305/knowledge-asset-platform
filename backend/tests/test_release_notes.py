@@ -6,9 +6,10 @@ import pytest
 from sqlalchemy import func, select
 
 from app.core.config import get_settings
+from app.db.utils import utc_now
 from app.models.audit import AuditEvent
 from app.models.identity import User
-from app.models.release_note import ReleaseNoteRead
+from app.models.release_note import ReleaseNote, ReleaseNoteRead
 from app.seed.dev_seed import USER_ADMIN_ONLY, USER_BOSS, USER_CONSULTANT, USER_DIRECTOR
 
 ADMIN = {"X-Dev-User-Id": str(USER_ADMIN_ONLY)}
@@ -27,9 +28,19 @@ def payload(version="1.0.0", **kwargs):
     }
 
 
-async def create(client, **kwargs):
+async def certify(db_session, note):
+    """Existing publishing tests start from a verified deployment fixture."""
+    row = await db_session.get(ReleaseNote, uuid.UUID(note["id"]))
+    row.source_commit = row.id.hex + "0" * 8
+    row.deployed_at = utc_now()
+    await db_session.commit()
+
+
+async def create(client, db_session=None, **kwargs):
     response = await client.post(MANAGE, headers=ADMIN, json=payload(**kwargs))
     assert response.status_code == 201, response.text
+    if db_session is not None:
+        await certify(db_session, response.json())
     return response.json()
 
 
@@ -56,7 +67,7 @@ async def test_only_active_admin_can_manage(client, user):
 
 
 async def test_drafts_never_leak_and_publish_is_audited(client, db_session):
-    note = await create(client)
+    note = await create(client, db_session)
     assert note["version"] == "v1.0.0"
     assert (await client.get(API, headers=USER)).json()["items"] == []
     assert (await client.get(API + "?state=draft", headers=USER)).json()["total"] == 0
@@ -77,8 +88,8 @@ async def test_drafts_never_leak_and_publish_is_audited(client, db_session):
     assert all(event.actor_user_id == USER_ADMIN_ONLY for event in events)
 
 
-async def test_stale_editor_and_double_publish_cannot_overwrite(client):
-    note = await create(client)
+async def test_stale_editor_and_double_publish_cannot_overwrite(client, db_session):
+    note = await create(client, db_session)
     updated = await client.put(
         f"{MANAGE}/{note['id']}", headers=ADMIN, json={**payload(title="已修订"), "revision": 1}
     )
@@ -104,9 +115,9 @@ async def test_stale_editor_and_double_publish_cannot_overwrite(client):
 async def test_read_receipts_are_account_scoped_idempotent_and_only_for_published_ids(
     client, db_session
 ):
-    first = await create(client)
-    second = await create(client, version="1.1.0")
-    draft = await create(client, version="1.2.0")
+    first = await create(client, db_session)
+    second = await create(client, db_session, version="1.1.0")
+    draft = await create(client, db_session, version="1.2.0")
     await publish(client, first)
     await publish(client, second)
     ids = [first["id"], first["id"], draft["id"], str(uuid.uuid4())]
@@ -121,10 +132,10 @@ async def test_read_receipts_are_account_scoped_idempotent_and_only_for_publishe
 
 
 async def test_silent_release_visible_without_unread_and_does_not_change_running_version(
-    client, monkeypatch
+    client, monkeypatch, db_session
 ):
     monkeypatch.setattr(get_settings(), "app_version", "0.9.3")
-    note = await create(client, notify_users=False)
+    note = await create(client, db_session, notify_users=False)
     await publish(client, note)
     assert (await client.get(API, headers=USER)).json()["items"][0]["is_unread"] is False
     assert (await client.get(API + "/status", headers=USER)).json() == {
@@ -159,9 +170,9 @@ async def test_invalid_content_rejected(client, change):
     assert (await client.post(MANAGE, headers=ADMIN, json=payload(**change))).status_code == 422
 
 
-async def test_list_pagination_is_bounded_and_sorted_by_publication(client):
+async def test_list_pagination_is_bounded_and_sorted_by_publication(client, db_session):
     for i in range(3):
-        await publish(client, await create(client, version=f"1.0.{i}"))
+        await publish(client, await create(client, db_session, version=f"1.0.{i}"))
     response = (await client.get(API + "?page=2&page_size=2", headers=USER)).json()
     assert response["total"] == 3 and len(response["items"]) == 1
     assert response["items"][0]["version"] == "v1.0.0"
@@ -176,7 +187,7 @@ async def test_inactive_account_cannot_read_or_manage(client, db_session):
     assert (await client.post(MANAGE, headers=ADMIN, json=payload())).status_code in {401, 403}
 
 
-async def test_cookie_publish_requires_csrf_and_valid_token_succeeds(client):
+async def test_cookie_publish_requires_csrf_and_valid_token_succeeds(client, db_session):
     login = await client.post("/api/v1/auth/login", json={"email": "admin.e@dev.local"})
     assert login.status_code == 200
     assert (await client.post(MANAGE, json=payload())).status_code == 403
@@ -185,6 +196,7 @@ async def test_cookie_publish_requires_csrf_and_valid_token_succeeds(client):
     created = await client.post(MANAGE, headers=headers, json=payload())
     assert created.status_code == 201, created.text
     note = created.json()
+    await certify(db_session, note)
     path = f"{MANAGE}/{note['id']}/publish"
     assert (await client.post(path, json={"revision": 1})).status_code == 403
     assert (await client.post(path, headers=headers, json={"revision": 1})).status_code == 200

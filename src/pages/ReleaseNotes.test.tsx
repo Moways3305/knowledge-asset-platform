@@ -27,6 +27,8 @@ const note: api.ReleaseNote = {
   updated_at: "2026-09-20T01:00:00Z",
   published_at: null,
   is_unread: false,
+  source_commit: "a".repeat(40),
+  deployed_at: "2026-09-20T00:00:00Z",
 };
 const list = (items: api.ReleaseNote[], total = items.length): api.ReleaseList => ({
   items,
@@ -133,6 +135,24 @@ describe("administrator release workflow", () => {
     await openDraft();
     expect(screen.getByRole("dialog", { name: "已发布日志" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "保存草稿" })).not.toBeInTheDocument();
+  });
+
+  it("blocks announcements without deployment proof but permits drafting", async () => {
+    vi.mocked(api.fetchReleaseNotes).mockResolvedValue(
+      list([{ ...note, source_commit: null, deployed_at: null }]),
+    );
+    await openDraft();
+    expect(screen.getByText(/待部署验证：/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存草稿" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "预览并发布" }));
+    expect(screen.getByRole("button", { name: "确认发布" })).toBeDisabled();
+    expect(api.publishReleaseNote).not.toHaveBeenCalled();
+  });
+
+  it("locks the version bound to a verified deployment", async () => {
+    await openDraft();
+    expect(screen.getByLabelText("版本号")).toHaveAttribute("readonly");
+    expect(screen.getByText(/已验证部署 · aaaaaaaaaaaa/)).toBeInTheDocument();
   });
 
   it("only acknowledges displayed notes and preserves the independent running version", async () => {

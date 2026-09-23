@@ -8,9 +8,16 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 
 from app.core.config import get_settings
+from app.core.release_manifest import ReleaseIdentity, load_manifest
 from app.core.trace import get_trace_id
 
 router = APIRouter(tags=["health"])
+
+
+@router.get("/health/release", response_model=ReleaseIdentity | None)
+async def release_identity():
+    manifest = load_manifest()
+    return ReleaseIdentity(version=manifest.version, commit=manifest.commit) if manifest else None
 
 
 @router.get("/health")

@@ -18,6 +18,9 @@ export interface ReleaseNote extends ReleaseDraft {
   updated_at: string;
   published_at: string | null;
   is_unread: boolean;
+  source_commit?: string | null;
+  previous_commit?: string | null;
+  deployed_at?: string | null;
 }
 export interface ReleaseList {
   items: ReleaseNote[];
