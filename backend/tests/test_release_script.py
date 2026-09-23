@@ -185,6 +185,10 @@ def test_restricted_image_context_does_not_change_sources_or_include_secrets(
     (root / "backend/local-backup.dump").write_text("private", encoding="utf-8")
     mode_before = source.stat().st_mode
     with image_script.restricted_context(component) as stream:
+        # Docker Buildx recognizes compressed archives by these first 3 bytes;
+        # do not regress to raw PAX tar, whose first member may exceed its sniff.
+        assert stream.read(3) == b"\x1f\x8b\x08"
+        stream.seek(0)
         with tarfile.open(fileobj=stream, mode="r") as archive:
             members = archive.getmembers()
             prefix = "" if component == "backend" else "backend/"

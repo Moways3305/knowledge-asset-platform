@@ -24,7 +24,11 @@ def restricted_context(component: str):
         ["git", "ls-files", "-z", "--", "."], cwd=context_root, encoding="utf-8"
     ).split("\0")
     with tempfile.TemporaryFile() as stream:
-        with tarfile.open(fileobj=stream, mode="w") as archive:
+        # Buildx sniffs only the first 1024 bytes. A PAX header (e.g. fractional
+        # mtime) can fill that prefix before the first real member, so a raw tar
+        # is misclassified as Dockerfile text. Gzip has an unambiguous signature
+        # and retains PAX support for long/non-ASCII paths.
+        with tarfile.open(fileobj=stream, mode="w:gz") as archive:
             directories = set()
             for name in filter(None, names):
                 relative = Path(name)
