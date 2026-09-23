@@ -51,7 +51,10 @@
 文件字节不通过 `/mcp` JSON 发送，保留其 64 KB 边界。
 因此调用端需要有实际 multipart 文件上传能力；只有 MCP 工具调用、没有文件传输能力的客户端，
 不能仅凭这些工具传输本地附件。KAP 不读取客户端本地路径。
-部署时须应用仓库中的 nginx 上传路径配置；外层代理也需允许对应文件大小。
+部署时须应用仓库中的 nginx 上传路径配置；内层 `deploy/nginx.conf.template` 和
+外层 `deploy/nginx-host-upload-rules.conf` 均包含 MCP multipart 上传路径的 110m 请求体限制
+及 120s 上传/代理超时。已有部署也须按部署手册运行 `deploy/install-host-nginx.sh`
+更新外层 snippet 并验证；仅更新应用容器不会更新宿主机规则。
 
 ## 确认、重试和结果
 
