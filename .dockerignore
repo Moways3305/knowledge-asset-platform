@@ -20,3 +20,15 @@ backend/alembic/versions/__pycache__
 .vscode
 .idea
 *.log
+
+# Local diagnostics, acceptance outputs and development caches are not product input.
+outputs
+.tmp-office-diagnostic
+.tmp-ui-qa*
+.codex_tmp
+.claude_tmp
+.pytest_cache
+.ruff_cache
+.mypy_cache
+coverage
+.coverage

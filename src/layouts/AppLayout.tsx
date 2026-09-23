@@ -140,6 +140,12 @@ const navGroups: NavGroup[] = [
   {
     label: "组织与知识治理",
     items: [
+      {
+        to: "/company-governance",
+        label: "公司库治理",
+        icon: LibraryBig,
+        cap: can.viewCompanyKnowledge,
+      },
       { to: "/admin/people", label: "人员权限", icon: Users, cap: can.viewPeople },
       { to: "/admin/naming-rules", label: "目录治理", icon: BookType, cap: can.viewNamingRules },
       {
@@ -153,10 +159,11 @@ const navGroups: NavGroup[] = [
 ];
 
 const moduleTitles: Array<[prefix: string, title: string]> = [
+  ["/company-governance", "公司库治理"],
   ["/project/", "项目空间"],
   ["/knowledge", "知识资产库"],
   ["/my/knowledge", "个人知识"],
-  ["/my/workbuddy", "WorkBuddy 接入"],
+  ["/my/workbuddy", "MCP 接入"],
   ["/upload", "上传文件"],
   ["/review", "升级审核"],
   ["/original-access", "原文访问"],

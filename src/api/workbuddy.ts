@@ -9,6 +9,7 @@ export type WorkbuddyConnectionMode = "remote" | "local_connector";
 // ---- 绑定状态（无 token / token_hash） ----
 export interface WorkbuddyTokenStatusVM {
   enabled: boolean;
+  operationsEnabled?: boolean;
   boundUserName: string | null;
   lastRotatedAt: string | null;
   lastConnectedAt: string | null;
@@ -18,6 +19,7 @@ export interface WorkbuddyTokenStatusVM {
 
 interface WorkbuddyTokenStatusDTO {
   enabled: boolean;
+  operations_enabled: boolean;
   provider: string;
   bound_user_name: string | null;
   last_rotated_at: string | null;
@@ -81,6 +83,7 @@ export async function fetchWorkbuddyToken(): Promise<WorkbuddyTokenStatusVM> {
   const d = await apiGet<WorkbuddyTokenStatusDTO>(`/api/v1/auth/workbuddy-token`);
   return {
     enabled: d.enabled,
+    operationsEnabled: d.operations_enabled,
     boundUserName: d.bound_user_name,
     lastRotatedAt: d.last_rotated_at,
     lastConnectedAt: d.last_connected_at,
@@ -131,11 +134,13 @@ export async function regenerateWorkbuddyToken(
   mode: WorkbuddyConnectionMode = "remote",
   platform: WorkbuddyPlatform = "windows",
   connectorPath?: string,
+  operationsEnabled = false,
 ): Promise<WorkbuddyConfigVM> {
   const data = await apiPost<WorkbuddyConfigDTO>(`/api/v1/auth/workbuddy-token/regenerate`, {
     mode,
     platform,
     connector_path: connectorPath,
+    operations_enabled: operationsEnabled,
   });
   const kap = (data.mcp_config.mcpServers as Record<string, Record<string, unknown>> | undefined)
     ?.kap;

@@ -388,14 +388,26 @@ def test_upload_proxy_limits_are_scoped_and_aligned_at_both_nginx_layers():
     outer = outer_path.read_text(encoding="utf-8")
     installer = installer_path.read_text(encoding="utf-8")
 
-    assert inner.count("client_max_body_size 110m;") == 2
-    assert outer.count("client_max_body_size 110m;") == 2
+    upload_locations = (
+        "location = /api/v1/ingest/upload",
+        "location ^~ /api/v1/ingest/upload-sessions",
+        "location ^~ /api/v1/agent-gateway/operations/uploads/",
+    )
+    upload_directives = (
+        "client_max_body_size 110m;",
+        "client_body_timeout 120s;",
+        "proxy_send_timeout 120s;",
+        "proxy_read_timeout 120s;",
+    )
     for config in (inner, outer):
-        assert "location = /api/v1/ingest/upload" in config
-        assert "location ^~ /api/v1/ingest/upload-sessions" in config
-        assert config.count("client_body_timeout 120s;") == 2
-        assert config.count("proxy_send_timeout 120s;") == 2
-        assert config.count("proxy_read_timeout 120s;") == 2
+        for directive in upload_directives:
+            assert config.count(directive) == len(upload_locations)
+        for location in upload_locations:
+            marker = f"{location} {{"
+            assert config.count(marker) == 1
+            block = config.split(marker, 1)[1].split("}", 1)[0]
+            for directive in upload_directives:
+                assert directive in block
         assert "client_max_body_size 200m" not in config
     assert "nginx-host-upload-rules.conf" in installer
     assert "--check|--install|--verify" in installer
@@ -477,7 +489,9 @@ def test_host_nginx_installer_is_read_only_by_default_and_idempotent(tmp_path):
     assert "127.0.0.1:8443" in installed_site
     assert "wecom-verification" in installed_site
     assert "ssl_certificate /etc/letsencrypt" in installed_site
-    assert snippet.read_text(encoding="utf-8").count("client_max_body_size 110m;") == 2
+    assert snippet.read_text(encoding="utf-8") == (
+        root / "deploy" / "nginx-host-upload-rules.conf"
+    ).read_text(encoding="utf-8")
 
     second = subprocess.run(
         [shell, shell_path(installer), "--install"], env=env, capture_output=True, text=True

@@ -63,7 +63,7 @@ describe("WorkbuddyAccessCard remote-first", () => {
   it("默认展示远程 HTTPS MCP，不预加载本地连接器", async () => {
     render(<WorkbuddyAccessCard />);
     expect(await screen.findByText(/无需安装连接器/)).toBeInTheDocument();
-    expect(screen.getAllByText("WorkBuddy 5.4.5", { exact: false })).toHaveLength(2);
+    expect(screen.getByRole("region", { name: "MCP 接入" })).toBeInTheDocument();
     expect(screen.getByText(/https:\/\/<KAP_HOST>\/mcp/)).toBeInTheDocument();
     expect(api.fetchWorkbuddyConnectors).not.toHaveBeenCalled();
   });
@@ -72,8 +72,13 @@ describe("WorkbuddyAccessCard remote-first", () => {
     const user = userEvent.setup();
     render(<WorkbuddyAccessCard />);
     await user.click(await screen.findByRole("button", { name: "生成远程配置" }));
-    expect(api.regenerateWorkbuddyToken).toHaveBeenCalledWith("remote");
-    const editor = await screen.findByLabelText("WorkBuddy MCP JSON 配置");
+    expect(api.regenerateWorkbuddyToken).toHaveBeenCalledWith(
+      "remote",
+      "windows",
+      undefined,
+      false,
+    );
+    const editor = await screen.findByLabelText("MCP JSON 配置");
     expect(editor).toHaveValue(remoteConfig.mcpConfigJson);
     expect(screen.getByText(/只合并/)).toHaveTextContent("mcpServers.kap");
     expect(screen.getByText(/完全退出 WorkBuddy/)).toHaveTextContent("手动确认");
@@ -91,7 +96,76 @@ describe("WorkbuddyAccessCard remote-first", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("旧 token 和旧配置会立即失效");
     expect(api.regenerateWorkbuddyToken).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "确认重新生成" }));
-    await waitFor(() => expect(api.regenerateWorkbuddyToken).toHaveBeenCalledWith("remote"));
+    await waitFor(() =>
+      expect(api.regenerateWorkbuddyToken).toHaveBeenCalledWith(
+        "remote",
+        "windows",
+        undefined,
+        false,
+      ),
+    );
+  });
+
+  it("操作权限必须显式勾选并随远程配置生成提交", async () => {
+    const user = userEvent.setup();
+    render(<WorkbuddyAccessCard />);
+    const optIn = screen.getByRole("checkbox", { name: /允许智能体上传/ });
+    await waitFor(() => expect(optIn).toBeEnabled());
+    expect(optIn).not.toBeChecked();
+    await user.click(optIn);
+    await user.click(await screen.findByRole("button", { name: "生成远程配置" }));
+    expect(api.regenerateWorkbuddyToken).toHaveBeenCalledWith("remote", "windows", undefined, true);
+  });
+
+  it("已有操作凭证重新生成时默认保留权限", async () => {
+    api.fetchWorkbuddyToken.mockResolvedValue({
+      ...disabledStatus,
+      enabled: true,
+      operationsEnabled: true,
+    });
+    const user = userEvent.setup();
+    render(<WorkbuddyAccessCard />);
+    await waitFor(() =>
+      expect(screen.getByRole("checkbox", { name: /允许智能体上传/ })).toBeChecked(),
+    );
+    await user.click(screen.getByRole("button", { name: "重新生成远程配置" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("权限保持不变");
+    await user.click(screen.getByRole("button", { name: "确认重新生成" }));
+    expect(api.regenerateWorkbuddyToken).toHaveBeenCalledWith("remote", "windows", undefined, true);
+  });
+
+  it.each([true, false])("权限从 %s 切换时明确显示变更并提交用户选择", async (existing) => {
+    api.fetchWorkbuddyToken.mockResolvedValue({
+      ...disabledStatus,
+      enabled: true,
+      operationsEnabled: existing,
+    });
+    const user = userEvent.setup();
+    render(<WorkbuddyAccessCard />);
+    const checkbox = screen.getByRole("checkbox", { name: /允许智能体上传/ });
+    await waitFor(() => expect(checkbox).toBeEnabled());
+    expect(checkbox).toHaveProperty("checked", existing);
+    await user.click(checkbox);
+    await user.click(screen.getByRole("button", { name: "重新生成远程配置" }));
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      existing ? "将撤销操作权限" : "将新增操作权限",
+    );
+    expect(api.regenerateWorkbuddyToken).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "确认重新生成" }));
+    expect(api.regenerateWorkbuddyToken).toHaveBeenCalledWith(
+      "remote",
+      "windows",
+      undefined,
+      !existing,
+    );
+  });
+
+  it("状态尚未加载时禁止生成凭证", () => {
+    api.fetchWorkbuddyToken.mockReturnValue(new Promise(() => {}));
+    render(<WorkbuddyAccessCard />);
+    expect(screen.getByRole("checkbox", { name: /允许智能体上传/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "生成远程配置" })).toBeDisabled();
+    expect(api.regenerateWorkbuddyToken).not.toHaveBeenCalled();
   });
 
   it("只有展开兼容区才读取本地 Connector 清单", async () => {

@@ -12,6 +12,7 @@ import { can } from "./auth/permissions";
 // AppLayout、ErrorBoundary、NotFoundPage 属应用外壳，保持静态导入。
 const HomeDashboardPage = lazy(() => import("./pages/HomeDashboardPage"));
 const KnowledgeListPage = lazy(() => import("./pages/KnowledgeListPage"));
+const CompanyGovernancePage = lazy(() => import("./pages/CompanyGovernancePage"));
 const KnowledgeDetailPage = lazy(() => import("./pages/KnowledgeDetailPage"));
 const MyKnowledgePage = lazy(() => import("./pages/MyKnowledgePage"));
 const UploadPage = lazy(() => import("./pages/UploadPage"));
@@ -60,6 +61,14 @@ export default function App() {
               element={
                 <RouteGuard cap={can.viewKnowledge}>
                   <KnowledgeDetailPage />
+                </RouteGuard>
+              }
+            />
+            <Route
+              path="company-governance"
+              element={
+                <RouteGuard cap={can.viewCompanyKnowledge}>
+                  <CompanyGovernancePage />
                 </RouteGuard>
               }
             />

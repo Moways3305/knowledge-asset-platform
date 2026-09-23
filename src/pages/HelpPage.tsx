@@ -270,7 +270,7 @@ const SECTIONS: HelpSection[] = [
   },
   {
     id: "integration",
-    title: "WorkBuddy 接入",
+    title: "MCP 接入",
     intro: "外部系统由管理员配置启用；未启用时页面会显示清晰状态，不伪装成功。",
     items: [
       {

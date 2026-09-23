@@ -20,6 +20,7 @@ class WorkbuddyTokenStatusOut(BaseModel):
     """当前用户的 WorkBuddy 绑定状态（无 token 明文 / token_hash）。"""
 
     enabled: bool
+    operations_enabled: bool = False
     provider: str = "workbuddy"
     bound_user_name: str | None = None
     last_rotated_at: datetime | None = None
@@ -33,6 +34,7 @@ class WorkbuddyTokenRegenerateIn(BaseModel):
 
     mode: WorkbuddyConnectionMode = "remote"
     platform: WorkbuddyPlatform = "windows"
+    operations_enabled: bool = False
     connector_path: str | None = Field(default=None, max_length=2048)
 
 

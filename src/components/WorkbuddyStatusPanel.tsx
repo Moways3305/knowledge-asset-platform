@@ -43,7 +43,7 @@ export default function WorkbuddyStatusPanel() {
       <div className="workbench-context-heading">
         <div>
           <Cable size={17} aria-hidden="true" />
-          <h2 id="workbench-workbuddy-title">WorkBuddy 接入</h2>
+          <h2 id="workbench-workbuddy-title">MCP 接入</h2>
         </div>
       </div>
       <p className={`workbench-workbuddy-status ${tone}`} aria-live="polite">

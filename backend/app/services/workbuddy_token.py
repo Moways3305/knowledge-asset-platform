@@ -200,6 +200,7 @@ async def get_status(session: AsyncSession, caller: CallerContext) -> WorkbuddyT
         return WorkbuddyTokenStatusOut(enabled=False, bound_user_name=name)
     return WorkbuddyTokenStatusOut(
         enabled=True,
+        operations_enabled=rule.capability == "qa_operations",
         provider=rule.provider,
         bound_user_name=name,
         last_rotated_at=rule.token_rotated_at,
@@ -218,6 +219,7 @@ async def regenerate(
     platform: WorkbuddyPlatform,
     mode: WorkbuddyConnectionMode = "remote",
     connector_path: str | None = None,
+    operations_enabled: bool = False,
     trace_id: str | None,
 ) -> WorkbuddyTokenCreatedOut:
     """为当前业务用户创建或重置自助 token（绑定 caller 本人；明文一次性返回）。"""
@@ -260,7 +262,7 @@ async def regenerate(
             provider=_PROVIDER,
             agent_identifier=_identifier(caller.user_id),
             agent_name="WorkBuddy 自助接入",
-            capability=_CAPABILITY,
+            capability="qa_operations" if operations_enabled else _CAPABILITY,
             max_confidentiality_level=_MAX_CONF,
             max_ai_access_level=_MAX_AI,
             token_hash=token_hash,
@@ -275,7 +277,7 @@ async def regenerate(
     else:
         rule.token_hash = token_hash  # 旧 token 立即失效
         rule.enabled = True
-        rule.capability = _CAPABILITY
+        rule.capability = "qa_operations" if operations_enabled else _CAPABILITY
         rule.max_confidentiality_level = _MAX_CONF
         rule.max_ai_access_level = _MAX_AI
         rule.token_rotated_at = now
@@ -292,7 +294,11 @@ async def regenerate(
         trace_id=trace_id,
         target_type="agent_whitelist_rule",
         target_id=rule.id,
-        extra={"provider": _PROVIDER, "operation": "rotate"},
+        extra={
+            "provider": _PROVIDER,
+            "operation": "rotate",
+            "operations_enabled": operations_enabled,
+        },
     )
     await session.commit()
     return WorkbuddyTokenCreatedOut(

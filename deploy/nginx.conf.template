@@ -70,6 +70,16 @@ server {
         proxy_pass $kap_backend;
     }
 
+    # MCP upload transport: same bearer authentication, ordinary multipart bytes.
+    location ^~ /api/v1/agent-gateway/operations/uploads/ {
+        client_max_body_size 110m;
+        client_body_timeout 120s;
+        proxy_send_timeout 120s;
+        proxy_read_timeout 120s;
+        limit_req zone=api_all burst=50 nodelay;
+        proxy_pass $kap_backend;
+    }
+
     # 业务 API（保留完整原始路径 /api/v1/... 转发到后端）。
     location /api/v1/ {
         limit_req zone=api_all burst=50 nodelay;

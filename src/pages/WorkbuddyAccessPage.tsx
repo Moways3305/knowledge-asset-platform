@@ -10,8 +10,8 @@ export default function WorkbuddyAccessPage() {
           <Cable size={14} aria-hidden="true" />
           个人设置
         </span>
-        <h1>WorkBuddy 接入</h1>
-        <p>下载连接器并管理接入配置；成功连接状态只以平台最近一次真实连接记录为准。</p>
+        <h1>MCP 接入</h1>
+        <p>管理智能体平台的 MCP 配置和操作权限；连接状态以最近一次真实调用为准。</p>
       </header>
       <WorkbuddyAccessCard />
     </ProductPage>
