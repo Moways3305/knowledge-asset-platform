@@ -647,6 +647,16 @@ async def auth_me(
             settings=settings,
         )
     except work_identity.StaleActiveRoleCookie as exc:
+        if not kap_session:
+            # resolve_active_role normally returns the fallback without a token;
+            # keep recovery fail-closed if that invariant ever changes.
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "denied_reason": "active_company_role_cookie_invalid",
+                    "message": "工作身份凭证无效，请重新登录",
+                },
+            ) from exc
         roles = sorted(set(work_identity.assigned_active_roles(user)))
         if len(roles) != 1:
             raise HTTPException(
