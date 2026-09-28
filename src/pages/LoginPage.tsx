@@ -2,14 +2,14 @@ import { useRef, useState, type FormEvent } from "react";
 import { useLocation } from "react-router-dom";
 import { Eye, EyeOff, MessageCircle } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
-import { login } from "../api/auth";
+import { login, switchActiveCompanyRole } from "../api/auth";
 import { ApiError } from "../api/http";
 import { startWecomOAuth } from "../api/admin";
 import { rememberLoginReturn } from "../auth/loginReturn";
 import "./LoginPage.css";
 
 export default function LoginPage() {
-  const { status, reload, setAuthMe } = useAuth();
+  const { status, reload, setAuthMe, identityMessage, availableRoles = [] } = useAuth();
   const location = useLocation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -83,13 +83,41 @@ export default function LoginPage() {
           </p>
         ) : status === "error" ? (
           <div className="login-notice" role="alert">
-            <p>暂时无法连接登录服务，请重试。</p>
+            <p>{identityMessage || "暂时无法连接登录服务，请重试。"}</p>
+            {availableRoles.map((role) => (
+              <button
+                key={role}
+                type="button"
+                disabled={!!busy}
+                onClick={async () => {
+                  if (inFlight.current) return;
+                  inFlight.current = true;
+                  setBusy("password");
+                  try {
+                    setAuthMe(await switchActiveCompanyRole(role));
+                  } catch {
+                    await reload();
+                  } finally {
+                    inFlight.current = false;
+                    setBusy(null);
+                  }
+                }}
+              >
+                {{
+                  admin: "系统管理员",
+                  boss: "总经理",
+                  consulting_director: "咨询总监",
+                  consultant: "咨询顾问",
+                }[role] || role}
+              </button>
+            ))}
             <button className="login-primary" type="button" onClick={() => void reload()}>
               重新连接
             </button>
           </div>
         ) : (
           <>
+            {identityMessage && <p role="alert">{identityMessage}</p>}
             <form onSubmit={submit} aria-busy={busy !== null}>
               <label htmlFor="login-email">邮箱</label>
               <input
