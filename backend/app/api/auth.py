@@ -623,6 +623,7 @@ async def wecom_callback(
 
 @router.get("/me", response_model=AuthMeOut)
 async def auth_me(
+    response: Response,
     x_dev_user_id: str | None = Header(default=None, alias="X-Dev-User-Id"),
     kap_session: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
     kap_active_company_role: str | None = Cookie(
@@ -645,6 +646,37 @@ async def auth_me(
             cookie_value=kap_active_company_role,
             settings=settings,
         )
+    except work_identity.StaleActiveRoleCookie as exc:
+        if not kap_session:
+            # resolve_active_role normally returns the fallback without a token;
+            # keep recovery fail-closed if that invariant ever changes.
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "denied_reason": "active_company_role_cookie_invalid",
+                    "message": "工作身份凭证无效，请重新登录",
+                },
+            ) from exc
+        roles = sorted(set(work_identity.assigned_active_roles(user)))
+        if len(roles) != 1:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "denied_reason": "active_company_role_selection_required"
+                    if roles
+                    else "active_company_role_unavailable",
+                    "message": "工作身份已变更，请重新选择"
+                    if roles
+                    else "当前无可用工作身份，请联系管理员",
+                    "available_roles": roles,
+                },
+            ) from exc
+        active_role = roles[0]
+        _set_active_role_cookie(
+            response, raw_token=kap_session, user=user, role=active_role, settings=settings
+        )
+        response.headers["Cache-Control"] = "no-store"
+        _identity_log.info("identity.stale_role_recovered")
     except work_identity.InvalidActiveRoleCookie as exc:
         raise HTTPException(
             status_code=403,
@@ -702,6 +734,10 @@ async def switch_active_company_role(
             cookie_value=kap_active_company_role,
             settings=settings,
         )
+    except work_identity.StaleActiveRoleCookie as exc:
+        # Explicit selection is allowed only after signature/session validation.
+        # The requested role was checked against current assignments above.
+        previous_role = exc.role
     except work_identity.InvalidActiveRoleCookie as exc:
         _identity_log.warning(
             "identity.role_switch_denied reason=active_role_cookie_invalid trace=%s", trace_id

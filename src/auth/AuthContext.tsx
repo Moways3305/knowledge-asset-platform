@@ -18,6 +18,8 @@ type AuthStatus = "loading" | "authenticated" | "anonymous" | "error";
 interface AuthContextValue {
   authMe: AuthMeVM | null;
   status: AuthStatus;
+  identityMessage: string;
+  availableRoles: string[];
   capabilities: Capabilities;
   reload: () => Promise<void>;
   // 供给 IdentityMenu 在登录 / 登出后直接写入或清空。
@@ -29,14 +31,40 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [authMe, setAuthMeState] = useState<AuthMeVM | null>(null);
   const [status, setStatus] = useState<AuthStatus>("loading");
+  const [identityMessage, setIdentityMessage] = useState("");
+  const [availableRoles, setAvailableRoles] = useState<string[]>([]);
 
   const reload = useCallback(async () => {
     setStatus("loading");
+    setIdentityMessage("");
+    setAvailableRoles([]);
     try {
       const me = await fetchAuthMe();
       setAuthMeState(me);
       setStatus("authenticated");
     } catch (e) {
+      if (
+        e instanceof ApiError &&
+        e.status === 403 &&
+        e.deniedReason?.startsWith("active_company_role_")
+      ) {
+        setAuthMeState(null);
+        if (e.deniedReason === "active_company_role_selection_required") {
+          const roles = e.detail?.available_roles;
+          setAvailableRoles(
+            Array.isArray(roles) ? roles.filter((r): r is string => typeof r === "string") : [],
+          );
+          setIdentityMessage("工作身份已变更，请选择当前要使用的身份。");
+          setStatus("error");
+        } else if (e.deniedReason === "active_company_role_unavailable") {
+          setIdentityMessage("当前没有可用工作身份，请联系管理员。");
+          setStatus("error");
+        } else {
+          setIdentityMessage("工作身份凭证已失效，请重新登录。");
+          setStatus("anonymous");
+        }
+        return;
+      }
       if (e instanceof ApiError && e.status === 401) {
         // 确实未登录：清空状态，UI 显示登录入口
         setAuthMeState(null);
@@ -64,11 +92,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       authMe,
       status,
+      identityMessage,
+      availableRoles,
       capabilities: deriveCapabilities(status === "authenticated" ? authMe : null),
       reload,
       setAuthMe,
     }),
-    [authMe, status, reload, setAuthMe],
+    [authMe, status, identityMessage, availableRoles, reload, setAuthMe],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

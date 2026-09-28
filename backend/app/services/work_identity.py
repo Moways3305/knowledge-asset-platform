@@ -31,6 +31,14 @@ class InvalidActiveRoleCookie(ValueError):
     """A session-bound role cookie was present but failed validation."""
 
 
+class StaleActiveRoleCookie(InvalidActiveRoleCookie):
+    """Authentic session-bound selection whose assignment has been revoked."""
+
+    def __init__(self, role: str):
+        super().__init__("active_company_role_stale")
+        self.role = role
+
+
 def assigned_active_roles(user: User) -> list[str]:
     return [row.company_role for row in user.company_roles if row.status == RoleStatus.active.value]
 
@@ -86,9 +94,6 @@ def resolve_active_role(
         _log.warning("identity.active_role_cookie_invalid reason=malformed")
         raise InvalidActiveRoleCookie("active_company_role_cookie_invalid")
     role, provided = cookie_value.rsplit(".", 1)
-    if role not in assigned_active_roles(user):
-        _log.warning("identity.active_role_cookie_invalid reason=role_not_assigned role=%s", role)
-        raise InvalidActiveRoleCookie("active_company_role_cookie_invalid")
     expected = _signature(
         session_token=session_token,
         user_id=str(user.id),
@@ -98,4 +103,6 @@ def resolve_active_role(
     if not hmac.compare_digest(provided, expected):
         _log.warning("identity.active_role_cookie_invalid reason=signature_mismatch role=%s", role)
         raise InvalidActiveRoleCookie("active_company_role_cookie_invalid")
+    if role not in assigned_active_roles(user):
+        raise StaleActiveRoleCookie(role)
     return role
