@@ -6,10 +6,68 @@ import json
 import subprocess
 import tarfile
 import tempfile
+import time
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def check_frontend_http(tag: str, expected: dict) -> None:
+    """Exercise the real entrypoint and unprivileged HTTP server, not just syntax."""
+    name = "kap-frontend-probe-" + uuid.uuid4().hex
+    subprocess.run(["docker", "run", "-d", "--name", name, tag], cwd=ROOT, check=True, timeout=30)
+    try:
+        for _ in range(30):
+            result = subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    name,
+                    "wget",
+                    "-q",
+                    "-T",
+                    "2",
+                    "-O",
+                    "-",
+                    "http://127.0.0.1:8080/",
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                encoding="utf-8",
+                timeout=10,
+            )
+            if result.returncode == 0 and 'id="root"' in result.stdout:
+                break
+            time.sleep(1)
+        else:
+            raise RuntimeError("Frontend homepage on port 8080 did not serve the application")
+        raw = subprocess.check_output(
+            [
+                "docker",
+                "exec",
+                name,
+                "wget",
+                "-q",
+                "-T",
+                "5",
+                "-O",
+                "-",
+                "http://127.0.0.1:8080/release-identity.json",
+            ],
+            cwd=ROOT,
+            encoding="utf-8",
+            timeout=10,
+        )
+        if json.loads(raw) != expected:
+            raise RuntimeError("Frontend HTTP release identity mismatch")
+    except Exception:
+        subprocess.run(["docker", "logs", "--tail", "80", name], cwd=ROOT, timeout=10)
+        raise
+    finally:
+        # Only this invocation's isolated test container; never a production stack.
+        subprocess.run(["docker", "rm", "-f", name], cwd=ROOT, check=True, timeout=30)
 
 
 @contextmanager
@@ -112,6 +170,7 @@ def main() -> None:
         raise SystemExit("Baked release metadata does not match the build manifest")
     if component == "frontend":
         subprocess.run(["docker", "run", "--rm", tag, "nginx", "-t"], cwd=ROOT, check=True)
+        check_frontend_http(tag, expected)
     print(f"{component}: baked release metadata verified")
 
 

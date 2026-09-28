@@ -38,7 +38,9 @@ COPY --from=build /app/dist /usr/share/nginx/html
 # Run as the image's unprivileged `nginx` user (uid 101). Grant write access to the
 # paths a non-root master/worker needs: pid -> /tmp (see nginx.conf), temp dirs under
 # /var/cache/nginx, the rendered conf.d target, and the static root.
-RUN chown -R nginx:nginx /var/cache/nginx /etc/nginx/conf.d /usr/share/nginx/html
+RUN chmod 0755 /etc/nginx/templates \
+    && chmod 0644 /etc/nginx/templates/default.conf.template \
+    && chown -R nginx:nginx /var/cache/nginx /etc/nginx/conf.d /usr/share/nginx/html
 
 # The 19-* entrypoint script rejects anything except one exact HTTP(S) origin
 # before nginx's 20-envsubst-on-templates.sh runs. Only ONLYOFFICE_ORIGIN is

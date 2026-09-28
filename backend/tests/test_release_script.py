@@ -211,6 +211,8 @@ def test_image_checker_exercises_nonroot_backend_and_nginx(monkeypatch):
 
     calls = []
     manifest = {}
+    probes = []
+    monkeypatch.setattr(image_script, "check_frontend_http", lambda *args: probes.append(args))
 
     def run(command, **kwargs):
         calls.append(command)
@@ -238,3 +240,36 @@ def test_image_checker_exercises_nonroot_backend_and_nginx(monkeypatch):
         image_script.main()
     assert ["docker", "run", "--rm", "kap-frontend-ci", "nginx", "-t"] in calls
     assert all("--user" not in call for call in calls)
+    assert probes == [("kap-frontend-ci", {key: manifest[key] for key in ("version", "commit")})]
+
+
+@pytest.mark.parametrize("failure", [None, "unreachable", "wrong_page", "wrong_identity"])
+def test_frontend_http_probe_checks_real_page_and_cleans_up(monkeypatch, failure):
+    calls = []
+    expected = {"version": "v1.2.3", "commit": "a" * 40}
+
+    def run(command, **kwargs):
+        calls.append(command)
+        return SimpleNamespace(
+            returncode=1 if failure == "unreachable" else 0,
+            stdout="Welcome to nginx" if failure == "wrong_page" else '<div id="root"></div>',
+        )
+
+    def output(command, **kwargs):
+        calls.append(command)
+        return json.dumps({} if failure == "wrong_identity" else expected)
+
+    monkeypatch.setattr(image_script.subprocess, "run", run)
+    monkeypatch.setattr(image_script.subprocess, "check_output", output)
+    monkeypatch.setattr(image_script.time, "sleep", lambda _: None)
+    if failure:
+        with pytest.raises(RuntimeError):
+            image_script.check_frontend_http("test-image", expected)
+    else:
+        image_script.check_frontend_http("test-image", expected)
+    name = calls[0][4]
+    assert calls[0] == ["docker", "run", "-d", "--name", name, "test-image"]
+    assert name.startswith("kap-frontend-probe-")
+    assert calls[-1] == ["docker", "rm", "-f", name]
+    assert any("http://127.0.0.1:8080/" in call for call in calls)
+    assert not any("--user" in call or "--entrypoint" in call for call in calls)
