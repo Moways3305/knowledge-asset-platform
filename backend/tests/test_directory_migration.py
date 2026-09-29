@@ -7,11 +7,76 @@ from app.models.audit import AuditEvent
 from app.models.directory_migration import DirectoryMigrationCandidate
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.review import ReviewTask, ValidationEvidence
-from app.seed.dev_seed import KA_PROJECT_ALPHA_MATERIAL, USER_BOSS
+from app.schemas.enums import AuditAction
+from app.seed.dev_seed import KA_PROJECT_ALPHA_MATERIAL, USER_BOSS, USER_PROJECT_MANAGER
 
 
 def _headers():
     return {"X-Dev-User-Id": str(USER_BOSS)}
+
+
+async def test_migration_invalidates_open_metadata_editor(client, db_session):
+    asset = await db_session.get(KnowledgeAsset, KA_PROJECT_ALPHA_MATERIAL)
+    version = await db_session.get(KnowledgeAssetVersion, asset.current_version_id)
+    version.directory_key = None
+    version.naming_metadata = {"directory_key": "project.deliverables"}
+    asset_id, version_id = asset.id, version.id
+    await db_session.commit()
+    editor_headers = {"X-Dev-User-Id": str(USER_PROJECT_MANAGER)}
+    detail_url = f"/api/v1/knowledge/{asset_id}"
+    old = await client.get(detail_url, headers=editor_headers)
+    assert old.status_code == 200
+    old_timestamp = old.json()["updated_at"]
+
+    await client.get("/api/v1/admin/directory-migration", headers=_headers())
+    candidate = await db_session.scalar(
+        select(DirectoryMigrationCandidate).where(
+            DirectoryMigrationCandidate.version_id == version_id
+        )
+    )
+    confirmation = {"items": [{"candidate_id": str(candidate.id)}]}
+    migrated = await client.post(
+        "/api/v1/admin/directory-migration/confirm", headers=_headers(), json=confirmation
+    )
+    assert migrated.status_code == 200
+    assert migrated.json()["migrated"] == 1
+
+    body = {
+        "expected_updated_at": old_timestamp,
+        "directory_key": "project.retrospective",
+        "reason": "旧页面更正目录",
+    }
+    stale = await client.patch(f"{detail_url}/metadata", headers=editor_headers, json=body)
+    assert stale.status_code == 409, stale.text
+    current = (await client.get(detail_url, headers=editor_headers)).json()
+    assert current["updated_at"] != old_timestamp
+    assert current["directory_key"] == "project.deliverables"
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(AuditEvent)
+            .where(
+                AuditEvent.target_id == asset_id,
+                AuditEvent.action == AuditAction.knowledge_asset_metadata_updated.value,
+            )
+        )
+        == 0
+    )
+
+    # Reconfirming a completed migration must not invalidate a newly opened editor.
+    repeated = await client.post(
+        "/api/v1/admin/directory-migration/confirm", headers=_headers(), json=confirmation
+    )
+    assert repeated.json()["skipped"] == 1
+    assert (await client.get(detail_url, headers=editor_headers)).json()["updated_at"] == current[
+        "updated_at"
+    ]
+    body["expected_updated_at"] = current["updated_at"]
+    fresh = await client.patch(f"{detail_url}/metadata", headers=editor_headers, json=body)
+    assert fresh.status_code == 200, fresh.text
+    assert (await client.get(detail_url, headers=editor_headers)).json()[
+        "directory_key"
+    ] == "project.retrospective"
 
 
 async def test_historical_directory_migration_only_writes_governance_fields(client, db_session):

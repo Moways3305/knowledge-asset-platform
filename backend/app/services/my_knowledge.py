@@ -56,6 +56,9 @@ from app.services import audit as audit_service
 from app.services import knowledge as knowledge_service
 from app.services import review as review_service
 from app.services import review_events
+from app.services.personal_write_policy import (
+    personal_asset_write_locked as _personal_asset_write_locked,
+)
 from app.worker.enqueue import enqueue_outbox_delivery
 
 
@@ -85,46 +88,6 @@ async def _load_owned_personal_asset(
     if asset.scope != KnowledgeScope.personal.value or asset.owner_user_id != caller.user_id:
         raise not_owned
     return asset
-
-
-async def _personal_asset_write_locked(session: AsyncSession, asset_id: uuid.UUID) -> bool:
-    pending_task = (
-        await session.execute(
-            select(ReviewTask.id)
-            .join(
-                PersonalKnowledgeSubmission,
-                PersonalKnowledgeSubmission.review_task_id == ReviewTask.id,
-            )
-            .where(
-                PersonalKnowledgeSubmission.source_asset_id == asset_id,
-                PersonalKnowledgeSubmission.submission_type
-                == PersonalSubmissionType.submit_to_project.value,
-                ReviewTask.status.in_(
-                    {
-                        ReviewTaskStatus.pending_evidence.value,
-                        ReviewTaskStatus.pending_reviewer.value,
-                        ReviewTaskStatus.approving.value,
-                        ReviewTaskStatus.approval_failed.value,
-                    }
-                ),
-            )
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    if pending_task is not None:
-        return True
-    project_copy = (
-        await session.execute(
-            select(KnowledgeAsset.id)
-            .where(
-                KnowledgeAsset.source_asset_id == asset_id,
-                KnowledgeAsset.scope == KnowledgeScope.project.value,
-                KnowledgeAsset.asset_status == "active",
-            )
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    return project_copy is not None
 
 
 async def update_personal_asset(

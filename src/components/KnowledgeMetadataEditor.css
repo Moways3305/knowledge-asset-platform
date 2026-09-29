@@ -1,0 +1,51 @@
+.metadata-editor fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 18px;
+}
+.metadata-editor label {
+  display: grid;
+  gap: 7px;
+  color: #243451;
+  font-weight: 600;
+}
+.metadata-editor input,
+.metadata-editor select,
+.metadata-editor textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #cbd5e3;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fff;
+  color: #18263e;
+  font: inherit;
+  font-weight: 400;
+}
+.metadata-editor textarea {
+  resize: vertical;
+}
+.metadata-editor :is(input, select, textarea):focus-visible {
+  outline: 2px solid #30377e;
+  outline-offset: 2px;
+}
+.metadata-editor .metadata-confirm {
+  display: flex;
+  align-items: flex-start;
+  font-weight: 400;
+}
+.metadata-editor .metadata-confirm input {
+  width: auto;
+  flex-shrink: 0;
+  margin-top: 5px;
+}
+.metadata-editor .metadata-warning {
+  background: #fff8eb;
+  border-left: 3px solid #bd8c32;
+  padding: 12px;
+  color: #714d1e;
+  line-height: 1.6;
+  margin: 0;
+}

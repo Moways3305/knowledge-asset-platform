@@ -312,6 +312,10 @@ async def get_detail(
         index_status=version_obj.index_status if version_obj else None,
         policy=policy,
     )
+    if access.can_edit_metadata and asset.scope == KnowledgeScope.personal.value:
+        from app.services.personal_write_policy import personal_asset_write_locked
+
+        access.can_edit_metadata = not await personal_asset_write_locked(session, asset.id)
     smap = _summary_map(asset)
     # grant 后仍保持跨项目安全投影；原文只能通过受审计的原文端点读取。
     cross_project_projection = access.cross_project_summary

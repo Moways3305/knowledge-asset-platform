@@ -43,15 +43,28 @@ from app.schemas.knowledge import (
     SortDirection,
 )
 from app.schemas.knowledge_insights import KnowledgeOpsInsightsResponse
+from app.schemas.knowledge_metadata import KnowledgeMetadataResult, KnowledgeMetadataUpdate
 from app.schemas.my_knowledge import PersonalKnowledgeListResponse
 from app.schemas.permission import CallerContext
 from app.services import bulk_operations as bulk_service
 from app.services import knowledge as knowledge_service
 from app.services import knowledge_insights as insights_service
+from app.services.knowledge_metadata import update_metadata
 from app.services.storage import LocalFileStorage, get_storage
 from app.services.weknora_client import get_weknora_client
 
 router = APIRouter(prefix="/api/v1", tags=["knowledge"])
+
+
+@router.patch("/knowledge/{asset_id}/metadata", response_model=KnowledgeMetadataResult)
+async def edit_knowledge_metadata(
+    asset_id: uuid.UUID,
+    body: KnowledgeMetadataUpdate,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+):
+    return await update_metadata(session, caller, asset_id, body, get_trace_id(request))
 
 
 @router.post("/knowledge/bulk-delete", response_model=BulkOperationResponse)

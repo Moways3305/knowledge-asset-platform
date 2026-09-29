@@ -35,6 +35,7 @@ export interface AccessInfoDTO {
   existing_request_status: string | null;
   existing_grant_expires_at: string | null;
   can_delete: boolean;
+  can_edit_metadata?: boolean;
   can_manage_lifecycle: boolean;
   can_retry_index?: boolean;
 }
@@ -167,6 +168,7 @@ export interface KnowledgeDetailDTO {
 
 // ---- 前端 ViewModel ----
 export interface AccessInfoVM {
+  canEditMetadata?: boolean;
   discovery: boolean;
   summary: boolean;
   original: boolean;
@@ -235,6 +237,7 @@ export interface KnowledgePageVM {
 }
 
 export interface KnowledgeDetailVM extends KnowledgeCardVM {
+  metadataUpdatedAt?: string | null;
   summaryStatus?: SummaryStatus;
   projectId: string | null;
   maintainerName: string;
