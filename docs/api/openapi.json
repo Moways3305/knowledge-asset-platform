@@ -87,6 +87,11 @@
             "title": "Can Delete",
             "type": "boolean"
           },
+          "can_edit_metadata": {
+            "default": false,
+            "title": "Can Edit Metadata",
+            "type": "boolean"
+          },
           "can_manage_lifecycle": {
             "default": false,
             "title": "Can Manage Lifecycle",
@@ -8028,6 +8033,127 @@
           "total"
         ],
         "title": "KnowledgeListResponse",
+        "type": "object"
+      },
+      "KnowledgeMetadataResult": {
+        "properties": {
+          "asset_id": {
+            "format": "uuid",
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_id",
+          "updated_at"
+        ],
+        "title": "KnowledgeMetadataResult",
+        "type": "object"
+      },
+      "KnowledgeMetadataUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssetType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "confidentiality_level": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConfidentialityLevel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "confirm_downgrade": {
+            "default": false,
+            "title": "Confirm Downgrade",
+            "type": "boolean"
+          },
+          "directory_key": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Directory Key"
+          },
+          "expected_updated_at": {
+            "format": "date-time",
+            "title": "Expected Updated At",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "expected_updated_at",
+          "reason"
+        ],
+        "title": "KnowledgeMetadataUpdate",
         "type": "object"
       },
       "KnowledgeOpsInsightsResponse": {
@@ -34205,6 +34331,107 @@
         "summary": "Reenable Request",
         "tags": [
           "lifecycle"
+        ]
+      }
+    },
+    "/api/v1/knowledge/{asset_id}/metadata": {
+      "patch": {
+        "operationId": "edit_knowledge_metadata_api_v1_knowledge__asset_id__metadata_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Asset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeMetadataUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeMetadataResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Edit Knowledge Metadata",
+        "tags": [
+          "knowledge"
         ]
       }
     },

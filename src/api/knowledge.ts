@@ -1,7 +1,7 @@
 // 知识资产领域：列表 / 详情 / 语义检索 / 受控预览 / 删除 / 重试索引 / 运营洞察 /
 // 生命周期归档 / 原文访问申请与授权。所有响应均为后端经权限网关
 // 裁剪、脱敏后的安全字段，前端不构造、不展示任何内部标识（WeKnora id / storage 引用等）。
-import { apiGet, apiPost } from "./http";
+import { apiGet, apiPost, apiPatch } from "./http";
 import type {
   AccessInfoDTO,
   AccessInfoVM,
@@ -45,6 +45,7 @@ function mapAccess(a: AccessInfoDTO): AccessInfoVM {
     existingRequestStatus: a.existing_request_status,
     existingGrantExpiresAt: a.existing_grant_expires_at,
     canDelete: a.can_delete,
+    canEditMetadata: a.can_edit_metadata ?? false,
     canManageLifecycle: a.can_manage_lifecycle ?? false,
     canRetryIndex: a.can_retry_index ?? false,
   };
@@ -87,6 +88,7 @@ function mapDetail(d: KnowledgeDetailDTO): KnowledgeDetailVM {
   } as KnowledgeListItemDTO);
   return {
     ...card,
+    metadataUpdatedAt: d.updated_at,
     projectId: d.project_id,
     maintainerName: d.maintainer_name ?? d.maintainer?.name ?? "",
     categoryPath: d.category_path ?? "",
@@ -106,6 +108,13 @@ function mapDetail(d: KnowledgeDetailDTO): KnowledgeDetailVM {
 }
 
 // ---- 列表 / 详情 ----
+export async function updateKnowledgeMetadata(id: string, body: Record<string, unknown>) {
+  return apiPatch<{ asset_id: string; updated_at: string }>(
+    `/api/v1/knowledge/${id}/metadata`,
+    body,
+  );
+}
+
 export async function fetchKnowledgePage(
   params: KnowledgeQueryParams = {},
 ): Promise<KnowledgePageVM> {

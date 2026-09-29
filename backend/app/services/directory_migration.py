@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.utils import utc_now
 from app.models.directory_migration import DirectoryMigrationCandidate
 from app.models.identity import Project
 from app.models.ingest import IngestTask
@@ -356,18 +357,19 @@ async def confirm(
                     )
                 )
                 continue
-            version = (
-                await session.execute(
-                    select(KnowledgeAssetVersion)
-                    .where(KnowledgeAssetVersion.id == candidate.version_id)
-                    .execution_options(populate_existing=True)
-                    .with_for_update()
-                )
-            ).scalar_one_or_none()
+            # Match the metadata editor's asset-before-version lock order.
             asset = (
                 await session.execute(
                     select(KnowledgeAsset)
                     .where(KnowledgeAsset.id == candidate.asset_id)
+                    .execution_options(populate_existing=True)
+                    .with_for_update()
+                )
+            ).scalar_one_or_none()
+            version = (
+                await session.execute(
+                    select(KnowledgeAssetVersion)
+                    .where(KnowledgeAssetVersion.id == candidate.version_id)
                     .execution_options(populate_existing=True)
                     .with_for_update()
                 )
@@ -424,6 +426,9 @@ async def confirm(
             version.directory_key = key
             version.directory_rule_version = rule_version
             version.directory_confirmed_by = caller.user_id
+            # Directory changes belong to the asset's editable metadata. Invalidate
+            # stale editors atomically with the version, candidate and audit update.
+            asset.updated_at = utc_now()
             candidate.suggested_directory_key = key
             candidate.rule_version = rule_version
             candidate.status = "migrated"

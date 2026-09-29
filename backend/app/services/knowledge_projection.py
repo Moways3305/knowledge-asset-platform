@@ -35,6 +35,7 @@ from app.services import (
     error_catalog,
     knowledge_lifecycle,
 )
+from app.services.knowledge_metadata import can_edit_metadata
 from app.services.permission import (
     decide,
     lifecycle_actor_allowed,
@@ -163,6 +164,7 @@ def _build_access_info(
         existing_request_status="pending" if pending_request else None,
         existing_grant_expires_at=grant_expires_at if has_grant else None,
         can_delete=_can_delete(caller, asset),
+        can_edit_metadata=can_edit_metadata(caller, asset),
         can_manage_lifecycle=(
             caller.is_business_user
             and lifecycle_visibility(caller, asset) is None

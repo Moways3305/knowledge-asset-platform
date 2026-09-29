@@ -18,6 +18,7 @@ import ProjectCompanyPublicationDialog, {
   getProjectCompanyPublicationEligibility,
 } from "../components/ProjectCompanyPublicationDialog";
 import TaskModal from "../components/TaskModal";
+import KnowledgeMetadataEditor from "../components/KnowledgeMetadataEditor";
 import {
   deleteKnowledgeAsset,
   fetchKnowledgeDetail,
@@ -683,6 +684,15 @@ export default function KnowledgeDetailPage() {
             </details>
           )}
 
+          <KnowledgeMetadataEditor
+            key={asset.id}
+            asset={asset}
+            onSaved={() => {
+              setPreviewOpen(false);
+              setPreviewEntry(null);
+              setLoadAttempt((value) => value + 1);
+            }}
+          />
           {hasOpsActions && (
             <details className="kdetail-panel kdetail-disclosure kdetail-ops">
               <summary>

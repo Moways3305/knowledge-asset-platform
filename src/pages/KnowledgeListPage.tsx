@@ -24,6 +24,7 @@ import { useAuth } from "../auth/AuthContext";
 import { can } from "../auth/permissions";
 import DataTable, { type Column } from "../components/DataTable";
 import DetailDrawer from "../components/DetailDrawer";
+import KnowledgeMetadataEditor from "../components/KnowledgeMetadataEditor";
 import { summaryPendingLabel } from "../components/knowledgeSummaryState";
 import AccessExplanationDrawer, { accessLabel } from "../components/AccessExplanationDrawer";
 import TaskModal from "../components/TaskModal";
@@ -1249,6 +1250,16 @@ export default function KnowledgeListPage() {
           ) : undefined
         }
       >
+        {summaryDetail && (
+          <KnowledgeMetadataEditor
+            key={summaryDetail.id}
+            asset={summaryDetail}
+            onSaved={() => {
+              closeDetail();
+              setRetryKey((value) => value + 1);
+            }}
+          />
+        )}
         {summaryLoading ? (
           <p role="status">正在加载安全摘要…</p>
         ) : summaryError ? (
