@@ -154,6 +154,7 @@ async def test_every_advertised_notification_event_has_an_explicit_handler(monke
         domain_events.INDEX_STATUS_CHANGED: "notify_index_status_changed",
         domain_events.OPERATION_JOB_FINISHED: "notify_operation_job_finished",
         domain_events.OPS_SIGNAL_RAISED: "notify_ops_signal",
+        domain_events.KNOWLEDGE_TRUST_ACTION_REQUIRED: "notify_knowledge_trust",
     }
     assert set(expected) | {domain_events.LOCAL_NOTIFICATION_REQUESTED} == set(
         notification_event_consumers.NOTIFICATION_EVENT_TYPES
@@ -187,6 +188,8 @@ async def test_every_advertised_notification_event_has_an_explicit_handler(monke
                 "count": "1",
                 "audit_event_id": str(REVIEW_SEED),
                 "alert_rule_id": str(REVIEW_SEED),
+                "recipient_id": str(REVIEW_SEED),
+                "notice_type": "assigned",
             },
             idempotency_key=f"handler:{event_type}",
             status="processing",
@@ -198,6 +201,9 @@ async def test_every_advertised_notification_event_has_an_explicit_handler(monke
             cast(AsyncSession, FakeSession()), event
         )
         mocks[function_name].assert_awaited_once()
+        if event_type == domain_events.KNOWLEDGE_TRUST_ACTION_REQUIRED:
+            args = mocks[function_name].await_args.args
+            assert args[1:] == (aggregate, [REVIEW_SEED], "assigned", event.idempotency_key)
     ops_admin_consumer.assert_awaited_once()
 
     local_event = DomainEventOutbox(
