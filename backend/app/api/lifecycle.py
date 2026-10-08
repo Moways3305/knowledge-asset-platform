@@ -17,6 +17,16 @@ from app.api.deps import get_caller_context
 from app.core.trace import get_trace_id
 from app.db.session import get_db
 from app.schemas.governance import GovernanceBatch, GovernanceBatchResult, GovernancePage
+from app.schemas.knowledge_review import (
+    CorrectionCommand,
+    CorrectionTransition,
+    MaintenancePage,
+    ReplacementCommand,
+    ReplacementOption,
+    ReviewCommand,
+    ReviewPolicyCommand,
+    ReviewState,
+)
 from app.schemas.lifecycle import (
     ArchiveConfirmBody,
     ArchiveConfirmResponse,
@@ -28,10 +38,97 @@ from app.schemas.lifecycle import (
     ReenableRequestBody,
 )
 from app.schemas.permission import CallerContext
-from app.services import company_governance
+from app.services import company_governance, knowledge_review
 from app.services import lifecycle as lifecycle_service
 
 router = APIRouter(prefix="/api/v1", tags=["lifecycle"])
+
+
+@router.get("/knowledge-maintenance", response_model=MaintenancePage)
+async def knowledge_maintenance_list(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=50),
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+):
+    return await knowledge_review.list_maintenance(session, caller, page=page, page_size=page_size)
+
+
+@router.get("/knowledge/{asset_id}/trust", response_model=ReviewState)
+async def knowledge_trust_state(
+    asset_id: uuid.UUID,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+):
+    return await knowledge_review.get_state(session, caller, asset_id)
+
+
+@router.patch("/knowledge/{asset_id}/trust/policy", response_model=ReviewState)
+async def knowledge_trust_policy(
+    asset_id: uuid.UUID,
+    body: ReviewPolicyCommand,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+):
+    return await knowledge_review.set_policy(session, caller, asset_id, body, get_trace_id(request))
+
+
+@router.post("/knowledge/{asset_id}/trust/review", response_model=ReviewState)
+async def knowledge_trust_review(
+    asset_id: uuid.UUID,
+    body: ReviewCommand,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+):
+    return await knowledge_review.review(session, caller, asset_id, body, get_trace_id(request))
+
+
+@router.post("/knowledge/{asset_id}/trust/replacement", response_model=ReviewState)
+async def knowledge_trust_replacement(
+    asset_id: uuid.UUID,
+    body: ReplacementCommand,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+):
+    return await knowledge_review.replace(session, caller, asset_id, body, get_trace_id(request))
+
+
+@router.get("/knowledge/{asset_id}/trust/replacements", response_model=list[ReplacementOption])
+async def knowledge_trust_replacements(
+    asset_id: uuid.UUID,
+    keyword: str = Query("", max_length=200),
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+):
+    return await knowledge_review.replacement_options(session, caller, asset_id, keyword)
+
+
+@router.post("/knowledge/{asset_id}/trust/corrections", response_model=ReviewState)
+async def knowledge_trust_report(
+    asset_id: uuid.UUID,
+    body: CorrectionCommand,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+):
+    return await knowledge_review.report(session, caller, asset_id, body, get_trace_id(request))
+
+
+@router.post("/knowledge/{asset_id}/trust/corrections/{correction_id}", response_model=ReviewState)
+async def knowledge_trust_transition(
+    asset_id: uuid.UUID,
+    correction_id: uuid.UUID,
+    body: CorrectionTransition,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+):
+    return await knowledge_review.transition(
+        session, caller, asset_id, correction_id, body, get_trace_id(request)
+    )
 
 
 @router.get("/company-governance", response_model=GovernancePage)

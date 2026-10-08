@@ -34,6 +34,7 @@ fs.rmSync(outDir, { recursive: true, force: true });
 fs.mkdirSync(evidenceDir, { recursive: true });
 
 const suites = [
+  { name: "knowledge-trust", script: "knowledge-trust.ui-qa.mjs", evidence: "knowledge-trust" },
   { name: "release-notes", script: "release-notes.ui-qa.mjs", evidence: "release-notes" },
   {
     name: "project-settings",

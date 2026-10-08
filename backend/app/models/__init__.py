@@ -38,6 +38,7 @@ from app.models.knowledge import (
     KnowledgeAssetTag,
     KnowledgeAssetVersion,
 )
+from app.models.knowledge_correction import KnowledgeCorrection
 from app.models.lifecycle import (
     AlertRule,
     AssetLifecycleEvent,
@@ -70,6 +71,7 @@ __all__ = [
     "Project",
     "ProjectMember",
     "KnowledgeAsset",
+    "KnowledgeCorrection",
     "KnowledgeAssetVersion",
     "KnowledgeAssetChunk",
     "KnowledgeAssetFileObject",

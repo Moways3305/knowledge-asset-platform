@@ -11,6 +11,9 @@ async def _run(maker, trace_id: str | None) -> None:
 
     async with maker() as session:
         await lifecycle_scan.scan_archive_candidates(session, trace_id=trace_id)
+        from app.services.knowledge_review import scan_due_reviews
+
+        await scan_due_reviews(session)
 
 
 @celery_app.task(name="lifecycle.archive_scan", bind=True)

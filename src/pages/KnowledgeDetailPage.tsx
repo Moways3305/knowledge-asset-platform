@@ -19,6 +19,7 @@ import ProjectCompanyPublicationDialog, {
 } from "../components/ProjectCompanyPublicationDialog";
 import TaskModal from "../components/TaskModal";
 import KnowledgeMetadataEditor from "../components/KnowledgeMetadataEditor";
+import KnowledgeTrustPanel from "../components/KnowledgeTrustPanel";
 import {
   deleteKnowledgeAsset,
   fetchKnowledgeDetail,
@@ -343,6 +344,7 @@ export default function KnowledgeDetailPage() {
             {backLabel}
           </HistoryBackButton>
         </div>
+        {id && <KnowledgeTrustPanel assetId={id} />}
       </main>
     );
   }
@@ -511,6 +513,15 @@ export default function KnowledgeDetailPage() {
           ) : null}
         </div>
       </header>
+
+      <KnowledgeTrustPanel
+        assetId={asset.id}
+        revision={asset.metadataUpdatedAt ?? undefined}
+        onChanged={(result) => {
+          if (result.freshness === "archived") setNotFound(true);
+          else void reloadAsset();
+        }}
+      />
 
       {(previewError || oaError || oaNote || publicationNote) && (
         <div

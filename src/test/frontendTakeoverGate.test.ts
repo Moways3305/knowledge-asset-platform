@@ -64,9 +64,20 @@ const routes: RouteContract[] = [
     route: "/knowledge/:id",
     component: "KnowledgeDetailPage",
     guard: "viewKnowledge",
-    owners: ["pages/KnowledgeDetailPage.tsx", "pages/knowledge/OnlyOfficePreview.tsx"],
-    apiModules: ["http", "knowledge"],
+    owners: [
+      "pages/KnowledgeDetailPage.tsx",
+      "pages/knowledge/OnlyOfficePreview.tsx",
+      "components/KnowledgeTrustPanel.tsx",
+    ],
+    apiModules: ["http", "knowledge", "knowledgeTrust"],
     allowedTimerOwners: ["pages/knowledge/OnlyOfficePreview.tsx"],
+  },
+  {
+    route: "/knowledge-maintenance",
+    component: "KnowledgeMaintenancePage",
+    guard: "viewKnowledge",
+    owners: ["pages/KnowledgeMaintenancePage.tsx"],
+    apiModules: ["http", "knowledgeTrust"],
   },
   {
     route: "/my/knowledge",
@@ -387,7 +398,7 @@ function appRouteOwnership() {
 describe("frontend route takeover gate", () => {
   it("assigns every formal App route to the registered page and capability", () => {
     const actual = appRouteOwnership();
-    expect(actual.size).toBe(26);
+    expect(actual.size).toBe(routes.length);
     expect([...actual.keys()].sort()).toEqual(routes.map((item) => item.route).sort());
     for (const contract of routes) {
       expect(actual.get(contract.route), contract.route).toEqual({

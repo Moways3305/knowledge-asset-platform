@@ -3,11 +3,29 @@
 from __future__ import annotations
 
 import uuid
+from hashlib import sha256
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.indexing_job import IndexingOperationJob
 from app.services import domain_events
+
+
+async def publish_knowledge_trust(session, asset, recipients, event, key):
+    for recipient in set(recipients):
+        digest = sha256(f"{asset.id}:{event}:{key}:{recipient}".encode()).hexdigest()
+        await domain_events.publish(
+            session,
+            domain_events.DomainEvent(
+                event_type=domain_events.KNOWLEDGE_TRUST_ACTION_REQUIRED,
+                aggregate_type="knowledge_asset",
+                aggregate_id=asset.id,
+                payload=domain_events.safe_payload(
+                    asset_id=asset.id, recipient_id=recipient, notice_type=event
+                ),
+                idempotency_key=f"knowledge-trust:{digest}",
+            ),
+        )
 
 
 async def publish_job_finished(session: AsyncSession, job: IndexingOperationJob) -> None:

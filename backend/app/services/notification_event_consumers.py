@@ -222,6 +222,19 @@ async def consume_notification_event(session: AsyncSession, event: DomainEventOu
             alert_rule_id=uuid.UUID(alert_rule_id),
         )
         await notifications.notify_ops_signal(session, signal=signal, count=int(count))
+    elif event.event_type == domain_events.KNOWLEDGE_TRUST_ACTION_REQUIRED:
+        asset = await session.get(KnowledgeAsset, event.aggregate_id)
+        recipient_id = event.payload.get("recipient_id")
+        notice_type = event.payload.get("notice_type")
+        if (
+            asset is None
+            or recipient_id is None
+            or notice_type not in {"assigned", "due", "correction", "resolved"}
+        ):
+            raise ValueError("knowledge_trust_event_payload_invalid")
+        await notifications.notify_knowledge_trust(
+            session, asset, [uuid.UUID(recipient_id)], notice_type, event.idempotency_key
+        )
     elif event.event_type == domain_events.LOCAL_NOTIFICATION_REQUESTED:
         notice_type = event.payload.get("notice_type")
         recipient_id = event.payload.get("recipient_id")
@@ -252,5 +265,6 @@ NOTIFICATION_EVENT_TYPES = frozenset(
         domain_events.OPERATION_JOB_FINISHED,
         domain_events.OPS_SIGNAL_RAISED,
         domain_events.LOCAL_NOTIFICATION_REQUESTED,
+        domain_events.KNOWLEDGE_TRUST_ACTION_REQUIRED,
     }
 )

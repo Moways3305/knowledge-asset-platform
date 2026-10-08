@@ -13,24 +13,13 @@ from app.models.original_access import AccessGrant, OriginalAccessRequest
 from app.models.preview import PreviewCredential
 from app.schemas.enums import AuditAction, AuditLogType
 from app.services import audit
+from app.services.permission import knowledge_manager_allowed
 
 
 def can_edit_metadata(caller, asset):
-    if not caller.is_active or not caller.is_business_user:
-        return False
     if asset.asset_status not in {"active", "needs_update"}:
         return False
-    if asset.scope == "personal":
-        return asset.owner_user_id == caller.user_id
-    if asset.confidentiality_level == "L5" and not caller.can_discover_l5:
-        return False
-    if asset.scope == "company":
-        return caller.can_discover_l5
-    return (
-        asset.scope == "project"
-        and asset.project_id in caller.active_project_ids
-        and caller.active_project_roles.get(asset.project_id) == "project_manager"
-    )
+    return knowledge_manager_allowed(caller, asset)
 
 
 def denied(code, message):
