@@ -12,6 +12,7 @@ import {
   type TrustState,
 } from "../api/knowledgeTrust";
 import { formatBeijingTime } from "../utils/time";
+import TaskModal from "./TaskModal";
 import "./KnowledgeTrustPanel.css";
 
 const freshnessLabels: Record<TrustState["freshness"], string> = {
@@ -24,15 +25,52 @@ const freshnessLabels: Record<TrustState["freshness"], string> = {
 };
 const correctionLabels = { open: "待处理", resolved: "待提出者验证", verified: "已验证解决" };
 
-export default function KnowledgeTrustPanel({
-  assetId,
-  revision,
-  onChanged,
-}: {
+interface KnowledgeTrustPanelProps {
   assetId: string;
   revision?: string;
   onChanged?: (state: TrustState) => void;
-}) {
+}
+
+export default function KnowledgeTrustPanel(props: KnowledgeTrustPanelProps) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setOpen(false);
+  }, [props.assetId]);
+
+  return (
+    <>
+      <button
+        type="button"
+        className="btn-secondary"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen(true)}
+      >
+        知识维护与复核
+      </button>
+      <TaskModal
+        open={open}
+        title="知识维护与复核"
+        description="安排复核、处理旧版或反馈资料问题。"
+        size="large"
+        portal
+        busy={busy}
+        onClose={() => setOpen(false)}
+      >
+        {open && <KnowledgeTrustContent {...props} onBusyChange={setBusy} />}
+      </TaskModal>
+    </>
+  );
+}
+
+function KnowledgeTrustContent({
+  assetId,
+  revision,
+  onChanged,
+  onBusyChange,
+}: KnowledgeTrustPanelProps & { onBusyChange: (busy: boolean) => void }) {
   const [state, setState] = useState<TrustState | null>(null);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
@@ -79,7 +117,7 @@ export default function KnowledgeTrustPanel({
           setError(e instanceof ApiError ? e.message : "复核信息加载失败，请重试。");
       });
     return () => {
-      generation.current++;
+      generation.current = current + 1;
     };
   }, [assetId, revision]);
 
@@ -87,6 +125,7 @@ export default function KnowledgeTrustPanel({
     if (lock.current) return;
     lock.current = true;
     setBusy(true);
+    onBusyChange(true);
     setError("");
     setNote("");
     const current = generation.current;
@@ -105,13 +144,13 @@ export default function KnowledgeTrustPanel({
     } finally {
       lock.current = false;
       setBusy(false);
+      onBusyChange(false);
     }
   }
 
   if (!state)
     return (
       <section className="knowledge-trust" aria-label="知识维护与复核">
-        <h2>知识维护与复核</h2>
         <p role="status">{error || "加载复核信息…"}</p>
         {error && (
           <button type="button" onClick={() => void run(() => fetchTrust(assetId), "已刷新")}>
@@ -128,7 +167,7 @@ export default function KnowledgeTrustPanel({
   return (
     <section className="knowledge-trust" aria-label="知识维护与复核" aria-busy={busy}>
       <header>
-        <h2>知识维护与复核</h2>
+        <h3>复核状态</h3>
         <span>{freshnessLabels[state.freshness]}</span>
       </header>
       <dl>

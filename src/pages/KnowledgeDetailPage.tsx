@@ -511,17 +511,16 @@ export default function KnowledgeDetailPage() {
               {oaBusy ? "提交中…" : "申请原文访问"}
             </button>
           ) : null}
+          <KnowledgeTrustPanel
+            assetId={asset.id}
+            revision={asset.metadataUpdatedAt ?? undefined}
+            onChanged={(result) => {
+              if (result.freshness === "archived") setNotFound(true);
+              else void reloadAsset();
+            }}
+          />
         </div>
       </header>
-
-      <KnowledgeTrustPanel
-        assetId={asset.id}
-        revision={asset.metadataUpdatedAt ?? undefined}
-        onChanged={(result) => {
-          if (result.freshness === "archived") setNotFound(true);
-          else void reloadAsset();
-        }}
-      />
 
       {(previewError || oaError || oaNote || publicationNote) && (
         <div

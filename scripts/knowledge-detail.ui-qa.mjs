@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
+import assert from "node:assert/strict";
 
 const base = process.env.UI_QA_BASE || "http://localhost:5179";
 const outRoot = process.env.UI_QA_OUT_DIR || path.join(os.tmpdir(), "kap-ui-qa");
@@ -211,6 +212,22 @@ for (const scenario of scenarios) {
           credential_status: "active",
         });
       }
+      if (url.pathname === `/api/v1/knowledge/${assetId}/trust`) {
+        return fulfill({
+          asset_id: assetId,
+          updated_at: "2026-07-15T08:00:00Z",
+          maintainer_user_id: "manager",
+          maintainer_name: "知识治理负责人",
+          review_due_at: null,
+          verified_at: null,
+          freshness: "unreviewed",
+          replacement_asset_id: null,
+          can_manage: scenario === "manager-publication",
+          corrections: [],
+          maintainers:
+            scenario === "manager-publication" ? [{ id: "manager", name: "知识治理负责人" }] : [],
+        });
+      }
       if (url.pathname === "/api/v1/preview/entry-76") {
         return fulfill({
           preview_type: "full",
@@ -278,6 +295,37 @@ for (const scenario of scenarios) {
       }
       await page.getByText("更多操作").click();
       await page.getByLabel("归档原因").fill("UI QA 归档原因");
+    }
+
+    if (["full", "manager-publication"].includes(scenario)) {
+      assert.equal(await page.getByLabel("处理说明或纠错问题").count(), 0);
+      const trigger = page.getByRole("button", { name: "知识维护与复核", exact: true });
+      const gaps = await page.locator(".kdetail-primary-action").evaluate((element) => {
+        const boxes = [...element.children].map((child) => child.getBoundingClientRect());
+        return boxes.slice(1).map((box, index) => box.top - boxes[index].bottom);
+      });
+      assert(
+        gaps.every((gap) => gap >= 10),
+        "详情操作按钮需要明确间距",
+      );
+      await trigger.click();
+      const dialog = page.getByRole("dialog", { name: "知识维护与复核", exact: true });
+      await dialog.getByText("尚未复核", { exact: true }).waitFor();
+      assert.equal(
+        await dialog.getByText("安排复核与处理旧版", { exact: true }).count(),
+        scenario === "manager-publication" ? 1 : 0,
+      );
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1),
+        false,
+      );
+      await page.screenshot({
+        path: path.join(outDir, `${scenario}-maintenance-${viewport.name}.png`),
+        animations: "disabled",
+      });
+      await dialog.getByRole("button", { name: "关闭弹窗", exact: true }).click();
+      await dialog.waitFor({ state: "hidden" });
+      assert.equal(await trigger.evaluate((button) => button === document.activeElement), true);
     }
 
     const metrics = await page.evaluate((lifecycleCases) => {
