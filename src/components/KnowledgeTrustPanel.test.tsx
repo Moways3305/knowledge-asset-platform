@@ -40,11 +40,58 @@ beforeEach(() => {
 });
 function open() {
   render(
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <KnowledgeTrustPanel assetId="old" />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "知识维护与复核" }));
+}
+
+it("keeps the form off the page and loads fresh state each time the dialog opens", async () => {
+  render(
     <MemoryRouter>
       <KnowledgeTrustPanel assetId="old" />
     </MemoryRouter>,
   );
-}
+  expect(fetchTrust).not.toHaveBeenCalled();
+  expect(screen.queryByLabelText("处理说明或纠错问题")).not.toBeInTheDocument();
+  const trigger = screen.getByRole("button", { name: "知识维护与复核" });
+  trigger.focus();
+  fireEvent.click(trigger);
+  await screen.findByText("尚未复核");
+  expect(screen.getByRole("dialog", { name: "知识维护与复核" })).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("处理说明或纠错问题"), {
+    target: { value: "未提交内容" },
+  });
+  fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(trigger).toHaveFocus();
+  fireEvent.click(trigger);
+  await screen.findByText("尚未复核");
+  expect(fetchTrust).toHaveBeenCalledTimes(2);
+  expect(screen.getByLabelText("处理说明或纠错问题")).toHaveValue("");
+});
+
+it("prevents closing during a write and restores closing when it completes", async () => {
+  let complete!: (state: TrustState) => void;
+  vi.mocked(reportCorrection).mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        complete = resolve;
+      }),
+  );
+  open();
+  await screen.findByText("尚未复核");
+  fireEvent.change(screen.getByLabelText("处理说明或纠错问题"), { target: { value: "需核对" } });
+  fireEvent.click(screen.getByRole("button", { name: "提出纠错" }));
+  expect(screen.getByRole("button", { name: "关闭弹窗" })).toBeDisabled();
+  fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+  expect(screen.getByRole("dialog")).toBeInTheDocument();
+  complete(initial);
+  await waitFor(() => expect(screen.getByRole("button", { name: "关闭弹窗" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "关闭弹窗" }));
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+});
 
 it("does not expose governance controls to ordinary readers", async () => {
   vi.mocked(fetchTrust).mockResolvedValue({ ...initial, can_manage: false, maintainers: [] });
@@ -135,6 +182,7 @@ it("allows the reporter to reopen a resolved correction", async () => {
   });
   vi.mocked(transitionCorrection).mockResolvedValue(initial);
   open();
+  await screen.findByText("尚未复核");
   await screen.findByText("待提出者验证");
   fireEvent.change(screen.getByLabelText("处理说明或纠错问题"), {
     target: { value: "还没有解决" },

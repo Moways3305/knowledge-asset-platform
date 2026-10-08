@@ -1,9 +1,5 @@
 .knowledge-trust {
-  margin: 24px 0;
-  padding: 20px;
-  border: 1px solid var(--border-color, #dce1eb);
-  border-radius: 8px;
-  background: var(--surface, #fff);
+  margin: 0;
   color: inherit;
 }
 .knowledge-trust header,
@@ -17,7 +13,7 @@
 .knowledge-trust header {
   justify-content: space-between;
 }
-.knowledge-trust h2 {
+.knowledge-trust header h3 {
   margin: 0;
   font-size: 18px;
 }
@@ -94,9 +90,6 @@
   padding: 14px 0;
 }
 @media (max-width: 600px) {
-  .knowledge-trust {
-    padding: 14px;
-  }
   .knowledge-trust-fields {
     align-items: stretch;
     flex-direction: column;
