@@ -190,7 +190,14 @@ async def validate_directory(
             "enabled": True,
         }
     item = next((row for row in rows if row.get("directory_key") == directory_key), None)
-    if item is None or not item.get("enabled", True):
+    parent = next(
+        (row for row in rows if item and row.get("directory_key") == item.get("parent_key")), None
+    )
+    if (
+        item is None
+        or not item.get("enabled", True)
+        or (item.get("parent_key") and (not parent or not parent.get("enabled", True)))
+    ):
         raise HTTPException(
             status_code=422,
             detail={"denied_reason": "directory_unavailable", "message": "目录不存在或已停用"},
@@ -240,6 +247,12 @@ async def display_path(
         name, scope = standard.name, standard.scope
     else:
         name, scope = str(item.get("display_name") or "未命名目录"), str(item.get("scope"))
+        if item.get("parent_key"):
+            parent = next(
+                (row for row in rows if row.get("directory_key") == item["parent_key"]), None
+            )
+            if parent:
+                name = f"{parent.get('display_name')} / {name}"
     if scope == "project":
         project = await session.get(Project, project_id) if project_id else None
         return f"项目库 / {project.name if project else '项目'} / {name}"
@@ -267,6 +280,11 @@ async def visible_directory_rows(
     for row in rows:
         if not row.get("enabled", True):
             continue
+        if row.get("parent_key") and not any(
+            parent.get("directory_key") == row["parent_key"] and parent.get("enabled", True)
+            for parent in rows
+        ):
+            continue
         scope = row.get("scope")
         if allowed_scope not in (None, "all") and scope != allowed_scope:
             continue
@@ -275,7 +293,7 @@ async def visible_directory_rows(
             "name": row.get("display_name"),
             "description": row.get("description"),
             "scope": scope,
-            "parent_key": None,
+            "parent_key": row.get("parent_key"),
         }
         if scope == "project":
             for project in projects:
@@ -303,7 +321,9 @@ async def visible_directory_rows(
                     **base,
                     "project_id": None,
                     "project_name": None,
-                    "display_path": f"公司库 / {row.get('display_name')}",
+                    "display_path": await display_path(
+                        session, row.get("directory_key"), None, published=(None, rows)
+                    ),
                 }
             )
     if allowed_scope in (None, "all", KnowledgeScope.project.value):

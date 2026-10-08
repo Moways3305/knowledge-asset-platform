@@ -47,6 +47,7 @@ from app.services import audit as audit_service
 from app.services.directories import (
     default_directory_config,
     directories_from_revision,
+    display_path,
     legacy_directory_key,
     published_directories,
     validate_directory,
@@ -918,7 +919,30 @@ async def options(
     return NamingOptionsResponse(
         required=True,
         rule_version=revision.version,
-        directories=[DirectoryOptionItem.model_validate(item.model_dump()) for item in directories],
+        directories=[
+            DirectoryOptionItem.model_validate(
+                {
+                    **item.model_dump(),
+                    "display_name": (
+                        (
+                            await display_path(
+                                session,
+                                item.directory_key,
+                                project_id,
+                                published=(
+                                    revision.version,
+                                    [row.model_dump() for row in config.directories],
+                                ),
+                            )
+                        )
+                        or item.display_name
+                    ).removeprefix("公司库 / ")
+                    if item.parent_key
+                    else item.display_name,
+                }
+            )
+            for item in directories
+        ],
         default_confidentiality=(
             directories[0].default_confidentiality if directories else fallback_confidentiality
         ),

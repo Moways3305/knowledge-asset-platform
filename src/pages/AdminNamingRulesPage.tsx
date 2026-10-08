@@ -26,6 +26,10 @@ export default function AdminNamingRulesPage() {
     null,
   );
   const [scope, setScope] = useState<NamingScope>("company");
+  const [newParent, setNewParent] = useState(
+    () => new URLSearchParams(window.location.search).get("parent") ?? "",
+  );
+  const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -54,6 +58,62 @@ export default function AdminNamingRulesPage() {
   useEffect(() => void load(), []);
 
   const config = center?.draft.config;
+  const companyParents = (config?.directories ?? []).filter(
+    (item) => item.scope === "company" && !item.parent_key && item.enabled,
+  );
+  const addCompanyDirectory = () => {
+    const parent = companyParents.find((item) => item.directory_key === newParent);
+    const name = newName.trim();
+    if (!center || !config || !parent) {
+      setError("请选择启用的公司库分类");
+      return;
+    }
+    if (
+      !name ||
+      name.length > 40 ||
+      /[<>:"/\\|?*]/.test(name) ||
+      [...name].some((char) => char.charCodeAt(0) < 32)
+    ) {
+      setError("目录名称须为1至40个字符，不能包含路径或控制字符");
+      return;
+    }
+    if (
+      (config.directories ?? []).some(
+        (item) =>
+          item.parent_key === parent.directory_key &&
+          item.display_name.toLocaleLowerCase() === name.toLocaleLowerCase(),
+      )
+    ) {
+      setError("同一分类下已存在同名三级目录");
+      return;
+    }
+    editRevision.current += 1;
+    setCenter({
+      ...center,
+      draft: {
+        ...center.draft,
+        config: {
+          ...config,
+          directories: [
+            ...(config.directories ?? []),
+            {
+              directory_key: `company.custom_${crypto.randomUUID().replace(/-/g, "")}`,
+              scope: "company",
+              parent_key: parent.directory_key,
+              display_name: name,
+              naming_code: name,
+              default_confidentiality: parent.default_confidentiality ?? "L2",
+              sort_order: parent.sort_order,
+              enabled: true,
+            },
+          ],
+        },
+      },
+    });
+    setNewName("");
+    setError(null);
+    setNotice("三级目录已加入当前编辑内容，请保存草稿并发布后使用。");
+  };
   const directories = useMemo(
     () =>
       [...(config?.directories ?? [])]
@@ -240,6 +300,47 @@ export default function AdminNamingRulesPage() {
       </div>
 
       <section className="naming-directory-governance" aria-label={scopeLabel(scope)}>
+        {scope === "company" && (
+          <form
+            className="naming-project-settings"
+            onSubmit={(event) => {
+              event.preventDefault();
+              addCompanyDirectory();
+            }}
+          >
+            <h2>新建三级目录</h2>
+            <p>公司库 / 标准分类 / 三级目录。发布后可用于上传、资料编辑和目录浏览。</p>
+            <label>
+              所属分类
+              <select
+                value={newParent}
+                onChange={(event) => setNewParent(event.target.value)}
+                disabled={busy}
+                required
+              >
+                <option value="">请选择分类</option>
+                {companyParents.map((item) => (
+                  <option key={item.directory_key} value={item.directory_key}>
+                    {item.display_name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              三级目录名称
+              <input
+                value={newName}
+                onChange={(event) => setNewName(event.target.value)}
+                maxLength={40}
+                disabled={busy}
+                required
+              />
+            </label>
+            <Button type="submit" disabled={busy}>
+              添加到草稿
+            </Button>
+          </form>
+        )}
         <header>
           <div>
             <h2>{scopeLabel(scope)}</h2>
@@ -252,6 +353,13 @@ export default function AdminNamingRulesPage() {
             <article className="naming-project-settings" key={directory.directory_key}>
               <div>
                 <strong>{directory.display_name}</strong>
+                {directory.parent_key && (
+                  <span>
+                    所属分类：
+                    {companyParents.find((item) => item.directory_key === directory.parent_key)
+                      ?.display_name ?? directory.parent_key}
+                  </span>
+                )}
                 <code>{directory.directory_key}</code>
               </div>
               <label>

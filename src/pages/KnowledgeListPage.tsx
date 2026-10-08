@@ -155,6 +155,7 @@ export default function KnowledgeListPage() {
   const visibleDirectoryItems = directoryItems.filter(
     (item) =>
       (!scope || item.scope === scope) &&
+      !item.parent_key &&
       (scope !== "project" || !validProjectId || item.project_id === validProjectId),
   );
 
@@ -876,6 +877,47 @@ export default function KnowledgeListPage() {
                     ))}
                 </div>
               )}
+            </PageSection>
+          )}
+
+          {directory?.scope === "company" && (
+            <PageSection>
+              {directory.parent_key && (
+                <Link
+                  to={`/knowledge?scope=company&directory_key=${encodeURIComponent(directory.parent_key)}`}
+                >
+                  返回上级分类
+                </Link>
+              )}
+              {!directory.parent_key && can.viewNamingRules(capabilities) && (
+                <Link
+                  className="product-button is-secondary is-small"
+                  to={`/admin/naming-rules?parent=${encodeURIComponent(directory.directory_key)}`}
+                >
+                  新建三级目录
+                </Link>
+              )}
+              <div className="kbl-folder-grid">
+                {directoryItems
+                  .filter((item) => item.parent_key === directory.directory_key)
+                  .map((item) => (
+                    <button
+                      type="button"
+                      key={item.directory_key}
+                      onClick={() => {
+                        setDirectory(item);
+                        setPage(1);
+                        navigate(
+                          `/knowledge?scope=company&directory_key=${encodeURIComponent(item.directory_key)}`,
+                        );
+                      }}
+                    >
+                      <Folder aria-hidden="true" />
+                      <strong>{item.name}</strong>
+                      <span>{item.description || "进入三级目录查看资料"}</span>
+                    </button>
+                  ))}
+              </div>
             </PageSection>
           )}
 
