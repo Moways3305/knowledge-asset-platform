@@ -276,8 +276,8 @@ try {
         (desktop && (result.helpDirectoryWidth < 220 || result.helpDirectoryWidth > 250)) ||
         (desktop && result.helpContentRatio < 2.4) ||
         (!desktop && result.helpDirectoryWidth <= 0) ||
-        result.helpSections !== 12 ||
-        result.helpIcons !== 12 ||
+        result.helpSections !== 15 ||
+        result.helpIcons !== 15 ||
         !result.jumpWorked
       );
     }
