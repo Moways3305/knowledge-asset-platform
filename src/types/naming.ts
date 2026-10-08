@@ -31,6 +31,7 @@ export interface NamingCategoryConfigDTO {
 }
 
 export interface DirectoryOptionDTO {
+  parent_key?: string | null;
   directory_key: string;
   scope: "personal" | "project" | "company";
   display_name: string;

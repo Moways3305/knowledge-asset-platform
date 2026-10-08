@@ -132,12 +132,15 @@ class FormalDirectoryConfig(BaseModel):
     default_confidentiality: ConfidentialityLevel
     sort_order: StrictInt = Field(ge=0, le=10000)
     enabled: StrictBool
+    parent_key: str | None = None
 
     @field_validator("directory_key")
     @classmethod
     def validate_directory_key(cls, value: str) -> str:
         normalized = value.strip()
-        if normalized not in _DIRECTORY_SCOPES:
+        if normalized not in _DIRECTORY_SCOPES and not re.fullmatch(
+            r"company\.custom_[0-9a-f]{32}", normalized
+        ):
             raise ValueError("目录只能使用公司统一发布的稳定 key")
         return normalized
 
@@ -163,7 +166,14 @@ class FormalDirectoryConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_scope_matches_key(self) -> FormalDirectoryConfig:
-        if self.scope != _DIRECTORY_SCOPES[self.directory_key]:
+        if self.directory_key not in _DIRECTORY_SCOPES:
+            if self.scope != "company" or self.parent_key not in _DIRECTORY_SCOPES:
+                raise ValueError("三级目录仅能建在公司库标准分类下")
+            if _DIRECTORY_SCOPES[self.parent_key] != "company":
+                raise ValueError("三级目录必须属于公司库")
+        elif self.parent_key is not None:
+            raise ValueError("标准目录不可更改父级")
+        elif self.scope != _DIRECTORY_SCOPES[self.directory_key]:
             raise ValueError("目录 key 与适用范围不一致")
         return self
 
@@ -193,6 +203,20 @@ class NamingRuleConfig(BaseModel):
         ):
             raise ValueError("目录稳定键不能为空或重复")
         valid_keys = set(directory_keys)
+        by_key = {item.directory_key: item for item in self.directories}
+        sibling_names = set()
+        for item in self.directories:
+            if item.parent_key is None:
+                continue
+            parent = by_key.get(item.parent_key)
+            if parent is None or parent.parent_key is not None or parent.scope != "company":
+                raise ValueError("三级目录的父级必须是同版本中的公司库标准分类")
+            if item.enabled and not parent.enabled:
+                raise ValueError("请先停用子目录再停用父目录")
+            identity = (item.parent_key, item.display_name.casefold())
+            if identity in sibling_names:
+                raise ValueError("同一分类下的三级目录名称不能重复")
+            sibling_names.add(identity)
         if any(
             item.suggested_directory_key and item.suggested_directory_key not in valid_keys
             for item in self.categories

@@ -74,6 +74,26 @@ const center: NamingRuleCenterDTO = {
 };
 
 describe("AdminNamingRulesPage directory governance", () => {
+  it("adds a company third-level directory to draft with stable parent and inherited defaults", async () => {
+    render(<AdminNamingRulesPage />);
+    await screen.findByText("目录治理");
+    fireEvent.change(screen.getByLabelText("所属分类"), {
+      target: { value: "company.methodology" },
+    });
+    fireEvent.change(screen.getByLabelText("三级目录名称"), { target: { value: "战略模板" } });
+    fireEvent.click(screen.getByRole("button", { name: "添加到草稿" }));
+    fireEvent.click(screen.getByRole("button", { name: /保存草稿/ }));
+    await waitFor(() => expect(saveNamingRuleDraft).toHaveBeenCalledTimes(1));
+    const saved = vi.mocked(saveNamingRuleDraft).mock.calls[0][1].directories ?? [];
+    const child = saved[saved.length - 1];
+    expect(child).toMatchObject({
+      scope: "company",
+      parent_key: "company.methodology",
+      display_name: "战略模板",
+      default_confidentiality: "L2",
+    });
+    expect(child?.directory_key).toMatch(/^company\.custom_[0-9a-f]{32}$/);
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(fetchNamingRuleCenter).mockResolvedValue(structuredClone(center));

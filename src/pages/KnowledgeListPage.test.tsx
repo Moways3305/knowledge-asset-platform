@@ -244,6 +244,44 @@ function CatalogHistoryProbe() {
 }
 
 describe("KnowledgeListPage reference implementation", () => {
+  it("opens third-level company folders and retains the parent navigation", async () => {
+    const child = {
+      ...directories[0],
+      directory_key: "company.custom_00000000000000000000000000000001",
+      parent_key: "company.methodology",
+      name: "战略模板",
+      display_path: "公司库 / 01 公司方法论 / 战略模板",
+    };
+    vi.mocked(fetchKnowledgeDirectories).mockResolvedValue([...directories, child]);
+    renderPage();
+    const folder = await screen.findByRole("button", { name: /战略模板/ });
+    expect(screen.queryByRole("link", { name: "新建三级目录" })).not.toBeInTheDocument();
+    fireEvent.click(folder);
+    expect(await screen.findByRole("link", { name: "返回上级分类" })).toHaveAttribute(
+      "href",
+      "/knowledge?scope=company&directory_key=company.methodology",
+    );
+    await waitFor(() =>
+      expect(fetchKnowledgePage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ directoryKey: child.directory_key, scope: "company" }),
+      ),
+    );
+  });
+
+  it("does not flatten third-level directories into company root", async () => {
+    vi.mocked(fetchKnowledgeDirectories).mockResolvedValue([
+      ...directories,
+      {
+        ...directories[0],
+        directory_key: "company.custom_00000000000000000000000000000001",
+        parent_key: "company.methodology",
+        name: "战略模板",
+      },
+    ]);
+    renderPage("/knowledge?scope=company");
+    await screen.findByRole("button", { name: /01 公司方法论/ });
+    expect(screen.queryByRole("button", { name: /战略模板/ })).not.toBeInTheDocument();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     auth.status = "authenticated";

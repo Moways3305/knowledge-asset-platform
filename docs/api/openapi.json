@@ -4538,6 +4538,17 @@
             "title": "Naming Code",
             "type": "string"
           },
+          "parent_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Key"
+          },
           "scope": {
             "enum": [
               "personal",
