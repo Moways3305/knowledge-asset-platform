@@ -10,6 +10,7 @@ import {
   buildRouteCoverage,
   explicitCaseResult,
   groupScreenshotEvidenceByViewport,
+  readReportCases,
   routeDefinitions,
 } from "./global-frontend-acceptance.coverage.mjs";
 import { waitForChildProcess } from "./ui-qa-process.mjs";
@@ -34,6 +35,7 @@ fs.rmSync(outDir, { recursive: true, force: true });
 fs.mkdirSync(evidenceDir, { recursive: true });
 
 const suites = [
+  { name: "knowledge-trust", script: "knowledge-trust.ui-qa.mjs", evidence: "knowledge-trust" },
   { name: "release-notes", script: "release-notes.ui-qa.mjs", evidence: "release-notes" },
   {
     name: "project-settings",
@@ -255,7 +257,7 @@ async function executeSuite(suite) {
   let cases = [];
   if (fs.existsSync(reportPath)) {
     const parsed = JSON.parse(fs.readFileSync(reportPath, "utf8"));
-    cases = Array.isArray(parsed) ? parsed : parsed.results || [];
+    cases = readReportCases(parsed);
   }
   const screenshots = filesRecursively(suiteDir, ".png").map((file) => path.resolve(file));
   const explicitPassed = cases.filter((item) => explicitCaseResult(item) === true).length;

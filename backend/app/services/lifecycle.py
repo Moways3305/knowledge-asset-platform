@@ -374,6 +374,10 @@ async def reenable_confirm(
     )
     if asset.asset_status != AssetStatus.archived.value:
         raise _denied(409, "lifecycle_invalid_transition", "仅已归档资产可确认重新启用")
+    if asset.replacement_asset_id:
+        raise _denied(
+            409, "lifecycle_invalid_transition", "该资料已由新版替代，请先撤销替代关系再启用"
+        )
 
     reason = audit_service.sanitize_text(body.reason)
     old_status = asset.asset_status

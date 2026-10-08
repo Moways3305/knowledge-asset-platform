@@ -83,6 +83,7 @@ const navGroups: NavGroup[] = [
         cap: can.viewKnowledge,
       },
       { to: "/my/knowledge", label: "个人知识", icon: UserRound, cap: can.viewMyKnowledge },
+      { to: "/knowledge-maintenance", label: "知识维护", icon: LibraryBig, cap: can.viewKnowledge },
     ],
   },
   {
@@ -159,6 +160,7 @@ const navGroups: NavGroup[] = [
 ];
 
 const moduleTitles: Array<[prefix: string, title: string]> = [
+  ["/knowledge-maintenance", "知识维护"],
   ["/company-governance", "公司库治理"],
   ["/project/", "项目空间"],
   ["/knowledge", "知识资产库"],

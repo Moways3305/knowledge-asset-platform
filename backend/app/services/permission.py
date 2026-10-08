@@ -342,7 +342,9 @@ def decide(
     )
 
 
-def discovery_filter(caller: CallerContext) -> ColumnElement[bool]:
+def discovery_filter(
+    caller: CallerContext, *, include_inactive: bool = False
+) -> ColumnElement[bool]:
     """Return the SQL predicate equivalent of ``decide(..., discovery)``.
 
     List/count queries must apply this predicate before pagination so totals never
@@ -352,7 +354,9 @@ def discovery_filter(caller: CallerContext) -> ColumnElement[bool]:
     if not caller.is_active or not caller.is_business_user:
         return false()
 
-    active = KnowledgeAsset.asset_status.notin_(_INACTIVE_ASSET_STATUSES)
+    active = (
+        true() if include_inactive else KnowledgeAsset.asset_status.notin_(_INACTIVE_ASSET_STATUSES)
+    )
     personal = and_(
         KnowledgeAsset.scope == KnowledgeScope.personal.value,
         KnowledgeAsset.owner_user_id == caller.user_id,
@@ -398,6 +402,23 @@ def lifecycle_visibility(caller: CallerContext, asset: KnowledgeAsset) -> Denied
     if asset.confidentiality_level == ConfidentialityLevel.L5.value and not caller.can_discover_l5:
         return DeniedReason.l5_not_discoverable
     return None
+
+
+def knowledge_manager_allowed(caller: CallerContext, asset: KnowledgeAsset) -> bool:
+    """Knowledge maintenance never grants extra access from a maintainer assignment."""
+    if not caller.is_active or not caller.is_business_user:
+        return False
+    if asset.scope == "personal":
+        return asset.owner_user_id == caller.user_id
+    if asset.confidentiality_level == "L5" and not caller.can_discover_l5:
+        return False
+    if asset.scope == "company":
+        return caller.can_discover_l5
+    return (
+        asset.scope == "project"
+        and asset.project_id in caller.active_project_ids
+        and caller.active_project_roles.get(asset.project_id) == "project_manager"
+    )
 
 
 def lifecycle_actor_allowed(caller: CallerContext, asset: KnowledgeAsset) -> bool:

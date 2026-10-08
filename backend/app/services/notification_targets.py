@@ -7,21 +7,24 @@ invokes review, ingest, original-access, or knowledge command services.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timezone
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.utils import utc_now
 from app.models.indexing_job import IndexingOperationJob
 from app.models.ingest import IngestTask
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
+from app.models.knowledge_correction import KnowledgeCorrection
 from app.models.notification import BusinessNotification
 from app.models.original_access import OriginalAccessRequest
 from app.models.review import ReviewTask
 from app.schemas.enums import AccessRequestStatus, CompanyRole, ProjectRole
 from app.schemas.notification import NotificationTarget
 from app.schemas.permission import AccessLayer, CallerContext
-from app.services.permission import decide
+from app.services.permission import decide, knowledge_manager_allowed
 from app.services.storage import LocalFileStorage
 
 _ROUTES = {
@@ -199,7 +202,30 @@ async def resolve(
         status = "failed"
     elif row.target_kind == "knowledge_asset":
         asset = await get(KnowledgeAsset, row.target_id)
-        if asset is None or not decide(caller, asset, AccessLayer.discovery).allowed:
+        if asset is None or asset.deleted_at is not None:
+            return None
+        visible = decide(caller, asset, AccessLayer.discovery).allowed
+        if row.event_type == "knowledge.resolved" and not visible:
+            reported = await session.scalar(
+                select(KnowledgeCorrection.id)
+                .where(
+                    KnowledgeCorrection.asset_id == asset.id,
+                    KnowledgeCorrection.reporter_user_id == caller.user_id,
+                )
+                .limit(1)
+            )
+            # A detached permission projection; never mutate the archived ORM row.
+            projection = KnowledgeAsset(
+                scope=asset.scope,
+                asset_status="active",
+                owner_user_id=asset.owner_user_id,
+                project_id=asset.project_id,
+                confidentiality_level=asset.confidentiality_level,
+                visibility=asset.visibility,
+                ai_access_level=asset.ai_access_level,
+            )
+            visible = bool(reported) and decide(caller, projection, AccessLayer.discovery).allowed
+        if not visible:
             return None
         version = (
             await get(KnowledgeAssetVersion, asset.current_version_id)
@@ -208,6 +234,41 @@ async def resolve(
         )
         action_required = version is not None and version.index_status == "index_failed"
         status = "failed" if action_required else "completed"
+        if row.event_type.startswith("knowledge."):
+            if row.event_type in {"knowledge.assigned", "knowledge.due", "knowledge.correction"}:
+                if not knowledge_manager_allowed(caller, asset):
+                    return None
+                due = asset.review_due_at
+                action_required = row.event_type != "knowledge.due" or (
+                    due is not None and due.replace(tzinfo=due.tzinfo or timezone.utc) <= utc_now()
+                )
+                if row.event_type == "knowledge.correction":
+                    action_required = bool(
+                        await session.scalar(
+                            select(KnowledgeCorrection.id)
+                            .where(
+                                KnowledgeCorrection.asset_id == asset.id,
+                                KnowledgeCorrection.status == "open",
+                            )
+                            .limit(1)
+                        )
+                    )
+                if row.event_type == "knowledge.assigned":
+                    if asset.maintainer_user_id != caller.user_id:
+                        return None
+            else:
+                action_required = bool(
+                    await session.scalar(
+                        select(KnowledgeCorrection.id)
+                        .where(
+                            KnowledgeCorrection.asset_id == asset.id,
+                            KnowledgeCorrection.reporter_user_id == caller.user_id,
+                            KnowledgeCorrection.status == "resolved",
+                        )
+                        .limit(1)
+                    )
+                )
+            status = "needs_action" if action_required else "completed"
     else:
         job = await get(IndexingOperationJob, row.target_id)
         if job is None or (job.requested_by_user_id != caller.user_id and not _ops_viewer(caller)):

@@ -4,6 +4,8 @@ import {
   acceptanceViewports,
   buildRouteCoverage,
   groupScreenshotEvidenceByViewport,
+  readReportCases,
+  routeDefinitions,
 } from "./global-frontend-acceptance.coverage.mjs";
 
 const definitions = [
@@ -16,6 +18,25 @@ const definitions = [
     ],
   },
 ];
+
+test("reads all child report formats without losing concrete maintenance cases", () => {
+  const cases = ["normal", "empty", "failure"].flatMap((scenario) =>
+    acceptanceViewports.map((viewport) => ({ scenario, viewport, passed: true })),
+  );
+  const definitions = routeDefinitions.filter((item) => item.suite === "knowledge-trust");
+  for (const report of [cases, { results: cases }, { cases }]) {
+    const [coverage] = buildRouteCoverage(definitions, [{
+      name: "knowledge-trust",
+      status: "passed",
+      cases: readReportCases(report),
+      screenshots: cases.map((item) => `${item.scenario}-${item.viewport}.png`),
+    }]);
+    assert.equal(coverage.status, "passed");
+    assert.equal(coverage.checks.length, 9);
+  }
+  assert.deepEqual(readReportCases(null), []);
+  assert.deepEqual(readReportCases({ cases: 9 }), []);
+});
 
 function suite(overrides = {}) {
   const cases = ["normal", "forbidden"].flatMap((scenario) =>

@@ -56,6 +56,14 @@ _ACTIONABLE_REVIEW_STATUSES = {
     ReviewTaskStatus.approval_failed.value,
 }
 _EVENT_COPY = {
+    "knowledge.assigned": ("review", "知识维护任务已分配", "请查看资料维护责任和下次复核日期。"),
+    "knowledge.due": ("review", "知识已到复核日期", "请复核资料是否仍有效；到期不会自动归档。"),
+    "knowledge.correction": ("review", "知识资料收到纠错", "请查看并处理资料纠错。"),
+    "knowledge.resolved": (
+        "review",
+        "资料纠错待验证",
+        "资料已处理，请验证是否解决了你提出的问题。",
+    ),
     "review.project_pending": ("review", "项目事项待确认", "有一项项目事项等待你确认。"),
     "review.company_confirmation_pending": (
         "review",
@@ -262,6 +270,18 @@ async def _record(
                 delivery_status=NotificationStatus.pending.value,
             )
         )
+
+
+async def notify_knowledge_trust(session, asset, recipients, event, key):
+    await _record(
+        session,
+        recipients=recipients,
+        event_type=f"knowledge.{event}",
+        target_kind="knowledge_asset",
+        target_id=asset.id,
+        project_id=asset.project_id,
+        dedup_key=f"knowledge.{event}:{asset.id}:{key}",
+    )
 
 
 async def notify_ops_signal(
