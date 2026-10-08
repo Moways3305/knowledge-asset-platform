@@ -2,6 +2,13 @@ import path from "node:path";
 
 export const acceptanceViewports = ["1440", "1024", "390"];
 
+export function readReportCases(report) {
+  if (Array.isArray(report)) return report;
+  if (Array.isArray(report?.results)) return report.results;
+  if (Array.isArray(report?.cases)) return report.cases;
+  return [];
+}
+
 export const routeDefinitions = [
   {
     route: "/knowledge-maintenance",

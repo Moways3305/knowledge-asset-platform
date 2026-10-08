@@ -227,8 +227,11 @@ jobs:
         run: npm run test:ui:global-acceptance
       - name: Upload screenshots
         if: always()
+        # Diagnostic evidence is best-effort; test steps above remain blocking.
+        # A repository artifact quota failure must not replace the test result.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: ui-qa-screenshots
           path: ${{ github.workspace }}/ui_qa
-          retention-days: 7
+          retention-days: 1

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timezone
-from types import SimpleNamespace
 from typing import Any
 
 from sqlalchemy import select
@@ -215,7 +214,8 @@ async def resolve(
                 )
                 .limit(1)
             )
-            projection = SimpleNamespace(
+            # A detached permission projection; never mutate the archived ORM row.
+            projection = KnowledgeAsset(
                 scope=asset.scope,
                 asset_status="active",
                 owner_user_id=asset.owner_user_id,
