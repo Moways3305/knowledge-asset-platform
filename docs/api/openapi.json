@@ -28466,6 +28466,74 @@
         ]
       }
     },
+    "/api/v1/agent-gateway/operations/ingest/{task_id}/prepare-confirmation": {
+      "post": {
+        "description": "Non-mutating, human-readable preview and exact payload for chat confirmation.",
+        "operationId": "prepare_confirmation_api_v1_agent_gateway_operations_ingest__task_id__prepare_confirmation_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestConfirmRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Prepare Confirmation",
+        "tags": [
+          "agent-operations"
+        ]
+      }
+    },
     "/api/v1/agent-gateway/operations/naming-options": {
       "get": {
         "operationId": "naming_options_api_v1_agent_gateway_operations_naming_options_get",
@@ -28657,6 +28725,54 @@
           }
         },
         "summary": "Decide Review",
+        "tags": [
+          "agent-operations"
+        ]
+      }
+    },
+    "/api/v1/agent-gateway/operations/upload-destinations": {
+      "get": {
+        "description": "Write destinations, not every library the caller can merely discover.",
+        "operationId": "upload_destinations_api_v1_agent_gateway_operations_upload_destinations_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Destinations",
         "tags": [
           "agent-operations"
         ]
