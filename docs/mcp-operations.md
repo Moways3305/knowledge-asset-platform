@@ -18,6 +18,8 @@
 
 | 工具 | 用途 |
 | --- | --- |
+| `kap_list_upload_destinations` | 列出本人可确认入库的库、有效项目、正式目录、命名要求及阻塞原因 |
+| `kap_prepare_ingest_confirmation` | 返回当前对话可展示的确认摘要、命名警告与精确提交参数，不执行入库 |
 | `kap_initialize_upload` | 创建上传清单，返回上传会话、文件条目 ID 和传输约定 |
 | `kap_complete_upload` | 结束传输并推进文件处理，不代表正式入库 |
 | `kap_get_upload_status` | 查询本人会话逐文件状态，可能推进已接收任务处理 |
@@ -46,7 +48,14 @@
    响应的 `max_file_bytes`、`max_files_per_batch`、`max_batch_bytes` 均来自后端共享常量；
    `single_file_batch_exception` 明确仅含一个文件的批次可使用其 `max_batch_bytes` 上限。
 4. 调用 `kap_complete_upload`，之后查询会话与任务状态。
-5. 读取命名选项、预览结果和建议，取得用户明确确认后调用 `kap_confirm_ingest`。
+5. 读取任务详情和 `kap_list_upload_destinations`；沿用用户已经指定的去向，未指定时由助手根据对话与资料建议，存在歧义才询问。不默认公开到公司库。
+6. 解析就绪后，助手填写 `IngestConfirmRequest`，调用 `kap_prepare_ingest_confirmation`。在当前对话展示返回的目标库／项目、正式目录、密级、名称、版本和 `preview.notices`；无法可靠判断形成日期、版本或适用对象时询问，不编造。
+7. 用户明确授权后，复用返回的 `command`，添加 `confirmed: true` 调用 `kap_confirm_ingest`。只添加用户明确接受的警告代码；准备接口会清空预先传入的警告确认，避免将预览当作授权。修改去向或字段后重新预览。
+8. 在当前对话展示提交结果。`review_id` 表示仍需审批，可调用 `kap_get_review_details`；否则继续查询 `kap_get_ingest_details`。无须让用户回到 KAP 页面完成确认。结果没有明确索引成功时，不声称可检索。
+
+新增 HTTP 接口为 `GET /upload-destinations` 和 `POST /ingest/{task_id}/prepare-confirmation`（均位于上述 operations 前缀下）。前者按写入权限返回候选，而不是按检索权限列出所有可见库；不可用的项目命名配置或公司库底座会返回阻塞状态。后者仅处理本人的待确认任务，校验来源目标锁定、目录范围与发布状态，并返回与任务版本时间绑定的提交参数；不创建资产、不提交审批。
+
+这些接口提供客户端完成对话闭环所需的数据与操作，但不主动向外部平台发送消息，也不自行读取聊天记录。助手应按工具描述组织确认与状态查询；`confirmed` 仍是调用端的授权声明，而非服务端独立验证过真人同意。
 
 文件字节不通过 `/mcp` JSON 发送，保留其 64 KB 边界。
 因此调用端需要有实际 multipart 文件上传能力；只有 MCP 工具调用、没有文件传输能力的客户端，
