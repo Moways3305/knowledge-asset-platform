@@ -1,0 +1,63 @@
+.mcp-oauth-consent .product-section {
+  max-width: 760px;
+}
+.mcp-oauth-consent .product-section-body,
+.mcp-oauth-grants .product-section-body {
+  padding: 24px;
+}
+.mcp-oauth-consent p {
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.mcp-oauth-consent label {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  background: #f6f7fb;
+  border-radius: 6px;
+  line-height: 1.7;
+}
+.mcp-oauth-consent input[type="checkbox"] {
+  margin-top: 5px;
+  accent-color: var(--color-primary, #1f2d75);
+}
+.mcp-oauth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+}
+.mcp-oauth-consent button,
+.mcp-oauth-grants button {
+  min-height: 42px;
+  padding: 10px 18px;
+  font: inherit;
+  font-weight: 600;
+  border: 1px solid #cbd3e3;
+  border-radius: 6px;
+  color: var(--color-primary, #1f2d75);
+  background: white;
+  cursor: pointer;
+}
+.mcp-oauth-consent .mcp-oauth-primary {
+  background: var(--color-primary, #1f2d75);
+  color: white;
+  border-color: var(--color-primary, #1f2d75);
+}
+.mcp-oauth-consent button:disabled,
+.mcp-oauth-grants button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.mcp-oauth-consent button:focus-visible,
+.mcp-oauth-grants button:focus-visible {
+  outline: 3px solid #9aa9e0;
+  outline-offset: 3px;
+}
+@media (max-width: 600px) {
+  .mcp-oauth-consent .product-section-body,
+  .mcp-oauth-grants .product-section-body {
+    padding: 18px;
+  }
+}

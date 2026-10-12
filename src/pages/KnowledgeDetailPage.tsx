@@ -20,6 +20,7 @@ import ProjectCompanyPublicationDialog, {
 import TaskModal from "../components/TaskModal";
 import KnowledgeMetadataEditor from "../components/KnowledgeMetadataEditor";
 import KnowledgeTrustPanel from "../components/KnowledgeTrustPanel";
+import KnowledgeVersionPanel from "../components/KnowledgeVersionPanel";
 import {
   deleteKnowledgeAsset,
   fetchKnowledgeDetail,
@@ -344,7 +345,12 @@ export default function KnowledgeDetailPage() {
             {backLabel}
           </HistoryBackButton>
         </div>
-        {id && <KnowledgeTrustPanel assetId={id} />}
+        {id && (
+          <>
+            <KnowledgeVersionPanel key={id} assetId={id} />
+            <KnowledgeTrustPanel assetId={id} />
+          </>
+        )}
       </main>
     );
   }
@@ -511,6 +517,11 @@ export default function KnowledgeDetailPage() {
               {oaBusy ? "提交中…" : "申请原文访问"}
             </button>
           ) : null}
+          <KnowledgeVersionPanel
+            key={`${asset.id}:${asset.metadataUpdatedAt ?? ""}`}
+            assetId={asset.id}
+            onReplaced={() => setNotFound(true)}
+          />
           <KnowledgeTrustPanel
             assetId={asset.id}
             revision={asset.metadataUpdatedAt ?? undefined}

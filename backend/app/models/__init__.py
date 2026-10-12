@@ -45,6 +45,7 @@ from app.models.lifecycle import (
     NotificationRecord,
 )
 from app.models.llm_usage import LLMUsageEvent
+from app.models.mcp_oauth import McpOAuthRecord
 from app.models.naming import NamingRuleRevision
 from app.models.notification import BusinessNotification
 from app.models.original_access import AccessGrant, OriginalAccessRequest
@@ -64,6 +65,7 @@ from app.models.weknora import WeknoraKbMapping
 from app.models.weknora_defaults import WeknoraDefaultModels
 
 __all__ = [
+    "McpOAuthRecord",
     "User",
     "ReleaseNote",
     "ReleaseNoteRead",

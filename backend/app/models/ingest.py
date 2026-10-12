@@ -84,6 +84,13 @@ class IngestTask(Base):
         Uuid, ForeignKey("projects.id"), nullable=True
     )
     target_zone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    update_of_asset_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("knowledge_assets.id"), nullable=True, index=True
+    )
+    update_of_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("knowledge_asset_versions.id"), nullable=True
+    )
+    update_version_label: Mapped[str | None] = mapped_column(String(20), nullable=True)
     result_asset_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("knowledge_assets.id"), nullable=True
     )

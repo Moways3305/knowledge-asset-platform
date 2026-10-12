@@ -126,6 +126,11 @@ async def lookup_enabled_rule(session: AsyncSession, token: str) -> AgentWhiteli
             )
         )
     ).scalar_one_or_none()
+    if rule is not None and rule.is_mcp_oauth_grant:
+        from app.core.config import get_settings
+
+        if not get_settings().mcp_oauth_enabled:
+            return None
     return rule
 
 
@@ -168,6 +173,7 @@ async def create_rule(session: AsyncSession, caller: CallerContext, req, trace_i
                     select(AgentWhitelistRule).where(
                         AgentWhitelistRule.provider == "workbuddy",
                         AgentWhitelistRule.bound_user_id == bound_user.id,
+                        AgentWhitelistRule.is_mcp_oauth_grant.is_(False),
                     )
                 )
             )
@@ -234,6 +240,19 @@ async def update_rule(
     ).scalar_one_or_none()
     if rule is None:
         raise _denied(404, "agent_registry_not_found", "接入注册不存在")
+
+    if rule.is_mcp_oauth_grant and (
+        req.enabled is not False
+        or req.capability is not None
+        or req.regenerate_token
+        or req.allowed_scope is not None
+        or req.allowed_project_id is not None
+        or req.max_confidentiality_level is not None
+        or req.max_ai_access_level is not None
+    ):
+        raise _denied(
+            409, "oauth_grant_requires_consent", "OAuth 权限和凭证须由本人重新授权；管理员仅可停用"
+        )
 
     changed: dict = {}
     if req.enabled is not None:

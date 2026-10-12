@@ -146,6 +146,10 @@ async def validate_and_route_confirmation(
         )
     if task.cancel_requested or task.status == IngestStatus.cancelled.value:
         raise _denied(409, "ingest_cancelled", "该上传已取消，不能确认入库")
+    if task.update_of_asset_id:
+        from app.services.knowledge_versions import validate_update_confirmation
+
+        await validate_update_confirmation(session, caller, task, request)
     if task.status == IngestStatus.duplicate_skipped.value:
         raise _denied(409, "duplicate_already_skipped", "该资料已选择本次不入库")
     if task.status == IngestStatus.processing.value:

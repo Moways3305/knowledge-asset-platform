@@ -80,6 +80,7 @@ async def _find_rule(session: AsyncSession, user_id) -> AgentWhitelistRule | Non
                     AgentWhitelistRule.provider == _PROVIDER,
                     AgentWhitelistRule.bound_user_id == user_id,
                     AgentWhitelistRule.is_self_service.is_(True),
+                    AgentWhitelistRule.is_mcp_oauth_grant.is_(False),
                 )
                 .order_by(desc(AgentWhitelistRule.enabled), desc(AgentWhitelistRule.created_at))
             )
@@ -246,6 +247,7 @@ async def regenerate(
                     select(AgentWhitelistRule).where(
                         AgentWhitelistRule.provider == _PROVIDER,
                         AgentWhitelistRule.bound_user_id == caller.user_id,
+                        AgentWhitelistRule.is_mcp_oauth_grant.is_(False),
                     )
                 )
             )

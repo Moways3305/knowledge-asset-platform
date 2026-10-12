@@ -1,5 +1,6 @@
 import { Cable } from "lucide-react";
 import WorkbuddyAccessCard from "../components/WorkbuddyAccessCard";
+import McpOAuthGrants from "../components/McpOAuthGrants";
 import { ProductPage } from "../components/ProductLayout";
 
 export default function WorkbuddyAccessPage() {
@@ -14,6 +15,7 @@ export default function WorkbuddyAccessPage() {
         <p>管理智能体平台的 MCP 配置和操作权限；连接状态以最近一次真实调用为准。</p>
       </header>
       <WorkbuddyAccessCard />
+      <McpOAuthGrants />
     </ProductPage>
   );
 }

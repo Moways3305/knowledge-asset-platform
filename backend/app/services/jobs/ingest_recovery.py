@@ -23,6 +23,7 @@ from app.services.storage import LocalFileStorage, StorageError
 from app.worker.queues import ingest_processing_queue
 
 ACTIVE_STAGES = {
+    "upload_saved",
     "processing_claimed",
     "text_extraction",
     "ocr_queued",

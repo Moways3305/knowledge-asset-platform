@@ -532,6 +532,9 @@ async def create_upload(
     target_scope: str | None = Form(default=None),
     target_project_id: uuid.UUID | None = Form(default=None),
     formed_on: str | None = Form(default=None),
+    update_of_asset_id: uuid.UUID | None = Form(default=None),
+    expected_updated_at: datetime | None = Form(default=None),
+    version_label: str | None = Form(default=None),
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
     storage: LocalFileStorage = Depends(get_storage),
@@ -550,6 +553,26 @@ async def create_upload(
             status_code=422,
             detail={"denied_reason": "macos_metadata", "message": metadata_message},
         )
+    source_version_id = None
+    if update_of_asset_id:
+        if expected_updated_at is None or version_label is None:
+            raise HTTPException(422, detail={"message": "更新资料须同时提供新版本号与原资料状态"})
+        from app.services import knowledge_versions as versions
+
+        source, source_version = await versions.prepare_upload(
+            session, caller, update_of_asset_id, expected_updated_at, version_label, lock=False
+        )
+        if (target_scope and target_scope != source.scope) or (
+            target_project_id and target_project_id != source.project_id
+        ):
+            raise HTTPException(422, detail={"message": "更新不能改变原知识库或项目"})
+        target_scope, target_project_id = source.scope, source.project_id
+        source_version_id = source_version.id
+        version_label = "V" + ".".join(
+            str(part) for part in versions.order(version_label.strip().upper())
+        )
+    elif version_label is not None or expected_updated_at is not None:
+        raise HTTPException(422, detail={"message": "请指定原资料再使用更新参数"})
     return await ingest_service.create_upload(
         session,
         caller,
@@ -560,6 +583,10 @@ async def create_upload(
         target_scope=target_scope,
         target_project_id=target_project_id,
         formed_on=_normalize_formed_on(formed_on),
+        update_of_asset_id=update_of_asset_id,
+        update_of_version_id=source_version_id,
+        update_version_label=version_label,
+        update_expected_updated_at=expected_updated_at,
         storage=storage,
         llm=llm,
         desensitizer=desensitizer,
