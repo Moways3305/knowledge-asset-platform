@@ -1,7 +1,7 @@
 """Shared MCP verification and session factory; no protocol dependency."""
 
-from contextlib import asynccontextmanager
 from datetime import timezone
+from typing import Any
 
 from fastapi import FastAPI
 from mcp.server.auth.provider import AccessToken
@@ -11,19 +11,38 @@ from app.services import agent_registry
 from app.services import external_agent_gateway as gateway
 
 
-@asynccontextmanager
-async def _database_session(kap_app: FastAPI):
-    override = kap_app.dependency_overrides.get(get_db)
-    if override is not None:
-        generator = override()
-        session = await anext(generator)
-        try:
-            yield session
-        finally:
-            await generator.aclose()
-        return
-    async with get_sessionmaker()() as session:
-        yield session
+class _DatabaseSession:
+    """Do not use a generator context manager around frozen SDK exceptions.
+
+    Python 3.12 contextlib assigns exception.__traceback__ while propagating an
+    exception out of an async generator. Frozen OAuth errors reject that write.
+    A class-based manager closes the session without mutating the exception.
+    """
+
+    def __init__(self, kap_app: FastAPI):
+        self._app = kap_app
+        self._generator: Any = None
+        self._session: Any = None
+
+    async def __aenter__(self):
+        override = self._app.dependency_overrides.get(get_db)
+        if override is not None:
+            self._generator = override()
+            self._session = await anext(self._generator)
+            return self._session
+        self._session = get_sessionmaker()()
+        return await self._session.__aenter__()
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        if self._generator is not None:
+            await self._generator.aclose()
+        else:
+            await self._session.__aexit__(exc_type, exc, traceback)
+        return False
+
+
+def _database_session(kap_app: FastAPI) -> _DatabaseSession:
+    return _DatabaseSession(kap_app)
 
 
 class _KapTokenVerifier:

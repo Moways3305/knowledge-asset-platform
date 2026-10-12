@@ -90,8 +90,19 @@ const routes: RouteContract[] = [
     route: "/my/workbuddy",
     component: "WorkbuddyAccessPage",
     guard: "viewWorkbuddy",
-    owners: ["pages/WorkbuddyAccessPage.tsx", "components/WorkbuddyAccessCard.tsx"],
+    owners: [
+      "pages/WorkbuddyAccessPage.tsx",
+      "components/WorkbuddyAccessCard.tsx",
+      "components/McpOAuthGrants.tsx",
+    ],
     apiModules: ["http", "workbuddy"],
+  },
+  {
+    route: "/mcp-authorize",
+    component: "McpAuthorizePage",
+    guard: "viewWorkbuddy",
+    owners: ["pages/McpAuthorizePage.tsx"],
+    apiModules: ["http"],
   },
   {
     route: "/upload",
