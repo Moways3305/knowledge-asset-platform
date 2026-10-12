@@ -37,6 +37,7 @@ const HelpPage = lazy(() => import("./pages/HelpPage"));
 const ReleaseNotesPage = lazy(() => import("./pages/ReleaseNotesPage"));
 const AdminReleaseNotesPage = lazy(() => import("./pages/AdminReleaseNotesPage"));
 const WorkbuddyAccessPage = lazy(() => import("./pages/WorkbuddyAccessPage"));
+const McpAuthorizePage = lazy(() => import("./pages/McpAuthorizePage"));
 
 export default function App() {
   return (
@@ -47,6 +48,14 @@ export default function App() {
           <Route element={<AppLayout />}>
             <Route path="login" element={<Navigate to="/" replace />} />
             <Route index element={<HomeDashboardPage />} />
+            <Route
+              path="mcp-authorize"
+              element={
+                <RouteGuard cap={can.viewWorkbuddy}>
+                  <McpAuthorizePage />
+                </RouteGuard>
+              }
+            />
             {/* 守卫与导航共用 can.* 判定：无权直接渲染「无此入口」态，不让页面先发请求。
                 后端仍是权威：绕过前端直达接口照常 403/404。 */}
             <Route

@@ -191,6 +191,16 @@ export interface NamingFields {
 }
 
 export interface IngestAiResultDTO {
+  update_context?: {
+    source_asset_id: string;
+    source_title: string;
+    target_scope: string;
+    target_project_id: string | null;
+    target_zone: "material" | "asset";
+    confidentiality_level: string;
+    directory_key: string | null;
+    version: string;
+  } | null;
   suggested_formed_on?: string | null;
   ingest_task_id: string;
   status: string;

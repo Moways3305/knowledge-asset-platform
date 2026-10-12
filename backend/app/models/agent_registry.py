@@ -59,6 +59,10 @@ class AgentWhitelistRule(Base):
     is_self_service: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # Server-only distinction; OAuth grants never replace manual credentials.
+    is_mcp_oauth_grant: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     risk_level: Mapped[str | None] = mapped_column(String(20), nullable=True)
     risk_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     # provider 侧内部标识（server-only；绝不进响应 / 审计 / 前端）。

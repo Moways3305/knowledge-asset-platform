@@ -141,6 +141,7 @@ export function useUploadFlow() {
   });
   const {
     flowState,
+    updateContext,
     fileName,
     fileSize,
     fileType,
@@ -867,6 +868,7 @@ export function useUploadFlow() {
     loadLocalPending,
     handleSelectPendingTask,
     batchSelection,
+    updateContext,
     batchStatus,
     batchBusy,
     batchOperation,

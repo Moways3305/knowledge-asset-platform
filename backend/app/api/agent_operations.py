@@ -265,6 +265,7 @@ async def ingest_detail(task_id: uuid.UUID, ctx=Depends(operation_context)):
         "confidentiality_reason",
         "suggestion_generation_status",
         "suggestion_generation_reason",
+        "update_context",
     }
     return {
         "task_id": str(task.id),
@@ -318,6 +319,10 @@ async def prepare_confirmation(
     body = body.model_copy(update={"directory_key": key})
     if body.naming:
         body.naming = body.naming.model_copy(update={"directory_key": key})
+    if task.update_of_asset_id:
+        from app.services.knowledge_versions import validate_update_confirmation
+
+        await validate_update_confirmation(ctx["session"], ctx["caller"], task, body)
     preview = await naming_rules.preview(
         ctx["session"],
         ctx["caller"],

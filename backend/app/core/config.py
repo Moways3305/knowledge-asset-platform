@@ -227,6 +227,9 @@ class Settings(BaseSettings):
     workbuddy_remote_rate_limit_per_minute: int = 60
     # Comma-separated exact Origin values. Missing Origin is allowed for desktop clients.
     workbuddy_remote_allowed_origins: str = ""
+    mcp_oauth_enabled: bool = False
+    # Independent Fernet key; never share keys with content-generation credentials.
+    mcp_oauth_client_encryption_key: str = ""
 
     # D1 阶段4（Small-to-Big）：子块召回后按父文件聚合，取治理文本全文给 Agent。
     # agent_parent_doc_limit：最多取几篇父文件全文（≤N，默认 3，可配）。

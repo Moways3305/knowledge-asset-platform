@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { PageHeader, ProductPage } from "../components/ProductLayout";
 import StatusBadge from "../components/StatusBadge";
 import MyUploadsPanel from "../components/MyUploadsPanel";
@@ -22,8 +22,27 @@ export default function UploadPage() {
     handleDeletePending,
     taskId,
     handleReset,
+    localPendingTasks,
+    handleSelectPendingTask,
   } = flow;
   const confirmationOpen = confirmReady || confirmSubmitted;
+  const resumedTask = useRef<string | null>(null);
+  useEffect(() => {
+    const requested = searchParams.get("task_id");
+    const task = (localPendingTasks ?? []).find((item) => item.id === requested);
+    if (activePath === "b" && task && resumedTask.current !== requested) {
+      resumedTask.current = requested;
+      void handleSelectPendingTask(task);
+      setSearchParams(
+        (previous) => {
+          const next = new URLSearchParams(previous);
+          next.delete("task_id");
+          return next;
+        },
+        { replace: true },
+      );
+    }
+  }, [activePath, searchParams, localPendingTasks, handleSelectPendingTask, setSearchParams]);
 
   useEffect(() => {
     const requested = searchParams.get("source");
@@ -100,6 +119,15 @@ export default function UploadPage() {
             <div className="upload77-confirm-error" role="alert">
               {rejectError}
             </div>
+          )}
+          {flow.updateContext && (
+            <p>
+              本次为「{flow.updateContext.source_title}」的关联新版，旧版仍保持有效。完成入库后，
+              <Link to={`/knowledge/${flow.updateContext.source_asset_id}`}>
+                回原资料核查并确认替代
+              </Link>
+              。
+            </p>
           )}
           <UploadConfirmPanel flow={flow} onExit={exitConfirmation} onReject={rejectConfirmation} />
         </>

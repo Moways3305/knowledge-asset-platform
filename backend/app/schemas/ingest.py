@@ -223,6 +223,7 @@ class IngestAiResultResponse(BaseModel):
     仅保留运营元数据（状态、命名校验、级别、置信度）。
     """
 
+    update_context: dict | None = None
     suggested_formed_on: str | None = None
     ingest_task_id: uuid.UUID
     status: str

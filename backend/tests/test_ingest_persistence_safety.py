@@ -1,16 +1,93 @@
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 from unittest.mock import AsyncMock
 
+import pytest
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.models.ingest import IngestTask, IngestTaskAiResult
 from app.seed.dev_seed import USER_CONSULTANT
+from app.services import ingest
 from app.services.desensitization import NullDesensitizer
+from app.services.identity import load_user_with_roles
 from app.services.jobs import ingest_processing
 from app.services.llm_client import NullLLMClient
+from app.services.permission import build_caller_context
 from app.services.storage import LocalFileStorage
+
+
+@pytest.mark.parametrize("committed", [False, True])
+async def test_upload_commit_unknown_preserves_bytes(db_session, tmp_path, monkeypatch, committed):
+    storage = LocalFileStorage(tmp_path / "ambiguous-store")
+    user = await load_user_with_roles(db_session, user_id=USER_CONSULTANT)
+    caller = build_caller_context(user)
+    original_commit = db_session.commit
+
+    async def ambiguous_commit():
+        if committed:
+            await original_commit()
+        raise SQLAlchemyError("simulated acknowledgement lost")
+
+    monkeypatch.setattr(db_session, "commit", ambiguous_commit)
+    with pytest.raises(SQLAlchemyError, match="acknowledgement lost"):
+        await ingest.create_upload(
+            db_session,
+            caller,
+            content=b"source must survive ambiguous commit",
+            file_name="ambiguous.txt",
+            file_mime_type="text/plain",
+            target_scope="personal",
+            target_project_id=None,
+            storage=storage,
+            llm=NullLLMClient(),
+            desensitizer=NullDesensitizer(),
+            trace_id="commit-outcome-unknown",
+        )
+    files = [p for p in storage.root.rglob("*") if p.is_file()]
+    assert len(files) == 1
+    tasks = (
+        await db_session.scalars(
+            select(IngestTask).where(IngestTask.source_file_name == "ambiguous.txt")
+        )
+    ).all()
+    assert bool(tasks) is committed
+    if committed:
+        assert storage.resolve_path(tasks[0].source_file_ref).is_file()
+        from app.db.utils import utc_now
+        from app.services.jobs.ingest_recovery import recover_stale_tasks
+
+        monkeypatch.setattr(db_session, "commit", original_commit)
+        summary = await recover_stale_tasks(
+            db_session, storage=storage, now=utc_now() + timedelta(hours=2)
+        )
+        assert any(item.task_id == tasks[0].id for item in summary.scheduled)
+
+
+async def test_upload_precommit_failure_deletes_unreferenced_bytes(
+    db_session, tmp_path, monkeypatch
+):
+    storage = LocalFileStorage(tmp_path / "precommit-store")
+    user = await load_user_with_roles(db_session, user_id=USER_CONSULTANT)
+    caller = build_caller_context(user)
+    monkeypatch.setattr(db_session, "flush", AsyncMock(side_effect=SQLAlchemyError("flush failed")))
+    with pytest.raises(SQLAlchemyError, match="flush failed"):
+        await ingest.create_upload(
+            db_session,
+            caller,
+            content=b"precommit",
+            file_name="precommit.txt",
+            file_mime_type="text/plain",
+            target_scope="personal",
+            target_project_id=None,
+            storage=storage,
+            llm=NullLLMClient(),
+            desensitizer=NullDesensitizer(),
+            trace_id="precommit-failed",
+        )
+    assert not [p for p in storage.root.rglob("*") if p.is_file()]
 
 
 def test_ai_result_database_boundary_sanitizes_text_and_json():

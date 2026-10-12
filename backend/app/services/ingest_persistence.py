@@ -170,6 +170,11 @@ async def persist_confirmation(
     summary_text = (request.summary or "").strip() or (request.one_liner or "").strip()
     confidentiality = request.confidentiality_level.value
     asset_type, visibility = derived_confirmation_properties(context)
+    source_asset = (
+        await session.get(KnowledgeAsset, task.update_of_asset_id)
+        if task.update_of_asset_id
+        else None
+    )
     asset = KnowledgeAsset(
         title=request.title,
         scope=context.scope,
@@ -178,11 +183,11 @@ async def persist_confirmation(
         owner_user_id=context.owner_id,
         maintainer_user_id=context.caller.user_id,
         project_id=context.project_id,
-        visibility=visibility,
+        visibility=source_asset.visibility if source_asset else visibility,
         confidentiality_level=confidentiality,
         # Legacy non-null compatibility value only; no request/AI suggestion
         # participates in new confirmation logic.
-        ai_access_level="A1",
+        ai_access_level=source_asset.ai_access_level if source_asset else "A1",
         asset_status="active",
         lifecycle_phase_key=None,
         canonical_name=(
@@ -190,7 +195,7 @@ async def persist_confirmation(
         ),
     )
     version = KnowledgeAssetVersion(
-        version_no="v1",
+        version_no=task.update_version_label or "v1",
         version_status="active",
         created_by=context.caller.user_id,
         file_hash=task.source_file_hash,

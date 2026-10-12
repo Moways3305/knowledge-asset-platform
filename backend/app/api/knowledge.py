@@ -56,6 +56,30 @@ from app.services.weknora_client import get_weknora_client
 router = APIRouter(prefix="/api/v1", tags=["knowledge"])
 
 
+@router.get("/knowledge/{asset_id}/versions")
+async def knowledge_version_history(
+    asset_id: uuid.UUID,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+):
+    from app.services.knowledge_versions import history
+
+    return await history(session, caller, asset_id)
+
+
+@router.get("/knowledge/{asset_id}/versions/compare")
+async def knowledge_version_compare(
+    asset_id: uuid.UUID,
+    left: uuid.UUID,
+    right: uuid.UUID,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+):
+    from app.services.knowledge_versions import compare
+
+    return await compare(session, caller, asset_id, left, right)
+
+
 @router.patch("/knowledge/{asset_id}/metadata", response_model=KnowledgeMetadataResult)
 async def edit_knowledge_metadata(
     asset_id: uuid.UUID,

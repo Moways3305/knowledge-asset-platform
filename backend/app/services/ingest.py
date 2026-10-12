@@ -176,6 +176,10 @@ async def create_upload(
     target_scope: str | None,
     target_project_id: uuid.UUID | None,
     formed_on: str | None = None,
+    update_of_asset_id: uuid.UUID | None = None,
+    update_of_version_id: uuid.UUID | None = None,
+    update_version_label: str | None = None,
+    update_expected_updated_at: datetime | None = None,
     storage: LocalFileStorage,
     llm: LLMClient | NullLLMClient,
     desensitizer: DesensitizationEngine,
@@ -207,6 +211,10 @@ async def create_upload(
     if not content and upload_read is None:
         raise _denied(422, "empty_file", "上传文件为空")
 
+    if update_of_asset_id:
+        # Preflight reads must not keep a transaction open during file I/O.
+        await session.rollback()
+
     # 保留**原始文件名**作来源追溯与命名规范化输入（顾问文件名常含中文 / 【】，
     # 不应被清洗破坏）。它只是展示标签 / 命名信号，**绝不**用于拼接存储路径——
     # 真实存储 key 由 storage.save 内部 safe_filename + 随机段独立生成（防穿越）。
@@ -237,6 +245,22 @@ async def create_upload(
     # 请求路径只持久化字节 + 建任务（status=processing），重活（抽取 / 内容处理 /
     # 写 ai_result / 推进状态 / ai_extracted·failed 审计）迁到异步作业。
     try:
+        if update_of_asset_id:
+            from app.services import knowledge_versions
+
+            source, version = await knowledge_versions.prepare_upload(
+                session,
+                caller,
+                update_of_asset_id,
+                update_expected_updated_at,
+                update_version_label,
+            )
+            if (version.id, source.scope, source.project_id) != (
+                update_of_version_id,
+                target_scope,
+                target_project_id,
+            ):
+                raise knowledge_versions.trust.reject(409, "原资料版本或知识库已变化，请重新上传")
         task = IngestTask(
             source=IngestSource.path_b_upload.value,
             # server-only 内部存储引用，不外泄前端。
@@ -246,6 +270,9 @@ async def create_upload(
             source_file_size=content_size,
             source_file_hash=content_hash,
             suggested_formed_on=formed_on,
+            update_of_asset_id=update_of_asset_id,
+            update_of_version_id=update_of_version_id,
+            update_version_label=update_version_label,
             status=IngestStatus.processing.value,
             processing_stage="upload_saved",
             target_scope=target_scope,
@@ -270,8 +297,25 @@ async def create_upload(
         await session.rollback()
         storage.delete(storage_ref)
         raise
-    await session.commit()
-
+    # Once COMMIT starts, an exception can mean a lost acknowledgement rather
+    # than a failed transaction. Never delete bytes that a committed task may
+    # reference. Orphan-task recovery can resume a persisted upload_saved task.
+    committed_task_id = task.id
+    try:
+        await session.commit()
+    except BaseException:
+        _logger.warning(
+            "ingest_upload_commit_outcome_unknown trace_id=%s task_id=%s",
+            trace_id,
+            committed_task_id,
+        )
+        try:
+            await session.rollback()
+        except Exception:
+            _logger.warning(
+                "ingest_upload_commit_recovery_rollback_failed task_id=%s", committed_task_id
+            )
+        raise
     # 入队异步处理：eager（默认/本地/测试）内联同步执行并返回最终 status；非 eager 排队
     # 到 broker、立即返回 processing（无 worker 时保持 processing/pending）。
     status = await enqueue_ingest_processing(
@@ -326,8 +370,14 @@ async def get_ai_result(
         raise _denied(403, "ingest_result_forbidden", "无权查看该入库任务的 AI 建议")
 
     advice = safe_naming_advice(ai)
+    update_context = None
+    if task.update_of_asset_id and is_full:
+        from app.services.knowledge_versions import update_context_for_task
+
+        update_context = await update_context_for_task(session, caller, task)
     base = IngestAiResultResponse(
         ingest_task_id=task.id,
+        update_context=update_context,
         suggested_formed_on=task.suggested_formed_on if is_full else None,
         status=task.status,
         suggested_asset_type=ai.suggested_asset_type if ai else None,
@@ -711,6 +761,11 @@ async def _approve_project_ingest_review(
             naming_result=naming_result,
         )
         asset_type, visibility = ingest_persistence.derived_confirmation_properties(review_context)
+        source_asset = (
+            await session.get(KnowledgeAsset, task.update_of_asset_id)
+            if task.update_of_asset_id
+            else None
+        )
         directory_key = (
             naming_result.metadata.get("directory_key")
             if naming_result is not None
@@ -736,15 +791,15 @@ async def _approve_project_ingest_review(
             owner_user_id=submitter_id,
             maintainer_user_id=submitter_id,
             project_id=req.target_project_id,
-            visibility=visibility,
+            visibility=source_asset.visibility if source_asset else visibility,
             confidentiality_level=confidentiality,
-            ai_access_level="A1",
+            ai_access_level=source_asset.ai_access_level if source_asset else "A1",
             asset_status="processing",
             lifecycle_phase_key=None,
             canonical_name=naming_result.canonical_name if naming_result is not None else None,
         )
         version = KnowledgeAssetVersion(
-            version_no="v1",
+            version_no=task.update_version_label or "v1",
             version_status="active",
             created_by=submitter_id,
             file_hash=task.source_file_hash,
@@ -1119,7 +1174,7 @@ async def list_pending(
                 target_scope=t.target_scope,
                 target_project_id=t.target_project_id,
                 suggested_formed_on=t.suggested_formed_on,
-                can_batch_confirm=can_batch_confirm,
+                can_batch_confirm=can_batch_confirm and not t.update_of_asset_id,
                 can_batch_reject=t.status in _DELETABLE_PENDING_STATUSES,
                 extraction_status=ai.extraction_status if ai else None,
                 error_type=(

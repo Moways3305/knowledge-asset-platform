@@ -87,6 +87,20 @@ server {
     }
 
     # WorkBuddy Streamable HTTP MCP. TLS terminates at the production edge; the
+    # OAuth discovery and SDK endpoints must never fall through to index.html.
+    location = /.well-known/oauth-protected-resource/mcp {
+        proxy_pass $kap_backend;
+    }
+    location = /.well-known/oauth-authorization-server {
+        proxy_pass $kap_backend;
+    }
+    location ~ ^/(authorize|token|register|revoke)$ {
+        client_max_body_size 64k;
+        limit_req zone=api_login burst=10 nodelay;
+        proxy_pass $kap_backend;
+    }
+
+    # WorkBuddy Streamable HTTP MCP. TLS terminates at the production edge; the
     # forwarded scheme is preserved so the backend can fail closed on plain HTTP.
     location = /mcp {
         client_max_body_size 64k;

@@ -101,10 +101,10 @@ def check_stamp(actual, expected):
         raise reject(409, "记录已更新，请刷新后重试")
 
 
-async def _write_asset(session, caller, asset_id, req):
+async def _write_asset(session, caller, asset_id, req, *, lock=True):
     from app.services.personal_write_policy import personal_asset_write_locked
 
-    asset = await _load(session, caller, asset_id, write=True)
+    asset = await _load(session, caller, asset_id, write=lock)
     if not can_manage(caller, asset):
         raise reject(404, "资料不存在或无治理权限")
     if asset.scope == "personal" and await personal_asset_write_locked(session, asset.id):
@@ -209,10 +209,26 @@ async def get_state(session, caller, asset_id):
     # Never disclose a replacement identifier across scope/permission boundaries.
     replacement_id = None
     if asset.replacement_asset_id:
-        target = await session.get(KnowledgeAsset, asset.replacement_asset_id)
         policy = await load_access_policy(session)
-        if target and decide(caller, target, AccessLayer.discovery, policy=policy).allowed:
-            replacement_id = target.id
+        cursor, seen = asset.replacement_asset_id, {asset.id}
+        for _ in range(50):
+            if cursor in seen:
+                break
+            seen.add(cursor)
+            target = await session.get(KnowledgeAsset, cursor)
+            if (
+                not target
+                or target.deleted_at
+                or not decide(
+                    caller, _active_projection(target), AccessLayer.discovery, policy=policy
+                ).allowed
+            ):
+                break
+            if not target.replacement_asset_id:
+                if decide(caller, target, AccessLayer.discovery, policy=policy).allowed:
+                    replacement_id = target.id
+                break
+            cursor = target.replacement_asset_id
     return ReviewState(
         asset_id=asset.id,
         updated_at=asset.updated_at,
@@ -379,6 +395,10 @@ async def replace(session, caller, asset_id, req, trace_id):
     if req.expected_replacement_updated_at is None:
         raise reject(422, "请先读取新版状态并确认版本")
     check_stamp(target.updated_at, req.expected_replacement_updated_at)
+    from app.services.knowledge_version_baseline import replacement_baseline_matches
+
+    if not await replacement_baseline_matches(session, asset, target):
+        raise reject(409, "新版基于其它资料或已过期版本，请基于当前版本重新发起更新")
     target_version = (
         await session.get(KnowledgeAssetVersion, target.current_version_id)
         if target.current_version_id
@@ -415,12 +435,10 @@ async def replace(session, caller, asset_id, req, trace_id):
     )
     if pending:
         raise reject(409, "新版仍有未处理纠错，请先处理并复核")
-    # Prevent replacement chains/cycles, including concurrent inverse links.
-    predecessor = await session.scalar(
-        select(KnowledgeAsset.id).where(KnowledgeAsset.replacement_asset_id == asset.id).limit(1)
-    )
-    if predecessor or not req.confirm_archive:
-        raise reject(409, "存在替代链或尚未明确确认旧版归档")
+    # Sequential historical chains are valid. Both endpoints are locked above;
+    # source must be active and target must be terminal, preventing inverse cycles.
+    if not req.confirm_archive:
+        raise reject(409, "尚未明确确认旧版归档")
     asset.replacement_asset_id = target.id
     asset.updated_at = utc_now()
     await _audit(

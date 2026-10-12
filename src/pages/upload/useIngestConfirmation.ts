@@ -119,6 +119,7 @@ export function useIngestConfirmation({
   const [directoryKey, setDirectoryKeyState] = useState("");
   const [namingFormedOn, setNamingFormedOn] = useState("");
   const [namingVersion, setNamingVersion] = useState("V1");
+  const [updateContext, setUpdateContext] = useState<IngestAiResultDTO["update_context"]>(null);
   const [namingApplicableTo, setNamingApplicableTo] = useState("通用");
   const [namingPreview, setNamingPreview] = useState<NamingPreviewDTO | null>(null);
   const [namingPreviewBusy, setNamingPreviewBusy] = useState(false);
@@ -159,6 +160,7 @@ export function useIngestConfirmation({
   }, []);
 
   const applyAiResult = useCallback((ai: IngestAiResultDTO) => {
+    setUpdateContext(ai.update_context ?? null);
     setLlmStatus({
       status: ai.content_processing_status,
       provider: ai.llm_provider,
@@ -200,7 +202,11 @@ export function useIngestConfirmation({
     // legacy parsed naming payload is compatibility metadata only and must
     // never override the authoritative suggestion projection.
     const projectedVersion = ai.suggested_version?.trim().toUpperCase() ?? "";
-    setNamingVersion(/^V[1-9]\d*(?:\.\d+)*$/.test(projectedVersion) ? projectedVersion : "V1");
+    setNamingVersion(
+      ai.update_context?.version ??
+        (/^V[1-9]\d*(?:\.\d+)*$/.test(projectedVersion) ? projectedVersion : "V1"),
+    );
+    if (ai.update_context) setEditConfidentiality(ai.update_context.confidentiality_level);
     setExtraction({
       status: ai.extraction_status,
       charCount: ai.extracted_char_count,
@@ -232,11 +238,11 @@ export function useIngestConfirmation({
           const directories = value.directories ?? [];
           const selectedKey = directories.some(
             (directory) =>
-              directory.directory_key === current &&
+              directory.directory_key === (updateContext?.directory_key ?? current) &&
               directory.enabled &&
               directory.scope === targetLibrary,
           )
-            ? current
+            ? (updateContext?.directory_key ?? current)
             : "";
           return selectedKey;
         });
@@ -250,7 +256,7 @@ export function useIngestConfirmation({
     return () => {
       live = false;
     };
-  }, [targetLibrary, targetProjectId, taskId]);
+  }, [targetLibrary, targetProjectId, taskId, updateContext]);
 
   const setDirectoryKey = useCallback((nextDirectoryKey: string) => {
     setDirectoryKeyState(nextDirectoryKey);
@@ -606,7 +612,7 @@ export function useIngestConfirmation({
         tags,
         target_scope: selectedTargetLibrary,
         target_project_id: selectedTargetLibrary === "project" ? targetProjectId : undefined,
-        target_zone: "material",
+        target_zone: updateContext?.target_zone ?? "material",
         confidentiality_level: editConfidentiality,
         embedding_model_ref: embeddingModelRef || undefined,
         rerank_model_ref: rerankModelRef || undefined,
@@ -664,9 +670,11 @@ export function useIngestConfirmation({
     targetLibrary,
     targetProjectId,
     taskId,
+    updateContext,
   ]);
 
   const resetConfirmation = useCallback(() => {
+    setUpdateContext(null);
     beginWorkflowRun();
     setFlowState("idle");
     setApiError(null);
@@ -918,5 +926,6 @@ export function useIngestConfirmation({
     beginWorkflowRun,
     isCurrentWorkflowRun,
     namingPreviewState,
+    updateContext,
   };
 }
