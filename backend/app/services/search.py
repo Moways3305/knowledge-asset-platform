@@ -11,8 +11,10 @@ from collections.abc import Callable
 from typing import Any
 
 from fastapi import HTTPException
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetTag, KnowledgeAssetVersion
 from app.schemas.enums import AuditAction, AuditLogType
 from app.schemas.permission import AccessChannel, CallerContext
 from app.schemas.search import (
@@ -145,6 +147,40 @@ async def run_search(
         if req.filters.project_id is not None
         else await retrieval.resolve_searchable_kbs(session, caller, req.scope)
     )
+    # Apply business filters before the upstream chunk budget is consumed.
+    # Keep the post-recall filters and permission checks as defence in depth.
+    if req.filters.tags or req.filters.zone or req.filters.phase:
+        stmt = (
+            select(KnowledgeAssetVersion.weknora_doc_id)
+            .join(
+                KnowledgeAsset,
+                and_(
+                    KnowledgeAssetVersion.asset_id == KnowledgeAsset.id,
+                    or_(
+                        KnowledgeAsset.current_version_id == KnowledgeAssetVersion.id,
+                        KnowledgeAsset.current_version_id.is_(None),
+                    ),
+                ),
+            )
+            .where(
+                KnowledgeAssetVersion.asset_id == KnowledgeAsset.id,
+                KnowledgeAssetVersion.weknora_kb_id.in_(kb_ids),
+                KnowledgeAssetVersion.index_status == "indexed",
+                KnowledgeAssetVersion.version_status == "active",
+                KnowledgeAsset.asset_status == "active",
+            )
+        )
+        for tag in req.filters.tags or []:
+            stmt = stmt.where(KnowledgeAsset.tags.any(KnowledgeAssetTag.tag_name == tag))
+        if req.filters.zone:
+            stmt = stmt.where(KnowledgeAsset.zone == req.filters.zone)
+        if req.filters.phase:
+            stmt = stmt.where(KnowledgeAsset.lifecycle_phase_key == req.filters.phase)
+        if knowledge_ids is not None:
+            stmt = stmt.where(KnowledgeAssetVersion.weknora_doc_id.in_(knowledge_ids))
+        knowledge_ids = [row[0] for row in (await session.execute(stmt)).all() if row[0]]
+        if not knowledge_ids:
+            recalled = []
     if recalled is None:
         recalled = await retrieval.recall_assets(
             session,

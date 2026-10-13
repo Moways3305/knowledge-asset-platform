@@ -19,13 +19,18 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, case, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
 from app.models.identity import Project, User
-from app.models.knowledge import KnowledgeAsset, KnowledgeAssetChunk, KnowledgeAssetVersion
+from app.models.knowledge import (
+    KnowledgeAsset,
+    KnowledgeAssetChunk,
+    KnowledgeAssetTag,
+    KnowledgeAssetVersion,
+)
 from app.models.weknora import WeknoraKbMapping
 from app.schemas.enums import (
     AssetStatus,
@@ -65,7 +70,9 @@ _ACTIVE_VERSION = VersionStatus.active.value
 _INDEXED_STATUS = "indexed"
 
 # 召回与证据规模上限（控成本/时延）。
-_RECALL_TOP_K = 20
+_RECALL_TOP_K = 100
+_METADATA_TOP_K = 100
+_METADATA_MAX_SCAN_ROWS = 2000  # At most 20 metadata pages per request.
 _MAX_EVIDENCE_ASSETS = 6
 _MAX_CHUNKS_PER_ASSET = 2
 # D1 阶段4：父文件全文给 Agent 时，每篇最多几篇 / 单篇字符上限（默认读配置，测试可覆盖）。
@@ -174,10 +181,13 @@ async def recall_assets(
     """召回并映射到资产级（去重取最高 score），逐资产三层 `decide()`。
 
     只返回**发现层放行**的资产（L5/他人个人等被 decide(discovery) 自然过滤）；
-    archived/superseded/非 active 版本/孤儿 knowledge 一律丢弃。按 score 降序。
+    archived/superseded/非 active 版本/孤儿 knowledge 一律丢弃。
+    标题/标签字面匹配优先，其余结果按 score 降序。
     """
-    if not kb_ids:
+    query = query.strip()
+    if not query or not kb_ids or knowledge_ids == []:
         return []
+    policy = await load_access_policy(session)
     chunks = await weknora.search(
         query=query,
         kb_ids=kb_ids,
@@ -185,12 +195,86 @@ async def recall_assets(
         top_k=_RECALL_TOP_K,
         trace_id=trace_id,
     )
-    if not chunks:
-        return []
+    # Title/tag matches are independent of chunk ranking. Do not manufacture
+    # original-text evidence: these entries use only the existing safe summary.
+    metadata_stmt = (
+        select(KnowledgeAsset, KnowledgeAssetVersion)
+        .join(
+            KnowledgeAssetVersion,
+            and_(
+                KnowledgeAssetVersion.asset_id == KnowledgeAsset.id,
+                or_(
+                    KnowledgeAsset.current_version_id == KnowledgeAssetVersion.id,
+                    KnowledgeAsset.current_version_id.is_(None),
+                ),
+            ),
+        )
+        .where(
+            KnowledgeAssetVersion.asset_id == KnowledgeAsset.id,
+            KnowledgeAssetVersion.weknora_kb_id.in_(kb_ids),
+            KnowledgeAssetVersion.weknora_doc_id.is_not(None),
+            KnowledgeAssetVersion.version_status == _ACTIVE_VERSION,
+            KnowledgeAssetVersion.index_status == _INDEXED_STATUS,
+            KnowledgeAsset.asset_status == _ACTIVE_ASSET,
+            or_(
+                KnowledgeAssetVersion.directory_key.is_(None),
+                KnowledgeAssetVersion.directory_key != "personal.pending",
+            ),
+            or_(
+                KnowledgeAsset.title.icontains(query, autoescape=True),
+                KnowledgeAsset.tags.any(
+                    KnowledgeAssetTag.tag_name.icontains(query, autoescape=True)
+                ),
+            ),
+        )
+        .options(selectinload(KnowledgeAsset.summaries), selectinload(KnowledgeAsset.tags))
+        .order_by(
+            case((KnowledgeAsset.title == query, 0), else_=1),
+            KnowledgeAsset.title,
+            KnowledgeAsset.id,
+            KnowledgeAssetVersion.id,
+        )
+    )
+    if knowledge_ids is not None:
+        metadata_stmt = metadata_stmt.where(KnowledgeAssetVersion.weknora_doc_id.in_(knowledge_ids))
+    # The quota is for discoverable assets, not raw SQL matches. Scan stable
+    # bounded pages so denied rows cannot crowd out later visible matches.
+    metadata: list[tuple[KnowledgeAsset, KnowledgeAssetVersion]] = []
+    metadata_ids: set[uuid.UUID] = set()
+    offset = 0
+    while len(metadata) < _METADATA_TOP_K and offset < _METADATA_MAX_SCAN_ROWS:
+        page_size = min(_METADATA_TOP_K, _METADATA_MAX_SCAN_ROWS - offset)
+        page = (await session.execute(metadata_stmt.limit(page_size).offset(offset))).all()
+        if not page:
+            break
+        for asset, version in page:
+            if asset.id in metadata_ids:
+                continue
+            if not decide(
+                caller, asset, AccessLayer.discovery, channel=channel, policy=policy
+            ).allowed:
+                continue
+            metadata.append((asset, version))
+            metadata_ids.add(asset.id)
+            if len(metadata) == _METADATA_TOP_K:
+                break
+        offset += len(page)
+        if len(page) < page_size:
+            break
+    if offset >= _METADATA_MAX_SCAN_ROWS and len(metadata) < _METADATA_TOP_K:
+        # Budget exhaustion is not proof that no further visible matches exist.
+        # Return permitted partial hits and keep semantic recall; no query/IDs.
+        _logger.warning(
+            "retrieval_metadata_scan_budget_exhausted",
+            extra={
+                "scanned_rows": offset,
+                "visible_candidate_count": len(metadata),
+            },
+        )
 
     # 收集命中的 knowledge_id（= 业务库 weknora_doc_id），批量映射回 active 版本/资产。
     doc_ids = {c["knowledge_id"] for c in chunks if c.get("knowledge_id")}
-    if not doc_ids:
+    if not doc_ids and not metadata:
         return []
     versions = list(
         (
@@ -206,6 +290,11 @@ async def recall_assets(
                 )
                 # residual：仅索引成功的 version 可被召回映射；index_failed 等残留旧 doc 丢弃。
                 .where(KnowledgeAssetVersion.index_status == _INDEXED_STATUS)
+                .where(
+                    KnowledgeAssetVersion.weknora_doc_id.in_(knowledge_ids)
+                    if knowledge_ids is not None
+                    else true()
+                )
             )
         )
         .scalars()
@@ -213,7 +302,7 @@ async def recall_assets(
     )
     doc_to_version = {v.weknora_doc_id: v for v in versions}
     asset_ids = {v.asset_id for v in versions}
-    if not asset_ids:
+    if not asset_ids and not metadata:
         return []
     assets = list(
         (
@@ -234,12 +323,18 @@ async def recall_assets(
 
     # 去重到资产级：取最高 score；同资产多 chunk 全部留作证据（阶段2/问答按 chunk 保留）。
     recalled: dict[uuid.UUID, RecalledAsset] = {}
+    for rank, (asset, version) in enumerate(metadata, start=1):
+        recalled[asset.id] = RecalledAsset(asset=asset, version=version, score=1 / (60 + rank))
     for c in chunks:
         version = doc_to_version.get(c["knowledge_id"])
         if version is None:  # 孤儿/非 active 版本 → 丢弃，不透出无主内容
             continue
         asset = asset_by_id.get(version.asset_id)
         if asset is None:  # 资产非 active → 丢弃
+            continue
+        # Legacy rows can lack a current-version pointer; active/indexed remains
+        # the compatibility fallback, but an explicit pointer is authoritative.
+        if asset.current_version_id is not None and asset.current_version_id != version.id:
             continue
         score = float(c.get("score") or 0.0)
         entry = recalled.get(asset.id)
@@ -252,7 +347,6 @@ async def recall_assets(
     # 批量取调用人对召回资产的 active 原文授权，原文层判断统一叠加。
     granted_ids = await original_access.active_grant_asset_ids(session, caller, recalled.keys())
     # L1/L2 原文默认放行由运行时 policy 决定。
-    policy = await load_access_policy(session)
 
     # 逐资产三层判断（discovery 被拒的资产连卡片都不出）。
     out: list[RecalledAsset] = []
@@ -280,9 +374,24 @@ async def recall_assets(
         )
         out.append(entry)
 
-    out.sort(key=lambda r: r.score, reverse=True)
+    # Literal title/tag matches must not be pushed out by a different upstream
+    # score scale when the caller truncates the cards. Keep original scores;
+    # do not present an invented high confidence score for metadata-only hits.
+    metadata_rank = {asset.id: rank for rank, (asset, _version) in enumerate(metadata)}
+    out.sort(
+        key=lambda r: (
+            (0, metadata_rank[r.asset.id]) if r.asset.id in metadata_rank else (1, -r.score)
+        )
+    )
     # 仅记召回数量；绝不记 query / chunk 正文 / kb·doc id。
-    _logger.info("retrieval_recall", extra={"result_count": len(out)})
+    _logger.info(
+        "retrieval_recall",
+        extra={
+            "result_count": len(out),
+            "chunk_candidate_count": len(chunks),
+            "metadata_candidate_count": len(metadata),
+        },
+    )
     return out
 
 

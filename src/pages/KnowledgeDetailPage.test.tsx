@@ -529,6 +529,47 @@ describe("OnlyOfficePreview", () => {
     expect(screen.queryByText("文档预览正在打开，请稍候。")).not.toBeInTheDocument();
   });
 
+  it("lets slow conversion finish after the old 15-second deadline", () => {
+    vi.useFakeTimers();
+    let events: Record<string, () => void> = {};
+    const destroyEditor = vi.fn();
+    class SlowEditor {
+      destroyEditor = destroyEditor;
+      constructor(_holder: string, config: Record<string, unknown>) {
+        events = config.events as typeof events;
+      }
+    }
+    window.DocsAPI = { DocEditor: SlowEditor };
+    render(<OnlyOfficePreview entry={controlledPreviewEntry("slow")} />);
+    act(() => events.onAppReady());
+    act(() => vi.advanceTimersByTime(45_000));
+    expect(screen.queryByText("预览超时，请重新打开预览。")).not.toBeInTheDocument();
+    expect(destroyEditor).not.toHaveBeenCalled();
+    act(() => events.onDocumentReady());
+    expect(screen.queryByText(/正在取回并转换文档/)).not.toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(120_000));
+    expect(screen.queryByText("预览超时，请重新打开预览。")).not.toBeInTheDocument();
+  });
+
+  it("bounds conversion time even if the editor repeats app-ready", () => {
+    vi.useFakeTimers();
+    let events: Record<string, () => void> = {};
+    class StuckEditor {
+      constructor(_holder: string, config: Record<string, unknown>) {
+        events = config.events as typeof events;
+      }
+    }
+    window.DocsAPI = { DocEditor: StuckEditor };
+    render(<OnlyOfficePreview entry={controlledPreviewEntry("stuck")} />);
+    act(() => events.onAppReady());
+    act(() => vi.advanceTimersByTime(100_000));
+    act(() => events.onAppReady());
+    act(() => vi.advanceTimersByTime(20_000));
+    expect(screen.getByText("预览超时，请重新打开预览。")).toBeInTheDocument();
+    act(() => events.onDocumentReady());
+    expect(screen.getByText("预览超时，请重新打开预览。")).toBeInTheDocument();
+  });
+
   it("ignores stale callbacks after closing or switching preview credentials", () => {
     const eventSets: PreviewEvents[] = [];
     const destroyEditor = vi.fn();
