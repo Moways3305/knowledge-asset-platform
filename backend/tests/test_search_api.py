@@ -560,3 +560,196 @@ async def test_l5_director_can_discover(client):
     )
     ids = {c["asset_id"] for c in resp.json()["cards"]}
     assert str(KA_COMPANY_L5) in ids
+
+
+@pytest.mark.parametrize("query", ["通用检索验收", "独立标签锚点"])
+async def test_metadata_match_survives_empty_chunk_recall(client, db_session, query):
+    asset = await db_session.get(KnowledgeAsset, KA_COMPANY_L2)
+    asset.title = "通用检索验收操作手册"
+    db_session.add(KnowledgeAssetTag(asset_id=asset.id, tag_name="独立标签锚点"))
+    await db_session.commit()
+    _install(FakeSearchWeKnora([]), FakeScrubLLM())
+    response = await client.post(
+        SEARCH, headers=_hdr(USER_CONSULTANT), json={"query": query, "scope": "company"}
+    )
+    assert response.status_code == 200
+    assert [card["asset_id"] for card in response.json()["cards"]] == [str(asset.id)]
+    assert "wk-doc" not in response.text
+
+
+async def test_tags_are_applied_before_chunk_recall(client, db_session):
+    db_session.add(KnowledgeAssetTag(asset_id=KA_COMPANY_L2, tag_name="限定候选标签"))
+    await db_session.commit()
+    fake = FakeSearchWeKnora(
+        [
+            _doc(KA_COMPANY_L4, _COMPANY_KB, "unrelated high scoring chunks"),
+            _doc(KA_COMPANY_L2, _COMPANY_KB, "filtered result"),
+        ]
+    )
+    _install(fake, FakeScrubLLM())
+    response = await client.post(
+        SEARCH,
+        headers=_hdr(USER_CONSULTANT),
+        json={"query": "not a title", "scope": "company", "filters": {"tags": ["限定候选标签"]}},
+    )
+    assert response.status_code == 200
+    assert fake.last_knowledge_ids == [f"wk-doc-{KA_COMPANY_L2}"]
+    assert [card["asset_id"] for card in response.json()["cards"]] == [str(KA_COMPANY_L2)]
+
+
+async def test_literal_match_is_not_crowded_out_by_upstream_score_scale(client, db_session):
+    asset = await db_session.get(KnowledgeAsset, KA_COMPANY_L2)
+    asset.title = "检索高分挤占回归手册"
+    await db_session.commit()
+    _install(
+        FakeSearchWeKnora([_doc(KA_COMPANY_L4, _COMPANY_KB, "semantic result")]), FakeScrubLLM()
+    )
+    response = await client.post(
+        SEARCH, headers=_hdr(USER_CONSULTANT), json={"query": "高分挤占回归", "scope": "company"}
+    )
+    assert response.status_code == 200
+    assert response.json()["cards"][0]["asset_id"] == str(asset.id)
+
+
+async def test_metadata_query_treats_sql_wildcards_as_literal_text(client):
+    _install(FakeSearchWeKnora([]), FakeScrubLLM())
+    response = await client.post(
+        SEARCH, headers=_hdr(USER_CONSULTANT), json={"query": "%_", "scope": "company"}
+    )
+    assert response.status_code == 200
+    assert response.json()["cards"] == []
+
+
+@pytest.mark.parametrize("query", ["", "  ", "\t\n", "\u3000"])
+async def test_blank_query_cannot_enumerate_assets(client, db_session, query):
+    from app.schemas.permission import AccessChannel, CallerContext
+    from app.services.retrieval import recall_assets
+
+    class NoSearch:
+        async def search(self, **kwargs):
+            raise AssertionError("Blank queries must not reach upstream search")
+
+    caller = CallerContext(
+        user_id=USER_CONSULTANT,
+        is_active=True,
+        active_company_roles={"consultant"},
+        active_project_ids=set(),
+    )
+    assert (
+        await recall_assets(
+            db_session,
+            caller,
+            NoSearch(),
+            query=query,
+            kb_ids=[_COMPANY_KB],
+            channel=AccessChannel.human,
+        )
+        == []
+    )
+    response = await client.post(
+        SEARCH, headers=_hdr(USER_CONSULTANT), json={"query": query, "scope": "company"}
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"]["denied_reason"] == "query_required"
+
+
+@pytest.mark.parametrize(
+    "budget, early_visible, semantic",
+    [
+        (2000, False, False),
+        (100, False, False),
+        (101, False, True),
+        (1, True, True),
+    ],
+)
+async def test_metadata_scan_budget_preserves_permitted_hits(
+    client, db_session, monkeypatch, caplog, budget, early_visible, semantic
+):
+    from app.services import retrieval
+
+    monkeypatch.setattr(retrieval, "_METADATA_MAX_SCAN_ROWS", budget)
+    query = "分页可见验收"
+    for index in range(105):
+        asset_id, version_id = uuid.uuid4(), uuid.uuid4()
+        db_session.add(
+            KnowledgeAsset(
+                id=asset_id,
+                title=f"A {query} {index:03}",
+                scope="company",
+                zone="material",
+                asset_type="unclassified",
+                owner_user_id=USER_CONSULTANT,
+                confidentiality_level="L5",
+                ai_access_level="A1",
+                asset_status="active",
+                current_version_id=version_id,
+            )
+        )
+        db_session.add(
+            KnowledgeAssetVersion(
+                id=version_id,
+                asset_id=asset_id,
+                version_no="V1",
+                version_status="active",
+                created_by=USER_CONSULTANT,
+                weknora_kb_id=_COMPANY_KB,
+                weknora_doc_id=f"wk-hidden-{index}",
+                index_status="indexed",
+            )
+        )
+    visible = await db_session.get(KnowledgeAsset, KA_COMPANY_L2)
+    visible.title = f"{'0' if early_visible else 'Z'} {query}"
+    await db_session.commit()
+    docs = [_doc(KA_COMPANY_L4, _COMPANY_KB, "semantic match")] if semantic else []
+    _install(FakeSearchWeKnora(docs), FakeScrubLLM())
+    response = await client.post(
+        SEARCH, headers=_hdr(USER_CONSULTANT), json={"query": query, "scope": "company"}
+    )
+    assert response.status_code == 200
+    expected = {str(visible.id)} if budget == 2000 or early_visible else set()
+    if semantic:
+        expected.add(str(KA_COMPANY_L4))
+    assert {card["asset_id"] for card in response.json()["cards"]} == expected
+    warnings = [
+        record
+        for record in caplog.records
+        if record.message == "retrieval_metadata_scan_budget_exhausted"
+    ]
+    if budget < 2000:
+        assert len(warnings) == 1
+        assert warnings[0].scanned_rows == budget
+        assert query not in warnings[0].getMessage()
+    else:
+        assert warnings == []
+    assert "wk-hidden" not in response.text
+
+
+@pytest.mark.parametrize(
+    "invalid", ["archived", "stale", "failed", "pending", "other_kb", "denied"]
+)
+async def test_metadata_recall_keeps_all_security_gates(client, db_session, invalid):
+    asset = await db_session.get(KnowledgeAsset, KA_COMPANY_L2)
+    version = await db_session.get(KnowledgeAssetVersion, asset.current_version_id)
+    asset.title = "隔离检索唯一锚点"
+    if invalid == "archived":
+        asset.asset_status = "archived"
+    elif invalid == "stale":
+        asset.current_version_id = uuid.uuid4()
+    elif invalid == "failed":
+        version.index_status = "index_failed"
+    elif invalid == "pending":
+        version.directory_key = "personal.pending"
+    elif invalid == "other_kb":
+        version.weknora_kb_id = "inaccessible-kb"
+    else:
+        asset.scope = "personal"
+        asset.owner_user_id = USER_DIRECTOR
+    await db_session.commit()
+    _install(FakeSearchWeKnora([]), FakeScrubLLM())
+    response = await client.post(
+        SEARCH,
+        headers=_hdr(USER_CONSULTANT),
+        json={"query": "隔离检索唯一锚点", "scope": "company"},
+    )
+    assert response.status_code == 200
+    assert response.json()["cards"] == []

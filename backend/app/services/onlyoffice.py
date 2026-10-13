@@ -19,6 +19,7 @@ import base64
 import hashlib
 import hmac
 import json
+from urllib.parse import urlsplit
 
 from app.core.config import get_settings
 
@@ -52,6 +53,31 @@ _DOC_TYPES = {
 def onlyoffice_enabled() -> bool:
     s = get_settings()
     return bool(s.onlyoffice_enabled and s.onlyoffice_document_server_url)
+
+
+def controlled_fetch_url(file_url: str) -> str:
+    """Document Server fetches server-to-server, never relative to its own origin."""
+    settings = get_settings()
+    base = settings.onlyoffice_internal_base_url or settings.kap_public_base_url
+    try:
+        parsed = urlsplit(base)
+        valid = (
+            parsed.scheme in {"http", "https"}
+            and bool(parsed.hostname)
+            and not parsed.username
+            and not parsed.password
+            and parsed.path in {"", "/"}
+            and not parsed.query
+            and not parsed.fragment
+            and (parsed.port is None or 1 <= parsed.port <= 65535)
+            and not parsed.netloc.endswith(":")
+            and not any(char.isspace() or ord(char) < 32 for char in base)
+        )
+    except ValueError:
+        valid = False
+    if not valid:
+        raise OnlyOfficeError("onlyoffice_fetch_url_invalid", "文档取件基址配置无效")
+    return f"{base.rstrip('/')}{file_url}"
 
 
 def resolve_doc_type(file_name: str) -> tuple[str, str] | None:

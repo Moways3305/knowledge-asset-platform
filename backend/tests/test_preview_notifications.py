@@ -133,7 +133,28 @@ async def test_preview_entry_returns_onlyoffice_config(client, monkeypatch):
     }
     # 取件 URL 指向平台受控端点，含短时 ft token，但无内部引用。
     assert "/api/v1/preview/" in cfg["document"]["url"] and "ft=" in cfg["document"]["url"]
+    assert urlparse(cfg["document"]["url"]).scheme in {"http", "https"}
+    assert urlparse(cfg["document"]["url"]).hostname
     _assert_no_leak(entry.text)
+
+
+async def test_invalid_office_fetch_address_returns_safe_configuration_error(client, monkeypatch):
+    _enable_onlyoffice(monkeypatch)
+    monkeypatch.setattr(oo_mod.get_settings(), "onlyoffice_internal_base_url", "/relative")
+    asset_id = await _upload_confirm_personal(
+        client,
+        name="test.docx",
+        content=_docx_bytes(),
+        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+    cred_id = (await _issue(client, asset_id)).json()["credential_id"]
+    response = await client.get(f"/api/v1/preview/{cred_id}", headers=_hdr(USER_CONSULTANT))
+    assert response.status_code == 200
+    assert response.json()["message"] == "onlyoffice_fetch_url_invalid"
+    assert response.json()["onlyoffice_config"] is None
+    assert response.json()["file_url"] is None
+    assert "ft=" not in response.text
+    _assert_no_leak(response.text)
 
 
 async def test_preview_entry_wrong_user_404(client, monkeypatch):

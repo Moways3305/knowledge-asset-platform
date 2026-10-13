@@ -17,6 +17,7 @@ const previewMessage: Record<string, string> = {
   onlyoffice_not_configured: "在线预览服务暂未启用，可联系管理员开通后查看原文。",
   preview_type_not_available: "该文件暂不支持在线预览，可联系维护人查看原文。",
   preview_source_unavailable: "暂未找到可预览的原文文件，可联系维护人补充。",
+  onlyoffice_fetch_url_invalid: "文档取件地址配置无效，请联系管理员检查预览服务。",
 };
 
 function previewConfigServer(config: Record<string, unknown>): string | null {
@@ -35,6 +36,7 @@ function publicPreviewConfig(config: Record<string, unknown>): Record<string, un
 type PreviewPhase =
   | "loading-script"
   | "creating-editor"
+  | "loading-document"
   | "ready"
   | "script-failed"
   | "editor-failed"
@@ -42,7 +44,9 @@ type PreviewPhase =
   | "not-configured"
   | "misconfigured";
 
-const PREVIEW_LOAD_TIMEOUT_MS = 15_000;
+const SCRIPT_TIMEOUT_MS = 15_000;
+const EDITOR_TIMEOUT_MS = 30_000;
+const DOCUMENT_TIMEOUT_MS = 120_000;
 
 function OfficePreview({ entry }: { entry: PreviewEntryVM }) {
   const holderId = useMemo(() => `oo-preview-${Math.random().toString(36).slice(2)}`, []);
@@ -61,6 +65,7 @@ function OfficePreview({ entry }: { entry: PreviewEntryVM }) {
     let active = true;
     let terminal = false;
     let documentReady = false;
+    let appReady = false;
     let scriptLoaded = false;
     let script: HTMLScriptElement | null = null;
     let timeoutId: number | null = null;
@@ -89,6 +94,18 @@ function OfficePreview({ entry }: { entry: PreviewEntryVM }) {
       setPhase(nextPhase);
     };
 
+    // Script, editor shell and file conversion have separate finite budgets.
+    // A warning is not a fatal error; only ready/error or the deadline ends loading.
+    const armTimeout = (milliseconds: number) => {
+      clearLoadTimeout();
+      timeoutId = window.setTimeout(() => {
+        if (!active || terminal) return;
+        terminal = true;
+        destroyEditor();
+        setPhase("timed-out");
+      }, milliseconds);
+    };
+
     const openEditor = () => {
       if (!active || terminal) return;
       if (!window.DocsAPI) {
@@ -96,8 +113,15 @@ function OfficePreview({ entry }: { entry: PreviewEntryVM }) {
         return;
       }
       setPhase("creating-editor");
+      armTimeout(EDITOR_TIMEOUT_MS);
       const editorConfig = publicPreviewConfig(config);
       editorConfig.events = {
+        onAppReady: () => {
+          if (!active || terminal || documentReady || appReady) return;
+          appReady = true;
+          setPhase("loading-document");
+          armTimeout(DOCUMENT_TIMEOUT_MS);
+        },
         onDocumentReady: () => {
           if (!active || terminal) return;
           documentReady = true;
@@ -105,9 +129,6 @@ function OfficePreview({ entry }: { entry: PreviewEntryVM }) {
           setPhase("ready");
         },
         onError: () => fail("editor-failed"),
-        onWarning: () => {
-          if (!documentReady) fail("editor-failed");
-        },
       };
       try {
         const editor = new window.DocsAPI.DocEditor(holderId, editorConfig);
@@ -121,12 +142,7 @@ function OfficePreview({ entry }: { entry: PreviewEntryVM }) {
     destroyEditor();
     document.getElementById(holderId)?.replaceChildren();
     setPhase(window.DocsAPI ? "creating-editor" : "loading-script");
-    timeoutId = window.setTimeout(() => {
-      if (!active || terminal) return;
-      terminal = true;
-      destroyEditor();
-      setPhase("timed-out");
-    }, PREVIEW_LOAD_TIMEOUT_MS);
+    armTimeout(SCRIPT_TIMEOUT_MS);
 
     if (window.DocsAPI) {
       scriptLoaded = true;
@@ -187,6 +203,11 @@ function OfficePreview({ entry }: { entry: PreviewEntryVM }) {
         <>
           {(phase === "loading-script" || phase === "creating-editor") && (
             <div className="preview-modal-loading">文档预览正在打开，请稍候。</div>
+          )}
+          {phase === "loading-document" && (
+            <div className="preview-modal-loading">
+              正在取回并转换文档，较大的文件可能需要一些时间。
+            </div>
           )}
           {(phase === "script-failed" || phase === "editor-failed" || phase === "timed-out") && (
             <div className="preview-modal-failure" role="alert">

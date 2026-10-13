@@ -21,7 +21,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
-from app.core.config import get_settings
 from app.db.utils import utc_now
 from app.models.ingest import IngestTask
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
@@ -45,6 +44,7 @@ from app.services import original_access
 from app.services.onlyoffice import (
     OnlyOfficeError,
     build_view_config,
+    controlled_fetch_url,
     onlyoffice_enabled,
     resolve_doc_type,
 )
@@ -407,8 +407,6 @@ async def use_preview_entry(
                 fetch_token = secrets.token_urlsafe(32)
                 cred.fetch_token_hash = _hash(fetch_token)
                 file_url = f"/api/v1/preview/{cred.id}/file?ft={fetch_token}"
-                base = (get_settings().onlyoffice_internal_base_url or "").rstrip("/")
-                fetch_url = f"{base}{file_url}" if base else file_url
                 # 文档 key：按版本派生（同版本稳定，安全，非 storage_ref / 非内部主键明文）。
                 document_key = _hash(str(cred.target_version_id or cred.id))[:20]
                 try:
@@ -416,11 +414,13 @@ async def use_preview_entry(
                         document_key=document_key,
                         document_title=document_title,
                         file_name=original[1],
-                        fetch_url=fetch_url,
+                        fetch_url=controlled_fetch_url(file_url),
                     )
                 except OnlyOfficeError as exc:
                     render_type = None
                     onlyoffice_config = None
+                    file_url = None
+                    cred.fetch_token_hash = None
                     message = exc.code
         else:
             # pdf / image / markdown / text：浏览器直接受控取件（同源相对路径）。
