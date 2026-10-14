@@ -67,7 +67,7 @@ export function useIngestConfirmation({
   const workflowRunRef = useRef(0);
   const [flowState, setFlowState] = useState<FlowState>("idle");
   const [fileName, setFileName] = useState("");
-  const [fileSize, setFileSize] = useState(0);
+  const [fileSize, setFileSize] = useState<number | null>(null);
   const [fileType, setFileType] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedTaskName, setSelectedTaskName] = useState("");
@@ -397,6 +397,9 @@ export function useIngestConfirmation({
       const runId = beginWorkflowRun();
       const isCurrent = () => isCurrentWorkflowRun(runId);
       setSelectedTaskName(task.source_file_name);
+      setFileName(task.source_file_name);
+      setFileSize(task.source_file_size ?? null);
+      setFileType(task.source_file_name.split(".").slice(1).pop()?.toUpperCase() ?? "");
       setTaskId(task.id);
       setApiError(null);
       setProcessingNote(null);
@@ -685,7 +688,7 @@ export function useIngestConfirmation({
     setExtraction(null);
     setNaming(null);
     setFileName("");
-    setFileSize(0);
+    setFileSize(null);
     setFileType("");
     setSelectedTaskName("");
     manualTitleRef.current = { taskId: "", manual: false };
