@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -108,6 +109,10 @@ class SearchResponse(BaseModel):
     intent: str
     cards: list[SearchCardOut]
     answer: str | None = None
+    answer_status: Literal["not_requested", "answered", "insufficient_evidence", "unavailable"] = (
+        "not_requested"
+    )
+    answer_message: str | None = None
     citations: list[SearchCitationOut] = []
     original: OriginalOut | None = None
     trace_id: str | None = None

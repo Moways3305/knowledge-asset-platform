@@ -41,6 +41,7 @@ import type {
   KnowledgeDetailVM,
 } from "../types/knowledge";
 import type { PreviewEntryVM } from "../types/preview";
+import type { VersionHistory } from "../api/knowledgeVersions";
 import { formatBeijingTime } from "../utils/time";
 import { readKnowledgeDetailSource } from "../routing/knowledgeDetailSource";
 import { HistoryBackButton } from "../routing/SafeNavigation";
@@ -124,6 +125,7 @@ export default function KnowledgeDetailPage() {
   const [notFound, setNotFound] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
+  const [authorizedHistory, setAuthorizedHistory] = useState<VersionHistory | null>(null);
 
   const [previewEntry, setPreviewEntry] = useState<PreviewEntryVM | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -306,6 +308,7 @@ export default function KnowledgeDetailPage() {
     setNotFound(false);
     setLoadError(false);
     setAsset(null);
+    setAuthorizedHistory(null);
     setLcEvents(null);
     fetchKnowledgeDetail(id)
       .then((detail) => {
@@ -336,18 +339,24 @@ export default function KnowledgeDetailPage() {
   }
 
   if (notFound || (!asset && !loadError)) {
+    const replaced =
+      authorizedHistory !== null &&
+      authorizedHistory.asset_id === id &&
+      Boolean(authorizedHistory.current_asset_id && authorizedHistory.current_asset_id !== id) &&
+      authorizedHistory.items.some((item) => item.asset_id === id && item.status === "archived");
     return (
       <main className="product-page kdetail-page">
         <div className="kdetail-state kdetail-state-centered">
           <FileText size={28} aria-hidden="true" />
-          <h1>未找到或无权查看</h1>
+          <h1>{replaced ? "资料已被新版替代" : "未找到或无权查看"}</h1>
+          {replaced && <p>旧版已归档；可查看当前版本或在版本历史中追溯旧版。</p>}
           <HistoryBackButton fallback={backPath} className="btn-primary">
             {backLabel}
           </HistoryBackButton>
         </div>
         {id && (
           <>
-            <KnowledgeVersionPanel key={id} assetId={id} />
+            <KnowledgeVersionPanel key={id} assetId={id} onHistoryLoaded={setAuthorizedHistory} />
             <KnowledgeTrustPanel assetId={id} />
           </>
         )}

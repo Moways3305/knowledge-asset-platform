@@ -45,7 +45,7 @@ from app.services import agent_registry, agent_workbench, discoverable_projects
 from app.services import directories as directory_service
 from app.services import external_agent_gateway as gateway
 from app.services import search as search_service
-from app.services.llm_client import get_llm_client
+from app.services.generation_models import get_search_llm_client
 from app.services.storage import LocalFileStorage, get_storage
 from app.services.weknora_client import get_weknora_client
 
@@ -103,7 +103,7 @@ async def knowledge_search(
     bound: tuple[AgentWhitelistRule, CallerContext] = Depends(require_bound_caller),
     session: AsyncSession = Depends(get_db),
     weknora=Depends(get_weknora_client),
-    llm=Depends(get_llm_client),
+    llm=Depends(get_search_llm_client),
 ) -> SearchResponse:
     rule, caller = bound
     # 请求未指定 scope 时自动收窄到注册行允许的范围（天花板语义，不拒绝未指定请求）

@@ -37,6 +37,41 @@ KN = "/api/v1/knowledge"
 COMPANY_CATEGORY_ID = uuid.UUID("10000000-0000-0000-0000-000000000002")
 
 
+async def test_company_publication_manual_subject_does_not_nest_source_canonical_name(
+    client, db_session
+):
+    source = await db_session.get(KnowledgeAsset, KA_PROJECT_ALPHA)
+    source.canonical_name = "【QA-项目复盘】来源主题_20261013_V1_L2.md"
+    await db_session.commit()
+    source_name = source.canonical_name
+    body = _company_publication_body()
+    body["naming"].update(subject="验收发布独立主题", subject_is_manual=True)
+    preview = await client.post(
+        _upgrade_url() + "-preview", headers=_hdr(USER_PROJECT_MANAGER), json=body
+    )
+    assert preview.status_code == 200, preview.text
+    canonical = preview.json()["canonical_name"]
+    assert canonical.startswith("【方法论】验收发布独立主题_")
+    assert "来源主题" not in canonical and "QA-项目复盘" not in canonical
+    created = await client.post(_upgrade_url(), headers=_hdr(USER_PROJECT_MANAGER), json=body)
+    assert created.status_code == 200, created.text
+    review_id = created.json()["id"]
+    first = await client.post(f"{REVIEWS}/{review_id}/approve", headers=_hdr(USER_BOSS), json={})
+    assert first.status_code == 200 and first.json()["status"] == "pending_reviewer"
+    second = await client.post(
+        f"{REVIEWS}/{review_id}/approve", headers=_hdr(USER_DIRECTOR), json={}
+    )
+    assert second.status_code == 200, second.text
+    assert second.json()["status"] == "approved"
+    db_session.expire_all()
+    target = await db_session.get(KnowledgeAsset, uuid.UUID(second.json()["target_asset_id"]))
+    source = await db_session.get(KnowledgeAsset, KA_PROJECT_ALPHA)
+    assert target.title == "验收发布独立主题"
+    assert target.canonical_name == canonical
+    assert source.canonical_name == source_name
+    assert source.scope == "project"
+
+
 @pytest_asyncio.fixture(autouse=True)
 async def governed_company_publication_policy(sessionmaker_fixture):
     async with sessionmaker_fixture() as session:

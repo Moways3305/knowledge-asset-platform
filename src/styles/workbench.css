@@ -1144,6 +1144,18 @@
     width: auto;
   }
 
+  /* The mobile rail leaves too little room for a flyout on its right. Keep
+     identity actions above the trigger and within the viewport instead. */
+  .rail-identity .idm-panel {
+    left: 0;
+    right: auto;
+    top: auto;
+    bottom: calc(100% + 8px);
+    width: min(320px, calc(100vw - 32px));
+    max-height: calc(100dvh - 80px);
+    overflow-y: auto;
+  }
+
   .deck-mobile-menu {
     display: inline-flex;
   }

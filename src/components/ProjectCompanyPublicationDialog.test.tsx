@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getProjectCompanyPublicationEligibility } from "./ProjectCompanyPublicationDialog";
+import { createPublicationNamingValue } from "./PublicationNamingFields";
 
 const candidate = {
   scope: "project",
@@ -9,6 +10,11 @@ const candidate = {
 };
 
 describe("project company publication eligibility", () => {
+  it("uses the reviewed publication subject instead of wrapping the source filename", () => {
+    expect(createPublicationNamingValue("验收发布主题").naming).toEqual(
+      expect.objectContaining({ subject: "验收发布主题", subject_is_manual: true }),
+    );
+  });
   it.each([
     ["project_manager", candidate, true, null],
     ["consultant", candidate, false, "仅项目经理可提交公司发布申请"],

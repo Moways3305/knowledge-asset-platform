@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiError } from "../api/http";
 import {
@@ -31,10 +31,14 @@ const message = (error: unknown) =>
 export default function KnowledgeVersionPanel({
   assetId,
   onReplaced,
+  onHistoryLoaded,
 }: {
   assetId: string;
   onReplaced?: () => void;
+  onHistoryLoaded?: (history: VersionHistory) => void;
 }) {
+  const historyLoadedRef = useRef(onHistoryLoaded);
+  historyLoadedRef.current = onHistoryLoaded;
   const [state, setState] = useState<VersionHistory | null>(null);
   const [open, setOpen] = useState<"history" | "upload" | "replace" | "snapshot" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +65,7 @@ export default function KnowledgeVersionPanel({
       .then((value) => {
         if (active) {
           setState(value);
+          historyLoadedRef.current?.(value);
           setVersion(value.suggested_version);
         }
       })
@@ -75,6 +80,7 @@ export default function KnowledgeVersionPanel({
   async function refresh() {
     const value = await fetchVersionHistory(assetId);
     setState(value);
+    historyLoadedRef.current?.(value);
     return value;
   }
   if (!state)

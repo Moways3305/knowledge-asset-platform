@@ -390,10 +390,12 @@ def safe_connection_diagnostics(model: ContentGenerationModel) -> dict:
 
 async def resolve_generation_llm_client(
     session: AsyncSession,
+    *,
+    fallback: LLMClient | NullLLMClient | None = None,
 ) -> LLMClient | NullLLMClient:
     settings = await _settings(session)
     if settings is None:
-        return get_llm_client()
+        return fallback if fallback is not None else get_llm_client()
     if settings.default_model_id is None:
         return NullLLMClient()
     model = await session.get(ContentGenerationModel, settings.default_model_id)
@@ -415,6 +417,14 @@ async def get_generation_llm_client(
     session: AsyncSession = Depends(get_db),
 ) -> LLMClient | NullLLMClient:
     return await resolve_generation_llm_client(session)
+
+
+async def get_search_llm_client(
+    session: AsyncSession = Depends(get_db),
+    fallback: LLMClient | NullLLMClient = Depends(get_llm_client),
+) -> LLMClient | NullLLMClient:
+    """Search/QA use the platform default; legacy env only before product setup."""
+    return await resolve_generation_llm_client(session, fallback=fallback)
 
 
 async def generation_model_configured(session: AsyncSession) -> bool:

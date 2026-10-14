@@ -79,6 +79,8 @@ export interface SearchResponseDTO {
   intent: string;
   cards: SearchCardDTO[];
   answer: string | null;
+  answer_status?: "not_requested" | "answered" | "insufficient_evidence" | "unavailable";
+  answer_message?: string | null;
   citations: SearchCitationDTO[];
   original: OriginalDTO | null;
   trace_id: string | null;

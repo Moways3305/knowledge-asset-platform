@@ -111,6 +111,25 @@ describe("ReviewPage governance workspace", () => {
     expect(await screen.findByText("原文访问正式路由")).toBeInTheDocument();
   });
 
+  it("shows separate company confirmation seats and does not call one confirmation approval", async () => {
+    vi.mocked(fetchReviews).mockResolvedValue([
+      {
+        ...pending,
+        review_type: "project_to_company",
+        general_manager_confirmation_status: "confirmed",
+        consulting_director_confirmation_status: null,
+      },
+    ]);
+    renderPage();
+    expect(await screen.findByText("总经理：已确认")).toBeInTheDocument();
+    expect(screen.getByText("咨询总监：待确认")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^确认$/ }));
+    expect(
+      await screen.findByText("公司发布确认已提交，是否发布以审核状态为准。"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("审核已通过。")).not.toBeInTheDocument();
+  });
+
   it("shows safe fields and never renders ids, trigger sources or unknown enums", async () => {
     vi.mocked(fetchReviews).mockResolvedValue([
       pending,

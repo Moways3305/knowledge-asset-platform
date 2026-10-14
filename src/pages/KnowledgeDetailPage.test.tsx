@@ -14,6 +14,7 @@ import type { PreviewEntryVM } from "../types/preview";
 import { ApiError } from "../api/http";
 import { fetchNamingOptions } from "../api/naming";
 import { previewCompanyUpgrade, requestCompanyUpgrade } from "../api/review";
+import { fetchVersionHistory, type VersionHistory } from "../api/knowledgeVersions";
 
 const authState = {
   authMe: {
@@ -44,6 +45,11 @@ vi.mock("../api/knowledge", () => ({
   retryKnowledgeIndex: vi.fn(),
 }));
 vi.mock("../api/naming", () => ({ fetchNamingOptions: vi.fn() }));
+vi.mock("../api/knowledgeVersions", () => ({
+  fetchVersionHistory: vi.fn(),
+  compareVersions: vi.fn(),
+  uploadVersion: vi.fn(),
+}));
 vi.mock("../api/review", () => ({
   previewCompanyUpgrade: vi.fn(),
   requestCompanyUpgrade: vi.fn(),
@@ -126,6 +132,7 @@ describe("KnowledgeDetailPage", () => {
   beforeEach(() => {
     authState.authMe.projects = [];
     vi.mocked(fetchKnowledgeDetail).mockReset();
+    vi.mocked(fetchVersionHistory).mockReset().mockRejectedValue(new ApiError(404, "not found"));
     vi.mocked(fetchLifecycleEvents).mockReset();
     vi.mocked(issuePreview).mockReset();
     vi.mocked(fetchPreviewEntry).mockReset();
@@ -188,7 +195,7 @@ describe("KnowledgeDetailPage", () => {
         "project-1",
         "asset-1",
         expect.objectContaining({
-          naming: expect.objectContaining({ applicable_to: "全公司" }),
+          naming: expect.objectContaining({ applicable_to: "全公司", subject_is_manual: true }),
         }),
       ),
     );
@@ -241,6 +248,48 @@ describe("KnowledgeDetailPage", () => {
       "href",
       state.backTo,
     );
+  });
+
+  it("explains an archived replacement only after authorized history confirms it", async () => {
+    vi.mocked(fetchKnowledgeDetail).mockRejectedValue(new ApiError(404, "not found"));
+    vi.mocked(fetchVersionHistory).mockResolvedValue({
+      asset_id: "asset-1",
+      current_asset_id: "asset-2",
+      can_update: false,
+      suggested_version: "V3",
+      updated_at: "2026-10-13T06:00:00Z",
+      items: [
+        {
+          asset_id: "asset-1",
+          version_id: "v1",
+          version: "V1",
+          title: "旧版",
+          status: "archived",
+          version_status: "superseded",
+          created_at: "2026-10-12T06:00:00Z",
+          is_current: false,
+        },
+      ],
+      updates: [],
+      truncated: false,
+    } satisfies VersionHistory);
+    renderDetail();
+    expect(await screen.findByRole("heading", { name: "资料已被新版替代" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "查看当前版本" })).toHaveAttribute(
+      "href",
+      "/knowledge/asset-2",
+    );
+    expect(screen.queryByRole("heading", { name: "未找到或无权查看" })).not.toBeInTheDocument();
+  });
+
+  it("does not disclose a replacement when version history is unauthorized", async () => {
+    vi.mocked(fetchKnowledgeDetail).mockRejectedValue(new ApiError(403, "forbidden"));
+    vi.mocked(fetchVersionHistory).mockRejectedValue(new ApiError(404, "not found"));
+    renderDetail();
+    expect(await screen.findByRole("heading", { name: "未找到或无权查看" })).toBeInTheDocument();
+    await waitFor(() => expect(fetchVersionHistory).toHaveBeenCalled());
+    expect(screen.queryByRole("heading", { name: "资料已被新版替代" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "查看当前版本" })).not.toBeInTheDocument();
   });
 
   it("opens a frontend preview shell instead of exposing preview JSON", async () => {

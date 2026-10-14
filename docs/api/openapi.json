@@ -16484,6 +16484,28 @@
             ],
             "title": "Answer"
           },
+          "answer_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Message"
+          },
+          "answer_status": {
+            "default": "not_requested",
+            "enum": [
+              "not_requested",
+              "answered",
+              "insufficient_evidence",
+              "unavailable"
+            ],
+            "title": "Answer Status",
+            "type": "string"
+          },
           "cards": {
             "items": {
               "$ref": "#/components/schemas/SearchCardOut"

@@ -42,6 +42,9 @@ describe("HelpPage", () => {
     );
 
     expect(container.querySelector("#knowledge")).toHaveTextContent("编辑不会改写原始文件");
+    expect(container.querySelector("#knowledge")).toHaveTextContent("未命中不等于资料不存在");
+    expect(container.querySelector("#models")).toHaveTextContent("平台保存的默认模型");
+    expect(container.querySelector("#integration")).toHaveTextContent("资料卡片不等于问题已有答案");
     expect(container.querySelector("#directories")).toHaveTextContent("保存草稿后还需发布");
     expect(container.querySelector("#directories")).toHaveTextContent(
       "候选只是管理建议，不会自动归档",
