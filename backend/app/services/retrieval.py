@@ -15,11 +15,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from dataclasses import dataclass, field
 
-from sqlalchemy import and_, case, or_, select, true
+from sqlalchemy import and_, case, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -51,7 +52,7 @@ from app.services.llm_client import LLMClient, LLMError, NullLLMClient
 from app.services.permission import decide
 from app.services.permission_rules import load_access_policy
 from app.services.summary_policy import REDACTED_SUMMARY_LEVELS
-from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient
+from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient, WeKnoraError
 
 # 需要输出脱敏的保密级别（返回原文/片段前必须实体脱敏）。
 _logger = logging.getLogger(__name__)
@@ -177,6 +178,7 @@ async def recall_assets(
     channel: AccessChannel,
     knowledge_ids: list[str] | None = None,
     trace_id: str | None = None,
+    search_queries: list[str] | None = None,
 ) -> list[RecalledAsset]:
     """召回并映射到资产级（去重取最高 score），逐资产三层 `decide()`。
 
@@ -188,13 +190,41 @@ async def recall_assets(
     if not query or not kb_ids or knowledge_ids == []:
         return []
     policy = await load_access_policy(session)
-    chunks = await weknora.search(
-        query=query,
-        kb_ids=kb_ids,
-        knowledge_ids=knowledge_ids,
-        top_k=_RECALL_TOP_K,
-        trace_id=trace_id,
-    )
+    queries = [query]
+    for alternative in (search_queries or [])[:3]:
+        term = alternative.strip()
+        if term and len(term) <= 60 and term not in queries and len(queries) < 3:
+            queries.append(term)
+    # Sequential calls avoid concurrent use of injected clients. Merge ranks
+    # round-robin into the same global chunk budget, not 100 per expansion.
+    batches = []
+    for index, term in enumerate(queries):
+        try:
+            request = weknora.search(
+                query=term,
+                kb_ids=kb_ids,
+                knowledge_ids=knowledge_ids,
+                top_k=_RECALL_TOP_K,
+                trace_id=trace_id,
+            )
+            batches.append(
+                await request if index == 0 else await asyncio.wait_for(request, timeout=4)
+            )
+        except (WeKnoraError, asyncio.TimeoutError):
+            if index == 0:
+                raise
+            _logger.warning("retrieval_optional_query_unavailable")
+    chunks: list[dict] = []
+    seen_chunks: set[tuple] = set()
+    for rank in range(_RECALL_TOP_K):
+        for batch in batches:
+            if rank >= len(batch) or len(chunks) >= _RECALL_TOP_K:
+                continue
+            chunk = batch[rank]
+            key = (chunk.get("knowledge_id"), chunk.get("seq"), chunk.get("content"))
+            if key not in seen_chunks:
+                seen_chunks.add(key)
+                chunks.append(chunk)
     # Title/tag matches are independent of chunk ranking. Do not manufacture
     # original-text evidence: these entries use only the existing safe summary.
     metadata_stmt = (
@@ -221,15 +251,26 @@ async def recall_assets(
                 KnowledgeAssetVersion.directory_key != "personal.pending",
             ),
             or_(
-                KnowledgeAsset.title.icontains(query, autoescape=True),
-                KnowledgeAsset.tags.any(
-                    KnowledgeAssetTag.tag_name.icontains(query, autoescape=True)
-                ),
+                *[
+                    or_(
+                        KnowledgeAsset.title.icontains(term, autoescape=True),
+                        KnowledgeAsset.tags.any(
+                            KnowledgeAssetTag.tag_name.icontains(term, autoescape=True)
+                        ),
+                    )
+                    for term in queries
+                ]
             ),
         )
         .options(selectinload(KnowledgeAsset.summaries), selectinload(KnowledgeAsset.tags))
         .order_by(
-            case((KnowledgeAsset.title == query, 0), else_=1),
+            case(
+                (KnowledgeAsset.title == query, 0),
+                (KnowledgeAsset.tags.any(KnowledgeAssetTag.tag_name == query), 1),
+                (KnowledgeAsset.title.istartswith(query, autoescape=True), 2),
+                else_=3,
+            ),
+            func.length(KnowledgeAsset.title),
             KnowledgeAsset.title,
             KnowledgeAsset.id,
             KnowledgeAssetVersion.id,

@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 
 import httpx
@@ -132,7 +133,13 @@ class FakeScrubLLM:
         if "脱敏" in system:
             text = messages[1]["content"] if len(messages) > 1 else ""
             return text.replace("客户敏感实体XYZ", "【客户】").replace("888万元", "【金额】")
-        return "【LLM 答案】供应链优化要点：采购、仓储、物流协同。[1]"
+        return json.dumps(
+            {
+                "status": "answered",
+                "answer": "【LLM 答案】供应链优化要点：采购、仓储、物流协同。[1]",
+                "citation_orders": [1],
+            }
+        )
 
 
 class DownLLM:
@@ -611,6 +618,48 @@ async def test_literal_match_is_not_crowded_out_by_upstream_score_scale(client, 
     assert response.json()["cards"][0]["asset_id"] == str(asset.id)
 
 
+async def test_specific_title_survives_more_than_one_hundred_visible_matches(client, db_session):
+    query = "独立排序锚点"
+    for index in range(110):
+        asset_id, version_id = uuid.uuid4(), uuid.uuid4()
+        db_session.add(
+            KnowledgeAsset(
+                id=asset_id,
+                title=f"{query}编号法规汇编与历史案例操作指引{index:03}",
+                scope="company",
+                zone="material",
+                asset_type="unclassified",
+                owner_user_id=USER_CONSULTANT,
+                confidentiality_level="L2",
+                ai_access_level="A1",
+                current_version_id=version_id,
+                asset_status="active",
+            )
+        )
+        db_session.add(
+            KnowledgeAssetVersion(
+                id=version_id,
+                asset_id=asset_id,
+                version_no="V1",
+                version_status="active",
+                created_by=USER_CONSULTANT,
+                weknora_kb_id=_COMPANY_KB,
+                weknora_doc_id=f"wk-ranking-{index}",
+                index_status="indexed",
+            )
+        )
+    target = await db_session.get(KnowledgeAsset, KA_COMPANY_L2)
+    target.title = f"{query}手册"
+    await db_session.commit()
+    _install(FakeSearchWeKnora([]), FakeScrubLLM())
+    response = await client.post(
+        SEARCH, headers=_hdr(USER_CONSULTANT), json={"query": query, "scope": "company"}
+    )
+    assert response.status_code == 200
+    assert len(response.json()["cards"]) == 100
+    assert response.json()["cards"][0]["asset_id"] == str(target.id)
+
+
 async def test_metadata_query_treats_sql_wildcards_as_literal_text(client):
     _install(FakeSearchWeKnora([]), FakeScrubLLM())
     response = await client.post(
@@ -698,7 +747,7 @@ async def test_metadata_scan_budget_preserves_permitted_hits(
             )
         )
     visible = await db_session.get(KnowledgeAsset, KA_COMPANY_L2)
-    visible.title = f"{'0' if early_visible else 'Z'} {query}"
+    visible.title = f"{query}早期候选" if early_visible else f"Z {query} 最后一个长标题可见候选"
     await db_session.commit()
     docs = [_doc(KA_COMPANY_L4, _COMPANY_KB, "semantic match")] if semantic else []
     _install(FakeSearchWeKnora(docs), FakeScrubLLM())
@@ -753,3 +802,82 @@ async def test_metadata_recall_keeps_all_security_gates(client, db_session, inva
     )
     assert response.status_code == 200
     assert response.json()["cards"] == []
+
+
+async def test_spoken_query_expansion_preserves_scope_filters_and_permissions(
+    client, db_session, monkeypatch
+):
+    from app.services import search_queries
+
+    query = "说不出正式名称时如何找到那个按固定周期核查资料的通用流程？"
+    term = "复核机制验收锚点"
+    for asset_id in (KA_COMPANY_L2, KA_COMPANY_L5, KA_PROJECT_ALPHA):
+        asset = await db_session.get(KnowledgeAsset, asset_id)
+        asset.title = f"{term}手册"
+        db_session.add(KnowledgeAssetTag(asset_id=asset_id, tag_name="独立扩展验收标签"))
+    await db_session.commit()
+
+    async def plan(*args, **kwargs):
+        return [query, term]
+
+    monkeypatch.setattr(search_queries, "plan_queries", plan)
+
+    class RecordingSearch(FakeSearchWeKnora):
+        def __init__(self):
+            super().__init__([])
+            self.calls = []
+
+        async def search(self, **kwargs):
+            self.calls.append(kwargs)
+            return []
+
+    fake = RecordingSearch()
+    _install(fake, FakeScrubLLM())
+    response = await client.post(
+        SEARCH,
+        headers=_hdr(USER_CONSULTANT),
+        json={
+            "query": query,
+            "scope": "company",
+            "intent": "search",
+            "filters": {"tags": ["独立扩展验收标签"]},
+        },
+    )
+    assert response.status_code == 200
+    assert [card["asset_id"] for card in response.json()["cards"]] == [str(KA_COMPANY_L2)]
+    assert [call["query"] for call in fake.calls] == [query, term]
+    assert all(call["kb_ids"] == [_COMPANY_KB] for call in fake.calls)
+    assert fake.calls[0]["knowledge_ids"] == fake.calls[1]["knowledge_ids"]
+    assert str(KA_COMPANY_L5) not in response.text
+    assert str(KA_PROJECT_ALPHA) not in response.text
+
+
+async def test_optional_query_failure_preserves_primary_hits(client, monkeypatch, caplog):
+    from app.services import search_queries
+    from app.services.weknora_client import WeKnoraError
+
+    query = "怎样查看已有资料在核查和确认后的处理流程以及相关说明？"
+
+    async def plan(*args, **kwargs):
+        return [query, "扩展查询"]
+
+    monkeypatch.setattr(search_queries, "plan_queries", plan)
+
+    class FailingExpansion(FakeSearchWeKnora):
+        async def search(self, **kwargs):
+            if kwargs["query"] != query:
+                raise WeKnoraError("network_error", "SECRET-source-endpoint")
+            return await super().search(**kwargs)
+
+    _install(
+        FailingExpansion([_doc(KA_COMPANY_L2, _COMPANY_KB, "primary evidence")]), FakeScrubLLM()
+    )
+    response = await client.post(
+        SEARCH,
+        headers=_hdr(USER_CONSULTANT),
+        json={"query": query, "scope": "company", "intent": "search"},
+    )
+    assert response.status_code == 200
+    assert [card["asset_id"] for card in response.json()["cards"]] == [str(KA_COMPANY_L2)]
+    assert "SECRET" not in response.text + caplog.text
+    assert "retrieval_optional_query_unavailable" in caplog.text

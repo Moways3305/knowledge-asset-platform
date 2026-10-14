@@ -299,6 +299,43 @@ async def test_env_fallback_stops_after_product_configuration_exists(db_session,
     assert isinstance(resolved, NullLLMClient)
 
 
+async def test_search_uses_platform_default_even_when_environment_client_is_missing(db_session):
+    await generation_models.create_model(
+        db_session,
+        display_name="统一问答默认模型",
+        provider="deepseek",
+        model_name="qa-product-model",
+        base_url=URL,
+        api_key=SECRET,
+        enabled=True,
+        make_default=True,
+        actor_id=USER_ADMIN_ONLY,
+    )
+    await db_session.commit()
+    selected = await generation_models.get_search_llm_client(db_session, NullLLMClient())
+    assert isinstance(selected, LLMClient)
+    assert selected.model == "qa-product-model"
+
+
+async def test_search_does_not_resurrect_environment_model_after_default_is_cleared(db_session):
+    fallback = LLMClient(provider="deepseek", api_key="env-secret", model="env-model")
+    await generation_models.create_model(
+        db_session,
+        display_name="仅登记非默认模型",
+        provider="deepseek",
+        model_name="registered",
+        base_url=URL,
+        api_key=SECRET,
+        enabled=True,
+        make_default=False,
+        actor_id=USER_ADMIN_ONLY,
+    )
+    await db_session.commit()
+    assert isinstance(
+        await generation_models.get_search_llm_client(db_session, fallback), NullLLMClient
+    )
+
+
 async def test_safe_project_qa_options_lists_default_model_with_suffix_and_system_default(
     db_session, monkeypatch
 ):

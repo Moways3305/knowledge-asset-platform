@@ -69,7 +69,7 @@ const routes: RouteContract[] = [
       "pages/knowledge/OnlyOfficePreview.tsx",
       "components/KnowledgeTrustPanel.tsx",
     ],
-    apiModules: ["http", "knowledge", "knowledgeTrust"],
+    apiModules: ["http", "knowledge", "knowledgeTrust", "knowledgeVersions"],
     allowedTimerOwners: ["pages/knowledge/OnlyOfficePreview.tsx"],
   },
   {

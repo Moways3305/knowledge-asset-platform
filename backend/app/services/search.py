@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import HTTPException
 from sqlalchemy import and_, or_, select
@@ -26,7 +26,7 @@ from app.schemas.search import (
     SearchResponse,
 )
 from app.services import audit as audit_service
-from app.services import directories, retrieval
+from app.services import directories, knowledge_qa, retrieval, search_queries
 from app.services.desensitization import LlmOutputDesensitizer
 from app.services.intent import classify_intent, wants_answer
 from app.services.llm_client import LLMClient, NullLLMClient
@@ -182,6 +182,11 @@ async def run_search(
         if not knowledge_ids:
             recalled = []
     if recalled is None:
+        planned = (
+            await search_queries.plan_queries(llm, query, trace_id=trace_id)
+            if kb_ids and knowledge_ids != []
+            else [query]
+        )
         recalled = await retrieval.recall_assets(
             session,
             caller,
@@ -191,6 +196,7 @@ async def run_search(
             knowledge_ids=knowledge_ids,
             channel=channel,
             trace_id=trace_id,
+            search_queries=planned,
         )
     recalled = [
         r
@@ -215,6 +221,10 @@ async def run_search(
     # ---- 问答 / 生成 / 总结 / 检查：放行证据 → 脱敏 → LLM 自拼答案 + 引用
     # D1 阶段4：子块召回 → 父文件全文给 Agent（无 chunk 存量资产自动回退片段/摘要）。
     answer: str | None = None
+    answer_status: Literal["not_requested", "answered", "insufficient_evidence", "unavailable"] = (
+        "not_requested"
+    )
+    answer_message: str | None = None
     citations: list[SearchCitationOut] = []
     if wants_answer(intent):
         evidences = await retrieval.gather_parent_context(
@@ -223,8 +233,11 @@ async def run_search(
             desens,
             trace_id=trace_id,
         )
-        answer = await retrieval.synthesize_answer(llm, query, evidences, trace_id=trace_id)
+        outcome = await knowledge_qa.generate_answer(llm, query, evidences, trace_id=trace_id)
+        answer, answer_status, answer_message = outcome.answer, outcome.status, outcome.message
         for order, e in enumerate(evidences, start=1):
+            if order not in outcome.citation_orders:
+                continue
             citations.append(
                 SearchCitationOut(
                     asset_id=e.asset.id,
@@ -252,7 +265,8 @@ async def run_search(
             "intent": intent.value,
             "scope": req.scope or "all",
             "card_count": len(cards),
-            "answered": answer is not None,
+            "answered": answer_status == "answered",
+            "answer_status": answer_status,
             "channel": channel.value,
             "directory_key": req.filters.directory_key,
         },
@@ -263,6 +277,8 @@ async def run_search(
         intent=intent.value,
         cards=cards,
         answer=answer,
+        answer_status=answer_status,
+        answer_message=answer_message,
         citations=citations,
         original=original_out,
         trace_id=trace_id,

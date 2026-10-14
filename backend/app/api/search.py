@@ -20,7 +20,7 @@ from app.schemas.permission import CallerContext
 from app.schemas.search import SearchRequest, SearchResponse
 from app.services import discoverable_projects
 from app.services import search as search_service
-from app.services.llm_client import get_llm_client
+from app.services.generation_models import get_search_llm_client
 from app.services.weknora_client import get_weknora_client
 
 router = APIRouter(prefix="/api/v1", tags=["search"])
@@ -33,7 +33,7 @@ async def knowledge_search(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
     weknora=Depends(get_weknora_client),
-    llm=Depends(get_llm_client),
+    llm=Depends(get_search_llm_client),
 ) -> SearchResponse:
     if req.filters.project_id is not None:
         project = await discoverable_projects.get_knowledge_library_project(

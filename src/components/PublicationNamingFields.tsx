@@ -14,6 +14,7 @@ export function createPublicationNamingValue(subject: string): PublicationNaming
     naming: {
       directory_key: "",
       subject,
+      subject_is_manual: true,
       formed_on: new Date().toISOString().slice(0, 10),
       version: "V1",
     },
@@ -166,7 +167,10 @@ export default function PublicationNamingFields({
             maxLength={120}
             disabled={disabled}
             onChange={(event) =>
-              update({ ...value, naming: { ...value.naming, subject: event.target.value } })
+              update({
+                ...value,
+                naming: { ...value.naming, subject: event.target.value, subject_is_manual: true },
+              })
             }
           />
         </label>

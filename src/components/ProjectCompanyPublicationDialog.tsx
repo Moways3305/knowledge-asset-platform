@@ -111,7 +111,7 @@ function ProjectCompanyPublicationSession({
     <ConfirmDialog
       open
       title="发布到公司知识库"
-      description="将创建独立的公司知识版本，并进入项目经理与公司知识管理员双角色确认；当前项目资产及项目归属保持不变。"
+      description="项目经理发起申请后，须由总经理和咨询总监两个不同账号分别确认。两席确认完成才发布独立的公司知识版本；当前项目资产及项目归属保持不变。"
       confirmText="提交公司发布申请"
       busy={busy}
       error={error}

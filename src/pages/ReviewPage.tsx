@@ -19,6 +19,16 @@ import type { ReviewItemDTO } from "../types/review";
 import { formatBeijingTime } from "../utils/time";
 
 const SAFE_FALLBACK = "信息待确认";
+const confirmationLabel: Record<string, string> = {
+  pending: "待确认",
+  confirmed: "已确认",
+  withdrawn: "已撤回",
+  rejected: "已拒绝",
+};
+
+function companyConfirmationLabel(status: string | null) {
+  return status === null ? "待确认" : (confirmationLabel[status] ?? SAFE_FALLBACK);
+}
 
 const reviewTypeLabel: Record<string, string> = {
   material_to_asset: "资料资产化",
@@ -313,9 +323,22 @@ export default function ReviewPage() {
       header: "状态",
       headerClassName: "gw-col-review-status",
       render: (item) => (
-        <span className={`gw-status ${statusTone[item.status] ?? "is-neutral"}`}>
-          {statusLabel[item.status] ?? SAFE_FALLBACK}
-        </span>
+        <div>
+          <span className={`gw-status ${statusTone[item.status] ?? "is-neutral"}`}>
+            {statusLabel[item.status] ?? SAFE_FALLBACK}
+          </span>
+          {item.review_type === "project_to_company" && (
+            <small className="gw-blocking-reason">
+              <span>
+                总经理：{companyConfirmationLabel(item.general_manager_confirmation_status)}
+              </span>
+              <br />
+              <span>
+                咨询总监：{companyConfirmationLabel(item.consulting_director_confirmation_status)}
+              </span>
+            </small>
+          )}
+        </div>
       ),
     },
     {
@@ -351,7 +374,13 @@ export default function ReviewPage() {
                 type="button"
                 disabled={busyId === item.id}
                 onClick={() =>
-                  void runAction(item, () => approveReview(item.id, "确认通过"), "审核已通过。")
+                  void runAction(
+                    item,
+                    () => approveReview(item.id, "确认通过"),
+                    item.review_type === "project_to_company"
+                      ? "公司发布确认已提交，是否发布以审核状态为准。"
+                      : "审核已通过。",
+                  )
                 }
               >
                 确认

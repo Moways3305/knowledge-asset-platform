@@ -642,6 +642,8 @@ def build_remote_mcp(kap_app: FastAPI) -> FastMCP:
             )
             return {
                 "answer": data.get("answer"),
+                "answer_status": data.get("answer_status", "not_requested"),
+                "answer_message": data.get("answer_message"),
                 "citations": [_pick(item, _CITATION_FIELDS) for item in data.get("citations", [])],
             }
 
