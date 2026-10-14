@@ -14,7 +14,7 @@ from app.models.indexing_job import IndexingOperationJob
 from app.models.ingest import IngestTask
 from app.models.notification import BusinessNotification
 from app.models.original_access import OriginalAccessRequest
-from app.models.review import ReviewTask
+from app.models.review import CompanyAssetReviewDecision, ReviewTask
 from app.schemas.enums import ReviewTaskStatus, ReviewType
 from app.seed.dev_seed import (
     PROJECT_ALPHA,
@@ -191,6 +191,103 @@ async def test_company_confirmation_maps_only_to_active_governance_roles(db_sess
         .all()
     )
     assert recipients == {USER_BOSS, USER_DIRECTOR}
+
+
+async def test_confirmed_company_seat_is_history_not_current_users_todo(client, db_session):
+    task = ReviewTask(
+        review_type="project_to_company",
+        trigger_source="test",
+        target_project_id=PROJECT_ALPHA,
+        target_scope="company",
+        status="pending_reviewer",
+        submitted_by=USER_PROJECT_MANAGER,
+    )
+    db_session.add(task)
+    await db_session.flush()
+    await notify_review_pending(db_session, task)
+    db_session.add(
+        CompanyAssetReviewDecision(
+            review_task_id=task.id,
+            required_role="boss",
+            decision="confirmed",
+            actor_user_id=USER_BOSS,
+        )
+    )
+    await db_session.commit()
+    for user, expected in [(USER_BOSS, False), (USER_DIRECTOR, True)]:
+        response = await client.get(API, headers=_headers(user))
+        assert response.status_code == 200
+        item = next(
+            row for row in response.json()["items"] if row["target"]["resource_id"] == str(task.id)
+        )
+        assert item["action_required"] is expected
+        assert item["task_group"] == ("my_tasks" if expected else "running_jobs")
+        assert response.json()["pending_count"] == int(expected)
+
+    decision = await db_session.scalar(
+        select(CompanyAssetReviewDecision).where(
+            CompanyAssetReviewDecision.review_task_id == task.id
+        )
+    )
+    decision.decision = "withdrawn"
+    await db_session.commit()
+    reopened = await client.get(API, headers=_headers(USER_BOSS))
+    assert reopened.status_code == 200
+    assert reopened.json()["pending_count"] == 1
+    assert reopened.json()["items"][0]["action_required"]
+
+
+async def test_confirmed_company_seat_cancels_stale_external_delivery(db_session):
+    task = ReviewTask(
+        review_type="project_to_company",
+        trigger_source="test",
+        target_project_id=PROJECT_ALPHA,
+        target_scope="company",
+        status="pending_reviewer",
+        submitted_by=USER_PROJECT_MANAGER,
+    )
+    db_session.add(task)
+    await db_session.flush()
+    db_session.add(
+        CompanyAssetReviewDecision(
+            review_task_id=task.id,
+            required_role="boss",
+            decision="confirmed",
+            actor_user_id=USER_BOSS,
+        )
+    )
+    notification = _row(recipient=USER_BOSS, target_id=task.id, channel="wecom")
+    notification.event_type = "review.company_confirmation_pending"
+    db_session.add(notification)
+    await db_session.commit()
+
+    class NeverSend:
+        async def send(self, **kwargs):
+            raise AssertionError("Confirmed seats must not receive stale pending messages")
+
+    result = await dispatch_pending(db_session, sender=NeverSend())
+    assert result["expired"] == 1
+    assert result["sent"] == 0
+
+
+def test_dual_role_user_cannot_fill_both_company_seats_in_read_projection():
+    from app.schemas.permission import CallerContext
+    from app.services.company_confirmation_policy import select_confirmation_role
+    from app.services.review_support import _company_can_decide
+
+    caller = CallerContext(
+        user_id=USER_BOSS,
+        is_active=True,
+        active_company_roles={"boss", "consulting_director"},
+        active_project_ids=set(),
+    )
+    states = {
+        "boss": CompanyAssetReviewDecision(
+            required_role="boss", decision="confirmed", actor_user_id=USER_BOSS
+        )
+    }
+    assert select_confirmation_role(caller, states) is None
+    assert not _company_can_decide(caller, ReviewTask(status="pending_reviewer"), states)
 
 
 async def test_original_access_project_notification_does_not_fan_out_by_company_role(db_session):

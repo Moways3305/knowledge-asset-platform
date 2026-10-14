@@ -58,7 +58,8 @@ export const bizStageOptions = [
   "专项诊断",
 ];
 
-export function formatFileSize(bytes: number): string {
+export function formatFileSize(bytes: number | null | undefined): string {
+  if (bytes == null) return "未提供";
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;

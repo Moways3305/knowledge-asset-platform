@@ -35,6 +35,9 @@ from app.schemas.review import (
 )
 from app.services import audit as audit_service
 from app.services import governance_policy
+from app.services.company_confirmation_policy import (
+    select_confirmation_role as _select_company_confirmation_role,
+)
 from app.services.review_events import publish_action_required as _publish_review_action_required
 from app.services.review_events import publish_decided as _publish_review_decided
 from app.services.review_evidence_workflow import _load_project_asset
@@ -182,32 +185,6 @@ async def preview_company_upgrade(
         fields=rendered.metadata,
         notices=rendered.notices,
     )
-
-
-def _select_company_confirmation_role(
-    caller: CallerContext,
-    states: dict[str, CompanyAssetReviewDecision],
-) -> str | None:
-    for role in (CompanyRole.boss.value, CompanyRole.consulting_director.value):
-        if role not in caller.active_company_roles:
-            continue
-        current = states.get(role)
-        if current is not None and current.decision == CompanyAssetDecision.confirmed.value:
-            continue
-        other_role = (
-            CompanyRole.consulting_director.value
-            if role == CompanyRole.boss.value
-            else CompanyRole.boss.value
-        )
-        other = states.get(other_role)
-        if (
-            other is not None
-            and other.decision == CompanyAssetDecision.confirmed.value
-            and other.actor_user_id == caller.user_id
-        ):
-            continue
-        return role
-    return None
 
 
 async def _approve_company_upgrade(

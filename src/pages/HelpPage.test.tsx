@@ -79,6 +79,9 @@ describe("HelpPage", () => {
     );
     expect(container.querySelector("#maintenance")).toHaveTextContent("弹窗");
     expect(container.querySelector("#directories")).toHaveTextContent("「目录治理」");
+    expect(container.querySelector("#directories")).toHaveTextContent("「新建目录」");
+    expect(container.querySelector("#directories")).toHaveTextContent("该项目的有效项目经理");
+    expect(container.querySelector("#directories")).toHaveTextContent("不发布其他草稿");
     expect(container.querySelector("#release-notes")).toHaveTextContent("侧栏底部「更新日志」");
     expect(container.querySelector("#original-access")).toHaveTextContent("原文预览为只读");
     for (const obsolete of [

@@ -39,6 +39,7 @@ from app.models.knowledge import (
     KnowledgeAssetVersion,
 )
 from app.models.knowledge_correction import KnowledgeCorrection
+from app.models.knowledge_directory import KnowledgeDirectory
 from app.models.lifecycle import (
     AlertRule,
     AssetLifecycleEvent,
@@ -65,6 +66,7 @@ from app.models.weknora import WeknoraKbMapping
 from app.models.weknora_defaults import WeknoraDefaultModels
 
 __all__ = [
+    "KnowledgeDirectory",
     "McpOAuthRecord",
     "User",
     "ReleaseNote",

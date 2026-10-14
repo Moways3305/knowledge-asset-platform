@@ -25,6 +25,7 @@ import { can } from "../auth/permissions";
 import DataTable, { type Column } from "../components/DataTable";
 import DetailDrawer from "../components/DetailDrawer";
 import KnowledgeMetadataEditor from "../components/KnowledgeMetadataEditor";
+import CreateKnowledgeDirectoryButton from "../components/CreateKnowledgeDirectoryButton";
 import { summaryPendingLabel } from "../components/knowledgeSummaryState";
 import AccessExplanationDrawer, { accessLabel } from "../components/AccessExplanationDrawer";
 import TaskModal from "../components/TaskModal";
@@ -83,7 +84,7 @@ const emptyPage = (): KnowledgePageVM => ({
 });
 
 export default function KnowledgeListPage() {
-  const { capabilities, status } = useAuth();
+  const { capabilities, status, authMe } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const initialScope = (searchParams.get("scope") as KnowledgeScope | null) ?? "";
@@ -676,12 +677,32 @@ export default function KnowledgeListPage() {
         title="知识资产库"
         description="浏览本项目知识与其他项目可共享摘要；跨项目原文仍需逐项申请。"
         actions={
-          can.viewUpload(capabilities) ? (
-            <Link className="product-button is-primary" to="/upload">
-              <Upload size={16} aria-hidden="true" />
-              上传资产
-            </Link>
-          ) : undefined
+          <div className="knowledge-directory-create-actions">
+            {scope === "company" && capabilities.isGovernance && (
+              <CreateKnowledgeDirectoryButton
+                scope="company"
+                initialParent={directory?.parent_key ?? directory?.directory_key}
+              />
+            )}
+            {scope === "project" &&
+              validProjectId &&
+              authMe?.projects.some(
+                (project) =>
+                  project.projectId === validProjectId && project.projectRole === "project_manager",
+              ) && (
+                <CreateKnowledgeDirectoryButton
+                  scope="project"
+                  projectId={validProjectId}
+                  initialParent={directory?.parent_key ?? directory?.directory_key}
+                />
+              )}
+            {can.viewUpload(capabilities) ? (
+              <Link className="product-button is-primary" to="/upload">
+                <Upload size={16} aria-hidden="true" />
+                上传资产
+              </Link>
+            ) : null}
+          </div>
         }
       />
 
@@ -880,26 +901,22 @@ export default function KnowledgeListPage() {
             </PageSection>
           )}
 
-          {directory?.scope === "company" && (
+          {directory && (directory.scope === "company" || directory.scope === "project") && (
             <PageSection>
               {directory.parent_key && (
                 <Link
-                  to={`/knowledge?scope=company&directory_key=${encodeURIComponent(directory.parent_key)}`}
+                  to={`/knowledge?scope=${directory.scope}&directory_key=${encodeURIComponent(directory.parent_key)}${directory.project_id ? `&project_id=${encodeURIComponent(directory.project_id)}` : ""}`}
                 >
                   返回上级分类
                 </Link>
               )}
-              {!directory.parent_key && can.viewNamingRules(capabilities) && (
-                <Link
-                  className="product-button is-secondary is-small"
-                  to={`/admin/naming-rules?parent=${encodeURIComponent(directory.directory_key)}`}
-                >
-                  新建三级目录
-                </Link>
-              )}
               <div className="kbl-folder-grid">
                 {directoryItems
-                  .filter((item) => item.parent_key === directory.directory_key)
+                  .filter(
+                    (item) =>
+                      item.parent_key === directory.directory_key &&
+                      item.project_id === directory.project_id,
+                  )
                   .map((item) => (
                     <button
                       type="button"
@@ -908,7 +925,7 @@ export default function KnowledgeListPage() {
                         setDirectory(item);
                         setPage(1);
                         navigate(
-                          `/knowledge?scope=company&directory_key=${encodeURIComponent(item.directory_key)}`,
+                          `/knowledge?scope=${directory.scope}&directory_key=${encodeURIComponent(item.directory_key)}${directory.project_id ? `&project_id=${encodeURIComponent(directory.project_id)}` : ""}`,
                         );
                       }}
                     >

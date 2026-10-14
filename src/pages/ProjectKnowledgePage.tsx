@@ -25,6 +25,7 @@ import ProjectCompanyPublicationDialog, {
   getProjectCompanyPublicationEligibility,
 } from "../components/ProjectCompanyPublicationDialog";
 import LoadingError from "../components/LoadingError";
+import CreateKnowledgeDirectoryButton from "../components/CreateKnowledgeDirectoryButton";
 import {
   EmptyState,
   FilterBar,
@@ -698,6 +699,9 @@ function ProjectKnowledgeWorkspace({
         description={project.projectName}
         actions={
           <div className="pk-header-actions">
+            {project.projectRole === "project_manager" && (
+              <CreateKnowledgeDirectoryButton scope="project" projectId={project.projectId} />
+            )}
             <HistoryBackButton
               className="product-button is-secondary is-small"
               fallback={`/project/${project.projectId}`}

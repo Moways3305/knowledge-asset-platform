@@ -618,14 +618,21 @@ async def test_literal_match_is_not_crowded_out_by_upstream_score_scale(client, 
     assert response.json()["cards"][0]["asset_id"] == str(asset.id)
 
 
-async def test_specific_title_survives_more_than_one_hundred_visible_matches(client, db_session):
+@pytest.mark.parametrize("spoken,tagged_cases", [(False, False), (False, True), (True, True)])
+async def test_specific_title_survives_more_than_one_hundred_visible_matches(
+    client, db_session, monkeypatch, spoken, tagged_cases
+):
+    from app.services import search_queries
+
     query = "独立排序锚点"
     for index in range(110):
         asset_id, version_id = uuid.uuid4(), uuid.uuid4()
         db_session.add(
             KnowledgeAsset(
                 id=asset_id,
-                title=f"{query}编号法规汇编与历史案例操作指引{index:03}",
+                title=f"案例{index:03}"
+                if tagged_cases
+                else f"{query}编号法规汇编与历史案例操作指引{index:03}",
                 scope="company",
                 zone="material",
                 asset_type="unclassified",
@@ -636,6 +643,8 @@ async def test_specific_title_survives_more_than_one_hundred_visible_matches(cli
                 asset_status="active",
             )
         )
+        if tagged_cases:
+            db_session.add(KnowledgeAssetTag(asset_id=asset_id, tag_name=query))
         db_session.add(
             KnowledgeAssetVersion(
                 id=version_id,
@@ -652,8 +661,16 @@ async def test_specific_title_survives_more_than_one_hundred_visible_matches(cli
     target.title = f"{query}手册"
     await db_session.commit()
     _install(FakeSearchWeKnora([]), FakeScrubLLM())
+    request_query = (
+        "我想了解怎样把某种经营目标变成可以操作和复核的一套通用步骤？" if spoken else query
+    )
+
+    async def plan(*args, **kwargs):
+        return [request_query, query] if spoken else [query]
+
+    monkeypatch.setattr(search_queries, "plan_queries", plan)
     response = await client.post(
-        SEARCH, headers=_hdr(USER_CONSULTANT), json={"query": query, "scope": "company"}
+        SEARCH, headers=_hdr(USER_CONSULTANT), json={"query": request_query, "scope": "company"}
     )
     assert response.status_code == 200
     assert len(response.json()["cards"]) == 100

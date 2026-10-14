@@ -20,11 +20,13 @@ from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.knowledge_correction import KnowledgeCorrection
 from app.models.notification import BusinessNotification
 from app.models.original_access import OriginalAccessRequest
-from app.models.review import ReviewTask
+from app.models.review import CompanyAssetReviewDecision, ReviewTask
 from app.schemas.enums import AccessRequestStatus, CompanyRole, ProjectRole
 from app.schemas.notification import NotificationTarget
 from app.schemas.permission import AccessLayer, CallerContext
+from app.services.company_confirmation_policy import select_confirmation_role
 from app.services.permission import decide, knowledge_manager_allowed
+from app.services.review_queries import decision_states
 from app.services.storage import LocalFileStorage
 
 _ROUTES = {
@@ -112,14 +114,22 @@ async def resolve(
                 == ProjectRole.project_manager.value
             )
         elif row.event_type == "review.company_confirmation_pending":
-            can_decide = bool(
+            can_view = bool(
                 {CompanyRole.boss.value, CompanyRole.consulting_director.value}
                 & set(caller.active_company_roles)
             )
+            if not can_view:
+                return None
+            states = (
+                facts.get(CompanyAssetReviewDecision, {})
+                if facts is not None
+                else await decision_states(session, [review_task])
+            ).get(review_task.id, {})
+            can_decide = select_confirmation_role(caller, states) is not None
         else:
             return None
         if row.event_type != "review.decided":
-            if not can_decide:
+            if not can_decide and row.event_type != "review.company_confirmation_pending":
                 return None
             status, action_required = _review_status(review_task, can_decide)
     elif row.target_kind == "original_access_request":
@@ -341,4 +351,7 @@ async def preload_targets(session: AsyncSession, rows: list[BusinessNotification
             else []
         )
     }
+    facts[CompanyAssetReviewDecision] = await decision_states(
+        session, list(facts[ReviewTask].values())
+    )
     return facts

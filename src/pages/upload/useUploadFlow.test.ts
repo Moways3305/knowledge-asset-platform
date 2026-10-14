@@ -3,6 +3,7 @@ import type { ChangeEvent } from "react";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { useUploadFlow } from "./useUploadFlow";
 import { useIngestConfirmation } from "./useIngestConfirmation";
+import { formatFileSize } from "./uploadConstants";
 import { ApiError } from "../../api/http";
 import type { ModelSelectionState } from "../../hooks/useModelSelection";
 import type {
@@ -316,6 +317,39 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       rerankRef: "ref_rer_default",
     };
   });
+
+  it.each(["a", "b"] as const)(
+    "keeps selected %s task file metadata without stale size",
+    async (path) => {
+      const { result } = renderHook(() => useUploadFlow());
+      await waitFor(() => expect(auth.fetchAuthMe).toHaveBeenCalled());
+      act(() => result.current.switchPath(path));
+      await act(async () => {
+        await result.current.handleSelectPendingTask({
+          ...pendingTask("first", "验收样本.md"),
+          source: path === "a" ? "path_a_wecom" : "path_b_upload",
+          source_file_size: 864,
+        });
+      });
+      expect(result.current.sourceFile).toBe("验收样本.md");
+      expect(result.current.fileName).toBe("验收样本.md");
+      expect(result.current.fileSize).toBe(864);
+      await act(async () => {
+        await result.current.handleSelectPendingTask(pendingTask("second", "历史样本.pdf"));
+      });
+      expect(result.current.sourceFile).toBe("历史样本.pdf");
+      expect(result.current.fileSize).toBeNull();
+      expect(formatFileSize(result.current.fileSize)).toBe("未提供");
+      await act(async () => {
+        await result.current.handleSelectPendingTask({
+          ...pendingTask("empty", "空样本.txt"),
+          source_file_size: 0,
+        });
+      });
+      expect(result.current.fileSize).toBe(0);
+      expect(formatFileSize(result.current.fileSize)).toBe("0 B");
+    },
+  );
 
   it("fails closed when a project naming policy cannot be loaded", async () => {
     namingApi.fetchNamingOptions.mockRejectedValue(new Error("policy unavailable"));
