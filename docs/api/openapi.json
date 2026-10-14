@@ -3681,6 +3681,64 @@
         "title": "DefaultModelsUpdateRequest",
         "type": "object"
       },
+      "DirectoryCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "parent_key": {
+            "title": "Parent Key",
+            "type": "string"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "scope": {
+            "enum": [
+              "company",
+              "project"
+            ],
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "parent_key",
+          "display_name"
+        ],
+        "title": "DirectoryCreateRequest",
+        "type": "object"
+      },
+      "DirectoryCreateResponse": {
+        "properties": {
+          "directory_key": {
+            "title": "Directory Key",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "directory_key",
+          "name"
+        ],
+        "title": "DirectoryCreateResponse",
+        "type": "object"
+      },
       "DirectoryListResponse": {
         "properties": {
           "items": {
@@ -34457,6 +34515,95 @@
           }
         },
         "summary": "List Knowledge Directories",
+        "tags": [
+          "knowledge"
+        ]
+      },
+      "post": {
+        "operationId": "create_knowledge_directory_api_v1_knowledge_directories_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DirectoryCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryCreateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Knowledge Directory",
         "tags": [
           "knowledge"
         ]

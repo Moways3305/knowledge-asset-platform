@@ -342,6 +342,7 @@ class AuditAction(str, Enum):
     naming_rule_draft_saved = "naming_rule.draft_saved"
     naming_rule_published = "naming_rule.published"
     directory_migration_confirmed = "directory_migration.confirmed"
+    knowledge_directory_created = "knowledge.directory_created"
     # 资产已确认落库，但底座建库/初始化/上传索引失败，exception。
     # 资产保留 + 人工校正不丢，index_status=index_failed，可重试；区别于 ingest.failed
     # （后者=人工确认前整单失败）。extra 只放安全 error_code / stage，绝不含 kb/doc id。

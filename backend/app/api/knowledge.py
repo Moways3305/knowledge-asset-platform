@@ -42,6 +42,7 @@ from app.schemas.knowledge import (
     RetryIndexResponse,
     SortDirection,
 )
+from app.schemas.knowledge_directory import DirectoryCreateRequest, DirectoryCreateResponse
 from app.schemas.knowledge_insights import KnowledgeOpsInsightsResponse
 from app.schemas.knowledge_metadata import KnowledgeMetadataResult, KnowledgeMetadataUpdate
 from app.schemas.my_knowledge import PersonalKnowledgeListResponse
@@ -54,6 +55,18 @@ from app.services.storage import LocalFileStorage, get_storage
 from app.services.weknora_client import get_weknora_client
 
 router = APIRouter(prefix="/api/v1", tags=["knowledge"])
+
+
+@router.post("/knowledge/directories", status_code=201, response_model=DirectoryCreateResponse)
+async def create_knowledge_directory(
+    body: DirectoryCreateRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+):
+    from app.services.knowledge_directories import create_directory
+
+    return await create_directory(session, caller, body, get_trace_id(request))
 
 
 @router.get("/knowledge/{asset_id}/versions")

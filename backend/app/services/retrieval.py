@@ -265,10 +265,20 @@ async def recall_assets(
         .options(selectinload(KnowledgeAsset.summaries), selectinload(KnowledgeAsset.tags))
         .order_by(
             case(
-                (KnowledgeAsset.title == query, 0),
-                (KnowledgeAsset.tags.any(KnowledgeAssetTag.tag_name == query), 1),
-                (KnowledgeAsset.title.istartswith(query, autoescape=True), 2),
-                else_=3,
+                *[
+                    condition
+                    for index, term in enumerate(queries)
+                    for condition in (
+                        (KnowledgeAsset.title == term, index * 4),
+                        (KnowledgeAsset.title.istartswith(term, autoescape=True), index * 4 + 1),
+                        (KnowledgeAsset.title.icontains(term, autoescape=True), index * 4 + 2),
+                        (
+                            KnowledgeAsset.tags.any(KnowledgeAssetTag.tag_name == term),
+                            index * 4 + 3,
+                        ),
+                    )
+                ],
+                else_=len(queries) * 4,
             ),
             func.length(KnowledgeAsset.title),
             KnowledgeAsset.title,

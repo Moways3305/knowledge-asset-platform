@@ -51,6 +51,8 @@ from app.services.directories import (
     legacy_directory_key,
     published_directories,
     validate_directory,
+    validate_library_children,
+    with_library_directories,
 )
 from app.services.naming_advice import naming_preview_advice, safe_naming_advice
 from app.services.upload_duplicates import (
@@ -73,6 +75,7 @@ class RenderedNaming:
 @dataclass(frozen=True)
 class _PreviewPolicy:
     revision: NamingRuleRevision | None
+    directories: list[dict] | None = None
 
 
 @dataclass(frozen=True)
@@ -256,6 +259,15 @@ async def publish_draft(
 ) -> NamingRuleCenterOut:
     _require_governance(caller)
     await _ensure_initial_revisions(session)
+    # The first published revision is immutable and remains published. Use it
+    # as a stable lock anchor shared with direct library directory creation.
+    await session.execute(
+        select(NamingRuleRevision)
+        .where(NamingRuleRevision.status == "published")
+        .order_by(NamingRuleRevision.version.asc())
+        .limit(1)
+        .with_for_update()
+    )
     published = await _revision(session, "published", lock=True)
     draft = await _revision(session, "draft", lock=True)
     if (
@@ -264,6 +276,7 @@ async def publish_draft(
     ):
         raise _denied(409, "naming_rule_publish_conflict", "规则已被其他治理者发布，请刷新")
     config = _normalized_config(_config(draft))
+    await validate_library_children(session, [row.model_dump() for row in config.directories])
     now = datetime.now(timezone.utc)
     draft.config = config.model_dump(mode="json")
     draft.status = "published"
@@ -421,6 +434,14 @@ async def render(
     if naming is None:
         raise _denied(422, "naming_fields_required", "项目或公司入库必须填写规范命名字段")
     directory_key = naming.directory_key
+    directory_snapshot = (
+        (revision.version, _rows.policy.directories)
+        if _rows is not None and _rows.policy is not None and _rows.policy.directories is not None
+        else directories_from_revision(revision)
+    )
+    library_snapshot_complete = bool(
+        _rows is not None and _rows.policy is not None and _rows.policy.directories is not None
+    )
     category = None
     if directory_key:
         directory_rule_version, directory = await validate_directory(
@@ -428,7 +449,8 @@ async def render(
             directory_key=directory_key,
             scope=scope,
             project_id=request.target_project_id,
-            published=directories_from_revision(revision),
+            published=directory_snapshot,
+            library_snapshot_complete=library_snapshot_complete,
         )
         directory_source = "formal_directory"
         naming_code = _directory_naming_code(directory)
@@ -453,7 +475,8 @@ async def render(
             directory_key=directory_key,
             scope=scope,
             project_id=request.target_project_id,
-            published=directories_from_revision(revision),
+            published=directory_snapshot,
+            library_snapshot_complete=library_snapshot_complete,
         )
         directory_source = "legacy_category_mapping"
         naming_code = (
@@ -753,7 +776,10 @@ async def batch_preview(
         .order_by(NamingRuleRevision.version.desc())
         .limit(1)
     )
-    policy = _PreviewPolicy(revision)
+    policy = _PreviewPolicy(
+        revision,
+        await with_library_directories(session, directories_from_revision(revision)[1]),
+    )
     # Authorize the common destination before touching any task identifiers.
     destination = await options(
         session,
@@ -902,6 +928,7 @@ async def options(
         ):
             raise _denied(409, "project_naming_code_unavailable", "目标项目尚未启用项目代码")
         fallback_confidentiality = ConfidentialityLevel(project.naming_default_confidentiality)
+        path_prefix = f"项目库 / {project.name} / "
     else:
         is_project_manager = any(
             role == "project_manager" for role in caller.active_project_roles.values()
@@ -911,10 +938,32 @@ async def options(
         if config is None:
             return NamingOptionsResponse(required=False, rule_version=None)
         fallback_confidentiality = ConfidentialityLevel.L2
+        path_prefix = "公司库 / "
     assert revision is not None and config is not None
+    directory_rows = (
+        _policy.directories
+        if _policy is not None and _policy.directories is not None
+        else await with_library_directories(
+            session, [row.model_dump() for row in config.directories]
+        )
+    )
+    directory_rows = [
+        row
+        for row in directory_rows
+        if row.get("enabled", True)
+        and row.get("scope") == scope.value
+        and (not row.get("project_id") or row["project_id"] == str(project_id))
+        and (
+            not row.get("parent_key")
+            or any(
+                parent.directory_key == row["parent_key"] and parent.enabled
+                for parent in config.directories
+            )
+        )
+    ]
     directories = sorted(
-        [item for item in config.directories if item.enabled and item.scope == scope.value],
-        key=lambda item: (item.sort_order, item.display_name),
+        directory_rows,
+        key=lambda item: (item["sort_order"], item["display_name"]),
     )
     return NamingOptionsResponse(
         required=True,
@@ -922,29 +971,29 @@ async def options(
         directories=[
             DirectoryOptionItem.model_validate(
                 {
-                    **item.model_dump(),
+                    **item,
                     "display_name": (
                         (
                             await display_path(
                                 session,
-                                item.directory_key,
+                                item["directory_key"],
                                 project_id,
                                 published=(
                                     revision.version,
-                                    [row.model_dump() for row in config.directories],
+                                    directory_rows,
                                 ),
                             )
                         )
-                        or item.display_name
-                    ).removeprefix("公司库 / ")
-                    if item.parent_key
-                    else item.display_name,
+                        or item["display_name"]
+                    ).removeprefix(path_prefix)
+                    if item.get("parent_key")
+                    else item["display_name"],
                 }
             )
             for item in directories
         ],
         default_confidentiality=(
-            directories[0].default_confidentiality if directories else fallback_confidentiality
+            directories[0]["default_confidentiality"] if directories else fallback_confidentiality
         ),
         message=None if directories else "当前目标尚未配置启用的正式目录",
     )

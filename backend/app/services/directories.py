@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.identity import Project
 from app.models.knowledge import KnowledgeAssetVersion
+from app.models.knowledge_directory import KnowledgeDirectory
 from app.models.naming import NamingRuleRevision
 from app.schemas.enums import KnowledgeScope
 from app.schemas.permission import CallerContext
@@ -150,7 +151,47 @@ async def published_directories(session: AsyncSession) -> tuple[int | None, list
             .limit(1)
         )
     ).scalar_one_or_none()
-    return directories_from_revision(revision)
+    version, rows = directories_from_revision(revision)
+    return version, await with_library_directories(session, rows)
+
+
+async def with_library_directories(session: AsyncSession, rows: list[dict]) -> list[dict]:
+    children = (await session.execute(select(KnowledgeDirectory))).scalars().all()
+    keys = {row.get("directory_key") for row in rows}
+    return [
+        *rows,
+        *[
+            {
+                "directory_key": child.directory_key,
+                "scope": child.scope,
+                "project_id": str(child.project_id) if child.project_id else None,
+                "parent_key": child.parent_key,
+                "display_name": child.display_name,
+                "naming_code": child.display_name,
+                "default_confidentiality": child.default_confidentiality,
+                "sort_order": 1000,
+                "enabled": True,
+            }
+            for child in children
+            if child.directory_key not in keys
+        ],
+    ]
+
+
+async def validate_library_children(session: AsyncSession, rows: list[dict]) -> None:
+    """Global publication must not orphan or shadow directly created children."""
+    children = (await session.execute(select(KnowledgeDirectory))).scalars().all()
+    by_key = {row["directory_key"]: row for row in rows}
+    for child in children:
+        parent = by_key.get(child.parent_key)
+        if not parent or not parent.get("enabled", True):
+            raise HTTPException(409, detail="该分类已有知识库三级目录，不能停用或删除父分类")
+        if any(
+            row.get("parent_key") == child.parent_key
+            and str(row.get("display_name", "")).casefold() == child.normalized_name
+            for row in rows
+        ):
+            raise HTTPException(409, detail="草稿目录与已创建的知识库目录重名，请修改后发布")
 
 
 def directories_from_revision(revision: NamingRuleRevision | None) -> tuple[int | None, list[dict]]:
@@ -171,8 +212,15 @@ async def validate_directory(
     scope: str,
     project_id: uuid.UUID | None,
     published: tuple[int | None, list[dict]] | None = None,
+    library_snapshot_complete: bool = False,
 ) -> tuple[int | None, dict]:
     version, rows = published if published is not None else await published_directories(session)
+    if (
+        published is not None
+        and not library_snapshot_complete
+        and not any(row.get("directory_key") == directory_key for row in rows)
+    ):
+        rows = await with_library_directories(session, rows)
     if directory_key == UNCLASSIFIED_PROJECT_DIRECTORY_KEY:
         if scope != KnowledgeScope.project.value or project_id is None:
             raise HTTPException(
@@ -202,7 +250,9 @@ async def validate_directory(
             status_code=422,
             detail={"denied_reason": "directory_unavailable", "message": "目录不存在或已停用"},
         )
-    if item.get("scope") != scope:
+    if item.get("scope") != scope or (
+        item.get("project_id") and item["project_id"] != str(project_id)
+    ):
         raise HTTPException(
             status_code=422,
             detail={
@@ -239,6 +289,8 @@ async def display_path(
     if not directory_key:
         return "未分类 / 待治理"
     _, rows = published if published is not None else await published_directories(session)
+    if published is not None and not any(row.get("directory_key") == directory_key for row in rows):
+        rows = await with_library_directories(session, rows)
     item = next((row for row in rows if row.get("directory_key") == directory_key), None)
     if item is None:
         standard = STANDARD_BY_KEY.get(directory_key)
@@ -297,12 +349,19 @@ async def visible_directory_rows(
         }
         if scope == "project":
             for project in projects:
+                if row.get("project_id") and row["project_id"] != str(project.project_id):
+                    continue
                 out.append(
                     {
                         **base,
                         "project_id": project.project_id,
                         "project_name": project.name,
-                        "display_path": f"项目库 / {project.name} / {row.get('display_name')}",
+                        "display_path": await display_path(
+                            session,
+                            row.get("directory_key"),
+                            project.project_id,
+                            published=(None, rows),
+                        ),
                     }
                 )
         elif scope == "personal":

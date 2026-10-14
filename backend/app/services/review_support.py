@@ -377,11 +377,9 @@ def _company_can_decide(
 ) -> bool:
     if task.status != ReviewTaskStatus.pending_reviewer.value:
         return False
-    roles = caller.active_company_roles & governance_policy.GOVERNANCE_COMPANY_ROLES
-    return any(
-        role not in states or states[role].decision != CompanyAssetDecision.confirmed.value
-        for role in roles
-    )
+    from app.services.company_confirmation_policy import select_confirmation_role
+
+    return select_confirmation_role(caller, states) is not None
 
 
 def _company_can_withdraw(
