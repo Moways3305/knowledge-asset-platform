@@ -265,19 +265,28 @@ async def recall_assets(
         .options(selectinload(KnowledgeAsset.summaries), selectinload(KnowledgeAsset.tags))
         .order_by(
             case(
-                *[
-                    condition
+                # CASE chooses the first true condition, not the lowest value.
+                # Group by match quality across every term before considering
+                # query order: an early broad tag must not hide a later title.
+                *((KnowledgeAsset.title == term, index) for index, term in enumerate(queries)),
+                *(
+                    (KnowledgeAsset.title.istartswith(term, autoescape=True), len(queries) + index)
                     for index, term in enumerate(queries)
-                    for condition in (
-                        (KnowledgeAsset.title == term, index * 4),
-                        (KnowledgeAsset.title.istartswith(term, autoescape=True), index * 4 + 1),
-                        (KnowledgeAsset.title.icontains(term, autoescape=True), index * 4 + 2),
-                        (
-                            KnowledgeAsset.tags.any(KnowledgeAssetTag.tag_name == term),
-                            index * 4 + 3,
-                        ),
+                ),
+                *(
+                    (
+                        KnowledgeAsset.title.icontains(term, autoescape=True),
+                        2 * len(queries) + index,
                     )
-                ],
+                    for index, term in enumerate(queries)
+                ),
+                *(
+                    (
+                        KnowledgeAsset.tags.any(KnowledgeAssetTag.tag_name == term),
+                        3 * len(queries) + index,
+                    )
+                    for index, term in enumerate(queries)
+                ),
                 else_=len(queries) * 4,
             ),
             func.length(KnowledgeAsset.title),

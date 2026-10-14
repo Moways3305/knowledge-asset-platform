@@ -17,6 +17,10 @@ from app.services.audit import record_event
 from app.services.directories import STANDARD_BY_KEY, published_directories
 
 
+def _denied(status: int, reason: str, message: str) -> HTTPException:
+    return HTTPException(status, detail={"denied_reason": reason, "message": message})
+
+
 async def create_directory(
     session: AsyncSession, caller: CallerContext, body: DirectoryCreateRequest, trace_id: str | None
 ) -> dict:
@@ -31,11 +35,11 @@ async def create_directory(
         )
     )
     if not allowed:
-        raise HTTPException(403, detail="没有当前知识库的新建目录权限")
+        raise _denied(403, "directory_create_denied", "没有当前知识库的新建目录权限")
     if body.project_id is not None:
         project = await session.get(Project, body.project_id)
         if project is None or project.status != "active":
-            raise HTTPException(403, detail="目标项目不可用")
+            raise _denied(403, "directory_project_unavailable", "目标项目不可用")
     # Serialize using the first immutable published revision: a category cannot be disabled while
     # its child is being created against an older published snapshot.
     await session.execute(
@@ -55,7 +59,9 @@ async def create_directory(
         or not parent.get("enabled", True)
         or parent.get("parent_key")
     ):
-        raise HTTPException(422, detail="只能在当前知识库启用的标准分类下新建三级目录")
+        raise _denied(
+            422, "directory_parent_invalid", "只能在当前知识库启用的标准分类下新建三级目录"
+        )
     normalized = body.display_name.casefold()
     if any(
         row.get("scope") == body.scope
@@ -64,7 +70,7 @@ async def create_directory(
         and str(row.get("display_name", "")).casefold() == normalized
         for row in rows
     ):
-        raise HTTPException(409, detail="当前分类下已存在同名目录")
+        raise _denied(409, "directory_duplicate", "当前分类下已存在同名目录")
     item = KnowledgeDirectory(
         directory_key=f"{body.scope}.custom_{uuid.uuid4().hex}",
         library_key=str(body.project_id) if body.project_id else "company",
@@ -99,5 +105,5 @@ async def create_directory(
         await session.commit()
     except IntegrityError:
         await session.rollback()
-        raise HTTPException(409, detail="当前分类下已存在同名目录") from None
+        raise _denied(409, "directory_duplicate", "当前分类下已存在同名目录") from None
     return result

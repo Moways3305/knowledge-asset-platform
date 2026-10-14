@@ -111,6 +111,13 @@ async def test_duplicates_and_fourth_level_are_rejected(client):
             "/api/v1/knowledge/directories", headers=headers(USER_BOSS), json=invalid
         )
         assert response.status_code == status, response.text
+        if status == 409:
+            assert response.json()["detail"] == {
+                "denied_reason": "directory_duplicate",
+                "message": "当前分类下已存在同名目录",
+            }
+        elif invalid["parent_key"] != body["parent_key"]:
+            assert response.json()["detail"]["denied_reason"] == "directory_parent_invalid"
 
 
 async def test_project_directory_is_usable_only_in_its_project(client, db_session):
