@@ -7,13 +7,18 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+import time
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from fastapi import HTTPException
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetTag, KnowledgeAssetVersion
 from app.schemas.enums import AuditAction, AuditLogType
 from app.schemas.permission import AccessChannel, CallerContext
@@ -31,6 +36,33 @@ from app.services.desensitization import LlmOutputDesensitizer
 from app.services.intent import classify_intent, wants_answer
 from app.services.llm_client import LLMClient, NullLLMClient
 from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient
+
+_logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _SearchProgress:
+    stage: str = "prepare"
+    cards: list[SearchCardOut] = field(default_factory=list)
+    entered_at: float = field(default_factory=time.monotonic)
+
+    def enter(self, stage: str, trace_id: str | None) -> None:
+        now = time.monotonic()
+        _logger.info(
+            "knowledge_qa_stage",
+            extra={
+                "stage": stage,
+                "previous_stage": self.stage,
+                "previous_duration_ms": int((now - self.entered_at) * 1000),
+                "trace_id": trace_id,
+            },
+        )
+        self.stage = stage
+        self.entered_at = now
+
+
+def _qa_timeout_seconds(remote_limit: float) -> float:
+    return min(30.0, remote_limit * 0.8)
 
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:
@@ -66,6 +98,89 @@ async def run_search(
     asset_guard: Callable[[Any], bool] | None = None,
     allow_cross_project: bool = False,
 ) -> SearchResponse:
+    """One end-to-end QA deadline, leaving time for rollback/audit and MCP encoding."""
+    intent = classify_intent((req.query or "").strip(), explicit=req.intent)
+    progress = _SearchProgress()
+    operation = _run_search(
+        session,
+        caller,
+        req,
+        weknora=weknora,
+        llm=llm,
+        trace_id=trace_id,
+        channel=channel,
+        asset_guard=asset_guard,
+        allow_cross_project=allow_cross_project,
+        progress=progress,
+    )
+    if not wants_answer(intent):
+        return await operation
+    remote_limit = max(1.0, get_settings().workbuddy_remote_timeout_seconds)
+    budget = _qa_timeout_seconds(remote_limit)
+    started = time.monotonic()
+    try:
+        return await asyncio.wait_for(operation, timeout=budget)
+    except asyncio.TimeoutError:
+        _logger.warning(
+            "knowledge_qa_deadline",
+            extra={
+                "stage": progress.stage,
+                "duration_ms": int((time.monotonic() - started) * 1000),
+                "trace_id": trace_id,
+            },
+        )
+        # Cancellation can interrupt a DB read or the audit transaction. Never
+        # reuse that transaction or relay a partially generated answer.
+        cleanup_budget = min(2.0, remote_limit * 0.05)
+        await asyncio.wait_for(session.rollback(), timeout=cleanup_budget)
+        await asyncio.wait_for(
+            _record_deadline(session, caller, req, intent.value, channel, progress, trace_id),
+            timeout=cleanup_budget,
+        )
+        return SearchResponse(
+            intent=intent.value,
+            cards=progress.cards,
+            answer_status="unavailable",
+            answer_message="知识问答处理超时，暂未生成可验证答案。请稍后重试；若持续出现，请联系管理员排查。",
+            trace_id=trace_id,
+        )
+
+
+async def _record_deadline(session, caller, req, intent, channel, progress, trace_id) -> None:
+    await audit_service.record_event(
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.knowledge_searched.value,
+        trace_id=trace_id,
+        target_type="knowledge_search",
+        extra={
+            "intent": intent,
+            "scope": req.scope or "all",
+            "card_count": len(progress.cards),
+            "answered": False,
+            "answer_status": "unavailable",
+            "channel": channel.value,
+            "directory_key": req.filters.directory_key,
+            "timeout_stage": progress.stage,
+        },
+    )
+    await session.commit()
+
+
+async def _run_search(
+    session: AsyncSession,
+    caller: CallerContext,
+    req: SearchRequest,
+    *,
+    weknora: WeKnoraClient | NullWeKnoraClient,
+    llm: LLMClient | NullLLMClient,
+    trace_id: str | None,
+    channel: AccessChannel,
+    asset_guard: Callable[[Any], bool] | None,
+    allow_cross_project: bool,
+    progress: _SearchProgress,
+) -> SearchResponse:
     """统一检索 / 问答主流程。
 
     channel 决定访问渠道：控制台/人工默认 human；外部 Agent 工具传 agent，使
@@ -83,6 +198,7 @@ async def run_search(
     # ---- 阶段2：want_original + asset_id → 取某资产脱敏原文 ----
     original_out: OriginalOut | None = None
     if req.want_original and req.asset_id is not None:
+        progress.enter("original", trace_id)
         res = await retrieval.fetch_stage2_original(
             session,
             caller,
@@ -182,11 +298,13 @@ async def run_search(
         if not knowledge_ids:
             recalled = []
     if recalled is None:
+        progress.enter("query_planning", trace_id)
         planned = (
             await search_queries.plan_queries(llm, query, trace_id=trace_id)
             if kb_ids and knowledge_ids != []
             else [query]
         )
+        progress.enter("recall", trace_id)
         recalled = await retrieval.recall_assets(
             session,
             caller,
@@ -203,6 +321,7 @@ async def run_search(
         for r in recalled
         if _passes_filters(r.asset, req.filters) and (asset_guard is None or asset_guard(r.asset))
     ]
+    progress.enter("cards", trace_id)
     projects, users = await retrieval.load_card_aux(session, [r.asset for r in recalled])
     cards = []
     directory_paths: dict = {}
@@ -218,6 +337,7 @@ async def run_search(
             )
         )
 
+    progress.cards = cards
     # ---- 问答 / 生成 / 总结 / 检查：放行证据 → 脱敏 → LLM 自拼答案 + 引用
     # D1 阶段4：子块召回 → 父文件全文给 Agent（无 chunk 存量资产自动回退片段/摘要）。
     answer: str | None = None
@@ -227,12 +347,14 @@ async def run_search(
     answer_message: str | None = None
     citations: list[SearchCitationOut] = []
     if wants_answer(intent):
+        progress.enter("evidence", trace_id)
         evidences = await retrieval.gather_parent_context(
             session,
             recalled,
             desens,
             trace_id=trace_id,
         )
+        progress.enter("answer", trace_id)
         outcome = await knowledge_qa.generate_answer(llm, query, evidences, trace_id=trace_id)
         answer, answer_status, answer_message = outcome.answer, outcome.status, outcome.message
         for order, e in enumerate(evidences, start=1):
@@ -254,6 +376,7 @@ async def run_search(
             )
 
     # ---- 检索审计（operation；只记安全元数据，不记原始 query / kb/doc id）----
+    progress.enter("audit", trace_id)
     await audit_service.record_event(
         session,
         caller=caller,
@@ -273,6 +396,7 @@ async def run_search(
     )
     await session.commit()
 
+    progress.enter("complete", trace_id)
     return SearchResponse(
         intent=intent.value,
         cards=cards,
