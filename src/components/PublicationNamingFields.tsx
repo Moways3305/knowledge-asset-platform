@@ -43,9 +43,11 @@ export default function PublicationNamingFields({
   const [previewState, setPreviewState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [preview, setPreview] = useState<NamingPreviewDTO | null>(null);
   const requestRef = useRef(0);
+  const previewRequestRef = useRef(0);
 
   useEffect(() => {
     const request = ++requestRef.current;
+    previewRequestRef.current += 1;
     setLoadState("loading");
     setOptions(null);
     setPreview(null);
@@ -84,12 +86,15 @@ export default function PublicationNamingFields({
       });
     return () => {
       requestRef.current += 1;
+      previewRequestRef.current += 1;
     };
     // A new scope/project starts a new governed publication session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope, projectId]);
 
   const update = (next: PublicationNamingValue) => {
+    // Edits invalidate both the displayed preview and any in-flight response.
+    previewRequestRef.current += 1;
     setPreview(null);
     setPreviewState("idle");
     onPreviewed(null);
@@ -97,6 +102,7 @@ export default function PublicationNamingFields({
   };
 
   const runPreview = async () => {
+    const request = ++previewRequestRef.current;
     if (
       !value.naming.directory_key ||
       !value.naming.subject.trim() ||
@@ -112,10 +118,12 @@ export default function PublicationNamingFields({
     onPreviewed(null);
     try {
       const result = await onPreview(value);
+      if (request !== previewRequestRef.current) return;
       setPreview(result);
       setPreviewState("ready");
       onPreviewed(result);
     } catch {
+      if (request !== previewRequestRef.current) return;
       setPreviewState("error");
     }
   };
