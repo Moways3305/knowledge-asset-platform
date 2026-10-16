@@ -18,7 +18,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from typing import TypeVar
 
 from sqlalchemy import and_, case, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -76,6 +78,8 @@ _METADATA_TOP_K = 100
 _METADATA_MAX_SCAN_ROWS = 2000  # At most 20 metadata pages per request.
 _MAX_EVIDENCE_ASSETS = 6
 _MAX_CHUNKS_PER_ASSET = 2
+_EVIDENCE_CONCURRENCY = 2
+_EvidenceInput = TypeVar("_EvidenceInput")
 # D1 阶段4：父文件全文给 Agent 时，每篇最多几篇 / 单篇字符上限（默认读配置，测试可覆盖）。
 _DEFAULT_PARENT_DOC_LIMIT = 3
 _DEFAULT_PARENT_DOC_CHAR_LIMIT = 16000
@@ -450,6 +454,7 @@ async def recall_assets(
             "result_count": len(out),
             "chunk_candidate_count": len(chunks),
             "metadata_candidate_count": len(metadata),
+            "query_count": len(queries),
         },
     )
     return out
@@ -574,6 +579,32 @@ async def _scrub_chunk(
     return await desens.scrub(content, trace_id=trace_id)
 
 
+async def _collect_evidence(
+    items: list[_EvidenceInput],
+    collect: Callable[[_EvidenceInput], Awaitable[list[Evidence]]],
+) -> list[Evidence]:
+    """Overlap independent scrubs only; never use a DB session in workers.
+
+    Gather preserves input/citation order, not completion order. Cancellation
+    and unexpected failures drain all children before the caller rolls back.
+    """
+    gate = asyncio.Semaphore(_EVIDENCE_CONCURRENCY)
+
+    async def worker(item: _EvidenceInput) -> list[Evidence]:
+        async with gate:
+            return await collect(item)
+
+    tasks = [asyncio.create_task(worker(item)) for item in items]
+    try:
+        groups = await asyncio.gather(*tasks)
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+    return [evidence for group in groups for evidence in group]
+
+
 async def gather_evidence(
     recalled: list[RecalledAsset],
     desens: OutputDesensitizer,
@@ -587,8 +618,9 @@ async def gather_evidence(
     - 仅 discovery：无证据。
     引用片段也必须脱敏——L3/L4/L5 原文片段经 LLM 擦洗，summary 片段本就安全。
     """
-    evidences: list[Evidence] = []
-    for r in recalled[:_MAX_EVIDENCE_ASSETS]:
+
+    async def collect(r: RecalledAsset) -> list[Evidence]:
+        evidences: list[Evidence] = []
         if r.can_view_original and r.matched_chunks:
             taken = 0
             for c in r.matched_chunks:
@@ -624,7 +656,9 @@ async def gather_evidence(
                         weknora_chunk_ref=None,
                     )
                 )
-    return evidences
+        return evidences
+
+    return await _collect_evidence(recalled[:_MAX_EVIDENCE_ASSETS], collect)
 
 
 # ---------------------------------------------------------------------------
@@ -695,8 +729,7 @@ async def gather_parent_context(
     for row in rows:
         chunks_by_version.setdefault(row.version_id, []).append(row)
 
-    covered_ids: set[uuid.UUID] = set()
-    parent_evidences: list[Evidence] = []
+    jobs: list[tuple[RecalledAsset, str]] = []
     for r in candidates:
         chunks = chunks_by_version.get(r.version.id) or []
         if not chunks:
@@ -709,15 +742,18 @@ async def gather_parent_context(
             full_text = full_text[:char_limit].rstrip() + (
                 f"\n\n[内容过长已截断，仅展示前 {char_limit} 字符]"
             )
+        jobs.append((r, full_text))
+
+    async def collect(job: tuple[RecalledAsset, str]) -> list[Evidence]:
+        r, full_text = job
         scrubbed = await _scrub_chunk(desens, r.asset, full_text, trace_id=trace_id)
         if not scrubbed:
-            continue  # 脱敏不可用 → 保守降级，该篇不进父上下文
+            return []  # 脱敏不可用 → 保守降级，该篇不进父上下文
         ref = None
         if r.matched_chunks:
             first = r.matched_chunks[0]
             ref = f"{first['knowledge_id']}#{first.get('chunk_index')}"
-        covered_ids.add(r.asset.id)
-        parent_evidences.append(
+        return [
             Evidence(
                 asset=r.asset,
                 used_layer=AccessLayer.original.value,
@@ -725,8 +761,10 @@ async def gather_parent_context(
                 seq=None,  # 文件级证据：seq 置空，引用落到文件
                 weknora_chunk_ref=ref,  # server-only 追踪用，绝不外泄
             )
-        )
+        ]
 
+    parent_evidences = await _collect_evidence(jobs, collect)
+    covered_ids = {e.asset.id for e in parent_evidences}
     # 未覆盖资产（无原文权限 / 无 chunk / 超 N 篇 / 擦洗失败）→ 片段 / 摘要兜底。
     rest = [r for r in recalled if r.asset.id not in covered_ids]
     fallback = await gather_evidence(rest, desens, trace_id=trace_id)

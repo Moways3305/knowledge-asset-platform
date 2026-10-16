@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -128,7 +129,7 @@ class FakeScrubLLM:
     model = "deepseek-chat"
 
     async def chat_completion(
-        self, messages, *, temperature=0.2, model=None, json_object=True, trace_id=None
+        self, messages, *, temperature=0.2, model=None, json_object=True, trace_id=None, **kwargs
     ):
         system = messages[0]["content"] if messages else ""
         if "脱敏" in system:
@@ -162,7 +163,7 @@ class NoOpScrubLLM:
     model = "deepseek-chat"
 
     async def chat_completion(
-        self, messages, *, temperature=0.2, model=None, json_object=True, trace_id=None
+        self, messages, *, temperature=0.2, model=None, json_object=True, trace_id=None, **kwargs
     ):
         # 脱敏请求：原样回传用户内容（脱敏未生效）。
         return messages[1]["content"] if len(messages) > 1 else ""
@@ -517,49 +518,93 @@ def test_audit_redacts_weknora_chunk_refs():
 
 
 # ---------------- 问答 ----------------
-@pytest.mark.parametrize("slow_stage", ["recall", "evidence", "answer", "cumulative"])
-async def test_qa_shared_deadline_cancels_slow_stage_and_never_fabricates_answer(
+@pytest.mark.parametrize(
+    "slow_stage", ["query_planning", "recall", "evidence", "answer", "cumulative"]
+)
+async def test_qa_shared_deadline_cancels_selected_stage_and_never_fabricates_answer(
     client, db_session, monkeypatch, caplog, slow_stage
 ):
     from sqlalchemy import select
 
     from app.models.audit import AuditEvent
-    from app.services import retrieval
+    from app.services import retrieval, search_queries
     from app.services import search as search_service
 
     monkeypatch.setattr(search_service, "_qa_timeout_seconds", lambda _: 0.2)
     cancelled = asyncio.Event()
+    entered = asyncio.Event()
+    bounded_operations = []
+    stages = []
+    real_wait_for = asyncio.wait_for
+
+    async def controlled_deadline(operation, *, timeout):
+        if getattr(operation, "cr_code", None) is search_service._run_search.__code__:
+            bounded_operations.append(timeout)
+            task = asyncio.create_task(operation)
+            try:
+                # Exercise cancellation at the selected boundary, not wherever
+                # a loaded CI runner happens to spend a 200ms wall-clock budget.
+                # Timer expiry itself has a separate real-wait_for test below.
+                await real_wait_for(entered.wait(), timeout=10)
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+                raise asyncio.TimeoutError
+            finally:
+                if not task.done():
+                    task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+        return await real_wait_for(operation, timeout=timeout)
+
+    # Patch only the orchestrator's wait primitive, not the global asyncio module
+    # used by the planner, database driver, ASGI client or cleanup operations.
+    monkeypatch.setattr(
+        search_service,
+        "asyncio",
+        SimpleNamespace(wait_for=controlled_deadline, TimeoutError=asyncio.TimeoutError),
+    )
 
     async def slow(*args, **kwargs):
+        entered.set()
         try:
-            await asyncio.sleep(5)
+            await asyncio.Event().wait()
         finally:
             cancelled.set()
 
     docs = [_doc(KA_PROJECT_ALPHA, _ALPHA_KB, "Alpha 供应链优化。")]
     upstream = FakeSearchWeKnora(docs)
     llm = FakeScrubLLM()
+    if slow_stage not in {"query_planning", "cumulative"}:
+
+        async def literal_plan(*args, **kwargs):
+            return [args[1]]
+
+        monkeypatch.setattr(search_queries, "plan_queries", literal_plan)
     if slow_stage == "recall":
         monkeypatch.setattr(upstream, "search", slow)
     elif slow_stage == "cumulative":
-        from app.services import search_queries
-
-        original_search = upstream.search
 
         async def plan(*args, **kwargs):
-            await asyncio.sleep(0.15)
+            stages.append("query_planning")
             return [args[1]]
 
-        async def delayed_search(*args, **kwargs):
-            try:
-                await asyncio.sleep(0.15)
-                return await original_search(*args, **kwargs)
-            finally:
-                cancelled.set()
+        async def delayed_recall(*args, **kwargs):
+            stages.append("recall")
+            return await slow()
 
         monkeypatch.setattr(search_queries, "plan_queries", plan)
-        monkeypatch.setattr(upstream, "search", delayed_search)
+        monkeypatch.setattr(retrieval, "recall_assets", delayed_recall)
     elif slow_stage == "evidence":
+        original_aux = retrieval.load_card_aux
+
+        async def delayed_aux(*args, **kwargs):
+            # Deliberately exceed the nominal 200ms before evidence starts.
+            # This regression must reach its selected cancellation boundary
+            # even when database/card preparation is slow on the CI runner.
+            await asyncio.sleep(0.3)
+            return await original_aux(*args, **kwargs)
+
+        monkeypatch.setattr(retrieval, "load_card_aux", delayed_aux)
         monkeypatch.setattr(retrieval, "gather_parent_context", slow)
     else:
         monkeypatch.setattr(llm, "chat_completion", slow)
@@ -570,16 +615,19 @@ async def test_qa_shared_deadline_cancels_slow_stage_and_never_fabricates_answer
             headers=_hdr(USER_CONSULTANT),
             json={"query": "如何做供应链优化？", "scope": "project"},
         ),
-        timeout=2,
+        timeout=15,
     )
     assert response.status_code == 200, response.text
     body = response.json()
     assert cancelled.is_set()
+    assert bounded_operations == [0.2]
+    if slow_stage == "cumulative":
+        assert stages == ["query_planning", "recall"]
     assert body["answer_status"] == "unavailable"
     assert body["answer"] is None and body["citations"] == []
     assert body["answer_message"]
     assert "knowledge_qa_deadline" in caplog.text
-    if slow_stage not in {"recall", "cumulative"}:
+    if slow_stage not in {"query_planning", "recall", "cumulative"}:
         assert body["cards"]
     _assert_no_leak(response.text)
     audit = (
@@ -592,6 +640,60 @@ async def test_qa_shared_deadline_cancels_slow_stage_and_never_fabricates_answer
     ).scalar_one()
     assert audit.extra["answer_status"] == "unavailable"
     assert audit.extra["timeout_stage"] == ("recall" if slow_stage == "cumulative" else slow_stage)
+    assert "供应链" not in json.dumps(audit.extra, ensure_ascii=False)
+
+
+@pytest.mark.parametrize("stage", ["prepare", "evidence", "cumulative"])
+async def test_qa_real_deadline_expires_and_records_safe_audit(
+    client, db_session, monkeypatch, stage
+):
+    from sqlalchemy import select
+
+    from app.models.audit import AuditEvent
+    from app.services import search as search_service
+
+    cancelled = asyncio.Event()
+
+    async def pending_operation(*args, progress, trace_id, **kwargs):
+        progress.enter("query_planning" if stage == "cumulative" else stage, trace_id)
+        try:
+            if stage == "cumulative":
+                await asyncio.sleep(0)
+                progress.enter("recall", trace_id)
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    # Keep the actual asyncio.wait_for timer. No SQL runs inside the cancelled
+    # operation: cancelling SQLite's sole in-memory connection destroys the test
+    # database, which is not a property of the persistent PostgreSQL deployment.
+    monkeypatch.setattr(search_service, "_qa_timeout_seconds", lambda _: 0.02)
+    monkeypatch.setattr(search_service, "_run_search", pending_operation)
+    response = await asyncio.wait_for(
+        client.post(
+            SEARCH,
+            headers=_hdr(USER_CONSULTANT),
+            json={"query": "如何做供应链优化？", "scope": "project"},
+        ),
+        timeout=5,
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert cancelled.is_set()
+    assert body["answer_status"] == "unavailable"
+    assert body["answer"] is None and body["citations"] == []
+    assert body["answer_message"]
+    _assert_no_leak(response.text)
+    audit = (
+        await db_session.execute(
+            select(AuditEvent).where(
+                AuditEvent.trace_id == body["trace_id"],
+                AuditEvent.action == "knowledge.searched",
+            )
+        )
+    ).scalar_one()
+    assert audit.extra["timeout_stage"] == ("recall" if stage == "cumulative" else stage)
+    assert audit.extra["answer_status"] == "unavailable"
     assert "供应链" not in json.dumps(audit.extra, ensure_ascii=False)
 
 
@@ -661,6 +763,62 @@ async def test_metadata_match_survives_empty_chunk_recall(client, db_session, qu
     assert response.status_code == 200
     assert [card["asset_id"] for card in response.json()["cards"]] == [str(asset.id)]
     assert "wk-doc" not in response.text
+
+
+@pytest.mark.parametrize("query,term", [("新人老是踩坑怎么办", "导师制"), ("RCA", "根因分析")])
+async def test_short_query_planning_reaches_cards_without_expanding_access(
+    client, db_session, query, term
+):
+    target = await db_session.get(KnowledgeAsset, KA_COMPANY_L2)
+    target.title = f"{term}操作指引"
+    hidden = await db_session.get(KnowledgeAsset, KA_COMPANY_L5)
+    hidden.title = term
+    project = await db_session.get(KnowledgeAsset, KA_PROJECT_ALPHA)
+    project.title = term
+    unrelated = await db_session.get(KnowledgeAsset, KA_COMPANY_L4)
+    unrelated.title = term
+    for asset in (target, hidden, project):
+        db_session.add(KnowledgeAssetTag(asset_id=asset.id, tag_name="短句验收隔离"))
+    await db_session.commit()
+
+    class EmptyRecall:
+        def __init__(self):
+            self.calls = []
+
+        async def search(self, **kwargs):
+            self.calls.append(kwargs)
+            return []
+
+    class Planner:
+        def __init__(self):
+            self.calls = []
+
+        async def chat_completion(self, messages, **kwargs):
+            self.calls.append(messages)
+            return json.dumps({"queries": [term]})
+
+    upstream, planner = EmptyRecall(), Planner()
+    _install(upstream, planner)
+    response = await client.post(
+        SEARCH,
+        headers=_hdr(USER_CONSULTANT),
+        json={
+            "query": query,
+            "scope": "company",
+            "intent": "search",
+            "filters": {"tags": ["短句验收隔离"]},
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert [card["asset_id"] for card in response.json()["cards"]] == [str(target.id)]
+    assert [call["query"] for call in upstream.calls] == [query, term]
+    assert all(call["kb_ids"] == [_COMPANY_KB] for call in upstream.calls)
+    assert all(
+        set(call["knowledge_ids"]) == {f"wk-doc-{target.id}", f"wk-doc-{hidden.id}"}
+        for call in upstream.calls
+    )
+    assert len(planner.calls) == 1 and planner.calls[0][1]["content"] == query
+    _assert_no_leak(response.text)
 
 
 async def test_tags_are_applied_before_chunk_recall(client, db_session):

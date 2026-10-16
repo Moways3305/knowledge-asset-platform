@@ -108,6 +108,14 @@ jobs:
         run: python -m alembic downgrade -1
       - name: Alembic re-upgrade head (replay after rollback)
         run: python -m alembic upgrade head
+      - name: Install row-lock test tools (dev lock constrained to production lock)
+        run: python -m pip install --require-hashes -r requirements-dev.lock
+      - name: PostgreSQL row-lock regression (no SQLite fallback)
+        env:
+          KAP_TEST_POSTGRES_URL: ${{ env.DATABASE_URL }}
+        run: |
+          test -n "$KAP_TEST_POSTGRES_URL"
+          python -m pytest tests/test_directory_migration_postgres.py -q -rs
 
   backend-image:
     name: Backend (docker build)
