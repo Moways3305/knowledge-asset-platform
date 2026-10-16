@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 
@@ -516,6 +517,84 @@ def test_audit_redacts_weknora_chunk_refs():
 
 
 # ---------------- 问答 ----------------
+@pytest.mark.parametrize("slow_stage", ["recall", "evidence", "answer", "cumulative"])
+async def test_qa_shared_deadline_cancels_slow_stage_and_never_fabricates_answer(
+    client, db_session, monkeypatch, caplog, slow_stage
+):
+    from sqlalchemy import select
+
+    from app.models.audit import AuditEvent
+    from app.services import retrieval
+    from app.services import search as search_service
+
+    monkeypatch.setattr(search_service, "_qa_timeout_seconds", lambda _: 0.2)
+    cancelled = asyncio.Event()
+
+    async def slow(*args, **kwargs):
+        try:
+            await asyncio.sleep(5)
+        finally:
+            cancelled.set()
+
+    docs = [_doc(KA_PROJECT_ALPHA, _ALPHA_KB, "Alpha 供应链优化。")]
+    upstream = FakeSearchWeKnora(docs)
+    llm = FakeScrubLLM()
+    if slow_stage == "recall":
+        monkeypatch.setattr(upstream, "search", slow)
+    elif slow_stage == "cumulative":
+        from app.services import search_queries
+
+        original_search = upstream.search
+
+        async def plan(*args, **kwargs):
+            await asyncio.sleep(0.15)
+            return [args[1]]
+
+        async def delayed_search(*args, **kwargs):
+            try:
+                await asyncio.sleep(0.15)
+                return await original_search(*args, **kwargs)
+            finally:
+                cancelled.set()
+
+        monkeypatch.setattr(search_queries, "plan_queries", plan)
+        monkeypatch.setattr(upstream, "search", delayed_search)
+    elif slow_stage == "evidence":
+        monkeypatch.setattr(retrieval, "gather_parent_context", slow)
+    else:
+        monkeypatch.setattr(llm, "chat_completion", slow)
+    _install(upstream, llm)
+    response = await asyncio.wait_for(
+        client.post(
+            SEARCH,
+            headers=_hdr(USER_CONSULTANT),
+            json={"query": "如何做供应链优化？", "scope": "project"},
+        ),
+        timeout=2,
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert cancelled.is_set()
+    assert body["answer_status"] == "unavailable"
+    assert body["answer"] is None and body["citations"] == []
+    assert body["answer_message"]
+    assert "knowledge_qa_deadline" in caplog.text
+    if slow_stage not in {"recall", "cumulative"}:
+        assert body["cards"]
+    _assert_no_leak(response.text)
+    audit = (
+        await db_session.execute(
+            select(AuditEvent).where(
+                AuditEvent.trace_id == body["trace_id"],
+                AuditEvent.action == "knowledge.searched",
+            )
+        )
+    ).scalar_one()
+    assert audit.extra["answer_status"] == "unavailable"
+    assert audit.extra["timeout_stage"] == ("recall" if slow_stage == "cumulative" else slow_stage)
+    assert "供应链" not in json.dumps(audit.extra, ensure_ascii=False)
+
+
 async def test_qa_answer_and_citations_from_allowed_chunks(client):
     docs = [_doc(KA_PROJECT_ALPHA, _ALPHA_KB, "Alpha 供应链优化：采购、仓储、物流要点。")]
     _install(FakeSearchWeKnora(docs), FakeScrubLLM())

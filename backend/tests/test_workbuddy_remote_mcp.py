@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import timedelta
 from pathlib import Path
@@ -95,6 +96,46 @@ async def _close_mcp(resources) -> None:
     await session_context.__aexit__(None, None, None)
     await streams.__aexit__(None, None, None)
     await http.aclose()
+
+
+async def test_slow_qa_returns_tool_result_before_remote_guard_deadline(client, monkeypatch):
+    from app.main import create_app
+    from app.services import search as search_service
+    from app.services.weknora_client import get_weknora_client
+
+    cancelled = asyncio.Event()
+
+    class SlowSearch:
+        async def search(self, **kwargs):
+            try:
+                await asyncio.sleep(5)
+            finally:
+                cancelled.set()
+
+    monkeypatch.setattr(search_service, "_qa_timeout_seconds", lambda _: 0.2)
+    app.dependency_overrides[get_weknora_client] = lambda: SlowSearch()
+    token, _ = await _remote_token(client)
+    isolated_app = create_app()
+    isolated_app.dependency_overrides.update(app.dependency_overrides)
+    async with isolated_app.router.lifespan_context(isolated_app):
+        resources = await _mcp_session(token, target_app=isolated_app)
+        session = resources[-1]
+        try:
+            await session.initialize()
+            result = await asyncio.wait_for(
+                session.call_tool(
+                    "kap_answer_from_knowledge", {"query": "周期？", "scope": "company"}
+                ),
+                timeout=2,
+            )
+        finally:
+            await _close_mcp(resources)
+    assert cancelled.is_set()
+    assert result.isError is False
+    body = json.loads(result.content[0].text)
+    assert body["answer_status"] == "unavailable"
+    assert body["answer"] is None and body["citations"] == []
+    assert body["answer_message"]
 
 
 async def test_remote_config_is_https_shape_with_one_time_bearer(client):

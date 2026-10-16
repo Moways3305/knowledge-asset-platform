@@ -114,6 +114,17 @@ function renderDetail(state?: unknown) {
 }
 
 describe("KnowledgeDetailPage", () => {
+  it("shows the full metadata update timestamp rather than midnight from the list date", async () => {
+    vi.mocked(fetchKnowledgeDetail).mockResolvedValue({
+      ...baseAsset,
+      updatedAt: "2026-10-14",
+      metadataUpdatedAt: "2026-10-14T10:20:30Z",
+    });
+    renderDetail();
+    expect(await screen.findByText("更新于 2026-10-14 18:20:30")).toBeInTheDocument();
+    expect(screen.queryByText("更新于 2026-10-14 08:00:00")).not.toBeInTheDocument();
+  });
+
   it("distinguishes a missing safe summary from generation failure", async () => {
     vi.mocked(fetchKnowledgeDetail).mockResolvedValue({
       ...baseAsset,

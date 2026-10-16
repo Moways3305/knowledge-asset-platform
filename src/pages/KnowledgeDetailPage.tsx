@@ -465,7 +465,9 @@ export default function KnowledgeDetailPage() {
             <span className={`confidentiality-badge confidentiality-${asset.confidentialityLevel}`}>
               {confidentialityLabelMap[asset.confidentialityLevel]}
             </span>
-            {asset.updatedAt && <time>更新于 {formatBeijingTime(asset.updatedAt)}</time>}
+            {(asset.metadataUpdatedAt || asset.updatedAt) && (
+              <time>更新于 {formatBeijingTime(asset.metadataUpdatedAt || asset.updatedAt)}</time>
+            )}
           </div>
           <h1>{asset.title}</h1>
           {!crossProjectSummary && asset.canonicalName && (
