@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 
 import pytest
 
@@ -65,3 +66,28 @@ async def test_rewrite_timeout_preserves_original(monkeypatch):
 
     monkeypatch.setattr(search_queries, "_TIMEOUT_SECONDS", 0.001)
     assert await search_queries.plan_queries(SlowModel(None), QUESTION) == [QUESTION]
+
+
+async def test_planning_logs_only_safe_status_counts_and_timing(caplog):
+    caplog.set_level(logging.INFO, logger="app.services.search_queries")
+    query = QUESTION + "PRIVATE_QUERY"
+    term = "PRIVATE_MODEL_TERM"
+    assert await search_queries.plan_queries(
+        FakeModel(json.dumps({"queries": [term]})), query, trace_id="safe-trace"
+    ) == [query, term]
+    records = [r for r in caplog.records if r.message == "retrieval_query_planning"]
+    assert len(records) == 1
+    assert records[0].planning_status == "expanded"
+    assert records[0].query_count == 2
+    assert records[0].duration_ms >= 0
+    assert "PRIVATE" not in caplog.text + repr(records[0].__dict__)
+
+
+async def test_model_errors_do_not_log_upstream_exception_payload(caplog):
+    caplog.set_level(logging.INFO, logger="app.services.search_queries")
+    await search_queries.plan_queries(
+        FakeModel(LLMError("custom", "PRIVATE_PROVIDER_KEY")), QUESTION
+    )
+    record = next(r for r in caplog.records if r.message == "retrieval_query_planning")
+    assert record.planning_status == "model_error" and record.query_count == 1
+    assert "PRIVATE" not in caplog.text + repr(record.__dict__)

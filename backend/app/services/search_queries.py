@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import time
 
 from app.services.llm_client import LLMClient, LLMError, NullLLMClient
 
 _TIMEOUT_SECONDS = 4
 _MAX_ALTERNATIVES = 2
 _MAX_TERM_LENGTH = 60
+_logger = logging.getLogger(__name__)
 
 
 async def plan_queries(
@@ -20,11 +23,27 @@ async def plan_queries(
     Only the user's query is sent to the already configured trusted model.
     No asset text, IDs, permissions, or credentials enter this request/logs.
     """
+    started = time.monotonic()
+
+    def finish(result: list[str], status: str) -> list[str]:
+        _logger.info(
+            "retrieval_query_planning",
+            extra={
+                "planning_status": status,
+                "query_count": len(result),
+                "duration_ms": int((time.monotonic() - started) * 1000),
+                "trace_id": trace_id,
+            },
+        )
+        return result
+
     original = query.strip()
     if not original:
-        return []
-    if len(original) < 20 or len(original) > 500 or isinstance(llm, NullLLMClient):
-        return [original]
+        return finish([], "blank")
+    if isinstance(llm, NullLLMClient):
+        return finish([original], "unconfigured")
+    if len(original) < 20 or len(original) > 500:
+        return finish([original], "not_needed")
     try:
         raw = await asyncio.wait_for(
             llm.chat_completion(
@@ -51,24 +70,26 @@ async def plan_queries(
             ),
             timeout=_TIMEOUT_SECONDS,
         )
-    except (LLMError, asyncio.TimeoutError):
-        return [original]
+    except asyncio.TimeoutError:
+        return finish([original], "timeout")
+    except LLMError:
+        return finish([original], "model_error")
     if not isinstance(raw, str) or len(raw) > 2000:
-        return [original]
+        return finish([original], "invalid_response")
     try:
         value = json.loads(raw)
     except (ValueError, TypeError):
-        return [original]
+        return finish([original], "invalid_response")
     terms = value.get("queries") if isinstance(value, dict) else None
     if not isinstance(terms, list) or len(terms) > _MAX_ALTERNATIVES:
-        return [original]
+        return finish([original], "invalid_response")
     result = [original]
     for term in terms:
         if not isinstance(term, str):
-            return [original]
+            return finish([original], "invalid_response")
         term = term.strip()
         if not term or len(term) > _MAX_TERM_LENGTH or any(ord(c) < 32 for c in term):
-            return [original]
+            return finish([original], "invalid_response")
         if term.casefold() not in {q.casefold() for q in result}:
             result.append(term)
-    return result
+    return finish(result, "expanded" if len(result) > 1 else "original_only")

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
+
+import pytest
 
 from app.models.knowledge import (
     KnowledgeAsset,
@@ -118,6 +121,115 @@ class CaptureLLM:
     ) -> str:
         self.messages = messages
         return "【答案】"
+
+
+@pytest.mark.parametrize("parent", [True, False])
+async def test_evidence_scrubs_overlap_but_stay_bounded_and_keep_citation_order(db_session, parent):
+    started_two = asyncio.Event()
+    started_three = asyncio.Event()
+    releases = [asyncio.Event() for _ in range(3)]
+
+    class ControlledScrub:
+        active = 0
+        peak = 0
+        started = 0
+
+        async def scrub(self, text, **kwargs):
+            index = next(i for i in range(3) if f"RAW_{i}" in text)
+            self.active += 1
+            self.started += 1
+            self.peak = max(self.peak, self.active)
+            if self.active == 2:
+                started_two.set()
+            if self.started == 3:
+                started_three.set()
+            try:
+                await releases[index].wait()
+                return f"SAFE_{index}"
+            finally:
+                self.active -= 1
+
+    recalled = []
+    for index in range(3):
+        asset = _asset(title=f"资料{index}", conf="L3")
+        version = _version(asset)
+        item = _recalled(asset, version)
+        item.matched_chunks[0]["content"] = f"RAW_{index}"
+        recalled.append(item)
+        if parent:
+            db_session.add_all([asset, version])
+            db_session.add(
+                KnowledgeAssetChunk(
+                    asset_id=asset.id,
+                    version_id=version.id,
+                    chunk_index=0,
+                    chunk_type="governance_text",
+                    content_text=f"RAW_{index}",
+                    chunk_status="active",
+                )
+            )
+    await db_session.commit()
+    scrubber = ControlledScrub()
+    operation = (
+        retrieval.gather_parent_context(db_session, recalled, scrubber, trace_id="bounded")
+        if parent
+        else retrieval.gather_evidence(recalled, scrubber, trace_id="bounded")
+    )
+    task = asyncio.create_task(operation)
+    try:
+        await asyncio.wait_for(started_two.wait(), timeout=1)
+        releases[1].set()
+        await asyncio.wait_for(started_three.wait(), timeout=1)
+    finally:
+        for release in releases:
+            release.set()
+        result = await task
+    assert scrubber.peak == 2 and scrubber.active == 0
+    assert [e.asset.id for e in result] == [r.asset.id for r in recalled]
+    assert [e.snippet for e in result] == [f"SAFE_{i}" for i in range(3)]
+
+
+@pytest.mark.parametrize("failure", ["cancel", "error"])
+async def test_evidence_cleans_up_running_and_queued_workers(failure):
+    started_two = asyncio.Event()
+    fail_now = asyncio.Event()
+
+    class BlockingScrub:
+        active = 0
+
+        async def scrub(self, text, **kwargs):
+            self.active += 1
+            if self.active == 2:
+                started_two.set()
+            try:
+                if text == "RAW_0":
+                    await fail_now.wait()
+                    raise RuntimeError("controlled_failure")
+                await asyncio.Event().wait()
+            finally:
+                self.active -= 1
+
+    recalled = []
+    for index in range(3):
+        asset = _asset(conf="L4")
+        item = _recalled(asset, _version(asset))
+        item.matched_chunks[0]["content"] = f"RAW_{index}"
+        recalled.append(item)
+    scrubber = BlockingScrub()
+    task = asyncio.create_task(retrieval.gather_evidence(recalled, scrubber, trace_id="cleanup"))
+    try:
+        await asyncio.wait_for(started_two.wait(), timeout=1)
+        if failure == "cancel":
+            task.cancel()
+        else:
+            fail_now.set()
+        with pytest.raises(asyncio.CancelledError if failure == "cancel" else RuntimeError):
+            await asyncio.wait_for(task, timeout=1)
+    finally:
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    assert scrubber.active == 0
 
 
 def test_join_parent_document_rebuilds_page_markers():
