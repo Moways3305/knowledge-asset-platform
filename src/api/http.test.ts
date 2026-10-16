@@ -2,6 +2,23 @@ import { describe, expect, it } from "vitest";
 import { ApiError, handleResponse } from "./http";
 
 describe("handleResponse", () => {
+  it("preserves an actionable structured directory conflict", async () => {
+    const response = new Response(
+      JSON.stringify({
+        detail: {
+          denied_reason: "directory_duplicate",
+          message: "当前分类下已存在同名目录",
+        },
+      }),
+      { status: 409, headers: { "Content-Type": "application/json" } },
+    );
+    await expect(handleResponse(response)).rejects.toMatchObject({
+      status: 409,
+      deniedReason: "directory_duplicate",
+      message: "当前分类下已存在同名目录",
+    } satisfies Partial<ApiError>);
+  });
+
   it("accepts a successful 204 response without trying to parse an empty body", async () => {
     await expect(
       handleResponse<void>(new Response(null, { status: 204 })),

@@ -618,9 +618,12 @@ async def test_literal_match_is_not_crowded_out_by_upstream_score_scale(client, 
     assert response.json()["cards"][0]["asset_id"] == str(asset.id)
 
 
-@pytest.mark.parametrize("spoken,tagged_cases", [(False, False), (False, True), (True, True)])
+@pytest.mark.parametrize(
+    "spoken,tagged_cases,earlier_tag",
+    [(False, False, False), (False, True, False), (True, True, False), (True, True, True)],
+)
 async def test_specific_title_survives_more_than_one_hundred_visible_matches(
-    client, db_session, monkeypatch, spoken, tagged_cases
+    client, db_session, monkeypatch, spoken, tagged_cases, earlier_tag
 ):
     from app.services import search_queries
 
@@ -644,7 +647,11 @@ async def test_specific_title_survives_more_than_one_hundred_visible_matches(
             )
         )
         if tagged_cases:
-            db_session.add(KnowledgeAssetTag(asset_id=asset_id, tag_name=query))
+            db_session.add(
+                KnowledgeAssetTag(
+                    asset_id=asset_id, tag_name="独立泛化标签" if earlier_tag else query
+                )
+            )
         db_session.add(
             KnowledgeAssetVersion(
                 id=version_id,
@@ -659,6 +666,8 @@ async def test_specific_title_survives_more_than_one_hundred_visible_matches(
         )
     target = await db_session.get(KnowledgeAsset, KA_COMPANY_L2)
     target.title = f"{query}手册"
+    if earlier_tag:
+        db_session.add(KnowledgeAssetTag(asset_id=target.id, tag_name="独立泛化标签"))
     await db_session.commit()
     _install(FakeSearchWeKnora([]), FakeScrubLLM())
     request_query = (
@@ -666,6 +675,8 @@ async def test_specific_title_survives_more_than_one_hundred_visible_matches(
     )
 
     async def plan(*args, **kwargs):
+        if earlier_tag:
+            return [request_query, "独立泛化标签", query]
         return [request_query, query] if spoken else [query]
 
     monkeypatch.setattr(search_queries, "plan_queries", plan)
