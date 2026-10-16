@@ -85,7 +85,7 @@ class FakeLLM:
     model = "deepseek-chat"
 
     async def chat_completion(
-        self, messages, *, temperature=0.2, model=None, json_object=True, trace_id=None
+        self, messages, *, temperature=0.2, model=None, json_object=True, trace_id=None, **kwargs
     ):
         system = messages[0]["content"] if messages else ""
         if "脱敏" in system:
