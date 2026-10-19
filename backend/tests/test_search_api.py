@@ -518,6 +518,79 @@ def test_audit_redacts_weknora_chunk_refs():
 
 
 # ---------------- 问答 ----------------
+async def test_qa_passes_confirmed_platform_adoption_separately_from_conditional_prose(
+    client, db_session
+):
+    from app.db.utils import utc_now
+
+    target = await db_session.get(KnowledgeAsset, KA_COMPANY_L2)
+    now = utc_now()
+    target.updated_at = target.verified_at = target.verified_updated_at = now
+    db_session.add(
+        KnowledgeAssetSummary(
+            asset_id=target.id,
+            version_id=target.current_version_id,
+            summary_type="redacted_summary",
+            content="周期十四天。采用前旧版仍有效。",
+        )
+    )
+    db_session.add(
+        KnowledgeAsset(
+            id=uuid.uuid4(),
+            title="PRIVATE_HISTORY",
+            scope="company",
+            zone="material",
+            asset_type="document",
+            owner_user_id=USER_CONSULTANT,
+            confidentiality_level="L2",
+            ai_access_level="A1",
+            asset_status="archived",
+            replacement_asset_id=target.id,
+        )
+    )
+    await db_session.commit()
+
+    class StateModel(FakeScrubLLM):
+        payload = None
+
+        async def chat_completion(self, messages, **kwargs):
+            try:
+                payload = json.loads(messages[1]["content"])
+            except ValueError:
+                return '{"queries":[]}'
+            if "evidence" not in payload:
+                return await super().chat_completion(messages, **kwargs)
+            self.payload = payload
+            assert payload["evidence"][0]["platform_state"]["adoption_status"] == "adopted"
+            return json.dumps(
+                {
+                    "status": "answered",
+                    "answer": "当前采用版周期十四天。[1]",
+                    "citation_orders": [1],
+                }
+            )
+
+    model = StateModel()
+    _install(
+        FakeSearchWeKnora([_doc(target.id, _COMPANY_KB, "周期十四天。采用前旧版仍有效。")]), model
+    )
+    response = await client.post(
+        SEARCH,
+        headers=_hdr(USER_CONSULTANT),
+        json={
+            "query": "当前采用版周期是什么？",
+            "scope": "company",
+            "intent": "qa",
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["answer_status"] == "answered"
+    assert model.payload["evidence"][0]["platform_state"]["review_status"] == "verified"
+    assert "PRIVATE_HISTORY" not in json.dumps(model.payload)
+    assert "platform_state" not in response.text
+    _assert_no_leak(response.text)
+
+
 @pytest.mark.parametrize(
     "slow_stage", ["query_planning", "recall", "reranking", "evidence", "answer", "cumulative"]
 )
