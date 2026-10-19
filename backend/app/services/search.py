@@ -31,7 +31,7 @@ from app.schemas.search import (
     SearchResponse,
 )
 from app.services import audit as audit_service
-from app.services import directories, knowledge_qa, retrieval, search_queries
+from app.services import directories, knowledge_qa, retrieval, search_queries, search_rerank
 from app.services.desensitization import LlmOutputDesensitizer
 from app.services.intent import classify_intent, wants_answer
 from app.services.llm_client import LLMClient, NullLLMClient
@@ -338,6 +338,13 @@ async def _run_search(
         )
 
     progress.cards = cards
+    progress.enter("reranking", trace_id)
+    cards = await search_rerank.rerank_cards(llm, query, cards, trace_id=trace_id)
+    progress.cards = cards
+    # Evidence follows the same permission-filtered order seen in the cards.
+    # The model cannot introduce IDs or change a candidate's permissions.
+    rank = {card.asset_id: index for index, card in enumerate(cards)}
+    recalled.sort(key=lambda r: rank[r.asset.id])
     # ---- 问答 / 生成 / 总结 / 检查：放行证据 → 脱敏 → LLM 自拼答案 + 引用
     # D1 阶段4：子块召回 → 父文件全文给 Agent（无 chunk 存量资产自动回退片段/摘要）。
     answer: str | None = None
