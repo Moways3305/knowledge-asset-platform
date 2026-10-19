@@ -653,6 +653,65 @@ async def test_gather_parent_context_scrubs_high_confidentiality(db_session):
     assert "L3 敏感方案全文" not in evidences[0].snippet
 
 
+@pytest.mark.parametrize("timeout", [False, True])
+async def test_long_parent_plan_preserves_full_text_or_uses_safe_chunk_fallback(
+    db_session, monkeypatch, timeout
+):
+    import json
+
+    from app.services import desensitization
+
+    asset = _asset(conf="L3")
+    version = _version(asset)
+    source = "PRIVATE客户甲\n" + "原文流程。\n" * 2000 + "完整结尾。"
+    db_session.add_all([asset, version])
+    db_session.add(
+        KnowledgeAssetChunk(
+            asset_id=asset.id,
+            version_id=version.id,
+            chunk_index=0,
+            chunk_type="governance_text",
+            content_text=source,
+            chunk_status="active",
+        )
+    )
+    await db_session.commit()
+    finished = asyncio.Event()
+
+    class Model:
+        async def chat_completion(self, messages, **kwargs):
+            if kwargs.get("json_object"):
+                assert json.loads(messages[1]["content"])["text"] == source
+                if timeout:
+                    try:
+                        await asyncio.Event().wait()
+                    finally:
+                        finished.set()
+                return json.dumps(
+                    {
+                        "complete": True,
+                        "redactions": [{"text": "PRIVATE客户甲", "replacement": "【客户】"}],
+                    }
+                )
+            return "安全命中片段"
+
+    monkeypatch.setattr(desensitization, "_LONG_SCRUB_TIMEOUT_SECONDS", 0.001 if timeout else 8)
+    evidence = await retrieval.gather_parent_context(
+        db_session,
+        [_recalled(asset, version)],
+        desensitization.LlmOutputDesensitizer(Model()),
+        trace_id="long-parent",
+        parent_doc_char_limit=40000,
+    )
+    assert len(evidence) == 1
+    if timeout:
+        assert finished.is_set()
+        assert evidence[0].snippet == "安全命中片段"
+    else:
+        assert evidence[0].snippet == source.replace("PRIVATE客户甲", "【客户】")
+    assert "PRIVATE" not in evidence[0].snippet
+
+
 async def test_gather_parent_context_scrub_failure_downgrades(db_session):
     asset = _asset(conf="L5")
     version = _version(asset)
