@@ -148,6 +148,149 @@ async def test_grounded_answer_preserves_verified_citation_number():
     assert result.answer == "周期七天。[1]" and result.citation_orders == [1]
 
 
+async def test_structured_parts_render_text_and_citation_list_from_one_source():
+    model = FakeLLM(
+        json.dumps(
+            {
+                "status": "answered",
+                "answer_parts": [
+                    {"text": "当前周期十四天。", "citation_orders": [2, 1, 2]},
+                    {"text": "新版已采用。", "citation_orders": [2]},
+                ],
+            }
+        )
+    )
+    result = await generate_answer(model, "周期", [evidence(), evidence()])
+    assert result.status == "answered"
+    assert result.answer == "当前周期十四天。[1][2]\n\n新版已采用。[2]"
+    assert result.citation_orders == [1, 2]
+
+
+@pytest.mark.parametrize(
+    "parts",
+    [
+        [],
+        None,
+        {},
+        [None],
+        [{"text": "无引用", "citation_orders": []}],
+        [{"text": " ", "citation_orders": [1]}],
+        [{"text": "错误", "citation_orders": [True]}],
+        [{"text": "错误", "citation_orders": [0]}],
+        [{"text": "错误", "citation_orders": [2]}],
+        [{"text": "错误", "citation_orders": ["1"]}],
+        [{"text": "夹带错误引用[99]", "citation_orders": [1]}],
+        [{"text": "夹带组合引用[1, 99]", "citation_orders": [1]}],
+        [{"text": "夹带残缺引用[1,", "citation_orders": [1]}],
+        [{"text": "夹带非规范引用[1a]", "citation_orders": [1]}],
+    ],
+)
+async def test_structured_parts_reject_missing_invalid_and_embedded_citations(parts):
+    result = await generate_answer(
+        FakeLLM(
+            json.dumps(
+                {
+                    "status": "answered",
+                    "answer_parts": parts,
+                }
+            )
+        ),
+        "周期",
+        [evidence()],
+    )
+    assert result.status == "unavailable"
+    assert result.answer is None and result.citation_orders == []
+
+
+async def test_mixed_structured_and_legacy_contract_is_not_silently_reconciled():
+    result = await generate_answer(
+        FakeLLM(
+            json.dumps(
+                {
+                    "status": "answered",
+                    "answer_parts": [{"text": "周期十四天。", "citation_orders": [1]}],
+                    "answer": "周期七天[1]",
+                    "citation_orders": [1],
+                }
+            )
+        ),
+        "周期",
+        [evidence()],
+    )
+    assert result.status == "unavailable"
+
+
+async def test_structured_parts_keep_existing_rendered_answer_size_limit():
+    result = await generate_answer(
+        FakeLLM(
+            json.dumps(
+                {
+                    "status": "answered",
+                    "answer_parts": [{"text": "x" * 9998, "citation_orders": [1]}],
+                }
+            )
+        ),
+        "周期",
+        [evidence()],
+    )
+    assert result.status == "unavailable"
+
+
+async def test_model_is_instructed_to_leave_inline_citation_rendering_to_platform():
+    class CapturingModel(FakeLLM):
+        async def chat_completion(self, messages, **kwargs):
+            self.messages = messages
+            return await super().chat_completion(messages, **kwargs)
+
+    model = CapturingModel(
+        json.dumps(
+            {
+                "status": "answered",
+                "answer_parts": [{"text": "周期七天。", "citation_orders": [1]}],
+            }
+        )
+    )
+    await generate_answer(model, "周期", [evidence()])
+    prompt = model.messages[0]["content"]
+    assert '"answer_parts"' in prompt
+    assert "平台统一" in prompt
+
+
+async def test_legacy_mismatch_is_not_accepted_as_a_structured_answer():
+    result = await generate_answer(
+        FakeLLM(
+            json.dumps(
+                {
+                    "status": "answered",
+                    "answer": "周期七天[2]",
+                    "citation_orders": [1],
+                }
+            )
+        ),
+        "周期",
+        [evidence(), evidence()],
+    )
+    assert result.status == "unavailable"
+
+
+async def test_structured_refusal_never_relays_unsupported_claims():
+    result = await generate_answer(
+        FakeLLM(
+            json.dumps(
+                {
+                    "status": "insufficient_evidence",
+                    "answer_parts": [{"text": "PRIVATE_FABRICATED_AMOUNT", "citation_orders": [1]}],
+                }
+            )
+        ),
+        "金额",
+        [evidence()],
+    )
+    assert result.status == "insufficient_evidence"
+    assert "PRIVATE" not in result.answer
+    assert result.citation_orders == []
+
+
 async def test_platform_version_state_is_separate_from_document_claims():
     class CapturingModel(FakeLLM):
         async def chat_completion(self, messages, **kwargs):

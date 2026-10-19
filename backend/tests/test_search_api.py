@@ -565,8 +565,7 @@ async def test_qa_passes_confirmed_platform_adoption_separately_from_conditional
             return json.dumps(
                 {
                     "status": "answered",
-                    "answer": "当前采用版周期十四天。[1]",
-                    "citation_orders": [1],
+                    "answer_parts": [{"text": "当前采用版周期十四天。", "citation_orders": [1]}],
                 }
             )
 
@@ -585,6 +584,9 @@ async def test_qa_passes_confirmed_platform_adoption_separately_from_conditional
     )
     assert response.status_code == 200, response.text
     assert response.json()["answer_status"] == "answered"
+    assert response.json()["answer"] == "当前采用版周期十四天。[1]"
+    assert [c["citation_order"] for c in response.json()["citations"]] == [1]
+    assert [c["asset_id"] for c in response.json()["citations"]] == [str(target.id)]
     assert model.payload["evidence"][0]["platform_state"]["review_status"] == "verified"
     assert "PRIVATE_HISTORY" not in json.dumps(model.payload)
     assert "platform_state" not in response.text
