@@ -34,6 +34,7 @@ from app.services import audit as audit_service
 from app.services import directories, knowledge_qa, retrieval, search_queries, search_rerank
 from app.services.desensitization import LlmOutputDesensitizer
 from app.services.intent import classify_intent, wants_answer
+from app.services.knowledge_evidence_state import attach_platform_state
 from app.services.llm_client import LLMClient, NullLLMClient
 from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient
 
@@ -360,6 +361,9 @@ async def _run_search(
             recalled,
             desens,
             trace_id=trace_id,
+        )
+        await attach_platform_state(
+            session, caller, evidences, recalled, channel=channel, asset_guard=asset_guard
         )
         progress.enter("answer", trace_id)
         outcome = await knowledge_qa.generate_answer(llm, query, evidences, trace_id=trace_id)

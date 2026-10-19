@@ -118,6 +118,7 @@ class Evidence:
     snippet: str
     seq: int | None
     weknora_chunk_ref: str | None  # server-only，绝不外泄
+    platform_state: dict[str, str] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
