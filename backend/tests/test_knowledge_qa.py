@@ -65,6 +65,69 @@ async def test_invalid_or_uncited_answers_fail_safely(response):
     assert result.message
 
 
+@pytest.mark.parametrize(
+    ("response", "reason"),
+    [
+        (None, "response_type"),
+        ("x" * 20001, "response_size"),
+        ("SECRET-model-output", "json_syntax"),
+        ("[]", "json_shape"),
+        (json.dumps({"status": "SECRET-status"}), "answer_status"),
+        (json.dumps({"status": "answered", "answer": None}), "answer_text"),
+        (
+            json.dumps({"status": "answered", "answer": "SECRET[1]", "citation_orders": []}),
+            "citation_orders_shape",
+        ),
+        (
+            json.dumps({"status": "answered", "answer": "SECRET[1]", "citation_orders": [True]}),
+            "citation_orders_range",
+        ),
+        (
+            json.dumps({"status": "answered", "answer": "SECRET[99]", "citation_orders": [1]}),
+            "citation_number_size",
+        ),
+        (
+            json.dumps({"status": "answered", "answer": "SECRET", "citation_orders": [1]}),
+            "citation_mismatch",
+        ),
+    ],
+)
+async def test_invalid_answer_diagnostic_identifies_safe_branch(response, reason, caplog):
+    item = evidence()
+    item.asset.title = "SECRET-title"
+    item.snippet = "SECRET-document"
+    result = await generate_answer(
+        FakeLLM(response), "SECRET-question", [item], trace_id="acceptance-trace"
+    )
+    assert result.status == "unavailable"
+    records = [r for r in caplog.records if r.msg == "knowledge_qa_validation_failed"]
+    assert len(records) == 1
+    assert records[0].validation_reason == reason
+    assert records[0].trace_id == "acceptance-trace"
+    assert "SECRET" not in repr([vars(r) for r in caplog.records])
+
+
+async def test_provider_failure_has_distinct_safe_diagnostic(caplog):
+    result = await generate_answer(
+        FakeLLM(LLMError("llm_bad_response", "SECRET-provider-response")),
+        "SECRET-question",
+        [evidence()],
+    )
+    assert result.status == "unavailable"
+    assert not any(r.msg == "knowledge_qa_validation_failed" for r in caplog.records)
+    assert "SECRET" not in repr([vars(r) for r in caplog.records])
+
+
+async def test_valid_answer_does_not_emit_validation_failure(caplog):
+    result = await generate_answer(
+        FakeLLM(json.dumps({"status": "answered", "answer": "七天[1]", "citation_orders": [1]})),
+        "周期",
+        [evidence()],
+    )
+    assert result.status == "answered"
+    assert not any(r.msg == "knowledge_qa_validation_failed" for r in caplog.records)
+
+
 async def test_model_failure_has_safe_diagnostic_not_secret(caplog):
     result = await generate_answer(
         FakeLLM(LLMError("llm_not_configured", "SECRET-key-endpoint")), "周期", [evidence()]

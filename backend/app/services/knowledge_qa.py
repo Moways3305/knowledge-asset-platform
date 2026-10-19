@@ -73,6 +73,15 @@ def unavailable(code: str) -> QAOutcome:
 
 
 async def generate_answer(llm, query, evidences, *, trace_id=None) -> QAOutcome:
+    def invalid_response(reason: str) -> QAOutcome:
+        # Only constant branch labels are passed here. Never log model output,
+        # document data, the question, or parser exception text.
+        _logger.warning(
+            "knowledge_qa_validation_failed",
+            extra={"validation_reason": reason, "trace_id": trace_id},
+        )
+        return unavailable("llm_bad_response")
+
     if not evidences:
         return QAOutcome(status="insufficient_evidence", answer=_REFUSAL)
     blocks = [
@@ -99,34 +108,34 @@ async def generate_answer(llm, query, evidences, *, trace_id=None) -> QAOutcome:
         )
     except LLMError as exc:
         return unavailable(exc.code)
-    if not isinstance(raw, str) or len(raw) > 20000:
-        return unavailable("llm_bad_response")
+    if not isinstance(raw, str):
+        return invalid_response("response_type")
+    if len(raw) > 20000:
+        return invalid_response("response_size")
     try:
         result = json.loads(raw)
     except (ValueError, TypeError):
-        return unavailable("llm_bad_response")
+        return invalid_response("json_syntax")
     if not isinstance(result, dict):
-        return unavailable("llm_bad_response")
+        return invalid_response("json_shape")
     if result.get("status") == "insufficient_evidence":
         # Do not relay ungrounded amounts or fabricated facts in a refusal body.
         return QAOutcome(status="insufficient_evidence", answer=_REFUSAL)
     answer, orders = result.get("answer"), result.get("citation_orders")
-    if (
-        result.get("status") != "answered"
-        or not isinstance(answer, str)
-        or not answer.strip()
-        or len(answer) > 10000
-        or not isinstance(orders, list)
-        or not orders
-        or any(type(order) is not int or not 1 <= order <= len(evidences) for order in orders)
-    ):
-        return unavailable("llm_bad_response")
+    if result.get("status") != "answered":
+        return invalid_response("answer_status")
+    if not isinstance(answer, str) or not answer.strip() or len(answer) > 10000:
+        return invalid_response("answer_text")
+    if not isinstance(orders, list) or not orders:
+        return invalid_response("citation_orders_shape")
+    if any(type(order) is not int or not 1 <= order <= len(evidences) for order in orders):
+        return invalid_response("citation_orders_range")
     references = re.findall(r"\[(\d+)\]", answer)
     # Bound conversion before int(): malformed model output can exceed Python's
     # numeric-string limit, and is not evidence of a valid citation.
     if any(len(number) > len(str(len(evidences))) for number in references):
-        return unavailable("llm_bad_response")
+        return invalid_response("citation_number_size")
     cited = {int(number) for number in references}
     if cited != set(orders):
-        return unavailable("llm_bad_response")
+        return invalid_response("citation_mismatch")
     return QAOutcome(status="answered", answer=answer.strip(), citation_orders=sorted(set(orders)))
