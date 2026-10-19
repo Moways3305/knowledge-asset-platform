@@ -519,7 +519,7 @@ def test_audit_redacts_weknora_chunk_refs():
 
 # ---------------- 问答 ----------------
 @pytest.mark.parametrize(
-    "slow_stage", ["query_planning", "recall", "evidence", "answer", "cumulative"]
+    "slow_stage", ["query_planning", "recall", "reranking", "evidence", "answer", "cumulative"]
 )
 async def test_qa_shared_deadline_cancels_selected_stage_and_never_fabricates_answer(
     client, db_session, monkeypatch, caplog, slow_stage
@@ -527,7 +527,7 @@ async def test_qa_shared_deadline_cancels_selected_stage_and_never_fabricates_an
     from sqlalchemy import select
 
     from app.models.audit import AuditEvent
-    from app.services import retrieval, search_queries
+    from app.services import retrieval, search_queries, search_rerank
     from app.services import search as search_service
 
     monkeypatch.setattr(search_service, "_qa_timeout_seconds", lambda _: 0.2)
@@ -582,6 +582,8 @@ async def test_qa_shared_deadline_cancels_selected_stage_and_never_fabricates_an
         monkeypatch.setattr(search_queries, "plan_queries", literal_plan)
     if slow_stage == "recall":
         monkeypatch.setattr(upstream, "search", slow)
+    elif slow_stage == "reranking":
+        monkeypatch.setattr(search_rerank, "rerank_cards", slow)
     elif slow_stage == "cumulative":
 
         async def plan(*args, **kwargs):
@@ -853,6 +855,88 @@ async def test_literal_match_is_not_crowded_out_by_upstream_score_scale(client, 
     )
     assert response.status_code == 200
     assert response.json()["cards"][0]["asset_id"] == str(asset.id)
+
+
+async def test_semantic_reranking_can_promote_relevant_safe_card_beyond_default_page(
+    client, db_session
+):
+    target = await db_session.get(KnowledgeAsset, KA_COMPANY_L2)
+    target.title = "实施操作手册"
+    await db_session.refresh(target, ["summaries"])
+    for summary in target.summaries:
+        summary.content = "PRIVATE_RAW_SUMMARY：未脱敏的人名和金额。"
+    db_session.add(
+        KnowledgeAssetSummary(
+            asset_id=target.id,
+            version_id=target.current_version_id,
+            summary_type="redacted_summary",
+            content="SAFE_TARGET：包含从需求、计划、执行到验收的完整落地步骤。",
+        )
+    )
+    for index in range(30):
+        asset_id, version_id = uuid.uuid4(), uuid.uuid4()
+        db_session.add(
+            KnowledgeAsset(
+                id=asset_id,
+                title=f"通用流程的历史概念材料{index:02}",
+                scope="company",
+                zone="material",
+                asset_type="unclassified",
+                owner_user_id=USER_CONSULTANT,
+                confidentiality_level="L2",
+                ai_access_level="A1",
+                current_version_id=version_id,
+                asset_status="active",
+            )
+        )
+        db_session.add(
+            KnowledgeAssetVersion(
+                id=version_id,
+                asset_id=asset_id,
+                version_no="V1",
+                version_status="active",
+                created_by=USER_CONSULTANT,
+                weknora_kb_id=_COMPANY_KB,
+                weknora_doc_id=f"wk-semantic-rank-{index}",
+                index_status="indexed",
+            )
+        )
+    hidden = await db_session.get(KnowledgeAsset, KA_COMPANY_L5)
+    hidden.title = "PRIVATE_HIDDEN 通用流程"
+    await db_session.commit()
+
+    class SemanticModel:
+        ranking_payload = None
+
+        async def chat_completion(self, messages, **kwargs):
+            if "candidates" not in messages[1]["content"]:
+                return json.dumps({"queries": ["通用流程"]})
+            self.ranking_payload = json.loads(messages[1]["content"])
+            candidates = self.ranking_payload["candidates"]
+            preferred = next(c["index"] for c in candidates if c["title"] == target.title)
+            return json.dumps(
+                {"order": [preferred] + [c["index"] for c in candidates if c["index"] != preferred]}
+            )
+
+    model = SemanticModel()
+    _install(FakeSearchWeKnora([_doc(target.id, _COMPANY_KB, "PRIVATE_ORIGINAL_CHUNK")]), model)
+    response = await client.post(
+        SEARCH,
+        headers=_hdr(USER_CONSULTANT),
+        json={
+            "query": "我想知道如何把这项工作按步骤落地并完成验收",
+            "scope": "company",
+            "intent": "search",
+        },
+    )
+    assert response.status_code == 200, response.text
+    cards = response.json()["cards"]
+    assert len(cards) == 31
+    assert cards[0]["asset_id"] == str(target.id)
+    assert "SAFE_TARGET" in json.dumps(model.ranking_payload)
+    assert "PRIVATE" not in json.dumps(model.ranking_payload)
+    assert all("asset_id" not in c for c in model.ranking_payload["candidates"])
+    _assert_no_leak(response.text)
 
 
 @pytest.mark.parametrize(
