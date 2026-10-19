@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 
 import pytest
@@ -124,6 +125,68 @@ class CaptureLLM:
 
 
 @pytest.mark.parametrize("parent", [True, False])
+async def test_evidence_diagnostics_expose_only_stage_counts_and_timings(
+    db_session, caplog, parent
+):
+    caplog.set_level(logging.INFO, logger="app.services.retrieval")
+    asset = _asset(title="PRIVATE_TITLE", conf="L3")
+    version = _version(asset)
+    item = _recalled(asset, version)
+    item.matched_chunks[0]["content"] = "PRIVATE_RAW_CHUNK"
+    if parent:
+        db_session.add_all([asset, version])
+        db_session.add(
+            KnowledgeAssetChunk(
+                asset_id=asset.id,
+                version_id=version.id,
+                chunk_index=0,
+                chunk_type="governance_text",
+                content_text="PRIVATE_RAW_DOCUMENT",
+                chunk_status="active",
+            )
+        )
+        await db_session.commit()
+    scrubber = FakeDesens("SAFE_EVIDENCE")
+    result = (
+        await retrieval.gather_parent_context(db_session, [item], scrubber, trace_id="safe-trace")
+        if parent
+        else await retrieval.gather_evidence([item], scrubber, trace_id="safe-trace")
+    )
+    assert [e.snippet for e in result] == ["SAFE_EVIDENCE"]
+    stages = [r for r in caplog.records if r.message == "retrieval_evidence_stage"]
+    expected_phase = "parent_documents" if parent else "fallback_chunks"
+    record = next(r for r in stages if r.evidence_stage == expected_phase)
+    assert record.stage_status == "complete"
+    assert record.job_count == record.started_job_count == record.completed_job_count == 1
+    assert record.evidence_count == 1 and record.duration_ms >= 0
+    scrubs = [r for r in caplog.records if r.message == "retrieval_evidence_scrub"]
+    assert len(scrubs) == 1
+    assert scrubs[0].scrub_status == "complete"
+    assert scrubs[0].content_chars == len(scrubber.calls[0])
+    for record in stages + scrubs:
+        assert record.trace_id == "safe-trace"
+        emitted = repr(record.__dict__)
+        for private in ("PRIVATE", "SAFE_EVIDENCE", str(asset.id), str(version.id)):
+            assert private not in emitted
+
+
+@pytest.mark.parametrize("result", [None, "SAFE"])
+async def test_scrub_diagnostic_distinguishes_empty_result_without_exposing_content(caplog, result):
+    caplog.set_level(logging.INFO, logger="app.services.retrieval")
+    asset = _asset(title="PRIVATE_TITLE", conf="L4")
+    assert (
+        await retrieval._scrub_chunk(
+            FakeDesens(result), asset, "PRIVATE_CONTENT", trace_id="safe-trace"
+        )
+        == result
+    )
+    record = next(r for r in caplog.records if r.message == "retrieval_evidence_scrub")
+    assert record.scrub_status == ("complete" if result else "unavailable")
+    assert record.content_chars == len("PRIVATE_CONTENT") and record.duration_ms >= 0
+    assert "PRIVATE" not in repr(record.__dict__)
+
+
+@pytest.mark.parametrize("parent", [True, False])
 async def test_evidence_scrubs_overlap_but_stay_bounded_and_keep_citation_order(db_session, parent):
     started_two = asyncio.Event()
     started_three = asyncio.Event()
@@ -189,8 +252,242 @@ async def test_evidence_scrubs_overlap_but_stay_bounded_and_keep_citation_order(
     assert [e.snippet for e in result] == [f"SAFE_{i}" for i in range(3)]
 
 
+async def test_fallback_uses_free_slot_without_waiting_for_unrelated_parent(db_session):
+    parent_started = asyncio.Event()
+    fallback_started = asyncio.Event()
+    release_parent = asyncio.Event()
+
+    class PipelineScrub:
+        active = 0
+        peak = 0
+
+        async def scrub(self, text, **kwargs):
+            self.active += 1
+            self.peak = max(self.peak, self.active)
+            try:
+                if text == "PARENT_0":
+                    parent_started.set()
+                    await release_parent.wait()
+                elif text == "CHUNK_2":
+                    fallback_started.set()
+                return "SAFE_" + text
+            finally:
+                self.active -= 1
+
+    recalled = []
+    for index in range(3):
+        asset = _asset(conf="L3")
+        version = _version(asset)
+        item = _recalled(asset, version)
+        item.matched_chunks[0]["content"] = f"CHUNK_{index}"
+        recalled.append(item)
+        if index < 2:
+            db_session.add_all([asset, version])
+            db_session.add(
+                KnowledgeAssetChunk(
+                    asset_id=asset.id,
+                    version_id=version.id,
+                    chunk_index=0,
+                    chunk_type="governance_text",
+                    content_text=f"PARENT_{index}",
+                    chunk_status="active",
+                )
+            )
+    await db_session.commit()
+    scrubber = PipelineScrub()
+    task = asyncio.create_task(
+        retrieval.gather_parent_context(
+            db_session, recalled, scrubber, trace_id="pipeline", parent_doc_limit=2
+        )
+    )
+    try:
+        await asyncio.wait_for(parent_started.wait(), timeout=1)
+        # A synchronization assertion, not an elapsed-latency promise: parent 0
+        # is still explicitly blocked when the independent fallback must start.
+        await asyncio.wait_for(fallback_started.wait(), timeout=1)
+        assert not release_parent.is_set() and not task.done()
+    finally:
+        release_parent.set()
+        result = await task
+    assert scrubber.active == 0 and scrubber.peak == 2
+    assert [e.asset.id for e in result] == [r.asset.id for r in recalled]
+    assert [e.snippet for e in result] == ["SAFE_PARENT_0", "SAFE_PARENT_1", "SAFE_CHUNK_2"]
+
+
+@pytest.mark.parametrize("failed_parents", [set(), {0}, {0, 2}, {0, 1, 2}])
+@pytest.mark.parametrize("parent_positions", [(0, 1, 2), (1, 4, 8)])
+async def test_pipeline_preserves_original_fallback_quota_and_order(
+    db_session, failed_parents, parent_positions
+):
+    failed_positions = {parent_positions[i] for i in failed_parents}
+    all_original = parent_positions == (0, 1, 2)
+    recalled = []
+    for index in range(10):
+        asset = _asset(conf="L3")
+        version = _version(asset)
+        item = _recalled(asset, version, original_allowed=all_original or index in parent_positions)
+        asset.summaries = [
+            KnowledgeAssetSummary(
+                version_id=version.id,
+                summary_type="redacted_summary",
+                content=f"SAFE_SUMMARY_{index}",
+            )
+        ]
+        item.matched_chunks[0]["content"] = f"CHUNK_{index}"
+        recalled.append(item)
+        if index in parent_positions:
+            db_session.add_all([asset, version])
+            db_session.add(
+                KnowledgeAssetChunk(
+                    asset_id=asset.id,
+                    version_id=version.id,
+                    chunk_index=0,
+                    chunk_type="governance_text",
+                    content_text=f"PARENT_{index}",
+                    chunk_status="active",
+                )
+            )
+    await db_session.commit()
+
+    class SelectiveScrub:
+        chunks = []
+
+        async def scrub(self, text, **kwargs):
+            kind, index = text.split("_")
+            if kind == "PARENT" and int(index) in failed_positions:
+                return None
+            if kind == "CHUNK":
+                self.chunks.append(int(index))
+            return "SAFE_" + text
+
+    scrubber = SelectiveScrub()
+    result = await retrieval.gather_parent_context(
+        db_session, recalled, scrubber, trace_id="quota", parent_doc_limit=3
+    )
+    covered = set(parent_positions) - failed_positions
+    expected_fallback = [i for i in range(10) if i not in covered][:6]
+    assert sorted(scrubber.chunks) == [
+        i for i in expected_fallback if all_original or i in failed_positions
+    ]
+    expected = sorted(covered | set(expected_fallback))
+    assert [e.asset.id for e in result] == [recalled[i].asset.id for i in expected]
+    assert [e.snippet for e in result] == [
+        f"SAFE_PARENT_{i}"
+        if i in covered
+        else f"SAFE_CHUNK_{i}"
+        if all_original or i in failed_positions
+        else f"SAFE_SUMMARY_{i}"
+        for i in expected
+    ]
+
+
+async def test_pipeline_keeps_two_successful_chunks_and_never_relays_failed_scrubs(db_session):
+    asset = _asset(conf="L4")
+    version = _version(asset)
+    item = _recalled(asset, version)
+    item.matched_chunks = [
+        {
+            "knowledge_id": version.weknora_doc_id,
+            "chunk_index": i,
+            "seq": i,
+            "content": f"RAW_{i}",
+        }
+        for i in range(4)
+    ]
+    db_session.add_all([asset, version])
+    db_session.add(
+        KnowledgeAssetChunk(
+            asset_id=asset.id,
+            version_id=version.id,
+            chunk_index=0,
+            chunk_type="governance_text",
+            content_text="PARENT_FAIL",
+            chunk_status="active",
+        )
+    )
+    await db_session.commit()
+
+    class FailedThenSafe:
+        calls = []
+
+        async def scrub(self, text, **kwargs):
+            self.calls.append(text)
+            return None if text in {"PARENT_FAIL", "RAW_0"} else "SAFE_" + text[-1]
+
+    scrubber = FailedThenSafe()
+    result = await retrieval.gather_parent_context(db_session, [item], scrubber, trace_id="safe")
+    assert scrubber.calls == ["PARENT_FAIL", "RAW_0", "RAW_1", "RAW_2"]
+    assert [e.snippet for e in result] == ["SAFE_1", "SAFE_2"]
+    assert [e.seq for e in result] == [1, 2]
+
+
 @pytest.mark.parametrize("failure", ["cancel", "error"])
-async def test_evidence_cleans_up_running_and_queued_workers(failure):
+async def test_pipeline_cleans_both_phases_and_dependency_waiters(db_session, failure):
+    fallback_started = asyncio.Event()
+    fail_now = asyncio.Event()
+
+    class BlockingPipeline:
+        active = 0
+        peak = 0
+
+        async def scrub(self, text, **kwargs):
+            self.active += 1
+            self.peak = max(self.peak, self.active)
+            try:
+                if text == "PARENT_1":
+                    return "SAFE_PARENT_1"
+                if text == "CHUNK_2":
+                    fallback_started.set()
+                    await fail_now.wait()
+                    raise RuntimeError("controlled_failure")
+                await asyncio.Event().wait()
+            finally:
+                self.active -= 1
+
+    recalled = []
+    for index in range(9):
+        asset = _asset(conf="L3")
+        version = _version(asset)
+        item = _recalled(asset, version)
+        item.matched_chunks[0]["content"] = f"CHUNK_{index}"
+        recalled.append(item)
+        if index < 2:
+            db_session.add_all([asset, version])
+            db_session.add(
+                KnowledgeAssetChunk(
+                    asset_id=asset.id,
+                    version_id=version.id,
+                    chunk_index=0,
+                    chunk_type="governance_text",
+                    content_text=f"PARENT_{index}",
+                    chunk_status="active",
+                )
+            )
+    await db_session.commit()
+    scrubber = BlockingPipeline()
+    task = asyncio.create_task(
+        retrieval.gather_parent_context(
+            db_session, recalled, scrubber, trace_id="cleanup-pipeline", parent_doc_limit=2
+        )
+    )
+    try:
+        await asyncio.wait_for(fallback_started.wait(), timeout=1)
+        if failure == "cancel":
+            task.cancel()
+        else:
+            fail_now.set()
+        with pytest.raises(asyncio.CancelledError if failure == "cancel" else RuntimeError):
+            await asyncio.wait_for(task, timeout=1)
+    finally:
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    assert scrubber.active == 0 and scrubber.peak == 2
+
+
+@pytest.mark.parametrize("failure", ["cancel", "error"])
+async def test_evidence_cleans_up_running_and_queued_workers(failure, caplog):
+    caplog.set_level(logging.INFO, logger="app.services.retrieval")
     started_two = asyncio.Event()
     fail_now = asyncio.Event()
 
@@ -230,6 +527,20 @@ async def test_evidence_cleans_up_running_and_queued_workers(failure):
             task.cancel()
         await asyncio.gather(task, return_exceptions=True)
     assert scrubber.active == 0
+    stage = next(r for r in caplog.records if r.message == "retrieval_evidence_stage")
+    assert stage.evidence_stage == "fallback_chunks"
+    assert stage.stage_status == ("cancelled" if failure == "cancel" else "error")
+    assert stage.job_count == 3
+    assert stage.started_job_count >= 2 and stage.completed_job_count == 0
+    assert stage.evidence_count == 0 and stage.duration_ms >= 0
+    scrub_records = [r for r in caplog.records if r.message == "retrieval_evidence_scrub"]
+    assert len(scrub_records) == stage.started_job_count
+    assert any(r.scrub_status == "cancelled" for r in scrub_records)
+    if failure == "error":
+        assert any(r.scrub_status == "error" for r in scrub_records)
+    for record in [stage, *scrub_records]:
+        assert "RAW_" not in repr(record.__dict__)
+        assert "controlled_failure" not in repr(record.__dict__)
 
 
 def test_join_parent_document_rebuilds_page_markers():

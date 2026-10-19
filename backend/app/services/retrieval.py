@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -576,33 +577,131 @@ async def _scrub_chunk(
     脱敏不可用 → None（保守降级，调用方据此不返回该片段）。"""
     if not needs_desensitization(asset):
         return content
-    return await desens.scrub(content, trace_id=trace_id)
+    started = time.monotonic()
+    status = "error"
+    try:
+        scrubbed = await desens.scrub(content, trace_id=trace_id)
+        status = "complete" if scrubbed else "unavailable"
+        return scrubbed
+    except asyncio.CancelledError:
+        status = "cancelled"
+        raise
+    finally:
+        # Never log the text, asset identity, returned text, or error payload.
+        _logger.info(
+            "retrieval_evidence_scrub",
+            extra={
+                "scrub_status": status,
+                "content_chars": len(content),
+                "duration_ms": int((time.monotonic() - started) * 1000),
+                "trace_id": trace_id,
+            },
+        )
 
 
 async def _collect_evidence(
     items: list[_EvidenceInput],
     collect: Callable[[_EvidenceInput], Awaitable[list[Evidence]]],
+    *,
+    stage: str,
+    trace_id: str | None,
+    gate: asyncio.Semaphore | None = None,
+    eligible: Callable[[_EvidenceInput], Awaitable[bool]] | None = None,
 ) -> list[Evidence]:
     """Overlap independent scrubs only; never use a DB session in workers.
 
     Gather preserves input/citation order, not completion order. Cancellation
     and unexpected failures drain all children before the caller rolls back.
     """
-    gate = asyncio.Semaphore(_EVIDENCE_CONCURRENCY)
+    gate = gate if gate is not None else asyncio.Semaphore(_EVIDENCE_CONCURRENCY)
+    started = time.monotonic()
+    started_jobs = completed_jobs = evidence_count = 0
+    status = "error"
 
     async def worker(item: _EvidenceInput) -> list[Evidence]:
+        nonlocal started_jobs, completed_jobs, evidence_count
+        # Dependencies must never occupy a shared worker slot: their parent
+        # job may itself be queued for that slot.
+        if eligible is not None and not await eligible(item):
+            return []
         async with gate:
-            return await collect(item)
+            started_jobs += 1
+            result = await collect(item)
+            completed_jobs += 1
+            evidence_count += len(result)
+            return result
 
     tasks = [asyncio.create_task(worker(item)) for item in items]
     try:
         groups = await asyncio.gather(*tasks)
+        status = "complete"
+    except asyncio.CancelledError:
+        status = "cancelled"
+        raise
     finally:
         for task in tasks:
             if not task.done():
                 task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        _logger.info(
+            "retrieval_evidence_stage",
+            extra={
+                "evidence_stage": stage,
+                "stage_status": status,
+                "job_count": len(items),
+                "started_job_count": started_jobs,
+                "completed_job_count": completed_jobs,
+                "evidence_count": evidence_count,
+                "duration_ms": int((time.monotonic() - started) * 1000),
+                "trace_id": trace_id,
+            },
+        )
     return [evidence for group in groups for evidence in group]
+
+
+async def _gather_asset_evidence(
+    r: RecalledAsset,
+    desens: OutputDesensitizer,
+    *,
+    trace_id: str | None,
+) -> list[Evidence]:
+    evidences: list[Evidence] = []
+    if r.can_view_original and r.matched_chunks:
+        taken = 0
+        for c in r.matched_chunks:
+            if taken >= _MAX_CHUNKS_PER_ASSET:
+                break
+            content = (c.get("content") or "").strip()
+            if not content:
+                continue
+            scrubbed = await _scrub_chunk(desens, r.asset, content, trace_id=trace_id)
+            if not scrubbed:  # Fail closed; an unsuccessful scrub never becomes evidence.
+                continue
+            ref = f"{c['knowledge_id']}#{c.get('chunk_index')}"
+            evidences.append(
+                Evidence(
+                    asset=r.asset,
+                    used_layer=AccessLayer.original.value,
+                    snippet=scrubbed[:600],
+                    seq=c.get("seq"),
+                    weknora_chunk_ref=ref,
+                )
+            )
+            taken += 1
+    elif r.summary and r.summary.allowed:
+        one_liner, detailed, _kp = _card_summary_fields(r.asset, True)
+        snippet = (detailed or one_liner or "").strip()
+        if snippet:
+            evidences.append(
+                Evidence(
+                    asset=r.asset,
+                    used_layer=AccessLayer.summary.value,
+                    snippet=snippet[:600],
+                    seq=None,
+                    weknora_chunk_ref=None,
+                )
+            )
+    return evidences
 
 
 async def gather_evidence(
@@ -620,45 +719,11 @@ async def gather_evidence(
     """
 
     async def collect(r: RecalledAsset) -> list[Evidence]:
-        evidences: list[Evidence] = []
-        if r.can_view_original and r.matched_chunks:
-            taken = 0
-            for c in r.matched_chunks:
-                if taken >= _MAX_CHUNKS_PER_ASSET:
-                    break
-                content = (c.get("content") or "").strip()
-                if not content:
-                    continue
-                scrubbed = await _scrub_chunk(desens, r.asset, content, trace_id=trace_id)
-                if not scrubbed:  # 脱敏不可用 → 保守跳过（不外泄未脱敏原文）
-                    continue
-                ref = f"{c['knowledge_id']}#{c.get('chunk_index')}"
-                evidences.append(
-                    Evidence(
-                        asset=r.asset,
-                        used_layer=AccessLayer.original.value,
-                        snippet=scrubbed[:600],
-                        seq=c.get("seq"),
-                        weknora_chunk_ref=ref,
-                    )
-                )
-                taken += 1
-        elif r.summary and r.summary.allowed:
-            one_liner, detailed, _kp = _card_summary_fields(r.asset, True)
-            snippet = (detailed or one_liner or "").strip()
-            if snippet:
-                evidences.append(
-                    Evidence(
-                        asset=r.asset,
-                        used_layer=AccessLayer.summary.value,
-                        snippet=snippet[:600],
-                        seq=None,
-                        weknora_chunk_ref=None,
-                    )
-                )
-        return evidences
+        return await _gather_asset_evidence(r, desens, trace_id=trace_id)
 
-    return await _collect_evidence(recalled[:_MAX_EVIDENCE_ASSETS], collect)
+    return await _collect_evidence(
+        recalled[:_MAX_EVIDENCE_ASSETS], collect, stage="fallback_chunks", trace_id=trace_id
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -697,6 +762,8 @@ async def gather_parent_context(
     - 单篇超 `parent_doc_char_limit` 截头并打截断标记；
     - 未产出全文的资产（无原文权限 / 无 chunk 行 / 超 N 篇 / 擦洗失败）回退现有
       `gather_evidence` 的片段 / 摘要逻辑——存量老资产（阶段3 部署前）不会问答变空。
+    - 父文与符合兜底名额的独立资料共享两个并发槽；不等待无关父文全部结束，
+      但仍只处理排除成功父文后的前六份兜底资料，最后保持原召回与片段顺序。
     """
     settings = get_settings()
     limit = settings.agent_parent_doc_limit if parent_doc_limit is None else parent_doc_limit
@@ -763,12 +830,70 @@ async def gather_parent_context(
             )
         ]
 
-    parent_evidences = await _collect_evidence(jobs, collect)
-    covered_ids = {e.asset.id for e in parent_evidences}
-    # 未覆盖资产（无原文权限 / 无 chunk / 超 N 篇 / 擦洗失败）→ 片段 / 摘要兜底。
-    rest = [r for r in recalled if r.asset.id not in covered_ids]
-    fallback = await gather_evidence(rest, desens, trace_id=trace_id)
     order = {r.asset.id: idx for idx, r in enumerate(recalled)}
+    gate = asyncio.Semaphore(_EVIDENCE_CONCURRENCY)
+    parent_done: dict[uuid.UUID, asyncio.Future[bool]] = {
+        r.asset.id: asyncio.get_running_loop().create_future() for r, _text in jobs
+    }
+
+    async def collect_parent(job: tuple[RecalledAsset, str]) -> list[Evidence]:
+        result = await collect(job)
+        parent_done[job[0].asset.id].set_result(bool(result))
+        return result
+
+    async def fallback_eligible(job: tuple[int, RecalledAsset]) -> bool:
+        index, r = job
+        own_parent = parent_done.get(r.asset.id)
+        if own_parent is not None and await asyncio.shield(own_parent):
+            return False
+        if index < _MAX_EVIDENCE_ASSETS:
+            return True
+        # Earlier successful parents are the only entries omitted by the old
+        # `rest[:6]` rule. Resolve that prefix before spending a fallback slot;
+        # never speculatively scrub a seventh fallback asset.
+        covered_before = 0
+        for asset_id, done in parent_done.items():
+            if order[asset_id] < index and await asyncio.shield(done):
+                covered_before += 1
+        return index - covered_before < _MAX_EVIDENCE_ASSETS
+
+    async def collect_fallback(job: tuple[int, RecalledAsset]) -> list[Evidence]:
+        return await _gather_asset_evidence(job[1], desens, trace_id=trace_id)
+
+    # At most one extra possible fallback position per potential parent cover.
+    # Both phases share TWO slots; SQL above finished before any child starts.
+    fallback_jobs = list(enumerate(recalled[: _MAX_EVIDENCE_ASSETS + len(jobs)]))
+    operations = [
+        asyncio.create_task(
+            _collect_evidence(
+                jobs,
+                collect_parent,
+                stage="parent_documents",
+                trace_id=trace_id,
+                gate=gate,
+            )
+        ),
+        asyncio.create_task(
+            _collect_evidence(
+                fallback_jobs,
+                collect_fallback,
+                stage="fallback_chunks",
+                trace_id=trace_id,
+                gate=gate,
+                eligible=fallback_eligible,
+            )
+        ),
+    ]
+    try:
+        parent_evidences, fallback = await asyncio.gather(*operations)
+    finally:
+        for operation in operations:
+            if not operation.done():
+                operation.cancel()
+        await asyncio.gather(*operations, return_exceptions=True)
+        for done in parent_done.values():
+            if not done.done():
+                done.cancel()
     combined = parent_evidences + fallback
     combined.sort(key=lambda e: order.get(e.asset.id, len(recalled)))
     return combined
