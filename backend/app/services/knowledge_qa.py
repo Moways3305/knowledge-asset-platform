@@ -20,9 +20,12 @@ _PROMPT = (
     "若平台明确current且adopted，应依据该已采用版本回答，并说明复核状态的限制；"
     "review_status=verified只表示复核，不单独证明已采用。adoption_status=unknown或pending时"
     "不得声称平台已确认替代；平台当前版本不等同于法律或业务生效判断。"
-    '严格返回JSON：{"status":"answered或insufficient_evidence",'
-    '"answer":"中文答案，事实句末用[证据编号]引用", "citation_orders":[实际使用的证据编号]}。'
-    "answered必须有非空答案和有效引用；insufficient_evidence引用列表必须为空。"
+    '回答严格返回JSON：{"status":"answered","answer_parts":'
+    '[{"text":"依据证据可确认的事实。","citation_orders":[1]}]}。'
+    "answer_parts按回答顺序分段，每段text非空且必须列出支持该段的实际证据编号。"
+    "text只写答案文字，不自行插入方括号引用；正文引用和最终引用列表由平台统一生成。"
+    "不要另填顶层answer或citation_orders，不以资料名称、版本号代替证据编号。"
+    '证据不足严格返回JSON：{"status":"insufficient_evidence","answer_parts":[]}。'
 )
 
 
@@ -121,9 +124,41 @@ async def generate_answer(llm, query, evidences, *, trace_id=None) -> QAOutcome:
     if result.get("status") == "insufficient_evidence":
         # Do not relay ungrounded amounts or fabricated facts in a refusal body.
         return QAOutcome(status="insufficient_evidence", answer=_REFUSAL)
-    answer, orders = result.get("answer"), result.get("citation_orders")
     if result.get("status") != "answered":
         return invalid_response("answer_status")
+    if "answer_parts" in result:
+        # A single validated citation source drives both inline markers and the
+        # public citation list. Never guess how conflicting formats reconcile.
+        if "answer" in result or "citation_orders" in result:
+            return invalid_response("mixed_answer_contract")
+        parts = result["answer_parts"]
+        if not isinstance(parts, list) or not parts:
+            return invalid_response("answer_parts_shape")
+        rendered: list[str] = []
+        cited: set[int] = set()
+        for part in parts:
+            if not isinstance(part, dict):
+                return invalid_response("answer_parts_shape")
+            text, orders = part.get("text"), part.get("citation_orders")
+            if not isinstance(text, str) or not text.strip() or len(text) > 10000:
+                return invalid_response("answer_part_text")
+            if not isinstance(orders, list) or not orders:
+                return invalid_response("citation_orders_shape")
+            if any(type(order) is not int or not 1 <= order <= len(evidences) for order in orders):
+                return invalid_response("citation_orders_range")
+            if re.search(r"\[\s*\d", text):
+                return invalid_response("embedded_citation")
+            unique_orders = sorted(set(orders))
+            cited.update(unique_orders)
+            rendered.append(text.strip() + "".join(f"[{order}]" for order in unique_orders))
+        rendered_answer = "\n\n".join(rendered)
+        if len(rendered_answer) > 10000:
+            return invalid_response("answer_text")
+        return QAOutcome(status="answered", answer=rendered_answer, citation_orders=sorted(cited))
+
+    # Existing provider responses remain supported only under the original
+    # strict agreement check. A mismatch never falls back to inferred citations.
+    answer, orders = result.get("answer"), result.get("citation_orders")
     if not isinstance(answer, str) or not answer.strip() or len(answer) > 10000:
         return invalid_response("answer_text")
     if not isinstance(orders, list) or not orders:
