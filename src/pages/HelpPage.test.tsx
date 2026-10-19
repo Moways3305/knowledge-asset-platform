@@ -4,6 +4,23 @@ import { describe, expect, it } from "vitest";
 import HelpPage from "./HelpPage";
 
 describe("HelpPage", () => {
+  it("区分手动凭证与 OAuth 接入，说明已授权应用入口和操作授权边界", () => {
+    const { container } = render(
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <HelpPage />
+      </MemoryRouter>,
+    );
+    const integration = container.querySelector("#integration");
+    expect(integration).toHaveTextContent("手动凭证接入");
+    expect(integration).toHaveTextContent("OAuth 登录授权");
+    expect(integration).toHaveTextContent("同意并连接");
+    expect(integration).toHaveTextContent("已授权应用");
+    expect(integration).toHaveTextContent("撤销授权");
+    expect(integration).toHaveTextContent("平台尚未启用 OAuth");
+    expect(integration).toHaveTextContent("不能用「无需身份验证」绕过");
+    expect(integration).toHaveTextContent("每次业务操作仍需本人明确授权");
+  });
+
   it("按工作流呈现当前操作章节，不保留旧规划章节", () => {
     const { container } = render(
       <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
