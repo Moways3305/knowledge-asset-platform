@@ -138,7 +138,13 @@ def build_view_config(
         },
         "editorConfig": {
             "mode": "view",
-            "customization": {"chat": False, "comments": False, "help": False},
+            "customization": {
+                "chat": False,
+                "comments": False,
+                "help": False,
+                # Read-only preview needs no guest profile or real platform identity.
+                "anonymous": {"request": False},
+            },
         },
     }
     if s.onlyoffice_jwt_secret:
