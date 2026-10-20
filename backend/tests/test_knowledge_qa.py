@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.services import knowledge_qa
 from app.services.knowledge_qa import generate_answer
 from app.services.llm_client import LLMError
 
@@ -63,6 +64,39 @@ async def test_invalid_or_uncited_answers_fail_safely(response):
     assert result.status == "unavailable"
     assert result.answer is None and result.citation_orders == []
     assert result.message
+
+
+@pytest.mark.parametrize("parser_overflow", [False, True], ids=["real-parser", "parser-overflow"])
+async def test_deep_json_within_size_budget_returns_safe_failure(
+    caplog, monkeypatch, parser_overflow
+):
+    raw = "[" * 1100 + "0" + "]" * 1100
+    assert len(raw) < 20000
+    item = evidence()
+    item.asset.title = "PRIVATE_TITLE"
+    item.snippet = "PRIVATE_CONTENT"
+    if parser_overflow:
+
+        def overflow(_raw):
+            raise RecursionError("synthetic-parser-overflow")
+
+        monkeypatch.setattr(knowledge_qa.json, "loads", overflow)
+    result = await generate_answer(
+        FakeLLM(raw), "PRIVATE_QUERY", [item], trace_id="safe-deep-json-trace"
+    )
+
+    assert result.status == "unavailable"
+    assert result.answer is None and result.citation_orders == [] and result.message
+    record = next(r for r in caplog.records if r.msg == "knowledge_qa_validation_failed")
+    if parser_overflow:
+        assert record.validation_reason == "json_syntax"
+    else:
+        # CPython versions differ in the depth accepted by the JSON decoder.
+        # Both a parser overflow and a parsed non-object must fail safely.
+        assert record.validation_reason in {"json_syntax", "json_shape"}
+    assert record.trace_id == "safe-deep-json-trace"
+    assert raw not in repr([vars(r) for r in caplog.records])
+    assert "PRIVATE" not in repr([vars(r) for r in caplog.records])
 
 
 @pytest.mark.parametrize(

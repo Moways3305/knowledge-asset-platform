@@ -96,7 +96,7 @@ async def rerank_cards(
         return finish(cards, "invalid_response")
     try:
         result = json.loads(raw)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, RecursionError):
         return finish(cards, "invalid_response")
     if not isinstance(result, dict) or set(result) != {"order"}:
         return finish(cards, "invalid_response")

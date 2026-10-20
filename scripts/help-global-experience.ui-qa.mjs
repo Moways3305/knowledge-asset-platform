@@ -83,6 +83,7 @@ const workbenchOverview = {
   recent_activity: { status: "empty", error_code: null, items: [], total: 0 },
 };
 let browser;
+let releaseLoadingResponse = () => {};
 
 try {
   await ensureServer();
@@ -91,6 +92,9 @@ try {
 
   for (const scenario of scenarios) {
     for (const viewport of viewports) {
+      const loadingResponseGate = new Promise((resolve) => {
+        releaseLoadingResponse = resolve;
+      });
       const context = await browser.newContext({ viewport });
       await context.route("**/api/v1/**", async (route) => {
         const requestUrl = new URL(route.request().url());
@@ -146,7 +150,9 @@ try {
 
         if (requestUrl.pathname === "/api/v1/knowledge") {
           if (scenario === "loading") {
-            await new Promise((resolve) => setTimeout(resolve, 8000));
+            // Hold until the loading state has been asserted and captured.
+            // A fixed delay can expire before a busy CI runner observes it.
+            await loadingResponseGate;
             return fulfill({ items: [], total: 0, page: 1, page_size: 20, has_next: false });
           }
           if (scenario === "error") {
@@ -254,6 +260,10 @@ try {
         animations: "disabled",
       });
       results.push({ viewport: viewport.name, consoleErrors, ...metrics });
+      releaseLoadingResponse();
+      if (scenario === "loading") {
+        await page.getByText("暂无可复用资料", { exact: true }).waitFor();
+      }
       await context.close();
     }
   }
@@ -298,6 +308,7 @@ try {
 
   if (failed) process.exitCode = 1;
 } finally {
+  releaseLoadingResponse();
   await browser?.close();
   await stopOwnedServer();
 }
