@@ -10,6 +10,7 @@ import WorkbuddyStatusPanel from "../components/WorkbuddyStatusPanel";
 import { ProductPage } from "../components/ProductLayout";
 import type { WorkbenchSectionStatus, WorkbenchTaskItemDTO } from "../types/workbench";
 import { formatBeijingTime } from "../utils/time";
+import { scopeLabels } from "../utils/knowledgeLabels";
 import PagePagination from "../components/PagePagination";
 import { useWorkbench } from "../workbench/WorkbenchContext";
 import "./HomeDashboardPage.css";
@@ -56,6 +57,12 @@ function recentMaterialClass(
   if (assetType.includes("summary")) return "material-summary";
   if (assetType.includes("review")) return "material-review";
   return "material-source";
+}
+
+function recentScopeLabel(scope: string, projectName: string | null): string {
+  if (scope === "project") return projectName?.trim() || scopeLabels.project;
+  if (scope === "company" || scope === "personal") return scopeLabels[scope];
+  return "知识资料";
 }
 
 function TaskRow({
@@ -522,7 +529,7 @@ export default function HomeDashboardPage() {
                   >
                     <span>
                       <strong>{canShowRecentTitles ? item.title : "业务标题已隐藏"}</strong>
-                      <small>{item.project_name || "个人知识"}</small>
+                      <small>{recentScopeLabel(item.scope, item.project_name)}</small>
                     </span>
                     <time>
                       <Clock3 size={13} aria-hidden="true" />

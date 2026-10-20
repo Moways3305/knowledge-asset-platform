@@ -491,6 +491,30 @@ describe("HomeDashboardPage task-first workbench", () => {
     expect(screen.queryByText("交付复盘方法")).not.toBeInTheDocument();
   });
 
+  it.each([
+    ["company", null, "公司知识"],
+    ["company", "不应使用的项目名", "公司知识"],
+    ["personal", null, "个人知识"],
+    ["project", "华东交付项目", "华东交付项目"],
+    ["project", null, "项目知识"],
+    ["project", "   ", "项目知识"],
+    ["unknown", null, "知识资料"],
+  ])("labels recent %s material by its scope (%s)", async (scope, projectName, label) => {
+    const data = overview();
+    data.recent_activity.items[0] = {
+      ...data.recent_activity.items[0],
+      scope,
+      project_name: projectName,
+    };
+    vi.mocked(fetchWorkbenchOverview).mockResolvedValue(data);
+
+    renderPage();
+
+    const item = await screen.findByRole("link", { name: /交付复盘方法/ });
+    expect(item.querySelector("small")).toHaveTextContent(label);
+    expect(item).toHaveAttribute("href", "/knowledge/asset-safe-1");
+  });
+
   it("uses projected access mode for cross-project summary material", async () => {
     const data = overview();
     data.recent_activity.items.push({
