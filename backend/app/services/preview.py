@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+import unicodedata
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -73,6 +74,15 @@ _LIGHT_RENDER_TYPES = {
     "json": "text",
     "log": "text",
 }
+
+
+def _display_document_title(file_name: str | None) -> str:
+    """Keep readable Unicode in UI labels, never use this value as a storage key."""
+    basename = (file_name or "").replace("\\", "/").rsplit("/", 1)[-1]
+    cleaned = "".join(
+        char for char in basename if unicodedata.category(char) not in {"Cc", "Cf", "Cs"}
+    ).strip(" .")
+    return cleaned[:255] or "document"
 
 
 def _render_type_for(file_name: str) -> str | None:
@@ -386,7 +396,7 @@ async def use_preview_entry(
     # ---- 按文件类型分发渲染方式（D1 后 UX 修复：pdf/图片/md/文本轻量预览，
     # office 走 ONLYOFFICE 只读兜底）----
     original = await _resolve_original(session, asset.id)
-    document_title = safe_filename(original[1]) if original else asset.title
+    document_title = _display_document_title(original[1] if original else asset.title)
     render_type: str | None = None
     file_url: str | None = None
     onlyoffice_config: dict | None = None
