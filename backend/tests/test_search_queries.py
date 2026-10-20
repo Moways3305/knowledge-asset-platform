@@ -50,12 +50,22 @@ async def test_invalid_output_falls_back_without_executing_instructions(response
     assert await search_queries.plan_queries(FakeModel(response), QUESTION) == [QUESTION]
 
 
-async def test_deep_json_within_size_budget_preserves_original_query(caplog):
+@pytest.mark.parametrize("parser_overflow", [False, True], ids=["real-parser", "parser-overflow"])
+async def test_deep_json_within_size_budget_preserves_original_query(
+    caplog, monkeypatch, parser_overflow
+):
     caplog.set_level(logging.INFO, logger="app.services.search_queries")
     raw = "[" * 995 + "0" + "]" * 995
     assert len(raw) < 2000
     model = FakeModel(raw)
     query = "PRIVATE_QUERY"
+
+    if parser_overflow:
+
+        def overflow(_raw):
+            raise RecursionError("synthetic-parser-overflow")
+
+        monkeypatch.setattr(search_queries.json, "loads", overflow)
 
     assert await search_queries.plan_queries(model, query) == [query]
 
