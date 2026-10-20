@@ -35,6 +35,9 @@ class PreviewCredential(Base):
     requester_user_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("users.id"), nullable=False
     )
+    # Pin the issuing work identity. Document Server fetches have no browser role cookie.
+    # NULL legacy credentials must be reissued, never guessed from another assigned role.
+    requester_company_role: Mapped[str | None] = mapped_column(String(30), nullable=True)
     preview_type: Mapped[str] = mapped_column(String(20), nullable=False)
     credential_status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     # 只存不可逆哈希，绝不存明文 token。
