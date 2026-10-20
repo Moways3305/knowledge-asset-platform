@@ -20,9 +20,11 @@ from pathlib import Path
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from starlette.concurrency import run_in_threadpool
 
 from app.db.utils import utc_now
+from app.models.identity import User
 from app.models.ingest import IngestTask
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.preview import PreviewCredential
@@ -49,7 +51,7 @@ from app.services.onlyoffice import (
     onlyoffice_enabled,
     resolve_doc_type,
 )
-from app.services.permission import decide
+from app.services.permission import build_caller_context, decide
 from app.services.permission_rules import load_access_policy
 from app.services.storage import LocalFileStorage, safe_filename
 
@@ -133,6 +135,49 @@ def _denied(status_code: int, reason: str, message: str) -> HTTPException:
 def _as_aware(dt: datetime) -> datetime:
     """把可能为 naive 的时间戳视作 UTC（SQLite 读回为 naive，PostgreSQL 为 aware）。"""
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
+async def _require_live_original_access(
+    session: AsyncSession,
+    credential: PreviewCredential,
+    asset: KnowledgeAsset,
+    *,
+    caller: CallerContext | None = None,
+) -> None:
+    """Recheck the pinned requester's live access before returning config or bytes.
+
+    Fetch-token possession is not a permanent original-access grant. The document
+    server has no browser session, so reload identity/assignments from the DB and
+    use the issuing role, never a newly preferred or more privileged default.
+    """
+    denied = _denied(403, "preview_access_no_longer_allowed", "预览权限已失效，请重新打开预览")
+    if not credential.requester_company_role:
+        raise denied
+    user = (
+        await session.execute(
+            select(User)
+            .where(User.id == credential.requester_user_id)
+            .options(selectinload(User.company_roles), selectinload(User.project_members))
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+    if user is None:
+        raise denied
+    live_caller = build_caller_context(user, active_company_role=credential.requester_company_role)
+    policy = await load_access_policy(session)
+    has_grant = await original_access.has_active_grant(session, user.id, asset.id)
+    contexts = (live_caller,) if caller is None else (live_caller, caller)
+    for context in contexts:
+        decision = decide(
+            context,
+            asset,
+            AccessLayer.original,
+            channel=AccessChannel.human,
+            has_original_grant=has_grant,
+            policy=policy,
+        )
+        if not decision.allowed:
+            raise denied
 
 
 async def issue_preview(
@@ -236,6 +281,7 @@ async def issue_preview(
         target_asset_id=asset.id,
         target_version_id=target_version_id,
         requester_user_id=caller.user_id,
+        requester_company_role=caller.active_company_role,
         preview_type=PreviewType.full.value,
         credential_status=CredentialStatus.active.value,
         token_hash=token_hash,
@@ -353,6 +399,8 @@ async def use_preview_entry(
         cred.revoked_at = utc_now()
         await session.commit()
         raise _denied(403, "asset_not_active", "资产不可用，凭证已失效")
+
+    await _require_live_original_access(session, cred, asset, caller=caller)
 
     now = utc_now()
     if cred.used_at is None:
@@ -497,6 +545,8 @@ async def serve_preview_file(
     ).scalar_one_or_none()
     if asset is None or asset.asset_status in _INACTIVE_STATUSES:
         raise _denied(403, "asset_not_active", "资产不可用")
+
+    await _require_live_original_access(session, cred, asset)
 
     original = await _resolve_original(session, asset.id)
     if original is None:
