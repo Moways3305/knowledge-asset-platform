@@ -117,7 +117,7 @@ async def generate_answer(llm, query, evidences, *, trace_id=None) -> QAOutcome:
         return invalid_response("response_size")
     try:
         result = json.loads(raw)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, RecursionError):
         return invalid_response("json_syntax")
     if not isinstance(result, dict):
         return invalid_response("json_shape")

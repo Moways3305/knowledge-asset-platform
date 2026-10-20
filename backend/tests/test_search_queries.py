@@ -50,6 +50,21 @@ async def test_invalid_output_falls_back_without_executing_instructions(response
     assert await search_queries.plan_queries(FakeModel(response), QUESTION) == [QUESTION]
 
 
+async def test_deep_json_within_size_budget_preserves_original_query(caplog):
+    caplog.set_level(logging.INFO, logger="app.services.search_queries")
+    raw = "[" * 995 + "0" + "]" * 995
+    assert len(raw) < 2000
+    model = FakeModel(raw)
+    query = "PRIVATE_QUERY"
+
+    assert await search_queries.plan_queries(model, query) == [query]
+
+    assert len(model.calls) == 1
+    record = next(r for r in caplog.records if r.msg == "retrieval_query_planning")
+    assert record.planning_status == "invalid_response"
+    assert raw not in repr(record.__dict__) and query not in repr(record.__dict__)
+
+
 async def test_blank_oversized_and_unconfigured_queries_need_no_model():
     model = FakeModel("must not call")
     assert await search_queries.plan_queries(model, "  ") == []

@@ -122,6 +122,23 @@ async def test_exact_title_empty_and_unconfigured_requests_do_not_call_model():
     assert model.calls == []
 
 
+async def test_deep_json_within_size_budget_preserves_card_objects_and_order(caplog):
+    caplog.set_level(logging.INFO, logger="app.services.search_rerank")
+    raw = "[" * 1100 + "0" + "]" * 1100
+    assert len(raw) < 4000
+    model = FakeModel(raw)
+    cards = [_card(0), _card(1)]
+    before = [card.model_dump() for card in cards]
+
+    assert await search_rerank.rerank_cards(model, "PRIVATE_QUERY", cards) is cards
+
+    assert [card.model_dump() for card in cards] == before
+    assert len(model.calls) == 1
+    record = next(r for r in caplog.records if r.msg == "retrieval_card_reranking")
+    assert record.reranking_status == "invalid_response"
+    assert raw not in repr(record.__dict__) and "PRIVATE" not in repr(record.__dict__)
+
+
 async def test_timeout_cancels_optional_call_and_preserves_original_order(monkeypatch):
     class SlowModel:
         cancelled = False

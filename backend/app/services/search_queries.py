@@ -80,7 +80,7 @@ async def plan_queries(
         return finish([original], "invalid_response")
     try:
         value = json.loads(raw)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, RecursionError):
         return finish([original], "invalid_response")
     terms = value.get("queries") if isinstance(value, dict) else None
     if not isinstance(terms, list) or len(terms) > _MAX_ALTERNATIVES:

@@ -65,6 +65,25 @@ async def test_invalid_or_uncited_answers_fail_safely(response):
     assert result.message
 
 
+async def test_deep_json_within_size_budget_returns_safe_failure(caplog):
+    raw = "[" * 1100 + "0" + "]" * 1100
+    assert len(raw) < 20000
+    item = evidence()
+    item.asset.title = "PRIVATE_TITLE"
+    item.snippet = "PRIVATE_CONTENT"
+    result = await generate_answer(
+        FakeLLM(raw), "PRIVATE_QUERY", [item], trace_id="safe-deep-json-trace"
+    )
+
+    assert result.status == "unavailable"
+    assert result.answer is None and result.citation_orders == [] and result.message
+    record = next(r for r in caplog.records if r.msg == "knowledge_qa_validation_failed")
+    assert record.validation_reason == "json_syntax"
+    assert record.trace_id == "safe-deep-json-trace"
+    assert raw not in repr([vars(r) for r in caplog.records])
+    assert "PRIVATE" not in repr([vars(r) for r in caplog.records])
+
+
 @pytest.mark.parametrize(
     ("response", "reason"),
     [
