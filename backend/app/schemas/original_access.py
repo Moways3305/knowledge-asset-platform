@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class CreateRequestBody(BaseModel):
@@ -22,7 +22,7 @@ class ReviewBody(BaseModel):
 
 
 class RevokeBody(BaseModel):
-    reason: str | None = None
+    reason: str | None = Field(default=None, max_length=1000)
 
 
 class OriginalAccessRequestOut(BaseModel):
@@ -57,6 +57,23 @@ class AccessGrantOut(BaseModel):
     expires_at: datetime | None = None
     created_at: datetime
     revoked_at: datetime | None = None
+
+
+class AccessGrantHistoryOut(AccessGrantOut):
+    asset_title: str
+    scope: str
+    grantee_name: str | None = None
+    granted_by_name: str | None = None
+    revoked_by_name: str | None = None
+    revoke_reason: str | None = None
+    can_revoke: bool
+
+
+class GrantsListResponse(BaseModel):
+    items: list[AccessGrantHistoryOut]
+    total: int
+    offset: int
+    limit: int
 
 
 class CreateRequestResponse(BaseModel):

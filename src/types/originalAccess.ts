@@ -46,3 +46,20 @@ export interface RequestsListResponseDTO {
   items: OriginalAccessRequestDTO[];
   total: number;
 }
+
+export interface AccessGrantHistoryDTO extends AccessGrantDTO {
+  asset_title: string;
+  scope: string;
+  grantee_name: string | null;
+  granted_by_name: string | null;
+  revoked_by_name: string | null;
+  revoke_reason: string | null;
+  can_revoke: boolean;
+}
+
+export interface GrantsListResponseDTO {
+  items: AccessGrantHistoryDTO[];
+  total: number;
+  offset: number;
+  limit: number;
+}

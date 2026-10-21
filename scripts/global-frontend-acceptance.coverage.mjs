@@ -13,7 +13,11 @@ export const routeDefinitions = [
   {
     route: "/knowledge-maintenance",
     suite: "knowledge-trust",
-    states: [{ name: "normal", scenario: "normal" }, { name: "empty", scenario: "empty" }, { name: "failure", scenario: "failure" }],
+    states: [
+      { name: "normal", scenario: "normal" },
+      { name: "empty", scenario: "empty" },
+      { name: "failure", scenario: "failure" },
+    ],
   },
   {
     route: "/release-notes",
@@ -159,6 +163,14 @@ export const routeDefinitions = [
     states: ["inbox", "loading", "empty", "list-failure", "forbidden"].map((name) => ({
       name: name === "inbox" ? "normal" : name === "list-failure" ? "failure" : name,
       scenario: `access-${name}`,
+    })),
+  },
+  {
+    route: "/original-access/grants",
+    suite: "review-access",
+    states: ["normal", "loading", "empty", "list-failure", "forbidden", "confirm"].map((name) => ({
+      name: name === "list-failure" ? "failure" : name,
+      scenario: `grants-${name}`,
     })),
   },
   {

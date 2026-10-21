@@ -34,6 +34,9 @@ const scenarios = [
   { name: "access-forbidden", path: "/original-access?box=inbox" },
   { name: "access-list-failure", path: "/original-access?box=inbox" },
   { name: "access-action-failure", path: "/original-access?box=inbox" },
+  ...["normal", "confirm", "empty", "loading", "forbidden", "list-failure", "action-failure"].map(
+    (name) => ({ name: `grants-${name}`, path: "/original-access/grants" }),
+  ),
 ];
 
 const secrets = [
@@ -134,7 +137,7 @@ function accepted(result) {
     result.shellOverlap <= 1 &&
     result.clippedControls === 0 &&
     result.workspaceCount === 1 &&
-    result.routeTabCount === 3 &&
+    result.routeTabCount === 4 &&
     result.tableVisible &&
     result.maxRowHeight <= 72 &&
     !result.oldSurfaceVisible &&
@@ -168,6 +171,14 @@ function accepted(result) {
     "access-forbidden": result.forbiddenSeen,
     "access-list-failure": result.failureSeen && result.retrySucceeded,
     "access-action-failure": result.actionFailureSeen,
+    "grants-normal": result.grantRecordSeen,
+    "grants-confirm":
+      result.grantRevoked && result.grantRevokeCalls === 1 && result.grantDialogFits,
+    "grants-empty": result.emptySeen,
+    "grants-loading": result.loadingSeen,
+    "grants-forbidden": result.forbiddenSeen,
+    "grants-list-failure": result.failureSeen && result.retrySucceeded,
+    "grants-action-failure": result.actionFailureSeen && result.grantDialogFits,
   };
   return Boolean(expectations[result.scenario]);
 }
@@ -195,6 +206,9 @@ try {
       let reviewWithdrawCalls = 0;
       let accessApproveCalls = 0;
       let accessRejectCalls = 0;
+      let grantGetCalls = 0;
+      let grantRevokeCalls = 0;
+      let grantRevoked = false;
       let capturedReviewQuery = null;
       let capturedAccessBox = null;
       let retrySucceeded = false;
@@ -283,6 +297,49 @@ try {
         if (requestUrl.pathname.endsWith("/withdraw")) {
           reviewWithdrawCalls += 1;
           return fulfill({});
+        }
+
+        if (requestUrl.pathname === "/api/v1/original-access/grants") {
+          grantGetCalls += 1;
+          if (scenario.name === "grants-loading" && grantGetCalls === 1) await loadingGate;
+          if (scenario.name === "grants-forbidden")
+            return fulfill({ detail: { message: "upstream secret body" } }, 403);
+          if (scenario.name === "grants-list-failure" && grantGetCalls === 1)
+            return fulfill({ detail: { message: "upstream secret body" } }, 503);
+          if (scenario.name === "grants-list-failure" && grantGetCalls > 1) retrySucceeded = true;
+          const items =
+            scenario.name === "grants-empty"
+              ? []
+              : [
+                  {
+                    grant_id: "grant-safe",
+                    asset_id: "grant-asset",
+                    grantee_user_id: "grant-user",
+                    grant_type: "original_access",
+                    source_request_id: null,
+                    asset_title: "验收原文授权",
+                    scope: "company",
+                    grantee_name: "验收申请人",
+                    granted_by_name: "验收审批人",
+                    status: grantRevoked ? "revoked" : "active",
+                    created_at: "2026-10-20T02:00:00Z",
+                    expires_at: "2026-10-27T02:00:00Z",
+                    revoked_at: grantRevoked ? "2026-10-21T02:00:00Z" : null,
+                    revoked_by_name: grantRevoked ? "验收审批人" : null,
+                    revoke_reason: grantRevoked ? "验收结束" : null,
+                    can_revoke: !grantRevoked,
+                  },
+                ];
+          return fulfill({ items, total: items.length, offset: 0, limit: 20 });
+        }
+        if (requestUrl.pathname === "/api/v1/original-access/grants/grant-safe/revoke") {
+          grantRevokeCalls += 1;
+          if (scenario.name === "grants-action-failure")
+            return fulfill({ detail: { message: "upstream secret body" } }, 503);
+          const payload = route.request().postDataJSON();
+          if (payload.reason !== "验收结束") return fulfill({}, 422);
+          grantRevoked = true;
+          return fulfill({ status: "revoked" });
         }
 
         if (requestUrl.pathname === "/api/v1/original-access/requests" && method === "GET") {
@@ -383,8 +440,62 @@ try {
       let actionFailureSeen = false;
       let mineQueryCorrect = false;
       let mineRecordSeen = false;
+      let grantRecordSeen = false;
+      let grantDialogFits = false;
 
-      if (scenario.name === "review-loading") {
+      if (scenario.name.startsWith("grants-")) {
+        if (scenario.name === "grants-loading") {
+          await page.getByText("加载中…", { exact: true }).waitFor();
+          loadingSeen = true;
+          releaseLoading();
+        }
+        if (scenario.name === "grants-forbidden") {
+          await page
+            .getByRole("alert")
+            .filter({ hasText: "当前身份不能查看原文授权记录" })
+            .waitFor();
+          forbiddenSeen = true;
+        } else if (scenario.name === "grants-empty") {
+          await page.getByText("暂无当前身份可查看的授权记录。").waitFor();
+          emptySeen = true;
+        } else {
+          if (scenario.name === "grants-list-failure") {
+            await page.getByRole("alert").filter({ hasText: "授权记录加载失败" }).waitFor();
+            failureSeen = true;
+            await page.getByRole("button", { name: "刷新", exact: true }).click();
+          }
+          await page.getByRole("link", { name: "验收原文授权", exact: true }).waitFor();
+          grantRecordSeen = true;
+          if (["grants-confirm", "grants-action-failure"].includes(scenario.name)) {
+            await page.getByRole("button", { name: "撤销授权", exact: true }).click();
+            await page.getByRole("textbox", { name: "撤销理由", exact: true }).fill("验收结束");
+            await page.screenshot({
+              path: path.join(outDir, `${scenario.name}-dialog-${viewport.name}.png`),
+              fullPage: false,
+              animations: "disabled",
+            });
+            grantDialogFits = await page
+              .getByRole("dialog", { name: "撤销原文授权" })
+              .evaluate((element) => {
+                const bounds = element.getBoundingClientRect();
+                return (
+                  bounds.left >= 0 &&
+                  bounds.top >= 0 &&
+                  bounds.right <= innerWidth + 1 &&
+                  bounds.bottom <= innerHeight + 1 &&
+                  getComputedStyle(element).opacity === "1"
+                );
+              });
+            await page.getByRole("button", { name: "确认撤销授权", exact: true }).click();
+            if (scenario.name === "grants-confirm") {
+              await page.getByText(/原文授权已撤销；/).waitFor();
+            } else {
+              await page.getByRole("alert").filter({ hasText: "未能确认撤销结果" }).waitFor();
+              actionFailureSeen = true;
+            }
+          }
+        }
+      } else if (scenario.name === "review-loading") {
         await page.getByText("正在加载审核队列…").waitFor();
         loadingSeen = true;
         releaseLoading();
@@ -614,6 +725,10 @@ try {
         reviewWithdrawCalls,
         accessApproveCalls,
         accessRejectCalls,
+        grantRecordSeen,
+        grantRevokeCalls,
+        grantRevoked,
+        grantDialogFits,
         consoleLeak: secrets.some((secret) => browserMessages.join("\n").includes(secret)),
       });
 
