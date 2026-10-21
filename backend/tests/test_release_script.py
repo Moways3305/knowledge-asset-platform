@@ -59,6 +59,24 @@ def test_prepare_collects_only_new_fragments_and_never_publishes_raw_commit_subj
     assert git("status", "--porcelain") == before == ""
 
 
+@pytest.mark.parametrize(
+    "source",
+    sorted((SCRIPT.parents[1] / "release-notes").glob("*.json")),
+    ids=lambda source: source.name,
+)
+def test_repository_release_fragments_can_be_planned(repository, source):
+    root, base, git = repository
+    folder = root / "release-notes"
+    folder.mkdir()
+    (folder / source.name).write_bytes(source.read_bytes())
+    git("add", "release-notes")
+    git("commit", "-qm", "release fragments from the repository")
+    manifest = script.prepare("0.2.17", base)
+    assert manifest["entries"]
+    assert manifest["commit"] == git("rev-parse", "HEAD")
+    assert git("status", "--porcelain") == ""
+
+
 @pytest.mark.parametrize("failed_step", [0, 1, 2, 3, 4, None])
 def test_failed_build_migration_or_health_never_registers(monkeypatch, failed_step):
     calls = []
