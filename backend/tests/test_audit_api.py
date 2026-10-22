@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from app.main import app
@@ -78,9 +80,27 @@ class _FakeLLM:
     model = "deepseek-chat"
 
     async def chat_completion(
-        self, messages, *, temperature=0.2, model=None, json_object=True, trace_id=None
+        self,
+        messages,
+        *,
+        temperature=0.2,
+        model=None,
+        json_object=True,
+        trace_id=None,
+        max_tokens=None,
     ):
-        return "【LLM 答案】基于本项目知识的综合回答。[1]"
+        if max_tokens == 250:
+            return json.dumps({"queries": []})
+        if "脱敏" in messages[0]["content"]:
+            return "项目知识的安全测试片段。"
+        return json.dumps(
+            {
+                "status": "answered",
+                "answer_parts": [
+                    {"text": "【LLM 答案】基于本项目知识的综合回答。", "citation_orders": [1]}
+                ],
+            }
+        )
 
 
 @pytest.fixture(autouse=True)

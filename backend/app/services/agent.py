@@ -67,8 +67,9 @@ from app.schemas.permission import (
     DeniedReason,
 )
 from app.services import audit as audit_service
-from app.services import generation_models, retrieval
+from app.services import generation_models, knowledge_qa, retrieval, search_queries
 from app.services.desensitization import LlmOutputDesensitizer
+from app.services.knowledge_evidence_state import attach_platform_state
 from app.services.llm_client import LLMClient, NullLLMClient
 from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient
 
@@ -248,6 +249,11 @@ async def run_project_qa(
 
     # ---- 3. WeKnora chunk 级召回（限定到本项目 KB；映射回资产、去重、逐资产 decide）----
     kb_ids = await retrieval.resolve_project_kbs(session, project_id)
+    planned_queries = (
+        await search_queries.plan_queries(selected_llm, query, trace_id=trace_id)
+        if kb_ids
+        else [query]
+    )
     recalled = await retrieval.recall_assets(
         session,
         caller,
@@ -256,7 +262,16 @@ async def run_project_qa(
         kb_ids=kb_ids,
         channel=AccessChannel.agent,
         trace_id=trace_id,
+        search_queries=planned_queries,
     )
+    # Upstream candidates do not grant scope: project QA never expands into
+    # other projects, company knowledge or personal libraries.
+    recalled = [
+        candidate
+        for candidate in recalled
+        if candidate.asset.scope == KnowledgeScope.project.value
+        and candidate.asset.project_id == project_id
+    ]
 
     # ---- 4. 写调用级决策主记录（先占位，逐项判断后回填聚合值）----
     decision = AgentGatewayDecision(
@@ -379,9 +394,20 @@ async def run_project_qa(
             "调用人权限范围内本项目无可用知识上下文，无法生成回答",
         )
 
-    # ---- 7. 外部 LLM 自拼答案（只喂放行+脱敏证据）；LLM 不可用 → fail closed ----
-    answer = await retrieval.synthesize_answer(selected_llm, query, evidences, trace_id=trace_id)
-    if not answer:
+    await attach_platform_state(
+        session,
+        caller,
+        evidences,
+        recalled,
+        channel=AccessChannel.agent,
+        asset_guard=lambda asset: (
+            asset.scope == KnowledgeScope.project.value and asset.project_id == project_id
+        ),
+    )
+
+    # ---- 7. 只用放行+脱敏证据生成结构化回答；引用不合法或模型不可用 → fail closed ----
+    outcome = await knowledge_qa.generate_answer(selected_llm, query, evidences, trace_id=trace_id)
+    if outcome.status == "unavailable" or not outcome.answer:
         decision.discovery_allowed = any_discovery
         decision.summary_allowed = any_summary
         decision.original_allowed = any_original
@@ -407,11 +433,13 @@ async def run_project_qa(
             "external_llm_unavailable",
             "项目问答模型当前不可用，请稍后重试",
         )
-    response_text = answer
+    response_text = outcome.answer
 
     # ---- 8. 写 citations（引用只来自放行证据；used_access_layer=证据层级，不越权）----
     citations_out: list[CitationOut] = []
     for order, e in enumerate(evidences, start=1):
+        if order not in outcome.citation_orders:
+            continue
         asset = e.asset
         cited_item = item_by_asset.get(asset.id)
         session.add(
@@ -467,6 +495,7 @@ async def run_project_qa(
         extra={
             "citation_count": len(citations_out),
             "effective_access_source": primary_source,
+            "answer_status": outcome.status,
         },
         project_id=project_id,
     )
@@ -475,6 +504,7 @@ async def run_project_qa(
     return ProjectQaResponse(
         call_id=call.id,
         response_text=response_text,
+        answer_status=outcome.status,
         model_key=model_key,
         decision_status=decision.decision_status,
         citations=citations_out,

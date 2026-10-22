@@ -130,3 +130,33 @@ async def test_model_errors_do_not_log_upstream_exception_payload(caplog):
     record = next(r for r in caplog.records if r.message == "retrieval_query_planning")
     assert record.planning_status == "model_error" and record.query_count == 1
     assert "PRIVATE" not in caplog.text + repr(record.__dict__)
+
+
+@pytest.mark.parametrize("response", ['{"queries":[]}', "not-json", LLMError("down", "PRIVATE")])
+async def test_explicit_title_survives_optional_planner_failure(response):
+    query = "《验收-虚构流程核对》中的目录核对码是什么？"
+    assert await search_queries.plan_queries(FakeModel(response), query) == [
+        query,
+        "验收-虚构流程核对",
+    ]
+
+
+async def test_explicit_titles_share_global_alternative_budget():
+    query = "比较《甲资料》和《乙资料》与《丙资料》"
+    model = FakeModel(json.dumps({"queries": ["泛化概念", "另一个概念"]}))
+    assert await search_queries.plan_queries(model, query) == [query, "甲资料", "乙资料"]
+
+
+async def test_explicit_title_deduplicates_model_term_and_does_not_log_it(caplog):
+    caplog.set_level(logging.INFO, logger="app.services.search_queries")
+    query = "请查《PRIVATE_TITLE》"
+    result = await search_queries.plan_queries(
+        FakeModel(json.dumps({"queries": ["private_title", "专业概念"]})), query
+    )
+    assert result == [query, "PRIVATE_TITLE", "专业概念"]
+    assert "PRIVATE_TITLE" not in caplog.text + repr(caplog.records[0].__dict__)
+
+
+async def test_unconfigured_planning_keeps_bounded_explicit_title():
+    query = "请查《虚构验收标题》"
+    assert await search_queries.plan_queries(NullLLMClient(), query) == [query, "虚构验收标题"]

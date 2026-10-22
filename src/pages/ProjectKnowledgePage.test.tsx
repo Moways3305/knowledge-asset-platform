@@ -598,6 +598,10 @@ describe("ProjectKnowledgePage reference workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "提问" }));
 
     expect(await screen.findByText("访谈材料显示客户关注交付节奏。")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "[1] 客户访谈纪要" })).toHaveAttribute(
+      "href",
+      "/knowledge/secret-asset-id",
+    );
     expect(projectQa).toHaveBeenCalledWith(PROJECT_A, {
       query: "项目风险是什么？",
       modelRef: "default-private-ref",
@@ -615,6 +619,29 @@ describe("ProjectKnowledgePage reference workspace", () => {
     ]) {
       expect(visibleText).not.toContain(secret);
     }
+  });
+
+  it("shows insufficient evidence without unrelated citation links", async () => {
+    vi.mocked(projectQa).mockResolvedValue({
+      call_id: "test-call",
+      model_key: "system_default",
+      decision_status: "allowed",
+      trace_id: null,
+      created_at: "2026-10-22T00:00:00Z",
+      answer_status: "insufficient_evidence",
+      response_text: "当前可访问资料不足以回答这个问题。",
+      citations: [],
+    });
+    renderPage();
+    await screen.findByText("客户访谈纪要");
+    fireEvent.click(screen.getByText("项目问答"));
+    await screen.findByRole("option", { name: "项目默认问答模型" });
+    fireEvent.change(screen.getByPlaceholderText("向当前项目知识提问…"), {
+      target: { value: "未知事实？" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "提问" }));
+    expect(await screen.findByText("依据不足")).toBeInTheDocument();
+    expect(document.querySelector(".pk-citations")).toBeNull();
   });
 
   it("keeps list, models, QA and upgrade failures generic and recoverable", async () => {
