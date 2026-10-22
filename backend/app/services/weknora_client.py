@@ -408,9 +408,19 @@ class WeKnoraClient:
 
         kb_ids 限定可检索的知识库（scope 路由预过滤）；knowledge_ids 进一步限定到
         指定知识（阶段2取某资产原文 chunk 时用）。返回规整后的 chunk 列表。
+
+        v0.8.3 使用 match_count，而非 top_k。v0.7.1 会忽略此字段并使用其租户
+        检索配置：兼容旧请求并不代表旧底座支持逐请求控制候选数量。
         """
-        payload: dict[str, Any] = {"query": query, "knowledge_base_ids": kb_ids, "top_k": top_k}
-        if knowledge_ids:
+        # Empty explicit scopes must never become an unrestricted upstream search.
+        if not query.strip() or not kb_ids or knowledge_ids == []:
+            return []
+        payload: dict[str, Any] = {
+            "query": query,
+            "knowledge_base_ids": kb_ids,
+            "match_count": top_k,
+        }
+        if knowledge_ids is not None:
             payload["knowledge_ids"] = knowledge_ids
         async with pooled_http_client(timeout=self._timeout) as client:
             resp = await client.post(
@@ -428,16 +438,20 @@ class WeKnoraClient:
         keyword_threshold: float | None = None,
         trace_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        """带阈值的混合召回：`GET /knowledge-bases/:kb/hybrid-search`（JSON body）。"""
-        body: dict[str, Any] = {"query": query, "top_k": top_k}
+        """带阈值的混合召回：`POST /knowledge-bases/:kb/hybrid-search`。
+
+        v0.7.1 / v0.8.3 均支持 POST，参数为 query_text / match_count。
+        不自动切换到其他库或无过滤的检索接口。
+        """
+        if not query.strip() or not kb_id:
+            return []
+        body: dict[str, Any] = {"query_text": query, "match_count": top_k}
         if vector_threshold is not None:
             body["vector_threshold"] = vector_threshold
         if keyword_threshold is not None:
             body["keyword_threshold"] = keyword_threshold
         async with pooled_http_client(timeout=self._timeout) as client:
-            # WeKnora hybrid-search 用 GET + JSON body（照 swagger）。
-            resp = await client.request(
-                "GET",
+            resp = await client.post(
                 f"{self._base}/knowledge-bases/{kb_id}/hybrid-search",
                 json=body,
                 headers=self._headers(trace_id),
