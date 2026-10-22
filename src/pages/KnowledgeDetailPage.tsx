@@ -171,17 +171,28 @@ export default function KnowledgeDetailPage() {
 
   async function handlePreviewOriginal() {
     if (!id) return;
+    const request = requestRef.current;
     setPreviewLoading(true);
     setPreviewError(null);
     try {
       const issued = await issuePreview(id);
+      if (request !== requestRef.current) return;
       const entry = await fetchPreviewEntry(issued.preview_entry_url);
+      if (request !== requestRef.current) return;
       setPreviewEntry(entry);
       setPreviewOpen(true);
     } catch (error) {
+      if (request !== requestRef.current) return;
       setPreviewError(safeActionError(error, "原文预览暂时无法打开，请稍后再试。"));
+      if (error instanceof ApiError && [401, 403, 404].includes(error.status)) {
+        // Re-read current access instead of leaving a revoked grant marked as
+        // available. The normal loader also hides stale data if refresh fails.
+        setPreviewOpen(false);
+        setPreviewEntry(null);
+        setLoadAttempt((value) => value + 1);
+      }
     } finally {
-      setPreviewLoading(false);
+      if (request === requestRef.current) setPreviewLoading(false);
     }
   }
 
@@ -302,8 +313,15 @@ export default function KnowledgeDetailPage() {
   }
 
   useEffect(() => {
+    setPreviewError(null);
+  }, [id]);
+
+  useEffect(() => {
     if (!id) return;
     const request = ++requestRef.current;
+    setPreviewOpen(false);
+    setPreviewEntry(null);
+    setPreviewLoading(false);
     setLoading(true);
     setNotFound(false);
     setLoadError(false);
@@ -325,6 +343,9 @@ export default function KnowledgeDetailPage() {
         }
         setLoading(false);
       });
+    return () => {
+      requestRef.current += 1;
+    };
   }, [id, loadAttempt]);
 
   if (loading) {

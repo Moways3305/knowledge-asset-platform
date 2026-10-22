@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import KnowledgeDetailPage, { OnlyOfficePreview } from "./KnowledgeDetailPage";
 import {
@@ -111,6 +111,11 @@ function renderDetail(state?: unknown) {
       </Routes>
     </MemoryRouter>,
   );
+}
+
+function NextAssetButton() {
+  const navigate = useNavigate();
+  return <button onClick={() => navigate("/knowledge/asset-2")}>切换测试资料</button>;
 }
 
 describe("KnowledgeDetailPage", () => {
@@ -344,6 +349,157 @@ describe("KnowledgeDetailPage", () => {
     expect(visibleText).not.toContain("onlyoffice_config");
     expect(visibleText).not.toContain("documentServerUrl");
   });
+
+  it.each(["issue", "entry"])("refreshes revoked access after %s denies preview", async (stage) => {
+    vi.mocked(fetchKnowledgeDetail)
+      .mockResolvedValueOnce(baseAsset)
+      .mockResolvedValueOnce({
+        ...baseAsset,
+        access: { ...baseAsset.access, original: false, canRequestOriginal: true },
+      });
+    const denied = new ApiError(403, "原文权限已失效", "original_requires_request");
+    if (stage === "issue") {
+      vi.mocked(issuePreview).mockRejectedValue(denied);
+    } else {
+      vi.mocked(issuePreview).mockResolvedValue({
+        credential_id: "test-credential",
+        preview_type: "full",
+        credential_fingerprint: "test-fingerprint",
+        preview_entry_url: "/api/v1/preview/test-credential",
+        expires_at: "2026-10-22T10:00:00Z",
+        credential_status: "active",
+      });
+      vi.mocked(fetchPreviewEntry).mockRejectedValue(denied);
+    }
+    renderDetail();
+    fireEvent.click(await screen.findByRole("button", { name: "预览原文" }));
+    expect(await screen.findByRole("button", { name: "申请原文访问" })).toBeInTheDocument();
+    expect(screen.getByText("原文权限已失效")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "预览原文" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "原文预览" })).not.toBeInTheDocument();
+    expect(fetchKnowledgeDetail).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retain old details when access refresh is forbidden", async () => {
+    vi.mocked(fetchKnowledgeDetail)
+      .mockResolvedValueOnce(baseAsset)
+      .mockRejectedValueOnce(new ApiError(403, "forbidden"));
+    vi.mocked(issuePreview).mockRejectedValue(new ApiError(403, "原文权限已失效"));
+    renderDetail();
+    fireEvent.click(await screen.findByRole("button", { name: "预览原文" }));
+    expect(await screen.findByRole("heading", { name: "未找到或无权查看" })).toBeInTheDocument();
+    expect(screen.queryByText(baseAsset.detailed!)).not.toBeInTheDocument();
+  });
+
+  it("keeps a retry path instead of stale permissions when access refresh fails", async () => {
+    vi.mocked(fetchKnowledgeDetail)
+      .mockResolvedValueOnce(baseAsset)
+      .mockRejectedValueOnce(new ApiError(503, "unavailable"))
+      .mockResolvedValueOnce({
+        ...baseAsset,
+        access: { ...baseAsset.access, original: false, canRequestOriginal: true },
+      });
+    vi.mocked(issuePreview).mockRejectedValue(new ApiError(403, "原文权限已失效"));
+    renderDetail();
+    fireEvent.click(await screen.findByRole("button", { name: "预览原文" }));
+    expect(await screen.findByRole("heading", { name: "资产详情加载失败" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "预览原文" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "重新加载" }));
+    expect(await screen.findByRole("button", { name: "申请原文访问" })).toBeInTheDocument();
+  });
+
+  it("does not infer revoked access from a transient preview service failure", async () => {
+    vi.mocked(fetchKnowledgeDetail).mockResolvedValue(baseAsset);
+    vi.mocked(issuePreview).mockRejectedValue(new ApiError(503, "预览暂不可用"));
+    renderDetail();
+    fireEvent.click(await screen.findByRole("button", { name: "预览原文" }));
+    expect(await screen.findByText("预览暂不可用")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "预览原文" })).toBeEnabled();
+    expect(fetchKnowledgeDetail).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([401, 404])("refreshes details after preview returns %s", async (status) => {
+    vi.mocked(fetchKnowledgeDetail)
+      .mockResolvedValueOnce(baseAsset)
+      .mockRejectedValueOnce(new ApiError(404, "not found"));
+    vi.mocked(issuePreview).mockRejectedValue(new ApiError(status, "预览不可访问"));
+    renderDetail();
+    fireEvent.click(await screen.findByRole("button", { name: "预览原文" }));
+    expect(await screen.findByRole("heading", { name: "未找到或无权查看" })).toBeInTheDocument();
+    expect(fetchKnowledgeDetail).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses refreshed permissions without assuming every 403 revokes original access", async () => {
+    vi.mocked(fetchKnowledgeDetail).mockResolvedValue(baseAsset);
+    vi.mocked(issuePreview).mockRejectedValue(
+      new ApiError(403, "预览凭证已过期", "preview_credential_expired"),
+    );
+    renderDetail();
+    fireEvent.click(await screen.findByRole("button", { name: "预览原文" }));
+    await waitFor(() => expect(fetchKnowledgeDetail).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole("button", { name: "预览原文" })).toBeEnabled();
+    expect(screen.getByText("预览凭证已过期")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "申请原文访问" })).not.toBeInTheDocument();
+  });
+
+  it.each(["success", "denied"])(
+    "ignores a late preview entry %s after navigating to another asset",
+    async (outcome) => {
+      let resolveEntry!: (entry: PreviewEntryVM) => void;
+      let rejectEntry!: (error: ApiError) => void;
+      vi.mocked(fetchKnowledgeDetail).mockImplementation(async (assetId) => ({
+        ...baseAsset,
+        id: assetId,
+        title: assetId === "asset-1" ? "第一份资料" : "第二份资料",
+      }));
+      vi.mocked(issuePreview).mockResolvedValue({
+        credential_id: "test-credential",
+        preview_type: "full",
+        credential_fingerprint: "test-fingerprint",
+        preview_entry_url: "/api/v1/preview/test-credential",
+        expires_at: "2026-10-22T10:00:00Z",
+        credential_status: "active",
+      });
+      vi.mocked(fetchPreviewEntry).mockImplementation(
+        () =>
+          new Promise((resolve, reject) => {
+            resolveEntry = resolve;
+            rejectEntry = reject;
+          }),
+      );
+      render(
+        <MemoryRouter
+          future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+          initialEntries={["/knowledge/asset-1"]}
+        >
+          <NextAssetButton />
+          <Routes>
+            <Route path="/knowledge/:id" element={<KnowledgeDetailPage />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+      fireEvent.click(await screen.findByRole("button", { name: "预览原文" }));
+      await waitFor(() => expect(fetchPreviewEntry).toHaveBeenCalledTimes(1));
+      fireEvent.click(screen.getByRole("button", { name: "切换测试资料" }));
+      expect(await screen.findByRole("heading", { name: "第二份资料" })).toBeInTheDocument();
+      await act(async () => {
+        if (outcome === "denied") rejectEntry(new ApiError(403, "第一份权限已失效"));
+        else
+          resolveEntry({
+            previewType: "full",
+            documentTitle: "第一份原文",
+            expiresAt: "",
+            status: "active",
+            onlyofficeConfig: null,
+            message: null,
+          });
+      });
+      expect(screen.queryByRole("dialog", { name: "原文预览" })).not.toBeInTheDocument();
+      expect(screen.queryByText("第一份权限已失效")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "预览原文" })).toBeEnabled();
+      expect(fetchKnowledgeDetail).toHaveBeenCalledTimes(2);
+    },
+  );
 
   it("shows knowledge card and asks for original access when original permission is missing", async () => {
     vi.mocked(fetchKnowledgeDetail).mockResolvedValue({
