@@ -406,7 +406,7 @@
   font-size: 11px;
 }
 
-.project78-citation span {
+.project78-citation a {
   color: var(--color-text-primary);
   font-weight: 650;
 }

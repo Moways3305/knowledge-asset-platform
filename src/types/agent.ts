@@ -18,6 +18,7 @@ export interface AgentCitationDTO {
 export interface ProjectQaResponseDTO {
   call_id: string;
   response_text: string;
+  answer_status?: "answered" | "insufficient_evidence";
   model_key: string;
   decision_status: string;
   citations: AgentCitationDTO[];

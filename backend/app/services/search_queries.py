@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 
 from app.services.llm_client import LLMClient, LLMError, NullLLMClient
@@ -24,8 +25,31 @@ async def plan_queries(
     No asset text, IDs, permissions, or credentials enter this request/logs.
     """
     started = time.monotonic()
+    original = query.strip()
+    # Explicit book-title brackets are literal search data, not instructions.
+    # Preserve named sources even if optional semantic planning fails or omits
+    # them. The original plus at most two alternatives still share one budget.
+    titles: list[str] = []
+    for match in re.finditer(r"《([^《》\r\n]{1,60})》", original[:500]):
+        title = match.group(1).strip()
+        if (
+            title
+            and not any(ord(c) < 32 for c in title)
+            and title.casefold() not in {term.casefold() for term in titles}
+        ):
+            titles.append(title)
+        if len(titles) == _MAX_ALTERNATIVES:
+            break
 
     def finish(result: list[str], status: str) -> list[str]:
+        if original and len(original) <= 500 and titles:
+            merged = [original]
+            for term in titles + result[1:]:
+                if term.casefold() not in {item.casefold() for item in merged}:
+                    merged.append(term)
+                if len(merged) == 1 + _MAX_ALTERNATIVES:
+                    break
+            result = merged
         _logger.info(
             "retrieval_query_planning",
             extra={
@@ -37,7 +61,6 @@ async def plan_queries(
         )
         return result
 
-    original = query.strip()
     if not original:
         return finish([], "blank")
     if isinstance(llm, NullLLMClient):

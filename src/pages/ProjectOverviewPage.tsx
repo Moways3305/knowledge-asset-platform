@@ -416,6 +416,9 @@ function ProjectWorkspace({
                 </span>
                 <div>
                   <strong>项目 AI 助手</strong>
+                  {conversation.result.answer_status === "insufficient_evidence" && (
+                    <span>依据不足</span>
+                  )}
                   <p>{conversation.result.response_text}</p>
                   {conversation.result.citations.length > 0 && (
                     <div className="project78-citations" aria-label="回答引用">
@@ -424,7 +427,9 @@ function ProjectWorkspace({
                           className="project78-citation"
                           key={`${citation.citation_order}-${citation.asset_title}`}
                         >
-                          <span>{citation.asset_title}</span>
+                          <Link to={`/knowledge/${encodeURIComponent(citation.asset_id)}`}>
+                            [{citation.citation_order}] {citation.asset_title}
+                          </Link>
                           <small>{CITED_ZONE[citation.cited_zone] ?? "来源区域待确认"}</small>
                           {citation.is_pending_review && <em>内容待审核，请谨慎参考</em>}
                         </div>

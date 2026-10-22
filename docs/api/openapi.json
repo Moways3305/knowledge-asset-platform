@@ -13880,6 +13880,15 @@
       "ProjectQaResponse": {
         "description": "项目 Q&A 响应（治理控制台 / 上层调用方共用）。",
         "properties": {
+          "answer_status": {
+            "default": "answered",
+            "enum": [
+              "answered",
+              "insufficient_evidence"
+            ],
+            "title": "Answer Status",
+            "type": "string"
+          },
           "call_id": {
             "format": "uuid",
             "title": "Call Id",

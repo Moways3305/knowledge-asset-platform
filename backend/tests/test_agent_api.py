@@ -13,9 +13,14 @@
 
 from __future__ import annotations
 
+import json
+from types import SimpleNamespace
+
 import pytest
+from sqlalchemy import select
 
 from app.main import app
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetSummary, KnowledgeAssetVersion
 from app.seed.dev_seed import (
     KA_PROJECT_ALPHA,
     KA_PROJECT_ALPHA_A4,
@@ -30,7 +35,7 @@ from app.seed.dev_seed import (
     USER_DIRECTOR,
     USER_PROJECT_MANAGER,
 )
-from app.services import generation_models
+from app.services import generation_models, retrieval
 from app.services.llm_client import LLMClient, LLMError, get_llm_client
 from app.services.weknora_client import get_weknora_client
 
@@ -88,13 +93,33 @@ class FakeAnswerLLM:
     model = "deepseek-chat"
 
     async def chat_completion(
-        self, messages, *, temperature=0.2, model=None, json_object=True, trace_id=None
+        self,
+        messages,
+        *,
+        temperature=0.2,
+        model=None,
+        json_object=True,
+        trace_id=None,
+        max_tokens=None,
     ):
         system = messages[0]["content"] if messages else ""
         if "脱敏" in system:
             text = messages[1]["content"] if len(messages) > 1 else ""
             return text.replace("客户敏感实体XYZ", "【客户】").replace("金额888万元", "【金额】")
-        return "【LLM 答案】基于本项目知识，供应链优化要点：采购、仓储、物流三方面协同。[1]"
+        if max_tokens == 250:
+            return json.dumps({"queries": []})
+        evidence = json.loads(messages[1]["content"])["evidence"]
+        return json.dumps(
+            {
+                "status": "answered",
+                "answer_parts": [
+                    {
+                        "text": "【LLM 答案】基于本项目知识，供应链优化要点：采购、仓储、物流三方面协同。",
+                        "citation_orders": [item["order"] for item in evidence],
+                    }
+                ],
+            }
+        )
 
 
 @pytest.fixture(autouse=True)
@@ -141,6 +166,191 @@ def _hdr(user_id):
 def _assert_no_leak(text: str):
     for t in _LEAK_TOKENS:
         assert t not in text, f"响应不应泄露 {t}"
+
+
+class StructuredProjectAnswer(FakeAnswerLLM):
+    def __init__(self, response: str):
+        self.response = response
+
+    async def chat_completion(self, messages, **kwargs):
+        if messages and "脱敏" in messages[0]["content"]:
+            return await super().chat_completion(messages, **kwargs)
+        return self.response
+
+
+async def test_project_refusal_has_no_unrelated_citations(client):
+    llm = StructuredProjectAnswer(json.dumps({"status": "insufficient_evidence"}))
+    app.dependency_overrides[get_llm_client] = lambda: llm
+    response = await client.post(QA, headers=_hdr(USER_CONSULTANT), json={"query": "测试事实"})
+    assert response.status_code == 200, response.text
+    assert response.json()["citations"] == []
+    assert response.json()["answer_status"] == "insufficient_evidence"
+    history = await client.get(
+        f"/api/v1/agent-calls/{response.json()['call_id']}", headers=_hdr(USER_CONSULTANT)
+    )
+    assert history.status_code == 200
+    assert history.json()["citations"] == []
+
+
+async def test_project_answer_only_persists_actually_cited_evidence(client):
+    llm = StructuredProjectAnswer(
+        json.dumps(
+            {"status": "answered", "answer_parts": [{"text": "测试结论", "citation_orders": [2]}]}
+        )
+    )
+    app.dependency_overrides[get_llm_client] = lambda: llm
+    response = await client.post(QA, headers=_hdr(USER_CONSULTANT), json={"query": "测试事实"})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["response_text"] == "测试结论[2]"
+    assert [citation["citation_order"] for citation in body["citations"]] == [2]
+    history = await client.get(
+        f"/api/v1/agent-calls/{body['call_id']}", headers=_hdr(USER_CONSULTANT)
+    )
+    assert history.status_code == 200, history.text
+    assert [citation["citation_order"] for citation in history.json()["citations"]] == [2]
+
+
+async def test_project_answer_rejects_unstructured_model_response(client):
+    llm = StructuredProjectAnswer("未校验的自由文本[999]")
+    app.dependency_overrides[get_llm_client] = lambda: llm
+    response = await client.post(QA, headers=_hdr(USER_CONSULTANT), json={"query": "测试事实"})
+    assert response.status_code == 503, response.text
+
+
+async def test_project_answer_rejects_out_of_range_structured_citation(client):
+    llm = StructuredProjectAnswer(
+        json.dumps(
+            {"status": "answered", "answer_parts": [{"text": "虚构结论", "citation_orders": [999]}]}
+        )
+    )
+    app.dependency_overrides[get_llm_client] = lambda: llm
+    response = await client.post(QA, headers=_hdr(USER_CONSULTANT), json={"query": "测试事实"})
+    assert response.status_code == 503, response.text
+    assert "虚构结论" not in response.text
+
+
+async def test_project_planned_title_recalls_known_fact_without_upstream_chunk(client, db_session):
+    title = "验收-虚构流程核对"
+    asset = await db_session.get(KnowledgeAsset, KA_PROJECT_ALPHA)
+    asset.title = title
+    version = await db_session.scalar(
+        select(KnowledgeAssetVersion).where(
+            KnowledgeAssetVersion.asset_id == asset.id,
+            KnowledgeAssetVersion.version_status == "active",
+        )
+    )
+    db_session.add(
+        KnowledgeAssetSummary(
+            asset_id=asset.id,
+            version_id=version.id,
+            summary_type="redacted_summary",
+            content="本虚构验收资料的目录核对码是紫色山川。",
+        )
+    )
+    await db_session.commit()
+
+    class KnownFactAnswer(FakeAnswerLLM):
+        async def chat_completion(self, messages, **kwargs):
+            if kwargs.get("max_tokens") == 250:
+                # The optional model need not infer a named source: preserve
+                # the user's literal title even when planning yields nothing.
+                return json.dumps({"queries": []})
+            if "answer_parts" in messages[0]["content"]:
+                evidence = json.loads(messages[1]["content"])["evidence"]
+                matching = [
+                    e for e in evidence if e["title"] == title and "紫色山川" in e["content"]
+                ]
+                if not matching:
+                    return json.dumps({"status": "insufficient_evidence"})
+                return json.dumps(
+                    {
+                        "status": "answered",
+                        "answer_parts": [
+                            {
+                                "text": "目录核对码是紫色山川。",
+                                "citation_orders": [matching[0]["order"]],
+                            }
+                        ],
+                    }
+                )
+            return await super().chat_completion(messages, **kwargs)
+
+    app.dependency_overrides[get_llm_client] = lambda: KnownFactAnswer()
+    app.dependency_overrides[get_weknora_client] = lambda: FakeSearchWeKnora([])
+    response = await client.post(
+        QA, headers=_hdr(USER_CONSULTANT), json={"query": f"《{title}》中的目录核对码是什么？"}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["answer_status"] == "answered"
+    assert response.json()["response_text"] == "目录核对码是紫色山川。[1]"
+    assert [c["asset_id"] for c in response.json()["citations"]] == [str(KA_PROJECT_ALPHA)]
+
+
+async def test_project_planning_preserves_original_and_project_kb(client):
+    calls = []
+
+    class PlannedAnswer(FakeAnswerLLM):
+        async def chat_completion(self, messages, **kwargs):
+            if kwargs.get("max_tokens") == 250:
+                return json.dumps({"queries": ["供应链优化", "采购协同"]})
+            return await super().chat_completion(messages, **kwargs)
+
+    class RecordingSearch(FakeSearchWeKnora):
+        async def search(self, **kwargs):
+            calls.append(kwargs)
+            return await super().search(**kwargs)
+
+    app.dependency_overrides[get_llm_client] = lambda: PlannedAnswer()
+    app.dependency_overrides[get_weknora_client] = lambda: RecordingSearch(
+        [
+            {
+                "knowledge_id": f"wk-doc-{KA_PROJECT_ALPHA}",
+                "kb_id": _ALPHA_KB,
+                "content": "采购协同事实",
+            }
+        ]
+    )
+    response = await client.post(
+        QA, headers=_hdr(USER_CONSULTANT), json={"query": "怎么一起买东西"}
+    )
+    assert response.status_code == 200, response.text
+    assert {call["query"] for call in calls} == {"怎么一起买东西", "供应链优化", "采购协同"}
+    assert all(call["kb_ids"] == [_ALPHA_KB] for call in calls)
+
+
+async def test_project_scope_guard_excludes_misrouted_candidates(client, monkeypatch):
+    recall = retrieval.recall_assets
+
+    async def misrouted(*args, **kwargs):
+        candidates = await recall(*args, **kwargs)
+        return candidates + [
+            SimpleNamespace(asset=SimpleNamespace(scope="company", project_id=PROJECT_ALPHA)),
+            SimpleNamespace(asset=SimpleNamespace(scope="project", project_id=USER_BOSS)),
+        ]
+
+    monkeypatch.setattr(retrieval, "recall_assets", misrouted)
+    response = await client.post(QA, headers=_hdr(USER_CONSULTANT), json={"query": "项目知识"})
+    assert response.status_code == 200, response.text
+    assert all(c["scope"] == "project" for c in response.json()["citations"])
+
+
+async def test_project_answer_receives_platform_lifecycle_state(client):
+    class StateAnswer(FakeAnswerLLM):
+        async def chat_completion(self, messages, **kwargs):
+            if "answer_parts" in messages[0]["content"]:
+                evidence = json.loads(messages[1]["content"])["evidence"]
+                assert evidence
+                assert all(
+                    e["platform_state"]["version_selection"] in {"current", "legacy_active"}
+                    for e in evidence
+                )
+                assert all("review_status" in e["platform_state"] for e in evidence)
+            return await super().chat_completion(messages, **kwargs)
+
+    app.dependency_overrides[get_llm_client] = lambda: StateAnswer()
+    response = await client.post(QA, headers=_hdr(USER_CONSULTANT), json={"query": "项目知识"})
+    assert response.status_code == 200, response.text
 
 
 async def test_project_member_qa_success(client):
@@ -302,7 +512,16 @@ async def test_project_qa_uses_external_model_ref_without_weknora_model_bridge(
         system = messages[0]["content"] if messages else ""
         if "脱敏" in system:
             return "【客户】项目供应链优化知识。"
-        return "外部 LLM 基于项目知识生成的回答。[1]"
+        if kwargs.get("max_tokens") == 250:
+            return json.dumps({"queries": []})
+        return json.dumps(
+            {
+                "status": "answered",
+                "answer_parts": [
+                    {"text": "外部 LLM 基于项目知识生成的回答。", "citation_orders": [1]}
+                ],
+            }
+        )
 
     monkeypatch.setattr(LLMClient, "chat_completion", fake_chat)
     response = await client.post(

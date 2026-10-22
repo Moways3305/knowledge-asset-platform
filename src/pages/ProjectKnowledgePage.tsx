@@ -1257,7 +1257,11 @@ function ProjectKnowledgeWorkspace({
                       </div>
                       {qaResult && (
                         <div className="pk-answer">
-                          <span>项目问答</span>
+                          <span>
+                            {qaResult.answer_status === "insufficient_evidence"
+                              ? "依据不足"
+                              : "项目问答"}
+                          </span>
                           <p>{qaResult.response_text}</p>
                           {qaResult.citations.length > 0 && (
                             <div className="pk-citations">
@@ -1266,7 +1270,9 @@ function ProjectKnowledgeWorkspace({
                                 <div
                                   key={`${citation.asset_title}-${citation.citation_order}-${index}`}
                                 >
-                                  <span>{citation.asset_title}</span>
+                                  <Link to={`/knowledge/${encodeURIComponent(citation.asset_id)}`}>
+                                    [{citation.citation_order}] {citation.asset_title}
+                                  </Link>
                                   <small>{safeZone(citation.cited_zone)}</small>
                                   {citation.is_pending_review && <em>内容待审核，请谨慎参考</em>}
                                 </div>

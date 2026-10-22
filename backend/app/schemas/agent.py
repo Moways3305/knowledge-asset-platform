@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -68,6 +69,7 @@ class ProjectQaResponse(BaseModel):
 
     call_id: uuid.UUID
     response_text: str
+    answer_status: Literal["answered", "insufficient_evidence"] = "answered"
     model_key: str
     decision_status: str
     citations: list[CitationOut]

@@ -244,7 +244,10 @@ describe("ProjectOverviewPage project assistant workspace", () => {
 
     expect(await screen.findByText(qaAnswer.response_text)).toBeInTheDocument();
     expect(screen.getByText("客户当前最关注什么？")).toBeInTheDocument();
-    expect(screen.getByText("客户访谈纪要")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "[1] 客户访谈纪要" })).toHaveAttribute(
+      "href",
+      "/knowledge/asset-secret-78",
+    );
     expect(screen.getByText("资料区")).toBeInTheDocument();
     expect(screen.getByText("内容待审核，请谨慎参考")).toBeInTheDocument();
     expect(api.projectQa).toHaveBeenCalledWith(PROJECT_A, {
@@ -254,6 +257,22 @@ describe("ProjectOverviewPage project assistant workspace", () => {
     expect(document.body).not.toHaveTextContent(
       /call-secret-78|trace-secret-78|qa-default-secret|allowed|asset-secret-78|summary|original text/,
     );
+  });
+
+  it("shows insufficient evidence without source links", async () => {
+    api.projectQa.mockResolvedValue({
+      ...qaAnswer,
+      answer_status: "insufficient_evidence",
+      response_text: "当前可访问资料不足以回答这个问题。",
+      citations: [],
+    });
+    renderPage();
+    const input = await screen.findByRole("textbox", { name: "向项目 AI 助手提问" });
+    fireEvent.change(input, { target: { value: "未知事实？" } });
+    fireEvent.click(screen.getByRole("button", { name: "提问" }));
+    expect(await screen.findByText("依据不足")).toBeInTheDocument();
+    expect(screen.queryByLabelText("回答引用")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /客户访谈纪要/ })).not.toBeInTheDocument();
   });
 
   it("disables asking for empty input, no models and while a request is in flight", async () => {
