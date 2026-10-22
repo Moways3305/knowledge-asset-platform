@@ -6,10 +6,16 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# Optional build-only mirrors. Empty keeps the base image's repositories unchanged.
+ARG KAP_DEBIAN_MIRROR=""
+ARG KAP_DEBIAN_SECURITY_MIRROR=""
+COPY build_tools/configure_apt.py /tmp/configure_apt.py
+RUN python /tmp/configure_apt.py && rm /tmp/configure_apt.py
+
 # procps 提供 pgrep，供 docker-compose 中 beat 服务的存活健康检查使用
 # （beat 无 inspect ping，按进程存活判断，不依赖 celerybeat-schedule 文件）。
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends procps tesseract-ocr tesseract-ocr-chi-sim \
+RUN apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update \
+    && apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends procps tesseract-ocr tesseract-ocr-chi-sim \
         libreoffice-writer libreoffice-impress libreoffice-calc fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 

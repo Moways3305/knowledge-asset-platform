@@ -18,6 +18,12 @@
 
 # 共享运行时环境（避免各服务重复 env 块）。worker/beat 与 backend 用同一份环境，
 # 确保 WeKnora / LLM / WeCom / ONLYOFFICE 等外部集成开关一致。
+x-backend-build: &backend-build
+  context: ./backend
+  args:
+    KAP_DEBIAN_MIRROR: ${KAP_DEBIAN_MIRROR:-}
+    KAP_DEBIAN_SECURITY_MIRROR: ${KAP_DEBIAN_SECURITY_MIRROR:-}
+
 x-backend-env: &backend-env
   APP_NAME: knowledge-asset-platform
   APP_ENV: ${APP_ENV:-prod}
@@ -112,7 +118,7 @@ services:
   # 一次性迁移服务。只此一处跑 alembic upgrade head，backend/worker/beat 依赖其成功完成，
   # 避免每个副本并发迁移；它退出即完成（restart=no）。
   migrate:
-    build: ./backend
+    build: *backend-build
     command: python -m alembic upgrade head
     env_file:
       - ./backend/.env
@@ -125,7 +131,7 @@ services:
         condition: service_healthy
 
   backend:
-    build: ./backend
+    build: *backend-build
     restart: unless-stopped
     env_file:
       - ./backend/.env
@@ -160,7 +166,7 @@ services:
 
   # 轻量 Celery worker：只消费 default；不运行 Office/PDF/图片及未知二进制解析。
   worker:
-    build: ./backend
+    build: *backend-build
     restart: unless-stopped
     command: >-
       celery -A app.worker.celery_app.celery_app worker --loglevel=INFO
@@ -199,7 +205,7 @@ services:
   # 2GiB 容器内默认只跑 1 个子进程、只预取 1 个任务；每 4 份文件或 RSS 超限后回收。
   # 不得改成 gevent/eventlet。提升 concurrency 前必须同步压测并调整 memory limit。
   ocr_worker:
-    build: ./backend
+    build: *backend-build
     restart: unless-stopped
     command: >-
       celery -A app.worker.celery_app.celery_app worker --loglevel=INFO
@@ -236,7 +242,7 @@ services:
 
   # Celery beat（定时调度解析对账 / 归档扫描 / 升格推荐 / 通知下发）。
   beat:
-    build: ./backend
+    build: *backend-build
     restart: unless-stopped
     command: celery -A app.worker.celery_app.celery_app beat --loglevel=INFO
     env_file:
