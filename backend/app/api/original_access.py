@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,6 +29,7 @@ from app.schemas.original_access import (
     AccessGrantOut,
     CreateRequestBody,
     CreateRequestResponse,
+    GrantsListResponse,
     RequestsListResponse,
     ReviewBody,
     RevokeBody,
@@ -153,3 +155,14 @@ async def revoke_grant(
     return await oa_service.revoke_grant(
         session, caller, grant_id, body.reason, get_trace_id(request)
     )
+
+
+@router.get("/original-access/grants", response_model=GrantsListResponse)
+async def list_grants(
+    status: Literal["active", "expired", "revoked"] | None = Query(default=None),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, ge=1, le=100),
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> GrantsListResponse:
+    return await oa_service.list_grants(session, caller, status=status, offset=offset, limit=limit)

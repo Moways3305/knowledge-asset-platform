@@ -22,7 +22,12 @@ import type {
 import type { SearchRequestDTO, SearchResponseDTO } from "../types/search";
 import type { KnowledgeOpsInsightsDTO } from "../types/insights";
 import type { PreviewEntryVM, PreviewIssueResponseDTO } from "../types/preview";
-import type { CreateRequestResponseDTO, RequestsListResponseDTO } from "../types/originalAccess";
+import type {
+  AccessGrantDTO,
+  CreateRequestResponseDTO,
+  GrantsListResponseDTO,
+  RequestsListResponseDTO,
+} from "../types/originalAccess";
 import type {
   ArchiveConfirmResponseDTO,
   LifecycleActionResponseDTO,
@@ -295,6 +300,25 @@ export async function fetchLifecycleEvents(assetId: string): Promise<LifecycleEv
 }
 
 // ---- 原文访问申请与授权 ----
+export async function fetchOriginalAccessGrants(
+  status: "active" | "expired" | "revoked" | "" = "",
+  offset = 0,
+): Promise<GrantsListResponseDTO> {
+  const params = new URLSearchParams({ offset: String(offset), limit: "20" });
+  if (status) params.set("status", status);
+  return apiGet<GrantsListResponseDTO>(`/api/v1/original-access/grants?${params}`);
+}
+
+export async function revokeOriginalAccessGrant(
+  grantId: string,
+  reason: string,
+): Promise<AccessGrantDTO> {
+  return apiPost<AccessGrantDTO>(
+    `/api/v1/original-access/grants/${encodeURIComponent(grantId)}/revoke`,
+    { reason },
+  );
+}
+
 // 申请=业务用户且可发现该资产；审批/拒绝=项目经理 / 治理角色。响应只含安全元数据。
 export async function requestOriginalAccess(
   assetId: string,

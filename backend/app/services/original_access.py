@@ -18,7 +18,7 @@ from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import and_, case, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -40,15 +40,17 @@ from app.schemas.enums import (
     ProjectRole,
 )
 from app.schemas.original_access import (
+    AccessGrantHistoryOut,
     AccessGrantOut,
     CreateRequestResponse,
+    GrantsListResponse,
     OriginalAccessRequestOut,
     RequestsListResponse,
 )
 from app.schemas.permission import AccessLayer, CallerContext
 from app.services import audit as audit_service
 from app.services import domain_events
-from app.services.permission import build_caller_context, decide
+from app.services.permission import build_caller_context, decide, discovery_filter
 from app.services.permission_rules import access_request_timeout_hours, load_access_policy
 from app.worker.enqueue import enqueue_outbox_delivery
 
@@ -81,11 +83,11 @@ def _is_governance(caller: CallerContext) -> bool:
 # ---------------------------------------------------------------------------
 # 运行时读取（纯读 + 时间过滤；供 decide() 原文层联动）
 # ---------------------------------------------------------------------------
-def _grant_is_live(g: AccessGrant) -> bool:
+def _grant_is_live(g: AccessGrant, *, now: datetime | None = None) -> bool:
     if g.status != AccessGrantStatus.active.value:
         return False
     exp = _as_aware(g.expires_at)
-    return exp is None or exp > utc_now()
+    return exp is None or exp > (now if now is not None else utc_now())
 
 
 async def has_active_grant(session: AsyncSession, user_id: uuid.UUID, asset_id: uuid.UUID) -> bool:
@@ -259,6 +261,18 @@ def _require_approver(caller: CallerContext, asset: KnowledgeAsset) -> None:
     if _is_admin(caller) and not caller.is_business_user:
         raise _denied(403, "admin_business_permission_denied", "admin 不可审批业务原文授权")
     raise _denied(403, "original_access_review_forbidden", "无原文授权审批 / 撤销权")
+
+
+def _can_revoke(caller: CallerContext, asset: KnowledgeAsset, grant: AccessGrant) -> bool:
+    return (
+        caller.is_active
+        and caller.is_business_user
+        and (
+            grant.grantee_user_id == caller.user_id
+            or _can_approve(caller, asset)
+            or grant.granted_by_user_id == caller.user_id
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -442,6 +456,87 @@ async def create_request(
 # ---------------------------------------------------------------------------
 # 列表
 # ---------------------------------------------------------------------------
+async def list_grants(
+    session: AsyncSession,
+    caller: CallerContext,
+    *,
+    status: str | None = None,
+    offset: int = 0,
+    limit: int = 20,
+) -> GrantsListResponse:
+    """Current discovery and revocation scope before count/pagination; never load file data."""
+    if not caller.is_active or not caller.is_business_user:
+        raise _denied(403, "admin_business_permission_denied", "仅业务用户可查看原文授权记录")
+    now = utc_now()
+    effective_status = case(
+        (
+            and_(
+                AccessGrant.status == AccessGrantStatus.active.value,
+                AccessGrant.expires_at.is_not(None),
+                AccessGrant.expires_at <= now,
+            ),
+            AccessGrantStatus.expired.value,
+        ),
+        else_=AccessGrant.status,
+    )
+    managed_projects = [
+        project_id
+        for project_id, role in caller.active_project_roles.items()
+        if role in _MANAGEMENT_ROLES
+    ]
+    conditions = [
+        AccessGrant.grant_type == AccessGrantType.original_access.value,
+        discovery_filter(caller, include_inactive=True),
+        or_(
+            AccessGrant.grantee_user_id == caller.user_id,
+            AccessGrant.granted_by_user_id == caller.user_id,
+            true() if _is_governance(caller) else KnowledgeAsset.project_id.in_(managed_projects),
+        ),
+    ]
+    if status is not None:
+        conditions.append(effective_status == status)
+    base = (
+        select(AccessGrant, KnowledgeAsset)
+        .join(KnowledgeAsset, KnowledgeAsset.id == AccessGrant.asset_id)
+        .where(*conditions)
+    )
+    total = int(await session.scalar(select(func.count()).select_from(base.subquery())) or 0)
+    rows = (
+        await session.execute(
+            base.order_by(AccessGrant.created_at.desc(), AccessGrant.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+    ).all()
+    names = await _name_map(
+        session,
+        {
+            uid
+            for grant, _ in rows
+            for uid in (grant.grantee_user_id, grant.granted_by_user_id, grant.revoked_by_user_id)
+            if uid is not None
+        },
+    )
+    items = []
+    for grant, asset in rows:
+        view = _grant_out(grant).model_dump()
+        if grant.status == AccessGrantStatus.active.value and not _grant_is_live(grant, now=now):
+            view["status"] = AccessGrantStatus.expired.value
+        items.append(
+            AccessGrantHistoryOut(
+                **view,
+                asset_title=asset.title,
+                scope=asset.scope,
+                grantee_name=names.get(grant.grantee_user_id),
+                granted_by_name=names.get(grant.granted_by_user_id),
+                revoked_by_name=names.get(grant.revoked_by_user_id),
+                revoke_reason=audit_service.sanitize_text(grant.revoke_reason),
+                can_revoke=_grant_is_live(grant, now=now) and _can_revoke(caller, asset, grant),
+            )
+        )
+    return GrantsListResponse(items=items, total=total, offset=offset, limit=limit)
+
+
 async def list_requests(
     session: AsyncSession, caller: CallerContext, *, box: str = "mine", status: str | None = None
 ) -> RequestsListResponse:
@@ -671,7 +766,12 @@ async def revoke_grant(
     trace_id: str,
 ) -> AccessGrantOut:
     grant = (
-        await session.execute(select(AccessGrant).where(AccessGrant.id == grant_id))
+        await session.execute(
+            select(AccessGrant)
+            .where(AccessGrant.id == grant_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
     ).scalar_one_or_none()
     if grant is None:
         raise _denied(404, "access_grant_not_found", "授权不存在")
@@ -683,14 +783,12 @@ async def revoke_grant(
 
     # 授权人 / 项目 PM·coach / 治理角色可撤销；被授权人可放弃自己的授权（单独审计）。
     self_revoke = grant.grantee_user_id == caller.user_id and caller.is_business_user
-    if not (
-        self_revoke or _can_approve(caller, asset) or grant.granted_by_user_id == caller.user_id
-    ):
+    if not _can_revoke(caller, asset, grant):
         if _is_admin(caller) and not caller.is_business_user:
             raise _denied(403, "admin_business_permission_denied", "admin 不可撤销业务原文授权")
         raise _denied(403, "original_access_revoke_forbidden", "无原文授权撤销权")
 
-    if grant.status != AccessGrantStatus.active.value:
+    if not _grant_is_live(grant):
         raise _denied(409, "grant_not_active", "授权非 active，无需撤销")
 
     grant.status = AccessGrantStatus.revoked.value

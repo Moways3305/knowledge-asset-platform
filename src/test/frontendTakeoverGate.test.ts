@@ -209,6 +209,13 @@ const routes: RouteContract[] = [
     apiModules: ["bulk", "http", "knowledge"],
   },
   {
+    route: "/original-access/grants",
+    component: "OriginalAccessGrantsPage",
+    guard: "viewOriginalAccess",
+    owners: ["pages/OriginalAccessGrantsPage.tsx"],
+    apiModules: ["http", "knowledge"],
+  },
+  {
     route: "/project/:id",
     component: "ProjectOverviewPage",
     guard: "viewProject",

@@ -30,6 +30,7 @@ const AdminNamingRulesPage = lazy(() => import("./pages/AdminNamingRulesPage"));
 const ReviewPage = lazy(() => import("./pages/ReviewPage"));
 const ReviewCompletedPage = lazy(() => import("./pages/ReviewCompletedPage"));
 const OriginalAccessPage = lazy(() => import("./pages/OriginalAccessPage"));
+const OriginalAccessGrantsPage = lazy(() => import("./pages/OriginalAccessGrantsPage"));
 const ProjectOverviewPage = lazy(() => import("./pages/ProjectOverviewPage"));
 const ProjectKnowledgePage = lazy(() => import("./pages/ProjectKnowledgePage"));
 const ProjectSettingsPage = lazy(() => import("./pages/ProjectSettingsPage"));
@@ -216,6 +217,14 @@ export default function App() {
               element={
                 <RouteGuard cap={can.viewOriginalAccess}>
                   <OriginalAccessPage />
+                </RouteGuard>
+              }
+            />
+            <Route
+              path="original-access/grants"
+              element={
+                <RouteGuard cap={can.viewOriginalAccess}>
+                  <OriginalAccessGrantsPage />
                 </RouteGuard>
               }
             />

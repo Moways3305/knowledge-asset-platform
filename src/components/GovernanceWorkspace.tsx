@@ -5,7 +5,7 @@ import { PageHeader, ProductPage } from "./ProductLayout";
 import "./GovernanceWorkspace.css";
 
 interface GovernanceWorkspaceProps {
-  active: "review" | "review-completed" | "original-access";
+  active: "review" | "review-completed" | "original-access" | "original-grants";
   loading: boolean;
   onRefresh: () => void;
   children: ReactNode;
@@ -46,6 +46,12 @@ export default function GovernanceWorkspace({
         </NavLink>
         <NavLink className={active === "original-access" ? "is-active" : ""} to="/original-access">
           原文访问
+        </NavLink>
+        <NavLink
+          className={active === "original-grants" ? "is-active" : ""}
+          to="/original-access/grants"
+        >
+          授权记录
         </NavLink>
       </nav>
 
