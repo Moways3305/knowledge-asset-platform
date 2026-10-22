@@ -92,15 +92,20 @@ def restricted_context(component: str):
                 relative = Path(name)
                 if any(part == ".env" or part.startswith(".env.") for part in relative.parts):
                     continue
-                if component == "backend" and relative.parts[0] not in {
-                    "Dockerfile",
-                    "requirements.lock",
-                    "pyproject.toml",
-                    "alembic.ini",
-                    "app",
-                    "alembic",
-                    ".dockerignore",
-                }:
+                if (
+                    component == "backend"
+                    and relative.as_posix() != "build_tools/configure_apt.py"
+                    and relative.parts[0]
+                    not in {
+                        "Dockerfile",
+                        "requirements.lock",
+                        "pyproject.toml",
+                        "alembic.ini",
+                        "app",
+                        "alembic",
+                        ".dockerignore",
+                    }
+                ):
                     continue
                 for parent in reversed(relative.parents):
                     if parent == Path(".") or parent in directories:

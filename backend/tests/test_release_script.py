@@ -198,6 +198,11 @@ def test_restricted_image_context_does_not_change_sources_or_include_secrets(
     (root / "backend/Dockerfile").write_text("FROM scratch", encoding="utf-8")
     (root / "Dockerfile.frontend").write_text("FROM scratch", encoding="utf-8")
     (root / "backend/.env").write_text("SECRET=never-archive", encoding="utf-8")
+    build_tools = root / "backend/build_tools"
+    build_tools.mkdir()
+    (build_tools / "configure_apt.py").write_text("# mirror configuration", encoding="utf-8")
+    (build_tools / "unrelated.txt").write_text("not a build input", encoding="utf-8")
+    (build_tools / ".env").write_text("SECRET=never-archive", encoding="utf-8")
     (root / ".env.production").write_text("SECRET=never-archive", encoding="utf-8")
     git("add", ".")
     (root / "backend/local-backup.dump").write_text("private", encoding="utf-8")
@@ -211,6 +216,11 @@ def test_restricted_image_context_does_not_change_sources_or_include_secrets(
             members = archive.getmembers()
             prefix = "" if component == "backend" else "backend/"
             copied = archive.getmember(prefix + "app/models/release_note.py")
+            helper = archive.getmember(prefix + "build_tools/configure_apt.py")
+            assert archive.extractfile(helper).read() == b"# mirror configuration"
+            assert helper.mode == 0o600
+            if component == "backend":
+                assert "build_tools/unrelated.txt" not in archive.getnames()
             assert copied.mode == 0o600
             assert archive.getmember(prefix + "app/models").mode == 0o700
             assert all(member.mode == (0o700 if member.isdir() else 0o600) for member in members)
