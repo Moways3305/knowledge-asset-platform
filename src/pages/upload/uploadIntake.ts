@@ -26,6 +26,7 @@ export interface LocalUploadQueueItem {
   transportBatchNumber?: number;
   sameNameWarning?: boolean;
   retryable?: boolean;
+  needsReselection?: boolean;
   retryCount?: number;
   lastAttemptAt?: string;
   processingStage?: IngestTaskStage;

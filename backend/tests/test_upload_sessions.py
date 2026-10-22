@@ -181,6 +181,71 @@ async def test_failed_transport_context_survives_and_row_bytes_can_be_reselected
     assert completed.json()["upload_completed"] is True
 
 
+async def test_reselected_rows_account_for_interrupted_batch_without_replacing_tasks(client):
+    """Reload recovery: the browser lost its plan before posting a batch result."""
+    session_id = uuid.uuid4()
+    initialized = await client.post(
+        "/api/v1/ingest/upload-sessions/init",
+        headers=_headers(USER_CONSULTANT),
+        json={
+            "session_id": str(session_id),
+            "total_transport_batches": 1,
+            "manifest": [
+                {
+                    "client_file_key": str(i),
+                    "file_name": f"{i}.txt",
+                    "file_size": 4,
+                    "transport_batch_index": 0,
+                }
+                for i in range(2)
+            ],
+        },
+    )
+    assert initialized.status_code == 200
+    item_ids = [item["id"] for item in initialized.json()["items"]]
+    task_ids = []
+    for i, item_id in enumerate(item_ids):
+        request = {
+            "headers": _headers(USER_CONSULTANT),
+            "files": {"file": (f"{i}.txt", b"test", "text/plain")},
+        }
+        path = f"/api/v1/ingest/upload-sessions/{session_id}/items/{item_id}/bytes"
+        received = await client.post(path, **request)
+        repeated = await client.post(path, **request)
+        assert received.status_code == repeated.status_code == 200
+        task_id = received.json()["items"][i]["ingest_task_id"]
+        assert task_id is not None
+        assert repeated.json()["items"][i]["ingest_task_id"] == task_id
+        task_ids.append(task_id)
+    before_accounting = await client.post(
+        f"/api/v1/ingest/upload-sessions/{session_id}/complete",
+        headers=_headers(USER_CONSULTANT),
+    )
+    assert before_accounting.status_code == 409
+    accounted = await client.post(
+        f"/api/v1/ingest/upload-sessions/{session_id}/transport-failure",
+        headers=_headers(USER_CONSULTANT),
+        json={
+            "item_ids": item_ids,
+            "error_code": "network_interrupted",
+            "batch_id": f"{session_id}:0",
+            "batch_index": 0,
+        },
+    )
+    assert accounted.status_code == 200
+    assert accounted.json()["uploaded_batches"] == 1
+    assert [item["ingest_task_id"] for item in accounted.json()["items"]] == task_ids
+    assert all(item["error_code"] is None for item in accounted.json()["items"])
+    assert all(item["bytes_available"] for item in accounted.json()["items"])
+    completed = await client.post(
+        f"/api/v1/ingest/upload-sessions/{session_id}/complete",
+        headers=_headers(USER_CONSULTANT),
+    )
+    assert completed.status_code == 200
+    assert completed.json()["upload_completed"] is True
+    assert completed.json()["uploaded_files"] == 2
+
+
 async def test_cancel_upload_session_removes_unfinished_bytes_and_hides_items(client, db_session):
     session_id = uuid.uuid4()
     initialized = await client.post(

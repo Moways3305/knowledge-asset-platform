@@ -55,6 +55,8 @@ export default function UnifiedFileTasks({ flow }: { flow: UploadFlow }) {
   const [cancelOpen, setCancelOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reselection, setReselection] = useState<LocalUploadQueueItem | null>(null);
+  const [replacementFile, setReplacementFile] = useState<File | null>(null);
   const rows = mergeFileTasks(flow.localUploadQueue, flow.localPendingTasks);
   const actionable = rows.filter((row) => !["completed", "cancelled"].includes(state(row)));
   const filtered =
@@ -139,6 +141,20 @@ export default function UnifiedFileTasks({ flow }: { flow: UploadFlow }) {
             </button>
           )}
           <PendingBatchActions tasks={tasks} flow={flow} />
+          {flow.uploadSession &&
+            flow.uploadSession.upload_completed === false &&
+            flow.uploadSession.status !== "cancelled" &&
+            flow.uploadSession.items.every(
+              (item) => !item.transport_batch_number || item.ingest_task_id,
+            ) && (
+              <button
+                className="btn-secondary"
+                disabled={Boolean(busy) || flow.isCancellingUpload}
+                onClick={() => void perform("finish-upload", flow.finishRecoveredUpload)}
+              >
+                完成本批传输
+              </button>
+            )}
           {flow.localUploadQueue.some((item) => item.status === "failed") && (
             <button
               className="btn-secondary"
@@ -218,8 +234,9 @@ export default function UnifiedFileTasks({ flow }: { flow: UploadFlow }) {
               const rowState = state(row);
               const name = local?.fileName ?? task?.source_file_name ?? "文件";
               const stage = task?.processing_stage ?? local?.processingStage;
-              const label =
-                rowState === "cancelled"
+              const label = local?.needsReselection
+                ? "待补传原文件"
+                : rowState === "cancelled"
                   ? "已取消"
                   : local?.status === "duplicate_skipped"
                     ? "因重复已跳过"
@@ -283,7 +300,10 @@ export default function UnifiedFileTasks({ flow }: { flow: UploadFlow }) {
                     >
                       {label}
                     </span>
-                    {rowState === "failed" && (
+                    {local?.needsReselection && (
+                      <p className="upload77-queue-error">未完成上传，请重新选择原文件</p>
+                    )}
+                    {rowState === "failed" && !local?.needsReselection && (
                       <p className="upload77-queue-error">
                         {queueFailureReason(
                           task?.error_message ?? local?.error ?? null,
@@ -325,6 +345,19 @@ export default function UnifiedFileTasks({ flow }: { flow: UploadFlow }) {
                   </td>
                   <td>
                     <div className="upload-file-row-actions">
+                      {local?.needsReselection && (
+                        <button
+                          className="upload77-retry-link"
+                          disabled={Boolean(busy) || flow.isCancellingUpload}
+                          onClick={() => {
+                            setReselection(local);
+                            setReplacementFile(null);
+                            setError(null);
+                          }}
+                        >
+                          重新选择原文件
+                        </button>
+                      )}
                       {canAct && rowState === "ready" && (
                         <button
                           className="btn-primary"
@@ -415,6 +448,44 @@ export default function UnifiedFileTasks({ flow }: { flow: UploadFlow }) {
           summary={`共 ${filtered.length} 项`}
         />
       )}
+      <ConfirmDialog
+        open={Boolean(reselection)}
+        title="补传原文件"
+        description="仅补齐原任务的文件，不创建新批次。请选择文件名和大小与原清单一致的原文件。"
+        confirmText="确认补传"
+        confirmDisabled={!replacementFile}
+        busy={Boolean(busy)}
+        onCancel={() => {
+          setReselection(null);
+          setReplacementFile(null);
+          setError(null);
+        }}
+        onConfirm={() => {
+          if (!reselection || !replacementFile) return;
+          void perform(reselection.id, async () => {
+            await flow.reselectLocalUpload(reselection.id, replacementFile);
+            setReselection(null);
+            setReplacementFile(null);
+          });
+        }}
+        portal
+      >
+        <p>
+          {reselection?.fileName} · {formatFileSize(reselection?.fileSize ?? 0)}
+        </p>
+        <label>
+          补传文件
+          <input
+            type="file"
+            onChange={(event) => {
+              setReplacementFile(event.target.files?.[0] ?? null);
+              event.target.value = "";
+            }}
+          />
+        </label>
+        {replacementFile && <p>已选择：{replacementFile.name}</p>}
+        {error && <p role="alert">{error}</p>}
+      </ConfirmDialog>
       <ConfirmDialog
         open={cancelOpen}
         title="取消本批上传？"
