@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import PurePath
 from types import SimpleNamespace
 from typing import cast
@@ -107,11 +107,29 @@ async def _revision(
         .limit(1)
     )
     if lock:
-        stmt = stmt.with_for_update()
+        stmt = stmt.with_for_update().execution_options(populate_existing=True)
     value = (await session.execute(stmt)).scalar_one_or_none()
     if value is None:
         raise _denied(503, "naming_rule_unavailable", "命名规则暂时不可用")
     return value
+
+
+def _check_draft_stamp(draft: NamingRuleRevision, expected: datetime) -> None:
+    actual = draft.updated_at.replace(tzinfo=draft.updated_at.tzinfo or timezone.utc)
+    if actual != expected.replace(tzinfo=expected.tzinfo or timezone.utc):
+        raise _denied(409, "naming_rule_draft_conflict", "目录草稿已更新，请重新加载后核对")
+
+
+async def _lock_rule_writes(session: AsyncSession) -> None:
+    # The first published revision stays immutable. Share this stable lock with
+    # direct directory creation before reading the latest published/draft rows.
+    await session.execute(
+        select(NamingRuleRevision)
+        .where(NamingRuleRevision.status == "published")
+        .order_by(NamingRuleRevision.version.asc())
+        .limit(1)
+        .with_for_update()
+    )
 
 
 async def _ensure_initial_revisions(session: AsyncSession) -> None:
@@ -212,6 +230,7 @@ async def save_draft(
 ) -> NamingRuleRevisionOut:
     _require_governance(caller)
     await _ensure_initial_revisions(session)
+    await _lock_rule_writes(session)
     published = await _revision(session, "published", lock=True)
     draft = await _revision(session, "draft", lock=True)
     if (
@@ -219,6 +238,7 @@ async def save_draft(
         or draft.base_published_version != published.version
     ):
         raise _denied(409, "naming_rule_publish_conflict", "规则已被其他治理者更新，请刷新")
+    _check_draft_stamp(draft, request.expected_draft_updated_at)
     current_config = _config(draft)
     # Categories and project-code projections are historical, read-only data.
     # The current write contract accepts formal directories only.
@@ -232,6 +252,13 @@ async def save_draft(
     )
     draft.config = normalized_config.model_dump(mode="json")
     draft.updated_by = caller.user_id
+    # Every successful save advances the concurrency token, including a no-op
+    # or a clock tick that does not advance beyond the previous save.
+    draft.updated_at = max(
+        datetime.now(timezone.utc),
+        draft.updated_at.replace(tzinfo=draft.updated_at.tzinfo or timezone.utc)
+        + timedelta(microseconds=1),
+    )
     await audit_service.record_event(
         session,
         caller=caller,
@@ -259,15 +286,7 @@ async def publish_draft(
 ) -> NamingRuleCenterOut:
     _require_governance(caller)
     await _ensure_initial_revisions(session)
-    # The first published revision is immutable and remains published. Use it
-    # as a stable lock anchor shared with direct library directory creation.
-    await session.execute(
-        select(NamingRuleRevision)
-        .where(NamingRuleRevision.status == "published")
-        .order_by(NamingRuleRevision.version.asc())
-        .limit(1)
-        .with_for_update()
-    )
+    await _lock_rule_writes(session)
     published = await _revision(session, "published", lock=True)
     draft = await _revision(session, "draft", lock=True)
     if (
@@ -275,6 +294,7 @@ async def publish_draft(
         or draft.base_published_version != published.version
     ):
         raise _denied(409, "naming_rule_publish_conflict", "规则已被其他治理者发布，请刷新")
+    _check_draft_stamp(draft, request.expected_draft_updated_at)
     config = _normalized_config(_config(draft))
     await validate_library_children(session, [row.model_dump() for row in config.directories])
     now = datetime.now(timezone.utc)

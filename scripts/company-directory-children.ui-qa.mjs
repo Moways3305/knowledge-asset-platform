@@ -20,11 +20,11 @@ try {
       if (url.pathname === "/api/v1/auth/me") body = { user_id: "governance", name: "治理用户", status: "active", company_roles: ["boss"], active_company_role: "boss", is_business_user: true, can_discover_l5: true, project_memberships: [] };
       if (url.pathname === "/api/v1/admin/naming-rules") {
         const config = { schema_version: 2, enforced: true, project_codes: [], categories: [], directories: [root] };
-        body = { published: { version: 1, config }, draft: { version: 2, config }, projects: [] };
+        body = { published: { version: 1, config }, draft: { version: 2, config, updated_at: "2026-09-01T08:00:00.123456Z" }, projects: [] };
       }
       if (url.pathname.endsWith("/naming-rules/draft")) {
         saved = route.request().postDataJSON();
-        body = { version: 2, config: { schema_version: 2, categories: [], project_codes: [], directories: saved.directories } };
+        body = { version: 2, updated_at: "2026-09-01T09:00:00.123457Z", config: { schema_version: 2, categories: [], project_codes: [], directories: saved.directories } };
       }
       if (url.pathname === "/api/v1/knowledge/directories") body = { items: [root, child].map((item) => ({ ...item, name: item.display_name, parent_key: item.parent_key ?? null, display_path: `公司库 / ${item.parent_key ? "02 方法论 / " : ""}${item.display_name}`, project_id: null, project_name: null })) };
       await route.fulfill({ contentType: "application/json", body: JSON.stringify(body) });
@@ -36,6 +36,7 @@ try {
     await page.getByRole("button", { name: /保存草稿/ }).click();
     await page.getByText("草稿已保存", { exact: false }).waitFor();
     assert.equal(saved.directories[1].parent_key, root.directory_key);
+    assert.equal(saved.expected_draft_updated_at, "2026-09-01T08:00:00.123456Z");
     assert.equal(saved.directories[1].default_confidentiality, "L2");
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
     await page.getByRole("button", { name: "添加到草稿" }).scrollIntoViewIfNeeded();

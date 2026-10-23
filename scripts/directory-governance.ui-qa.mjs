@@ -163,6 +163,7 @@ try {
         savedPayload = route.request().postDataJSON();
         center.draft = {
           ...center.draft,
+          updated_at: "2026-09-01T09:00:00.123456Z",
           config: { ...center.draft.config, directories: savedPayload.directories },
         };
         return fulfill(center.draft);
@@ -245,6 +246,7 @@ try {
     );
     const payloadValid = Boolean(
       savedPayload?.expected_base_version === 8 &&
+      savedPayload?.expected_draft_updated_at === originalCenter.draft.updated_at &&
       edited?.display_name === "02 方法与工具" &&
       edited?.description === "模型、工具与可复用方法" &&
       edited?.naming_code === "方法工具" &&
@@ -253,7 +255,8 @@ try {
       edited?.enabled === false &&
       !Object.hasOwn(savedPayload ?? {}, "categories") &&
       !Object.hasOwn(savedPayload ?? {}, "project_codes") &&
-      publishPayload?.expected_base_version === 8,
+      publishPayload?.expected_base_version === 8 &&
+      publishPayload?.expected_draft_updated_at === "2026-09-01T09:00:00.123456Z",
     );
     const result = {
       viewport: viewport.name,

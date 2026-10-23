@@ -271,11 +271,13 @@ def _config(*, with_legacy_category: bool = False) -> dict:
 
 
 async def _publish(client, *, with_legacy_category: bool = False) -> None:
+    center = (await client.get("/api/v1/admin/naming-rules", headers=_hdr(USER_BOSS))).json()
     saved = await client.put(
         "/api/v1/admin/naming-rules/draft",
         headers=_hdr(USER_BOSS),
         json={
             "expected_base_version": 1,
+            "expected_draft_updated_at": center["draft"]["updated_at"],
             "directories": _config(with_legacy_category=with_legacy_category)["directories"],
         },
     )
@@ -283,7 +285,7 @@ async def _publish(client, *, with_legacy_category: bool = False) -> None:
     published = await client.post(
         "/api/v1/admin/naming-rules/publish",
         headers=_hdr(USER_BOSS),
-        json={"expected_base_version": 1},
+        json={"expected_base_version": 1, "expected_draft_updated_at": saved.json()["updated_at"]},
     )
     assert published.status_code == 200, published.text
 
@@ -358,14 +360,20 @@ async def test_options_expose_only_scoped_formal_directories(client):
     ],
 )
 async def test_directory_draft_rejects_invalid_writable_fields(client, field, value):
+    center = (await client.get("/api/v1/admin/naming-rules", headers=_hdr(USER_BOSS))).json()
     directory = _config()["directories"][0]
     directory[field] = value
     response = await client.put(
         "/api/v1/admin/naming-rules/draft",
         headers=_hdr(USER_BOSS),
-        json={"expected_base_version": 1, "directories": [directory]},
+        json={
+            "expected_base_version": 1,
+            "expected_draft_updated_at": center["draft"]["updated_at"],
+            "directories": [directory],
+        },
     )
     assert response.status_code == 422, response.text
+    assert any("directories" in item["loc"] for item in response.json()["detail"])
 
 
 async def test_direct_directory_generates_project_name_without_category_metadata(client):

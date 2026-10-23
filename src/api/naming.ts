@@ -40,16 +40,22 @@ export function fetchNamingRuleCenter(): Promise<NamingRuleCenterDTO> {
 export function saveNamingRuleDraft(
   expectedBaseVersion: number,
   config: NamingRuleConfigDTO,
+  expectedDraftUpdatedAt: string,
 ): Promise<NamingRuleRevisionDTO> {
   return apiPut("/api/v1/admin/naming-rules/draft", {
     expected_base_version: expectedBaseVersion,
+    expected_draft_updated_at: expectedDraftUpdatedAt,
     directories: config.directories ?? [],
   });
 }
 
-export function publishNamingRuleDraft(expectedBaseVersion: number): Promise<NamingRuleCenterDTO> {
+export function publishNamingRuleDraft(
+  expectedBaseVersion: number,
+  expectedDraftUpdatedAt: string,
+): Promise<NamingRuleCenterDTO> {
   return apiPost("/api/v1/admin/naming-rules/publish", {
     expected_base_version: expectedBaseVersion,
+    expected_draft_updated_at: expectedDraftUpdatedAt,
   });
 }
 

@@ -10222,10 +10222,16 @@
           "expected_base_version": {
             "title": "Expected Base Version",
             "type": "integer"
+          },
+          "expected_draft_updated_at": {
+            "format": "date-time",
+            "title": "Expected Draft Updated At",
+            "type": "string"
           }
         },
         "required": [
           "expected_base_version",
+          "expected_draft_updated_at",
           "directories"
         ],
         "title": "NamingDraftUpdateRequest",
@@ -10500,10 +10506,16 @@
           "expected_base_version": {
             "title": "Expected Base Version",
             "type": "integer"
+          },
+          "expected_draft_updated_at": {
+            "format": "date-time",
+            "title": "Expected Draft Updated At",
+            "type": "string"
           }
         },
         "required": [
-          "expected_base_version"
+          "expected_base_version",
+          "expected_draft_updated_at"
         ],
         "title": "NamingPublishRequest",
         "type": "object"
