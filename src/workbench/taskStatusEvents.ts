@@ -13,6 +13,7 @@ const TASK_AFFECTING_PATHS = [
 export function affectsTaskStatus(path: string): boolean {
   return (
     TASK_AFFECTING_PATHS.some((prefix) => path.startsWith(prefix)) ||
+    /^\/api\/v1\/knowledge\/[^/]+\/trust\//.test(path) ||
     path.includes("/original-access/") ||
     path.endsWith("/retry-index") ||
     path.endsWith("/upgrade-company") ||

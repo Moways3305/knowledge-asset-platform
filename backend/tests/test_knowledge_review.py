@@ -255,6 +255,105 @@ async def test_due_notification_deduplicates_without_archiving(client, db_sessio
     assert (await state(client))["freshness"] == "due"
 
 
+async def test_assignment_notification_completes_after_successful_review(client):
+    await policy(client)
+    inbox = await client.get("/api/v1/notifications", headers=headers(USER_BOSS))
+    assigned = next(
+        row
+        for row in inbox.json()["items"]
+        if row["event_type"] == "knowledge.assigned"
+        and row["target"]["resource_id"] == str(KA_COMPANY_L2)
+    )
+    assert assigned["action_required"] is True
+    assert assigned["task_status"] == "needs_action"
+
+    await verify(client)
+    inbox = await client.get("/api/v1/notifications", headers=headers(USER_BOSS))
+    completed = next(row for row in inbox.json()["items"] if row["id"] == assigned["id"])
+    assert completed["action_required"] is False
+    assert completed["task_status"] == "completed"
+    # Completion is business state, not a side effect of marking messages read.
+    assert completed["is_read"] is False
+    assert inbox.json()["pending_count"] == 0
+    maintenance = await client.get("/api/v1/knowledge-maintenance", headers=headers(USER_BOSS))
+    assert str(KA_COMPANY_L2) not in {row["asset_id"] for row in maintenance.json()["items"]}
+
+
+@pytest.mark.parametrize("change", ["due", "unscheduled", "changed", "needs_update", "correction"])
+async def test_assignment_notification_reopens_for_current_maintenance_work(
+    client, db_session, change
+):
+    await policy(client)
+    await verify(client)
+    if change in {"due", "unscheduled"}:
+        asset = await db_session.get(KnowledgeAsset, KA_COMPANY_L2)
+        asset.review_due_at = utc_now() - timedelta(seconds=1) if change == "due" else None
+        await db_session.commit()
+    elif change == "changed":
+        current = await state(client)
+        response = await client.patch(
+            f"/api/v1/knowledge/{KA_COMPANY_L2}/metadata",
+            headers=headers(USER_BOSS),
+            json={
+                "expected_updated_at": current["updated_at"],
+                "reason": "隔离验收修订",
+                "title": "已复核后再次修改的测试资料",
+            },
+        )
+        assert response.status_code == 200
+    elif change == "needs_update":
+        assert (await command(client, "review", {"outcome": "needs_update"})).status_code == 200
+    else:
+        assert (await command(client, "corrections", {}, user=USER_CONSULTANT)).status_code == 200
+    inbox = await client.get("/api/v1/notifications", headers=headers(USER_BOSS))
+    assigned = next(
+        row for row in inbox.json()["items"] if row["event_type"] == "knowledge.assigned"
+    )
+    assert assigned["action_required"] is True
+    assert assigned["task_status"] == "needs_action"
+    maintenance = await client.get("/api/v1/knowledge-maintenance", headers=headers(USER_BOSS))
+    assert str(KA_COMPANY_L2) in {row["asset_id"] for row in maintenance.json()["items"]}
+
+
+async def test_verified_reschedule_does_not_create_perpetual_assignment_task(client):
+    await policy(client)
+    await verify(client)
+    await policy(client)
+    inbox = await client.get("/api/v1/notifications", headers=headers(USER_BOSS))
+    assignments = [
+        row for row in inbox.json()["items"] if row["event_type"] == "knowledge.assigned"
+    ]
+    assert len(assignments) == 2
+    assert all(
+        not row["action_required"] and row["task_status"] == "completed" for row in assignments
+    )
+    assert inbox.json()["pending_count"] == 0
+
+
+async def test_assignment_notifications_remain_recipient_and_role_scoped(client):
+    await policy(client)
+    for user in [USER_DIRECTOR, USER_CONSULTANT, USER_ADMIN_ONLY]:
+        inbox = await client.get("/api/v1/notifications", headers=headers(user))
+        assert inbox.status_code == 200
+        assert not any(row["event_type"] == "knowledge.assigned" for row in inbox.json()["items"])
+    reassigned = await command(
+        client,
+        "policy",
+        {
+            "maintainer_user_id": str(USER_DIRECTOR),
+            "review_due_at": (utc_now() + timedelta(days=30)).isoformat(),
+        },
+    )
+    assert reassigned.status_code == 200
+    old_inbox = await client.get("/api/v1/notifications", headers=headers(USER_BOSS))
+    assert not any(row["event_type"] == "knowledge.assigned" for row in old_inbox.json()["items"])
+    new_inbox = await client.get("/api/v1/notifications", headers=headers(USER_DIRECTOR))
+    assert any(
+        row["event_type"] == "knowledge.assigned" and row["action_required"]
+        for row in new_inbox.json()["items"]
+    )
+
+
 async def test_correction_full_loop_and_private_reports(client):
     await policy(client)
     reported = await command(client, "corrections", {}, user=USER_CONSULTANT)

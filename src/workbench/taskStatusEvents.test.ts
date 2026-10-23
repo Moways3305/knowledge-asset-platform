@@ -6,6 +6,13 @@ import {
 } from "./taskStatusEvents";
 
 describe("task status invalidation", () => {
+  it.each(["policy", "review", "replacement", "corrections", "corrections/ticket-id"])(
+    "refreshes maintenance notifications after %s",
+    (action) => {
+      expect(affectsTaskStatus(`/api/v1/knowledge/asset-id/trust/${action}`)).toBe(true);
+    },
+  );
+
   it("recognizes task-changing business writes but ignores unrelated mutations", () => {
     expect(affectsTaskStatus("/api/v1/reviews/review-id/approve")).toBe(true);
     expect(affectsTaskStatus("/api/v1/ingest/task-id/confirm")).toBe(true);
@@ -15,6 +22,7 @@ describe("task status invalidation", () => {
       affectsTaskStatus("/api/v1/projects/project-id/knowledge/asset-id/upgrade-company"),
     ).toBe(true);
     expect(affectsTaskStatus("/api/v1/admin/people/user-id/status")).toBe(false);
+    expect(affectsTaskStatus("/api/v1/admin/trust/settings")).toBe(false);
   });
 
   it("emits one shared event only after a relevant operation succeeds", () => {

@@ -8,7 +8,7 @@ import {
   markNotificationsRead,
 } from "../api/notifications";
 import type { BusinessNotificationDTO } from "../types/notification";
-import { TASK_STATUS_INVALIDATED_EVENT } from "../workbench/taskStatusEvents";
+import { TASK_STATUS_INVALIDATED_EVENT, invalidateTaskStatus } from "../workbench/taskStatusEvents";
 
 vi.mock("../api/notifications", () => ({
   fetchNotifications: vi.fn(),
@@ -217,6 +217,51 @@ describe("NotificationBell", () => {
     fireEvent.click(screen.getByRole("tab", { name: /动态/ }));
     expect(await screen.findByText(update.title)).toBeInTheDocument();
     expect(screen.queryByText(notification.title)).not.toBeInTheDocument();
+  });
+
+  it("refreshes completed maintenance into updates without marking history read", async () => {
+    const assigned = {
+      ...notification,
+      event_type: "knowledge.assigned",
+      title: "资料维护已分配",
+      target: { route_key: "knowledge_detail", resource_id: "asset-id" },
+    };
+    const response = {
+      items: [assigned],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      unread_count: 1,
+      pending_count: 1,
+      categories: ["review"],
+    };
+    vi.mocked(fetchNotifications).mockResolvedValue(response);
+    renderBell();
+    await screen.findByRole("button", { name: /通知中心，1 项待处理/ });
+    fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
+    expect(await screen.findByText(assigned.title)).toBeInTheDocument();
+    vi.mocked(fetchNotifications).mockResolvedValue({
+      ...response,
+      pending_count: 0,
+      items: [
+        {
+          ...assigned,
+          action_required: false,
+          task_status: "completed",
+          task_group: "recent_completed",
+          next_action_label: "查看记录",
+        },
+      ],
+    });
+    act(() => invalidateTaskStatus("/api/v1/knowledge/asset-id/trust/review"));
+    await waitFor(() => expect(fetchNotifications).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText("暂时没有待处理事项")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /通知中心，0 项待处理/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: /动态/ }));
+    expect(await screen.findByText(assigned.title)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "查看记录" })).toBeInTheDocument();
+    expect(markNotificationRead).not.toHaveBeenCalled();
+    expect(markNotificationsRead).not.toHaveBeenCalled();
   });
 
   it("renders duplicate skipped as a distinct terminal notification status", async () => {
