@@ -187,6 +187,7 @@ async def test_global_publish_cannot_disable_parent_of_live_child(client):
         headers=boss,
         json={
             "expected_base_version": center["published"]["version"],
+            "expected_draft_updated_at": center["draft"]["updated_at"],
             "directories": rows,
         },
     )
@@ -196,6 +197,7 @@ async def test_global_publish_cannot_disable_parent_of_live_child(client):
         headers=boss,
         json={
             "expected_base_version": center["published"]["version"],
+            "expected_draft_updated_at": saved.json()["updated_at"],
         },
     )
     assert published.status_code == 409, published.text

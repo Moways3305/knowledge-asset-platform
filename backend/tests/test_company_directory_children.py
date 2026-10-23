@@ -76,7 +76,11 @@ async def test_create_publish_browse_child_permissions(client, user, allowed):
     result = await client.put(
         "/api/v1/admin/naming-rules/draft",
         headers=headers,
-        json={"expected_base_version": initial["published"]["version"], "directories": rows},
+        json={
+            "expected_base_version": initial["published"]["version"],
+            "expected_draft_updated_at": initial["draft"]["updated_at"],
+            "directories": rows,
+        },
     )
     assert result.status_code == (200 if allowed else 403), result.text
     if not allowed:
@@ -87,7 +91,10 @@ async def test_create_publish_browse_child_permissions(client, user, allowed):
     published = await client.post(
         "/api/v1/admin/naming-rules/publish",
         headers=headers,
-        json={"expected_base_version": initial["published"]["version"]},
+        json={
+            "expected_base_version": initial["published"]["version"],
+            "expected_draft_updated_at": result.json()["updated_at"],
+        },
     )
     assert published.status_code == 200, published.text
     visible = await client.get("/api/v1/knowledge/directories?scope=company", headers=boss)

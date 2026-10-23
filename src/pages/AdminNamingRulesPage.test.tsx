@@ -1,12 +1,14 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   confirmDirectoryMigration,
   fetchDirectoryMigration,
   fetchNamingRuleCenter,
+  publishNamingRuleDraft,
   saveNamingRuleDraft,
 } from "../api/naming";
-import type { NamingRuleCenterDTO } from "../types/naming";
+import { ApiError } from "../api/http";
+import type { NamingRuleCenterDTO, NamingRuleRevisionDTO } from "../types/naming";
 import AdminNamingRulesPage from "./AdminNamingRulesPage";
 
 vi.mock("../api/naming", () => ({
@@ -67,7 +69,7 @@ const center: NamingRuleCenterDTO = {
         },
       ],
     },
-    updated_at: "2026-08-31T00:00:00Z",
+    updated_at: "2026-08-31T00:00:00.123456Z",
     published_at: null,
   },
   projects: [],
@@ -95,13 +97,136 @@ describe("AdminNamingRulesPage directory governance", () => {
     expect(child?.directory_key).toMatch(/^company\.custom_[0-9a-f]{32}$/);
   });
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     vi.mocked(fetchNamingRuleCenter).mockResolvedValue(structuredClone(center));
     vi.mocked(saveNamingRuleDraft).mockImplementation(async (base, config) => ({
       ...structuredClone(center.draft),
       base_published_version: base,
       config,
+      updated_at: "2026-08-31T00:00:01.123457Z",
     }));
+    vi.mocked(publishNamingRuleDraft).mockResolvedValue(structuredClone(center));
+  });
+
+  it("saves the exact draft stamp, then publishes only the successfully saved draft", async () => {
+    render(<AdminNamingRulesPage />);
+    const name = await screen.findByDisplayValue("02 方法论");
+    fireEvent.change(name, { target: { value: "02 核对后的方法论" } });
+    expect(screen.getByRole("button", { name: /发布正式目录/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /保存草稿/ }));
+    await screen.findByText("目录草稿已保存；发布前不会影响新入库资料。");
+    expect(saveNamingRuleDraft).toHaveBeenCalledWith(
+      1,
+      expect.any(Object),
+      "2026-08-31T00:00:00.123456Z",
+    );
+    fireEvent.click(screen.getByRole("button", { name: /发布正式目录/ }));
+    await waitFor(() =>
+      expect(publishNamingRuleDraft).toHaveBeenCalledWith(1, "2026-08-31T00:00:01.123457Z"),
+    );
+  });
+
+  it("keeps edits typed during a save and requires saving them with the returned stamp before publishing", async () => {
+    let finishSave!: (value: NamingRuleRevisionDTO) => void;
+    vi.mocked(saveNamingRuleDraft).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSave = resolve;
+        }),
+    );
+    render(<AdminNamingRulesPage />);
+    const name = await screen.findByDisplayValue("02 方法论");
+    fireEvent.change(name, { target: { value: "先提交的名称" } });
+    const saveButton = screen.getByRole("button", { name: /保存草稿/ });
+    act(() => {
+      saveButton.click();
+      saveButton.click();
+    });
+    expect(saveNamingRuleDraft).toHaveBeenCalledTimes(1);
+    fireEvent.change(name, { target: { value: "请求中继续编辑的名称" } });
+    const config = vi.mocked(saveNamingRuleDraft).mock.calls[0][1];
+    await act(async () =>
+      finishSave({ ...center.draft, config, updated_at: "2026-08-31T00:00:02.123458Z" }),
+    );
+    expect(name).toHaveValue("请求中继续编辑的名称");
+    expect(screen.getByText("已保存先前提交的草稿；当前页面还有未保存修改。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /发布正式目录/ })).toBeDisabled();
+    fireEvent.click(saveButton);
+    await screen.findByText("目录草稿已保存；发布前不会影响新入库资料。");
+    expect(saveNamingRuleDraft).toHaveBeenLastCalledWith(
+      1,
+      expect.objectContaining({
+        directories: expect.arrayContaining([
+          expect.objectContaining({ display_name: "请求中继续编辑的名称" }),
+        ]),
+      }),
+      "2026-08-31T00:00:02.123458Z",
+    );
+    expect(screen.getByRole("button", { name: /发布正式目录/ })).toBeEnabled();
+  });
+
+  it.each(["save", "publish"])(
+    "preserves input after a %s conflict and reloads only on explicit action",
+    async (action) => {
+      const command = action === "save" ? saveNamingRuleDraft : publishNamingRuleDraft;
+      vi.mocked(command).mockRejectedValueOnce(
+        new ApiError(409, "目录草稿已更新，请重新加载后核对"),
+      );
+      render(<AdminNamingRulesPage />);
+      const name = await screen.findByDisplayValue("02 方法论");
+      if (action === "save") fireEvent.change(name, { target: { value: "我的未保存输入" } });
+      fireEvent.click(
+        screen.getByRole("button", { name: action === "save" ? /保存草稿/ : /发布正式目录/ }),
+      );
+      await screen.findByText("目录草稿已更新，请重新加载后核对");
+      expect(name).toHaveValue(action === "save" ? "我的未保存输入" : "02 方法论");
+      expect(fetchNamingRuleCenter).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("button", { name: /保存草稿/ })).toBeDisabled();
+      expect(screen.getByRole("button", { name: /发布正式目录/ })).toBeDisabled();
+      let finishReload!: (value: NamingRuleCenterDTO) => void;
+      vi.mocked(fetchNamingRuleCenter).mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishReload = resolve;
+          }),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "重新加载目录" }));
+      expect(name).toBeDisabled();
+      expect(screen.getByRole("button", { name: "重新加载目录" })).toBeDisabled();
+      const latest = structuredClone(center);
+      latest.draft.updated_at = "2026-08-31T00:00:03.123459Z";
+      latest.draft.config.directories![0].display_name = "其他治理者保存的名称";
+      await act(async () => finishReload(latest));
+      expect(name).toHaveValue("其他治理者保存的名称");
+      expect(screen.queryByRole("button", { name: "重新加载目录" })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: /发布正式目录/ }));
+      await waitFor(() =>
+        expect(publishNamingRuleDraft).toHaveBeenLastCalledWith(1, latest.draft.updated_at),
+      );
+    },
+  );
+
+  it("blocks editing and duplicate requests while publishing the reviewed draft", async () => {
+    let finishPublish!: (value: NamingRuleCenterDTO) => void;
+    vi.mocked(publishNamingRuleDraft).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishPublish = resolve;
+        }),
+    );
+    render(<AdminNamingRulesPage />);
+    const name = await screen.findByDisplayValue("02 方法论");
+    const publishButton = screen.getByRole("button", { name: /发布正式目录/ });
+    act(() => {
+      publishButton.click();
+      publishButton.click();
+    });
+    expect(publishNamingRuleDraft).toHaveBeenCalledTimes(1);
+    expect(publishNamingRuleDraft).toHaveBeenCalledWith(1, center.draft.updated_at);
+    expect(name).toBeDisabled();
+    expect(screen.getByRole("button", { name: /保存草稿/ })).toBeDisabled();
+    await act(async () => finishPublish(structuredClone(center)));
+    expect(name).toBeEnabled();
   });
 
   it("shows formal directories without category or project-code management", async () => {

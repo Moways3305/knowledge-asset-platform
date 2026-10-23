@@ -33,6 +33,10 @@ export default function AdminNamingRulesPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [conflicted, setConflicted] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [loadingCenter, setLoadingCenter] = useState(true);
+  const [publishing, setPublishing] = useState(false);
   const [migration, setMigration] = useState<DirectoryMigrationWorkspaceDTO | null>(null);
   const [migrationPage, setMigrationPage] = useState(1);
   const [migrationOpen, setMigrationOpen] = useState(false);
@@ -45,17 +49,35 @@ export default function AdminNamingRulesPage() {
     )
     .map((item) => item.id);
   const editRevision = useRef(0);
+  const writeInFlight = useRef(false);
+  const loadRequest = useRef(0);
 
   const load = async () => {
+    const request = ++loadRequest.current;
+    setLoadingCenter(true);
     setError(null);
     try {
-      setCenter(await fetchNamingRuleCenter());
+      const latest = await fetchNamingRuleCenter();
+      if (request !== loadRequest.current) return;
+      setCenter(latest);
+      setConflicted(false);
+      setNotice(null);
+      setHasUnsavedChanges(false);
+      editRevision.current = 0;
     } catch (reason) {
+      if (request !== loadRequest.current) return;
       setError(reason instanceof ApiError ? reason.message : "目录治理配置暂时无法加载");
+    } finally {
+      if (request === loadRequest.current) setLoadingCenter(false);
     }
   };
 
-  useEffect(() => void load(), []);
+  useEffect(() => {
+    void load();
+    return () => {
+      loadRequest.current += 1;
+    };
+  }, []);
 
   const config = center?.draft.config;
   const companyParents = (config?.directories ?? []).filter(
@@ -88,6 +110,7 @@ export default function AdminNamingRulesPage() {
       return;
     }
     editRevision.current += 1;
+    setHasUnsavedChanges(true);
     setCenter({
       ...center,
       draft: {
@@ -123,8 +146,9 @@ export default function AdminNamingRulesPage() {
   );
 
   const updateDirectory = (key: string, patch: Partial<DirectoryOptionDTO>) => {
-    if (!center || !config) return;
+    if (!center || !config || publishing || loadingCenter) return;
     editRevision.current += 1;
+    setHasUnsavedChanges(true);
     setCenter({
       ...center,
       draft: {
@@ -141,12 +165,18 @@ export default function AdminNamingRulesPage() {
   };
 
   const save = async () => {
-    if (!center || !config) return;
+    if (!center || !config || conflicted || loadingCenter || writeInFlight.current) return;
+    writeInFlight.current = true;
     setBusy(true);
     setError(null);
+    setNotice(null);
     const submittedRevision = editRevision.current;
     try {
-      const draft = await saveNamingRuleDraft(center.published.version, config);
+      const draft = await saveNamingRuleDraft(
+        center.published.version,
+        config,
+        center.draft.updated_at,
+      );
       setCenter((current) =>
         current
           ? {
@@ -158,25 +188,40 @@ export default function AdminNamingRulesPage() {
             }
           : current,
       );
-      setNotice("目录草稿已保存；发布前不会影响新入库资料。");
+      const stillUnsaved = submittedRevision !== editRevision.current;
+      setHasUnsavedChanges(stillUnsaved);
+      setNotice(
+        stillUnsaved
+          ? "已保存先前提交的草稿；当前页面还有未保存修改。"
+          : "目录草稿已保存；发布前不会影响新入库资料。",
+      );
     } catch (reason) {
+      if (reason instanceof ApiError && reason.status === 409) setConflicted(true);
       setError(reason instanceof ApiError ? reason.message : "目录草稿保存失败，当前输入已保留");
     } finally {
+      writeInFlight.current = false;
       setBusy(false);
     }
   };
 
   const publish = async () => {
-    if (!center) return;
+    if (!center || conflicted || loadingCenter || hasUnsavedChanges || writeInFlight.current)
+      return;
+    writeInFlight.current = true;
+    setPublishing(true);
     setBusy(true);
     setError(null);
+    setNotice(null);
     try {
-      setCenter(await publishNamingRuleDraft(center.published.version));
+      setCenter(await publishNamingRuleDraft(center.published.version, center.draft.updated_at));
       editRevision.current = 0;
       setNotice("正式目录已发布，新上传和项目发布将立即使用本版本。");
     } catch (reason) {
+      if (reason instanceof ApiError && reason.status === 409) setConflicted(true);
       setError(reason instanceof ApiError ? reason.message : "正式目录发布失败，请刷新后重试");
     } finally {
+      setPublishing(false);
+      writeInFlight.current = false;
       setBusy(false);
     }
   };
@@ -249,10 +294,17 @@ export default function AdminNamingRulesPage() {
             <Button variant="secondary" onClick={() => void openMigration()}>
               <ArchiveRestore size={16} /> 历史待治理
             </Button>
-            <Button variant="secondary" disabled={busy} onClick={() => void save()}>
+            <Button
+              variant="secondary"
+              disabled={busy || conflicted || loadingCenter}
+              onClick={() => void save()}
+            >
               <Save size={16} /> 保存草稿
             </Button>
-            <Button disabled={busy} onClick={() => void publish()}>
+            <Button
+              disabled={busy || conflicted || loadingCenter || hasUnsavedChanges}
+              onClick={() => void publish()}
+            >
               <Send size={16} /> 发布正式目录
             </Button>
           </>
@@ -263,6 +315,19 @@ export default function AdminNamingRulesPage() {
         <div className={error ? "naming-center-error" : "naming-center-notice"} role="status">
           {error ?? notice}
         </div>
+      )}
+
+      {conflicted && (
+        <div className="naming-center-error">
+          <p>当前输入已保留。重新加载将替换当前输入，请先记录需要保留的修改，再核对最新草稿。</p>
+          <Button variant="secondary" disabled={loadingCenter} onClick={() => void load()}>
+            重新加载目录
+          </Button>
+        </div>
+      )}
+
+      {hasUnsavedChanges && !conflicted && (
+        <p role="status">当前修改尚未保存，请先保存草稿再发布。</p>
       )}
 
       <section className="naming-overview" aria-label="目录版本概览">
@@ -315,7 +380,7 @@ export default function AdminNamingRulesPage() {
               <select
                 value={newParent}
                 onChange={(event) => setNewParent(event.target.value)}
-                disabled={busy}
+                disabled={busy || loadingCenter}
                 required
               >
                 <option value="">请选择分类</option>
@@ -332,11 +397,11 @@ export default function AdminNamingRulesPage() {
                 value={newName}
                 onChange={(event) => setNewName(event.target.value)}
                 maxLength={40}
-                disabled={busy}
+                disabled={busy || loadingCenter}
                 required
               />
             </label>
-            <Button type="submit" disabled={busy}>
+            <Button type="submit" disabled={busy || loadingCenter}>
               添加到草稿
             </Button>
           </form>
@@ -365,6 +430,7 @@ export default function AdminNamingRulesPage() {
               <label>
                 <span>目录名称</span>
                 <input
+                  disabled={publishing || loadingCenter}
                   value={directory.display_name}
                   onChange={(event) =>
                     updateDirectory(directory.directory_key, { display_name: event.target.value })
@@ -374,6 +440,7 @@ export default function AdminNamingRulesPage() {
               <label>
                 <span>目录说明</span>
                 <input
+                  disabled={publishing || loadingCenter}
                   value={directory.description ?? ""}
                   onChange={(event) =>
                     updateDirectory(directory.directory_key, { description: event.target.value })
@@ -383,6 +450,7 @@ export default function AdminNamingRulesPage() {
               <label>
                 <span>命名短码</span>
                 <input
+                  disabled={publishing || loadingCenter}
                   value={directory.naming_code ?? ""}
                   placeholder="例如 方法论"
                   onChange={(event) =>
@@ -393,6 +461,7 @@ export default function AdminNamingRulesPage() {
               <label>
                 <span>默认密级</span>
                 <select
+                  disabled={publishing || loadingCenter}
                   value={directory.default_confidentiality ?? "L2"}
                   onChange={(event) =>
                     updateDirectory(directory.directory_key, {
@@ -408,6 +477,7 @@ export default function AdminNamingRulesPage() {
               <label>
                 <span>排序</span>
                 <input
+                  disabled={publishing || loadingCenter}
                   type="number"
                   min={0}
                   max={10000}
@@ -421,6 +491,7 @@ export default function AdminNamingRulesPage() {
               </label>
               <label className="naming-category-toggle">
                 <input
+                  disabled={publishing || loadingCenter}
                   type="checkbox"
                   checked={directory.enabled}
                   onChange={(event) =>

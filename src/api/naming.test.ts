@@ -1,7 +1,37 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { clearCsrfToken } from "./http";
-import { previewBatchIngestNaming } from "./naming";
+import { previewBatchIngestNaming, publishNamingRuleDraft, saveNamingRuleDraft } from "./naming";
+
+describe("directory draft concurrency", () => {
+  it("sends the exact microsecond draft stamp for both save and publish", async () => {
+    clearCsrfToken();
+    const requests: Array<{ url: string; body: unknown }> = [];
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      if (!init?.body) return new Response(JSON.stringify({ csrf_token: "test-csrf" }));
+      requests.push({ url: String(url), body: JSON.parse(String(init.body)) });
+      return new Response("{}");
+    });
+    const stamp = "2026-10-23T03:01:02.123456+08:00";
+    await saveNamingRuleDraft(
+      16,
+      { schema_version: 2, enforced: true, project_codes: [], categories: [], directories: [] },
+      stamp,
+    );
+    await publishNamingRuleDraft(16, stamp);
+    expect(requests).toEqual([
+      {
+        url: "/api/v1/admin/naming-rules/draft",
+        body: { expected_base_version: 16, expected_draft_updated_at: stamp, directories: [] },
+      },
+      {
+        url: "/api/v1/admin/naming-rules/publish",
+        body: { expected_base_version: 16, expected_draft_updated_at: stamp },
+      },
+    ]);
+    fetchMock.mockRestore();
+  });
+});
 
 describe("previewBatchIngestNaming", () => {
   it("previews 598 rows in bounded batches and forwards explicit manual names", async () => {

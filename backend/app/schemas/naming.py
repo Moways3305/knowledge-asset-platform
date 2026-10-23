@@ -242,6 +242,7 @@ class NamingRuleCenterOut(BaseModel):
 
 class NamingDraftUpdateRequest(BaseModel):
     expected_base_version: int
+    expected_draft_updated_at: datetime
     directories: list[FormalDirectoryConfig]
 
     @field_validator("directories")
@@ -256,6 +257,7 @@ class NamingDraftUpdateRequest(BaseModel):
 
 class NamingPublishRequest(BaseModel):
     expected_base_version: int
+    expected_draft_updated_at: datetime
 
 
 class NamingConfirmationFields(BaseModel):
