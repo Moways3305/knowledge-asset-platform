@@ -51,6 +51,7 @@ const ingest = vi.hoisted(() => ({
   removeFailedUploadSessionItems: undefined,
   fetchIngestAiResult: vi.fn(),
   fetchIngestTaskStatus: vi.fn(),
+  retryIngestTask: vi.fn(),
   fetchPendingIngestTasks: vi.fn(),
   confirmIngest: vi.fn(),
   bulkConfirmIngest: vi.fn(),
@@ -244,6 +245,9 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     auth.fetchAuthMe.mockReset().mockResolvedValue({ projects: [] });
     ingest.createIngestUpload.mockReset().mockResolvedValue({ ingest_task_id: "t1" });
     ingest.fetchIngestAiResult.mockReset().mockResolvedValue(readyAiResult);
+    ingest.retryIngestTask
+      .mockReset()
+      .mockResolvedValue(taskStatus("failed-detail", "processing_claimed", "processing"));
     ingest.fetchIngestTaskStatus
       .mockReset()
       .mockImplementation((taskId: string) => Promise.resolve(taskStatus(taskId)));
@@ -350,6 +354,155 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       expect(formatFileSize(result.current.fileSize)).toBe("0 B");
     },
   );
+
+  it("retries a persisted failed detail without local bytes or creating another upload", async () => {
+    ingest.fetchIngestAiResult.mockResolvedValueOnce({
+      ...readyAiResult,
+      status: "failed",
+      error_message: "暂时处理失败",
+    });
+    ingest.fetchIngestTaskStatus.mockResolvedValue(taskStatus("failed-detail", "failed", "failed"));
+    const { result } = renderHook(() => useUploadFlow());
+    await act(async () => {
+      await result.current.handleSelectPendingTask({
+        ...pendingTask("failed-detail", "failed.pdf"),
+        source: "path_b_upload",
+      });
+    });
+    expect(result.current.flowState).toBe("failed");
+    await act(async () => {
+      await result.current.handleStart();
+    });
+    expect(ingest.retryIngestTask).toHaveBeenCalledTimes(1);
+    expect(ingest.retryIngestTask).toHaveBeenCalledWith("failed-detail");
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+    expect(ingest.fetchIngestAiResult).toHaveBeenLastCalledWith("failed-detail");
+    expect(result.current.taskId).toBe("failed-detail");
+    expect(result.current.flowState).toBe("ready");
+    expect(result.current.apiError).toBeNull();
+  });
+
+  it("keeps a server-denied retry failed without creating another upload", async () => {
+    ingest.fetchIngestAiResult.mockResolvedValue({ ...readyAiResult, status: "failed" });
+    ingest.fetchIngestTaskStatus.mockResolvedValue({
+      ...taskStatus("failed-detail", "failed", "failed"),
+      retryable: false,
+      error: { code: "retry_denied", message: "请更正源文件后重新上传" },
+    });
+    const { result } = renderHook(() => useUploadFlow());
+    await act(async () => {
+      await result.current.handleSelectPendingTask(pendingTask("failed-detail", "failed.pdf"));
+    });
+    await act(async () => {
+      await result.current.handleStart();
+    });
+    expect(result.current.flowState).toBe("failed");
+    expect(result.current.apiError).toBe("请更正源文件后重新上传");
+    expect(ingest.retryIngestTask).not.toHaveBeenCalled();
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+  });
+
+  it("coalesces repeated retry clicks and keeps a rejected retry available", async () => {
+    ingest.fetchIngestAiResult.mockResolvedValue({ ...readyAiResult, status: "failed" });
+    ingest.fetchIngestTaskStatus.mockResolvedValue(taskStatus("failed-detail", "failed", "failed"));
+    const retry = deferred<IngestTaskStatusDTO>();
+    ingest.retryIngestTask.mockReturnValueOnce(retry.promise);
+    const { result } = renderHook(() => useUploadFlow());
+    await act(async () => {
+      await result.current.handleSelectPendingTask(pendingTask("failed-detail", "failed.pdf"));
+    });
+    let request!: Promise<void>;
+    act(() => {
+      request = result.current.handleStart();
+    });
+    await waitFor(() => expect(ingest.retryIngestTask).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await result.current.handleStart();
+    });
+    await act(async () => {
+      retry.reject(new Error("connection lost"));
+      await request;
+    });
+    expect(result.current.flowState).toBe("failed");
+    expect(result.current.taskId).toBe("failed-detail");
+    expect(ingest.retryIngestTask).toHaveBeenCalledTimes(1);
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+    expect(result.current.apiError).toMatch(/重试/);
+  });
+
+  it("does not retry or overwrite a different selected task after a late status response", async () => {
+    ingest.fetchIngestAiResult.mockResolvedValueOnce({ ...readyAiResult, status: "failed" });
+    const status = deferred<IngestTaskStatusDTO>();
+    ingest.fetchIngestTaskStatus.mockReturnValueOnce(status.promise);
+    const { result } = renderHook(() => useUploadFlow());
+    await act(async () => {
+      await result.current.handleSelectPendingTask(pendingTask("failed-detail", "failed.pdf"));
+    });
+    let request!: Promise<void>;
+    act(() => {
+      request = result.current.handleStart();
+    });
+    await waitFor(() => expect(ingest.fetchIngestTaskStatus).toHaveBeenCalledWith("failed-detail"));
+    await act(async () => {
+      await result.current.handleSelectPendingTask(pendingTask("another", "another.md"));
+    });
+    await act(async () => {
+      status.resolve(taskStatus("failed-detail", "failed", "failed"));
+      await request;
+    });
+    expect(ingest.retryIngestTask).not.toHaveBeenCalled();
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+    expect(result.current.taskId).toBe("another");
+    expect(result.current.flowState).toBe("ready");
+  });
+
+  it("keeps a failed processing result unconfirmable after an accepted retry", async () => {
+    ingest.fetchIngestAiResult.mockResolvedValue({
+      ...readyAiResult,
+      status: "failed",
+      error_message: "文件内容与扩展名不匹配",
+    });
+    ingest.fetchIngestTaskStatus.mockResolvedValue(taskStatus("failed-detail", "failed", "failed"));
+    const { result } = renderHook(() => useUploadFlow());
+    await act(async () => {
+      await result.current.handleSelectPendingTask(pendingTask("failed-detail", "failed.pdf"));
+    });
+    await act(async () => {
+      await result.current.handleStart();
+    });
+    expect(ingest.retryIngestTask).toHaveBeenCalledTimes(1);
+    expect(result.current.flowState).toBe("failed");
+    expect(result.current.canSubmit).toBe(false);
+    expect(result.current.processingNote).toContain("文件内容与扩展名不匹配");
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+  });
+
+  it("ignores a late retry response after selecting another task", async () => {
+    ingest.fetchIngestAiResult.mockResolvedValueOnce({ ...readyAiResult, status: "failed" });
+    ingest.fetchIngestTaskStatus.mockResolvedValue(taskStatus("failed-detail", "failed", "failed"));
+    const retry = deferred<IngestTaskStatusDTO>();
+    ingest.retryIngestTask.mockReturnValueOnce(retry.promise);
+    const { result } = renderHook(() => useUploadFlow());
+    await act(async () => {
+      await result.current.handleSelectPendingTask(pendingTask("failed-detail", "failed.pdf"));
+    });
+    let request!: Promise<void>;
+    act(() => {
+      request = result.current.handleStart();
+    });
+    await waitFor(() => expect(ingest.retryIngestTask).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await result.current.handleSelectPendingTask(pendingTask("another", "another.md"));
+    });
+    const reads = ingest.fetchIngestAiResult.mock.calls.length;
+    await act(async () => {
+      retry.resolve(taskStatus("failed-detail", "processing_claimed", "processing"));
+      await request;
+    });
+    expect(result.current.taskId).toBe("another");
+    expect(result.current.flowState).toBe("ready");
+    expect(ingest.fetchIngestAiResult).toHaveBeenCalledTimes(reads);
+  });
 
   it("fails closed when a project naming policy cannot be loaded", async () => {
     namingApi.fetchNamingOptions.mockRejectedValue(new Error("policy unavailable"));

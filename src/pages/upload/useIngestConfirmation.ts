@@ -65,6 +65,7 @@ export function useIngestConfirmation({
   beforeSingleTask,
 }: ConfirmationOptions) {
   const workflowRunRef = useRef(0);
+  const startRunRef = useRef<number | null>(null);
   const [flowState, setFlowState] = useState<FlowState>("idle");
   const [fileName, setFileName] = useState("");
   const [fileSize, setFileSize] = useState<number | null>(null);
@@ -446,21 +447,39 @@ export function useIngestConfirmation({
   );
 
   const handleStart = useCallback(async () => {
+    if (startRunRef.current !== null && isCurrentWorkflowRun(startRunRef.current)) return;
     beforeSingleTask();
     const runId = beginWorkflowRun();
     const isCurrent = () => isCurrentWorkflowRun(runId);
-    if (!selectedFile) {
+    if (!taskId && !selectedFile) {
       setApiError("请先选择本地文件");
       return;
     }
+    startRunRef.current = runId;
     setFlowState("processing");
     setApiError(null);
     setProcessingNote(null);
     try {
-      const upload = await createIngestUpload({ file: selectedFile });
+      let processingTaskId = taskId;
+      if (processingTaskId) {
+        // A persisted task already owns its source bytes. Retrying its detail must
+        // not depend on a browser File or create a second upload task.
+        const current = await fetchIngestTaskStatus(processingTaskId);
+        if (!isCurrent()) return;
+        if (!current.retryable) {
+          setApiError(current.error?.message ?? "当前任务不可重新处理，请刷新列表查看最新状态。");
+          setFlowState("failed");
+          return;
+        }
+        await retryIngestTask(processingTaskId);
+      } else if (selectedFile) {
+        const upload = await createIngestUpload({ file: selectedFile });
+        processingTaskId = upload.ingest_task_id;
+      }
       if (!isCurrent()) return;
-      setTaskId(upload.ingest_task_id);
-      const ai = await pollAiResult(upload.ingest_task_id, isCurrent);
+      if (!processingTaskId) return;
+      setTaskId(processingTaskId);
+      const ai = await pollAiResult(processingTaskId, isCurrent);
       if (!ai || !isCurrent()) return;
       if (ai.status === "processing") {
         setProcessingNote(
@@ -480,8 +499,16 @@ export function useIngestConfirmation({
       setFlowState("ready");
     } catch (error) {
       if (!isCurrent()) return;
-      setApiError(error instanceof ApiError ? error.message : "创建入库任务失败，请稍后重试");
-      setFlowState("file_selected");
+      setApiError(
+        error instanceof ApiError
+          ? error.message
+          : taskId
+            ? "重试处理失败，请重新检查任务状态后再试"
+            : "创建入库任务失败，请稍后重试",
+      );
+      setFlowState(taskId ? "failed" : "file_selected");
+    } finally {
+      if (startRunRef.current === runId) startRunRef.current = null;
     }
   }, [
     applyAiResult,
@@ -490,6 +517,7 @@ export function useIngestConfirmation({
     isCurrentWorkflowRun,
     pollAiResult,
     selectedFile,
+    taskId,
   ]);
 
   const handleRefreshProcessing = useCallback(async () => {
