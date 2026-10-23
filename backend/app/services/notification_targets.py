@@ -266,6 +266,26 @@ async def resolve(
                 if row.event_type == "knowledge.assigned":
                     if asset.maintainer_user_id != caller.user_id:
                         return None
+                    # Assignment is not a perpetual task. Match the maintenance
+                    # list's current review conditions without marking history read.
+                    action_required = (
+                        asset.asset_status == "needs_update"
+                        or due is None
+                        or due.replace(tzinfo=due.tzinfo or timezone.utc) <= utc_now()
+                        or asset.verified_at is None
+                        or asset.verified_updated_at is None
+                        or asset.verified_updated_at != asset.updated_at
+                        or bool(
+                            await session.scalar(
+                                select(KnowledgeCorrection.id)
+                                .where(
+                                    KnowledgeCorrection.asset_id == asset.id,
+                                    KnowledgeCorrection.status == "open",
+                                )
+                                .limit(1)
+                            )
+                        )
+                    )
             else:
                 action_required = bool(
                     await session.scalar(
