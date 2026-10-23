@@ -200,3 +200,92 @@ it("does not treat a failed recovery as an empty history", async () => {
   expect(result.current.pendingSelection?.items).toHaveLength(1);
   unmount();
 });
+
+it.each([1, 11])(
+  "continues %i files in the same manifest after its initialization response is lost",
+  async (count) => {
+    const files = Array.from(
+      { length: count },
+      (_, i) =>
+        new File([`acceptance-${i}`], `acceptance-recovery-${i}.txt`, { type: "text/plain" }),
+    );
+    let recovered: UploadSessionDTO;
+    vi.mocked(api.initializeUploadSession).mockImplementation(async (input) => {
+      recovered = {
+        ...oldSession,
+        id: input.sessionId,
+        status: "active",
+        upload_completed: false,
+        completed_files: 0,
+        uploaded_files: 0,
+        uploaded_batches: 0,
+        total_files: count,
+        total_batches: input.totalTransportBatches,
+        items: input.manifest.map((item, i) => ({
+          ...oldSession.items[0],
+          id: `recovered-${i}`,
+          ordinal: i,
+          ingest_task_id: null,
+          file_name: item.file_name,
+          file_size: item.file_size,
+          status: "waiting_upload",
+          bytes_available: false,
+          transport_batch_number: (item.transport_batch_index ?? 0) + 1,
+        })),
+      };
+      throw new Error("response lost after server committed manifest");
+    });
+    vi.mocked(api.fetchUploadSession).mockImplementation(async () => recovered);
+    vi.mocked(api.appendUploadSessionBatch).mockImplementation(async (input) => {
+      expect(input.batchIndex).toBe(recovered.uploaded_batches);
+      recovered = {
+        ...recovered,
+        uploaded_batches: input.batchIndex + 1,
+        uploaded_files: (recovered.uploaded_files ?? 0) + input.files.length,
+        items: recovered.items.map((item) =>
+          input.itemIds.includes(item.id)
+            ? {
+                ...item,
+                status: "processing",
+                bytes_available: true,
+                ingest_task_id: `task-${item.id}`,
+              }
+            : item,
+        ),
+      };
+      return recovered;
+    });
+    vi.mocked(api.completeUploadSession).mockImplementation(async () => ({
+      ...recovered,
+      upload_completed: true,
+    }));
+    const { result, unmount } = renderHook(() => useUploadIntake(options));
+    await waitFor(() => expect(result.current.uploadSession?.id).toBe("old"));
+    act(() => result.current.handleFileDrop(files));
+    act(() => result.current.confirmPendingSelection());
+    await waitFor(() => expect(api.completeUploadSession).toHaveBeenCalledTimes(1));
+    const sessionId = vi.mocked(api.initializeUploadSession).mock.calls[0][0].sessionId;
+    expect(api.initializeUploadSession).toHaveBeenCalledTimes(1);
+    expect(api.fetchUploadSession).toHaveBeenCalledWith(sessionId);
+    expect(api.appendUploadSessionBatch).toHaveBeenCalledTimes(Math.ceil(count / 10));
+    for (let index = 0; index < Math.ceil(count / 10); index += 1) {
+      expect(api.appendUploadSessionBatch).toHaveBeenNthCalledWith(
+        index + 1,
+        expect.objectContaining({
+          sessionId,
+          itemIds: files
+            .slice(index * 10, (index + 1) * 10)
+            .map((_, i) => `recovered-${index * 10 + i}`),
+          files: files.slice(index * 10, (index + 1) * 10),
+          batchIndex: index,
+        }),
+      );
+    }
+    expect(result.current.uploadSession?.id).toBe(sessionId);
+    expect(result.current.uploadSession?.uploaded_files).toBe(count);
+    expect(new Set(result.current.localUploadQueue.map((item) => item.ingestTaskId)).size).toBe(
+      count,
+    );
+    unmount();
+  },
+);

@@ -92,6 +92,39 @@ function flowFixture(overrides: Record<string, unknown> = {}): UploadFlow {
 }
 
 describe("UploadStepB folder drop and batch rejection", () => {
+  it("offers explicit file reselection for a restored unfinished row, not a new upload", async () => {
+    const reselectLocalUpload = vi.fn().mockResolvedValue(undefined);
+    const local: LocalUploadQueueItem = {
+      id: "missing-bytes",
+      file: null,
+      fileName: "acceptance.txt",
+      fileSize: 4,
+      fileType: "TXT",
+      status: "queued",
+      error: "未完成上传，请重新选择原文件",
+      ingestTaskId: null,
+      pollAttempts: 0,
+      needsReselection: true,
+    };
+    render(
+      <UploadStepB
+        flow={flowFixture({
+          localUploadQueue: [local],
+          localPendingTasks: [],
+          reselectLocalUpload,
+        })}
+      />,
+    );
+    expect(screen.getByText("待补传原文件")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "重新选择原文件" }));
+    const file = new File(["test"], "acceptance.txt", { type: "text/plain" });
+    fireEvent.change(screen.getByLabelText("补传文件"), { target: { files: [file] } });
+    expect(reselectLocalUpload).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "确认补传" }));
+    await waitFor(() => expect(reselectLocalUpload).toHaveBeenCalledWith("missing-bytes", file));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
   it("removes finished rows from the default view while keeping them in history", () => {
     const queue: LocalUploadQueueItem[] = ["processing", "failed", "awaiting_confirmation"].map(
       (status, index) => ({

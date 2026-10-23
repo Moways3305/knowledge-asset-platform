@@ -88,6 +88,7 @@ export function useUploadIntake({
   const localStatusPollRunRef = useRef(0);
   const localUploadSequenceRef = useRef(0);
   const directoryReadRunRef = useRef(0);
+  const mountedRef = useRef(true);
   const transportPlanRef = useRef<TransportPlan | null>(null);
   const transportAbortRef = useRef<AbortController | null>(null);
   const localRetryChainRef = useRef<Promise<void>>(Promise.resolve());
@@ -95,14 +96,15 @@ export function useUploadIntake({
   const fileRef = useRef<HTMLInputElement>(null);
   const folderRef = useRef<HTMLInputElement>(null);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
       localStatusPollRunRef.current += 1;
       directoryReadRunRef.current += 1;
       pendingSelectionRef.current = null;
-    },
-    [],
-  );
+    };
+  }, []);
 
   const updateLocalUploadQueue = useCallback(
     (update: (items: LocalUploadQueueItem[]) => LocalUploadQueueItem[]) => {
@@ -160,6 +162,14 @@ export function useUploadIntake({
         sameNameWarning: item.same_name_warning,
         retryable:
           item.retryable || (item.status === "failed" && file !== null && !item.bytes_available),
+        needsReselection:
+          !value.upload_completed &&
+          value.status !== "cancelled" &&
+          file === null &&
+          !item.ingest_task_id &&
+          !item.bytes_available &&
+          Boolean(item.transport_batch_number) &&
+          ["waiting_upload", "failed"].includes(item.status),
         retryCount: item.retry_count ?? 0,
         lastAttemptAt: item.last_attempt_at ?? undefined,
         processingStage: item.processing_stage ?? undefined,
@@ -811,6 +821,11 @@ export function useUploadIntake({
                   }
                 : undefined,
             })),
+          }).catch(() => {
+            // The manifest may already be committed even when its response was
+            // lost. Recover that exact session, then build the transport plan
+            // from the files still held locally instead of leaving it queued.
+            return fetchUploadSession(requestedSessionId);
           });
           applyUploadSession(initialized);
           transportPlanRef.current = {
@@ -946,6 +961,39 @@ export function useUploadIntake({
     });
   }, []);
 
+  const finishRecoveredUpload = useCallback(async () => {
+    const existing = currentSessionRef.current;
+    if (!existing || transportPlanRef.current || existing.status === "cancelled") return;
+    const isCurrent = () =>
+      mountedRef.current &&
+      currentSessionRef.current?.id === existing.id &&
+      currentSessionRef.current.status !== "cancelled";
+    let value = await fetchUploadSession(existing.id);
+    if (!isCurrent()) return;
+    applyUploadSession(value);
+    if (value.upload_completed || value.status === "cancelled") return;
+    if (value.items.some((item) => item.transport_batch_number && !item.ingest_task_id)) return;
+    // A browser reload loses the in-memory batch plan. Account for those
+    // interrupted batches only after every original row has durable bytes.
+    // The endpoint never changes rows already attached to an ingest task.
+    for (let index = value.uploaded_batches ?? 0; index < value.total_batches; index += 1) {
+      const items = value.items.filter((item) => item.transport_batch_number === index + 1);
+      if (!items.length) throw new ApiError(409, "原上传批次记录不完整，请刷新后检查");
+      value = await recordUploadTransportFailure(
+        existing.id,
+        items.map((item) => item.id),
+        "network_interrupted",
+        { id: `${existing.id}:${index}`, index },
+      );
+      if (!isCurrent()) return;
+      applyUploadSession(value);
+    }
+    value = await completeUploadSession(existing.id);
+    if (!isCurrent()) return;
+    applyUploadSession(value);
+    void loadLocalPending();
+  }, [applyUploadSession, loadLocalPending]);
+
   const performRetryLocalUpload = useCallback(
     async (id: string): Promise<void> => {
       const sessionItem = uploadSession?.items.find((item) => item.id === id);
@@ -974,7 +1022,11 @@ export function useUploadIntake({
           });
           applyUploadSession(value);
           const plan = transportPlanRef.current;
-          if (!plan?.blockedBatch) return;
+          if (!plan) {
+            await finishRecoveredUpload();
+            return;
+          }
+          if (!plan.blockedBatch) return;
           plan.blockedBatch.itemIds = plan.blockedBatch.itemIds.filter((itemId) => itemId !== id);
           if (plan.blockedBatch.itemIds.length > 0) return;
           const blocked = plan.blockedBatch;
@@ -992,8 +1044,7 @@ export function useUploadIntake({
               item.id === id
                 ? {
                     ...item,
-                    status: "failed",
-                    retryable: true,
+                    ...(item.ingestTaskId ? {} : { status: "failed" as const, retryable: true }),
                     error: error instanceof ApiError ? error.message : "文件重传失败，请重试",
                   }
                 : item,
@@ -1038,6 +1089,7 @@ export function useUploadIntake({
     [
       applyUploadSession,
       continueTransportPlan,
+      finishRecoveredUpload,
       processLocalUploadQueue,
       updateLocalUploadQueue,
       uploadSession,
@@ -1063,6 +1115,89 @@ export function useUploadIntake({
       return tracked;
     },
     [performRetryLocalUpload],
+  );
+
+  const reselectLocalUpload = useCallback(
+    (id: string, file: File): Promise<void> => {
+      const existing = localRetryByItemRef.current.get(id);
+      if (existing) return existing;
+      const queued = localRetryChainRef.current.then(async () => {
+        const session = currentSessionRef.current;
+        const item = session?.items.find((entry) => entry.id === id);
+        if (
+          !session ||
+          !item ||
+          session.upload_completed ||
+          session.status === "cancelled" ||
+          item.ingest_task_id ||
+          item.bytes_available ||
+          !item.transport_batch_number ||
+          !["waiting_upload", "failed"].includes(item.status) ||
+          transportPlanRef.current
+        ) {
+          throw new ApiError(409, "该文件当前不可补传，请刷新任务状态");
+        }
+        if (file.name !== item.file_name || file.size !== item.file_size) {
+          throw new ApiError(422, "重新选择的文件名或大小与原清单不一致，请选择原文件");
+        }
+        const rejected = localFileError(file) ?? (await probeReadableFile(file));
+        if (rejected) throw new ApiError(422, rejected.message);
+        if (
+          !mountedRef.current ||
+          currentSessionRef.current?.id !== session.id ||
+          currentSessionRef.current.status === "cancelled"
+        )
+          return;
+        updateLocalUploadQueue((items) =>
+          items.map((entry) =>
+            entry.id === id
+              ? { ...entry, file, status: "uploading", error: null, needsReselection: false }
+              : entry,
+          ),
+        );
+        try {
+          const value = await replaceUploadSessionItemBytes({
+            sessionId: session.id,
+            itemId: id,
+            file,
+          });
+          if (
+            !mountedRef.current ||
+            currentSessionRef.current?.id !== session.id ||
+            currentSessionRef.current.status === "cancelled"
+          )
+            return;
+          applyUploadSession(value);
+          await finishRecoveredUpload();
+        } catch (error) {
+          if (
+            mountedRef.current &&
+            currentSessionRef.current?.id === session.id &&
+            currentSessionRef.current.status !== "cancelled"
+          ) {
+            // Keep the actual file for an idempotent retry if the response was lost.
+            updateLocalUploadQueue((items) =>
+              items.map((entry) =>
+                entry.id === id && !entry.ingestTaskId
+                  ? {
+                      ...entry,
+                      status: "failed",
+                      retryable: true,
+                      error: "补传未确认，请重试或刷新任务状态",
+                    }
+                  : entry,
+              ),
+            );
+          }
+          throw error;
+        }
+      });
+      const tracked = queued.finally(() => localRetryByItemRef.current.delete(id));
+      localRetryByItemRef.current.set(id, tracked);
+      localRetryChainRef.current = tracked.catch(() => undefined);
+      return tracked;
+    },
+    [applyUploadSession, finishRecoveredUpload, updateLocalUploadQueue],
   );
 
   const removeLocalUpload = useCallback(
@@ -1183,6 +1318,8 @@ export function useUploadIntake({
     fileRef,
     folderRef,
     retryLocalUpload,
+    reselectLocalUpload,
+    finishRecoveredUpload,
     removeLocalUpload,
     removeFailedLocalUploads,
     cancelCurrentUpload,
