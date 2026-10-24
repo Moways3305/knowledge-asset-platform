@@ -247,6 +247,171 @@ describe("NotificationBell", () => {
     await waitFor(() => expect(markNotificationsRead).toHaveBeenCalledWith(["notif-1"]));
   });
 
+  it.each(["poll", "focus", "invalidation"])(
+    "refreshes every expanded page on %s without retaining removed work",
+    async (trigger) => {
+      const nativeInterval = window.setInterval.bind(window);
+      let poll!: () => void;
+      vi.spyOn(window, "setInterval").mockImplementation((handler, delay, ...args) => {
+        if (delay === 60_000 && typeof handler === "function") poll = handler as () => void;
+        return nativeInterval(handler, delay, ...args);
+      });
+      let rows = Array.from({ length: 60 }, (_, i) => ({
+        ...notification,
+        id: `row-${i}`,
+        title: `待办条目 ${i}`,
+      }));
+      vi.mocked(fetchNotifications).mockImplementation(async (params) => {
+        const size = params?.pageSize ?? 20;
+        const page = params?.page ?? 1;
+        return {
+          items: rows.slice((page - 1) * size, page * size),
+          total: rows.length,
+          page,
+          page_size: size,
+          unread_count: rows.length,
+          pending_count: rows.length,
+          categories: ["review"],
+        };
+      });
+      renderBell();
+      fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
+      fireEvent.click(await screen.findByRole("button", { name: "加载更多" }));
+      await screen.findByText("待办条目 39");
+      rows = [
+        { ...notification, id: "new", title: "新增待办" },
+        ...rows.filter((row) => row.id !== "row-30"),
+      ];
+      act(() => {
+        if (trigger === "poll") poll();
+        else
+          window.dispatchEvent(
+            new Event(trigger === "focus" ? "focus" : TASK_STATUS_INVALIDATED_EVENT),
+          );
+      });
+      await screen.findByText("新增待办");
+      expect(screen.getAllByRole("article")).toHaveLength(40);
+      expect(screen.getByText("待办条目 39")).toBeInTheDocument();
+      expect(screen.queryByText("待办条目 30")).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
+      await screen.findByText("待办条目 59");
+      expect(screen.getAllByRole("article")).toHaveLength(60);
+      expect(screen.queryByRole("button", { name: "加载更多" })).not.toBeInTheDocument();
+      expect(markNotificationRead).not.toHaveBeenCalled();
+      expect(markNotificationsRead).not.toHaveBeenCalled();
+    },
+  );
+
+  it("refreshes beyond the API page-size limit and drops pages that no longer exist", async () => {
+    let rows = Array.from({ length: 125 }, (_, i) => ({
+      ...notification,
+      id: `row-${i}`,
+      title: `待办条目 ${i}`,
+    }));
+    vi.mocked(fetchNotifications).mockImplementation(async (params) => {
+      const size = params?.pageSize ?? 20;
+      if (size > 100) throw new Error("API page size exceeds 100");
+      const page = params?.page ?? 1;
+      return {
+        items: rows.slice((page - 1) * size, page * size),
+        total: rows.length,
+        page,
+        page_size: size,
+        unread_count: rows.length,
+        pending_count: rows.length,
+        categories: ["review"],
+      };
+    });
+    renderBell();
+    fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
+    await screen.findByText("待办条目 19");
+    for (let page = 2; page <= 6; page += 1) {
+      fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
+      await screen.findByText(`待办条目 ${page * 20 - 1}`);
+    }
+    rows = [{ ...notification, id: "new", title: "新增待办" }, ...rows];
+    act(() => window.dispatchEvent(new Event("focus")));
+    await screen.findByText("新增待办");
+    expect(screen.getAllByRole("article")).toHaveLength(120);
+    expect(screen.getByText("待办条目 118")).toBeInTheDocument();
+    expect(screen.queryByText("待办条目 119")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
+    await screen.findByText("待办条目 124");
+    expect(screen.getAllByRole("article")).toHaveLength(126);
+    rows = rows.slice(0, 25);
+    act(() => window.dispatchEvent(new Event(TASK_STATUS_INVALIDATED_EVENT)));
+    await waitFor(() => expect(screen.getAllByRole("article")).toHaveLength(25));
+    expect(screen.queryByText("待办条目 124")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "加载更多" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /通知中心，25 项待处理/ })).toBeInTheDocument();
+  });
+
+  it.each(["failure", "scope change"])(
+    "does not partially replace expanded results before a refresh %s",
+    async (outcome) => {
+      type Response = Awaited<ReturnType<typeof fetchNotifications>>;
+      let rows = Array.from({ length: 125 }, (_, i) => ({
+        ...notification,
+        id: `row-${i}`,
+        title: `待办条目 ${i}`,
+      }));
+      let reject!: (error: Error) => void;
+      let refreshSignal: AbortSignal | undefined;
+      let holdSecondBatch = true;
+      vi.mocked(fetchNotifications).mockImplementation(async (params, signal) => {
+        const page = params?.page ?? 1;
+        const size = params?.pageSize ?? 20;
+        if (size === 100 && page === 2 && holdSecondBatch) {
+          refreshSignal = signal;
+          return new Promise<Response>((_, fail) => {
+            reject = fail;
+          });
+        }
+        const visible = params?.actionRequired === false ? [] : rows;
+        return {
+          items: visible.slice((page - 1) * size, page * size),
+          total: visible.length,
+          page,
+          page_size: size,
+          unread_count: rows.length,
+          pending_count: rows.length,
+          categories: ["review"],
+        };
+      });
+      renderBell();
+      fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
+      await screen.findByText("待办条目 19");
+      for (let page = 2; page <= 6; page += 1) {
+        fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
+        await screen.findByText(`待办条目 ${page * 20 - 1}`);
+      }
+      rows = [{ ...notification, id: "new", title: "新增待办" }, ...rows];
+      act(() => window.dispatchEvent(new Event("focus")));
+      await waitFor(() => expect(refreshSignal).toBeDefined());
+      expect(screen.getAllByRole("article")).toHaveLength(120);
+      expect(screen.queryByText("新增待办")).not.toBeInTheDocument();
+      if (outcome === "scope change") {
+        fireEvent.click(screen.getByRole("tab", { name: /动态/ }));
+        await screen.findByText("暂时没有动态");
+        expect(refreshSignal!.aborted).toBe(true);
+      }
+      await act(async () => reject(new Error("refresh interrupted")));
+      if (outcome === "scope change") {
+        expect(screen.queryByRole("article")).not.toBeInTheDocument();
+        expect(screen.queryByText("新增待办")).not.toBeInTheDocument();
+        fireEvent.click(screen.getByRole("tab", { name: /待处理/ }));
+        await screen.findByText("新增待办");
+        expect(screen.getAllByRole("article")).toHaveLength(20);
+      } else {
+        expect(screen.getAllByRole("article")).toHaveLength(120);
+        holdSecondBatch = false;
+        act(() => window.dispatchEvent(new Event("focus")));
+        await screen.findByText("新增待办");
+        expect(screen.getAllByRole("article")).toHaveLength(120);
+      }
+    },
+  );
+
   it("keeps pagination available when the loaded page has no matching rows", async () => {
     vi.mocked(fetchNotifications).mockResolvedValueOnce({
       items: [{ ...notification, id: "update", action_required: false }],
