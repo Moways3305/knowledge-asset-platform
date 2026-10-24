@@ -50,59 +50,69 @@ export default function NotificationBell() {
   const mutationIds = useRef(new Set<string>());
   const navigate = useNavigate();
 
-  const load = useCallback(async (nextPage = 1, append = false, quiet = false) => {
-    if (quiet && inFlight.current) return;
-    inFlight.current?.abort();
-    const controller = new AbortController();
-    inFlight.current = controller;
-    needsRefresh.current = false;
-    const deadline = window.setTimeout(() => {
-      if (inFlight.current !== controller) return;
-      controller.abort();
-      inFlight.current = null;
-      if (!quiet) setBusy(false);
-      // Do not leave a queued invalidation dependent on the next polling tick.
-      if (needsRefresh.current) void load(1, false, true);
-    }, 30_000);
-    const request = ++sequence.current;
-    if (!quiet) setBusy(true);
-    setError(null);
-    try {
-      const data = await fetchNotifications(
-        {
-          page: nextPage,
-          pageSize: PAGE_SIZE,
-          unreadOnly: false,
-        },
-        controller.signal,
-      );
-      if (request !== sequence.current || controller.signal.aborted) return;
-      setItems((current) =>
-        append
-          ? [...current, ...data.items.filter((item) => !current.some((old) => old.id === item.id))]
-          : data.items,
-      );
-      setUnread(data.unread_count ?? data.total);
-      setPendingCount(
-        data.pending_count ?? data.items.filter((item) => item.action_required).length,
-      );
-      setTotal(data.total);
-      setPage(nextPage);
-    } catch {
-      if (request === sequence.current && !controller.signal.aborted && !quiet)
-        setError("通知暂时无法加载，请稍后重试。");
-    } finally {
-      window.clearTimeout(deadline);
-      if (request === sequence.current && !quiet) setBusy(false);
-      if (inFlight.current === controller) {
+  const load = useCallback(
+    async (nextPage = 1, append = false, quiet = false) => {
+      if (quiet && inFlight.current) return;
+      inFlight.current?.abort();
+      const controller = new AbortController();
+      inFlight.current = controller;
+      needsRefresh.current = false;
+      const deadline = window.setTimeout(() => {
+        if (inFlight.current !== controller) return;
+        controller.abort();
         inFlight.current = null;
-        if (needsRefresh.current && !controller.signal.aborted) void load(1, false, true);
+        if (!quiet) setBusy(false);
+        // Do not leave a queued invalidation dependent on the next polling tick.
+        if (needsRefresh.current) void load(1, false, true);
+      }, 30_000);
+      const request = ++sequence.current;
+      if (!quiet) setBusy(true);
+      setError(null);
+      try {
+        const data = await fetchNotifications(
+          {
+            page: nextPage,
+            pageSize: PAGE_SIZE,
+            unreadOnly: false,
+            actionRequired: tab === "pending",
+          },
+          controller.signal,
+        );
+        if (request !== sequence.current || controller.signal.aborted) return;
+        setItems((current) =>
+          append
+            ? [
+                ...current,
+                ...data.items.filter((item) => !current.some((old) => old.id === item.id)),
+              ]
+            : data.items,
+        );
+        setUnread(data.unread_count ?? data.total);
+        setPendingCount(
+          data.pending_count ?? data.items.filter((item) => item.action_required).length,
+        );
+        setTotal(data.total);
+        setPage(nextPage);
+      } catch {
+        if (request === sequence.current && !controller.signal.aborted && !quiet)
+          setError("通知暂时无法加载，请稍后重试。");
+      } finally {
+        window.clearTimeout(deadline);
+        if (request === sequence.current && !quiet) setBusy(false);
+        if (inFlight.current === controller) {
+          inFlight.current = null;
+          if (needsRefresh.current && !controller.signal.aborted) void load(1, false, true);
+        }
       }
-    }
-  }, []);
+    },
+    [tab],
+  );
 
   useEffect(() => {
-    void load(1, false, true);
+    setItems([]);
+    setTotal(0);
+    setPage(1);
+    void load();
   }, [load]);
   useEffect(() => {
     const refresh = () => {
@@ -298,17 +308,17 @@ export default function NotificationBell() {
                 </button>
               </article>
             ))}
-            {items.length < total && (
-              <button
-                type="button"
-                className="notification-center-more"
-                disabled={busy}
-                onClick={() => void load(page + 1, true)}
-              >
-                {busy ? <LoaderCircle className="is-spinning" /> : <RefreshCw />}加载更多
-              </button>
-            )}
           </div>
+        )}
+        {!error && items.length < total && (
+          <button
+            type="button"
+            className="notification-center-more"
+            disabled={busy}
+            onClick={() => void load(page + 1, true)}
+          >
+            {busy ? <LoaderCircle className="is-spinning" /> : <RefreshCw />}加载更多
+          </button>
         )}
       </DetailDrawer>
     </div>

@@ -30,6 +30,7 @@ async def list_notifications(
     page_size: int = Query(default=20, ge=1, le=100),
     category: str | None = Query(default=None),
     unread_only: bool = Query(default=False),
+    action_required: bool | None = Query(default=None),
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
     storage: LocalFileStorage = Depends(get_storage),
@@ -41,6 +42,7 @@ async def list_notifications(
         page_size=page_size,
         category=category,
         unread_only=unread_only,
+        action_required=action_required,
         storage=storage,
     )
 

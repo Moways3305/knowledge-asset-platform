@@ -38336,6 +38336,22 @@
             }
           },
           {
+            "in": "query",
+            "name": "action_required",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Action Required"
+            }
+          },
+          {
             "in": "header",
             "name": "X-Dev-User-Id",
             "required": false,

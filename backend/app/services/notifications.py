@@ -656,6 +656,7 @@ async def list_notifications(
     page_size: int,
     category: str | None,
     unread_only: bool,
+    action_required: bool | None = None,
     storage: LocalFileStorage | None = None,
 ) -> BusinessNotificationListResponse:
     start = (page - 1) * page_size
@@ -668,6 +669,9 @@ async def list_notifications(
             pending += target.action_required
             categories.add(row.category)
             if (category and row.category != category) or (unread_only and row.read_at is not None):
+                continue
+            # Filter the authorized, live target state before counting page offsets.
+            if action_required is not None and target.action_required != action_required:
                 continue
             if start <= total < start + page_size:
                 selected.append((row, target))

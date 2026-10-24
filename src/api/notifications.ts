@@ -12,6 +12,7 @@ export interface NotificationListParams {
   pageSize?: number;
   category?: string;
   unreadOnly?: boolean;
+  actionRequired?: boolean;
 }
 
 export function fetchNotifications(
@@ -23,6 +24,7 @@ export function fetchNotifications(
   if (params.pageSize != null) query.set("page_size", String(params.pageSize));
   if (params.category) query.set("category", params.category);
   if (params.unreadOnly) query.set("unread_only", "true");
+  if (params.actionRequired != null) query.set("action_required", String(params.actionRequired));
   const suffix = query.toString();
   return apiGet(`/api/v1/notifications${suffix ? `?${suffix}` : ""}`, signal);
 }

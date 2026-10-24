@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import func, select
@@ -358,6 +358,98 @@ async def test_list_paginates_and_response_is_sensitive_field_whitelist(client, 
         "api_key",
     ):
         assert forbidden not in serialized
+
+
+async def test_action_filter_precedes_pagination_and_uses_live_authorized_status(
+    client, db_session
+):
+    completed = ReviewTask(
+        review_type="personal_to_project",
+        trigger_source="test",
+        target_project_id=PROJECT_ALPHA,
+        target_scope="project",
+        status="approved",
+        submitted_by=USER_CONSULTANT,
+    )
+    db_session.add(completed)
+    await db_session.flush()
+    base = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    pending_rows = []
+    for index in range(3):
+        row = _row(dedup_key=f"older-pending:{index}")
+        row.created_at = base + timedelta(minutes=index)
+        pending_rows.append(row)
+        db_session.add(row)
+    for index in range(21):
+        row = _row(target_id=completed.id, dedup_key=f"newer-update:{index}")
+        row.created_at = base + timedelta(days=1, minutes=index)
+        db_session.add(row)
+    # Neither an inaccessible target nor another recipient may affect the filtered counts.
+    db_session.add(_row(target_id=uuid.uuid4(), dedup_key="missing-target"))
+    db_session.add(_row(recipient=USER_CONSULTANT, dedup_key="other-recipient"))
+    pending_rows[0].read_at = base + timedelta(hours=1)
+    await db_session.commit()
+
+    headers = _headers(USER_PROJECT_MANAGER)
+    unfiltered = (await client.get(API, headers=headers)).json()
+    assert len(unfiltered["items"]) == 20
+    assert all(not item["action_required"] for item in unfiltered["items"])
+    assert unfiltered["pending_count"] == 3
+
+    first = await client.get(
+        API, params={"action_required": "true", "page_size": 2}, headers=headers
+    )
+    assert first.status_code == 200
+    body = first.json()
+    assert body["total"] == body["pending_count"] == 3
+    assert body["unread_count"] == 23
+    assert [item["id"] for item in body["items"]] == [
+        str(pending_rows[2].id),
+        str(pending_rows[1].id),
+    ]
+    second = (
+        await client.get(
+            API, params={"action_required": "true", "page_size": 2, "page": 2}, headers=headers
+        )
+    ).json()
+    assert [item["id"] for item in second["items"]] == [str(pending_rows[0].id)]
+    assert second["items"][0]["is_read"] is True
+
+    updates = (
+        await client.get(
+            API, params={"action_required": "false", "page_size": 20, "page": 2}, headers=headers
+        )
+    ).json()
+    assert updates["total"] == 21
+    assert len(updates["items"]) == 1
+    assert updates["pending_count"] == 3
+    assert not updates["items"][0]["action_required"]
+    unread = (
+        await client.get(
+            API,
+            params={"action_required": "true", "unread_only": "true", "category": "review"},
+            headers=headers,
+        )
+    ).json()
+    assert unread["total"] == 2
+    assert unread["pending_count"] == 3
+
+    task = await db_session.get(ReviewTask, REVIEW_SEED)
+    task.status = "approved"
+    await db_session.commit()
+    refreshed = (await client.get(API, params={"action_required": "true"}, headers=headers)).json()
+    assert refreshed["items"] == []
+    assert refreshed["total"] == refreshed["pending_count"] == 0
+    assert refreshed["unread_count"] == 23
+    history = (await client.get(API, params={"action_required": "false"}, headers=headers)).json()
+    assert history["total"] == 24
+
+
+async def test_notification_action_filter_rejects_invalid_values(client):
+    response = await client.get(
+        API, params={"action_required": "unknown"}, headers=_headers(USER_PROJECT_MANAGER)
+    )
+    assert response.status_code == 422
 
 
 async def test_read_is_idempotent_and_audited_once(client, db_session):
