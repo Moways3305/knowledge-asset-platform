@@ -15,6 +15,7 @@ import "./NotificationBell.css";
 
 const POLL_MS = 60_000;
 const PAGE_SIZE = 20;
+const MAX_REFRESH_PAGE_SIZE = 100;
 const ROUTES: Record<string, string> = {
   reviews: "/review",
   original_access: "/original-access",
@@ -45,6 +46,7 @@ export default function NotificationBell() {
   const [error, setError] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
   const sequence = useRef(0);
+  const loadedPage = useRef(1);
   const inFlight = useRef<AbortController | null>(null);
   const needsRefresh = useRef(false);
   const mutationIds = useRef(new Set<string>());
@@ -69,30 +71,52 @@ export default function NotificationBell() {
       if (!quiet) setBusy(true);
       setError(null);
       try {
-        const data = await fetchNotifications(
-          {
-            page: nextPage,
-            pageSize: PAGE_SIZE,
-            unreadOnly: false,
-            actionRequired: tab === "pending",
-          },
-          controller.signal,
-        );
+        const requestedPage = quiet ? loadedPage.current : nextPage;
+        const pageSize = quiet
+          ? Math.min(requestedPage * PAGE_SIZE, MAX_REFRESH_PAGE_SIZE)
+          : PAGE_SIZE;
+        const fetchPage = (number: number) =>
+          fetchNotifications(
+            {
+              page: number,
+              pageSize,
+              unreadOnly: false,
+              actionRequired: tab === "pending",
+            },
+            controller.signal,
+          );
+        let data = await fetchPage(quiet ? 1 : nextPage);
         if (request !== sequence.current || controller.signal.aborted) return;
+        let refreshedItems = data.items;
+        if (quiet) {
+          // Revalidate the whole expanded range; retaining old rows could retain revoked access.
+          const limit = requestedPage * PAGE_SIZE;
+          for (let batch = 2; (batch - 1) * pageSize < Math.min(limit, data.total); batch += 1) {
+            data = await fetchPage(batch);
+            if (request !== sequence.current || controller.signal.aborted) return;
+            refreshedItems = [...refreshedItems, ...data.items];
+          }
+          refreshedItems = [
+            ...new Map(refreshedItems.map((item) => [item.id, item])).values(),
+          ].slice(0, limit);
+        }
         setItems((current) =>
           append
             ? [
                 ...current,
-                ...data.items.filter((item) => !current.some((old) => old.id === item.id)),
+                ...refreshedItems.filter((item) => !current.some((old) => old.id === item.id)),
               ]
-            : data.items,
+            : refreshedItems,
         );
         setUnread(data.unread_count ?? data.total);
         setPendingCount(
           data.pending_count ?? data.items.filter((item) => item.action_required).length,
         );
         setTotal(data.total);
-        setPage(nextPage);
+        loadedPage.current = quiet
+          ? Math.min(requestedPage, Math.max(1, Math.ceil(data.total / PAGE_SIZE)))
+          : nextPage;
+        setPage(loadedPage.current);
       } catch {
         if (request === sequence.current && !controller.signal.aborted && !quiet)
           setError("通知暂时无法加载，请稍后重试。");
@@ -112,6 +136,7 @@ export default function NotificationBell() {
     setItems([]);
     setTotal(0);
     setPage(1);
+    loadedPage.current = 1;
     void load();
   }, [load]);
   useEffect(() => {
