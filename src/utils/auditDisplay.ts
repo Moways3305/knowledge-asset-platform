@@ -20,6 +20,11 @@ const ACTION_LABELS: Record<string, string> = {
   "ingest.cancellation_requested": "请求取消入库",
   "ingest.cancellation_cleaned": "完成取消清理",
   "upload_session.cancelled": "取消上传会话",
+  // 目录治理
+  "naming_rule.draft_saved": "保存目录草稿",
+  "naming_rule.published": "发布正式目录",
+  "directory_migration.confirmed": "确认历史资料目录迁移",
+  "knowledge.directory_created": "创建三级目录",
   // 预览
   "preview.issued": "签发预览凭证",
   "preview.used": "使用预览凭证",
@@ -27,6 +32,16 @@ const ACTION_LABELS: Record<string, string> = {
   // 知识 / 检索
   "knowledge.searched": "语义检索",
   "knowledge.asset_deleted": "删除知识资产",
+  "knowledge.asset_metadata_updated": "修改资料信息",
+  // 资料维护与纠错
+  "knowledge.review_policy_changed": "更新资料维护安排",
+  "knowledge.review_completed": "提交资料复核结果",
+  "knowledge.replacement_linked": "关联替代新版",
+  "knowledge.replacement_withdrawn": "撤回新版关联",
+  "knowledge.correction_reported": "提出资料纠错",
+  "knowledge.correction_resolve": "处理纠错并提交验证",
+  "knowledge.correction_verify": "验证纠错已解决",
+  "knowledge.correction_reopen": "重新打开资料纠错",
   // 生命周期
   "lifecycle.archive_warning": "归档预警",
   "lifecycle.archive_candidate": "生成归档候选",
@@ -85,6 +100,9 @@ const TARGET_TYPE_LABELS: Record<string, string> = {
   release_note: "版本日志",
   ingest_task: "入库任务",
   knowledge_asset: "知识资产",
+  knowledge_asset_version: "知识资产版本",
+  naming_rule_revision: "目录规则版本",
+  knowledge_directory: "三级目录",
   knowledge_search: "知识检索",
   preview_credential: "预览凭证",
   project: "项目",

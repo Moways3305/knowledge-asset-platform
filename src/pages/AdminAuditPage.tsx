@@ -219,7 +219,7 @@ export default function AdminAuditPage() {
               <table className="secops-table">
                 <thead>
                   <tr>
-                    <th>时间</th>
+                    <th className="secops-time-heading">时间</th>
                     <th>{activeTab === "login" ? "用户" : "事项"}</th>
                     <th>{activeTab === "login" ? "结果" : "操作人"}</th>
                     <th>{activeTab === "exception" ? "级别" : "角色"}</th>
