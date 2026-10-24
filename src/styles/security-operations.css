@@ -384,7 +384,8 @@
   color: var(--color-text-tertiary) !important;
   font-family: var(--font-mono);
   font-size: 11px;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .secops-pill,
@@ -582,6 +583,40 @@ code.secops-detail-value {
 
   .secops-toolbar {
     flex-direction: column;
+  }
+}
+
+@media (max-width: 600px) {
+  .secops-time-heading {
+    width: 88px;
+  }
+
+  .secops-table th,
+  .secops-table td {
+    padding: 10px 6px;
+  }
+
+  .secops-row-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .secops-row-actions .btn-small {
+    flex-wrap: wrap;
+    min-width: 0;
+    padding: 4px 2px;
+  }
+
+  .secops-state-link,
+  .secops-row-actions .btn-small,
+  .secops-table .secops-pill {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  .secops-table .secops-pill {
+    padding: 2px 4px;
   }
 }
 
