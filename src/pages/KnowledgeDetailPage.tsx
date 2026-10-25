@@ -416,7 +416,7 @@ export default function KnowledgeDetailPage() {
     : null;
   const publicationEligibility = asset.projectId
     ? getProjectCompanyPublicationEligibility(asset, asset.projectId, assetProject?.projectRole)
-    : { eligible: false, reason: "仅项目知识资产可提交公司发布申请" };
+    : { eligible: false, reason: "仅项目经理可提交公司发布申请" };
   const pendingOriginal = asset.access.existingRequestStatus === "pending";
   const hasSummaryBody = hasText(asset.detailed) || asset.keyPoints.length > 0;
   const hasOpsActions =
@@ -450,7 +450,7 @@ export default function KnowledgeDetailPage() {
     },
   ];
   const crossProjectFacts = [
-    { label: "正式目录", value: asset.directoryPath ?? "待治理" },
+    { label: "正式目录", value: asset.directoryPath ?? "未提供" },
     { label: "规范名版本", value: asset.safeVersion },
     { label: "维护人", value: asset.maintainerName },
     {
