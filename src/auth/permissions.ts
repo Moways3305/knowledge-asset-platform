@@ -74,8 +74,9 @@ export const can = {
   viewUpload: businessOnly,
   viewReview: businessOnly,
   viewOriginalAccess: businessOnly,
-  // 项目看板 / 设置：项目成员可访问；治理角色（总经理/咨询总监）具有跨项目监管及创建权限。
-  viewProject: (c: Capabilities) => c.hasProject || c.isGovernance,
+  // 项目页面属于业务入口；保留的项目成员关系不能让管理员工作身份继续展示业务内容。
+  // 业务项目成员可访问；治理角色（总经理/咨询总监）保留监管及创建入口。
+  viewProject: (c: Capabilities) => c.isBusinessUser && (c.hasProject || c.isGovernance),
 
   // 管理后台（与后端各端点真实放行条件对齐）：
   // 入库管理：list_admin_ingest → admin 或治理角色。

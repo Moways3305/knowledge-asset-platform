@@ -198,6 +198,19 @@ describe("AppLayout shell contract", () => {
     );
   });
 
+  it("hides project business entries for admin even when project membership remains assigned", () => {
+    auth.capabilities.isBoss = false;
+    auth.capabilities.isBusinessUser = false;
+    auth.capabilities.isGovernance = false;
+    renderLayout();
+
+    expect(screen.queryByRole("link", { name: "项目空间" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "项目知识库" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "项目设置" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "入库管理" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "登录风控" })).toBeInTheDocument();
+  });
+
   it("names each project module and activates only its exact rail entry", () => {
     const overview = renderLayout("/project/project-real-64");
     expect(overview.container.querySelector(".deck-title")).toHaveTextContent("项目空间");
