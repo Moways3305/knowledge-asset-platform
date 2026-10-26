@@ -177,6 +177,24 @@ describe("can (nav / route capability predicates)", () => {
     expect(can.viewProject(consultant)).toBe(false);
   });
 
+  it("does not let an administrator work identity inherit an assigned project-manager entry", () => {
+    const assignedRoles = {
+      companyRoles: ["admin", "consultant"],
+      projects: [{ projectId: "p1", projectName: "P1", projectRole: "project_manager" }],
+    };
+    const adminWithProject = deriveCapabilities(
+      me({ ...assignedRoles, activeCompanyRole: "admin", isBusinessUser: false }),
+    );
+    expect(adminWithProject.hasProject).toBe(true);
+    expect(adminWithProject.isProjectManager).toBe(true);
+    expect(can.viewProject(adminWithProject)).toBe(false);
+
+    const consultantWithProject = deriveCapabilities(
+      me({ ...assignedRoles, activeCompanyRole: "consultant", isBusinessUser: true }),
+    );
+    expect(can.viewProject(consultantWithProject)).toBe(true);
+  });
+
   it("always allows home and help", () => {
     expect(can.viewHome(anon)).toBe(true);
     expect(can.viewHelp(anon)).toBe(true);
