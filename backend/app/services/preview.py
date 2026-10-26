@@ -25,8 +25,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.db.utils import utc_now
 from app.models.identity import User
-from app.models.ingest import IngestTask
-from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetFileObject, KnowledgeAssetVersion
 from app.models.preview import PreviewCredential
 from app.schemas.enums import (
     AlertSeverity,
@@ -53,7 +52,8 @@ from app.services.onlyoffice import (
 )
 from app.services.permission import build_caller_context, decide
 from app.services.permission_rules import load_access_policy
-from app.services.storage import LocalFileStorage, safe_filename
+from app.services.source_content import resolve_version_source_task
+from app.services.storage import LocalFileStorage, StorageError, safe_filename
 
 # 默认预览凭证有效期。
 PREVIEW_TTL_MINUTES = 30
@@ -101,29 +101,41 @@ def _hash(raw: str) -> str:
 
 
 async def _resolve_original(
-    session: AsyncSession, asset_id: uuid.UUID
+    session: AsyncSession, asset_id: uuid.UUID, version_id: uuid.UUID | None
 ) -> tuple[str, str, str | None] | None:
-    """解析资产原文的平台存储引用（server-only）。返回 (storage_ref, file_name, mime)。
+    """Resolve only this asset/version's retained original (server-only reference).
 
-    经入库任务回链（IngestTask.result_asset_id）取得字节存储引用——这是 server-only 内部
-    引用，**只在后端取件时用，绝不外泄**。无入库回链（如纯 seed 资产）→ None。
+    Publications carry their own file objects without an ingest task. Legacy assets
+    may use the version-bound ingest relation, never another version's latest task
+    or the source asset's current version. Only old unbound credentials use current.
     """
+    if version_id is None:
+        asset = await session.get(KnowledgeAsset, asset_id)
+        version_id = asset.current_version_id if asset is not None else None
+    if version_id is None:
+        return None
+    version = await session.get(KnowledgeAssetVersion, version_id)
+    if version is None or version.asset_id != asset_id:
+        return None
     row = (
         await session.execute(
             select(
-                IngestTask.source_file_ref,
-                IngestTask.source_file_name,
-                IngestTask.source_file_mime_type,
+                KnowledgeAssetFileObject.storage_ref,
+                KnowledgeAssetFileObject.file_name,
+                KnowledgeAssetFileObject.file_mime_type,
+            ).where(
+                KnowledgeAssetFileObject.asset_id == asset_id,
+                KnowledgeAssetFileObject.version_id == version_id,
+                KnowledgeAssetFileObject.file_variant == "original",
             )
-            .where(IngestTask.result_asset_id == asset_id)
-            .where(IngestTask.source_file_ref.is_not(None))
-            .order_by(IngestTask.created_at.desc())
-            .limit(1)
         )
     ).first()
-    if row is None or not row[0]:
+    if row is not None:
+        return (str(row[0]), str(row[1] or "document"), row[2] or None) if row[0] else None
+    task = await resolve_version_source_task(session, asset_id=asset_id, version_id=version_id)
+    if task is None or not task.source_file_ref:
         return None
-    return str(row[0]), str(row[1] or "document"), (row[2] or None)
+    return task.source_file_ref, task.source_file_name or "document", task.source_file_mime_type
 
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:
@@ -443,7 +455,7 @@ async def use_preview_entry(
         )
     # ---- 按文件类型分发渲染方式（D1 后 UX 修复：pdf/图片/md/文本轻量预览，
     # office 走 ONLYOFFICE 只读兜底）----
-    original = await _resolve_original(session, asset.id)
+    original = await _resolve_original(session, asset.id, cred.target_version_id)
     document_title = _display_document_title(original[1] if original else asset.title)
     render_type: str | None = None
     file_url: str | None = None
@@ -548,7 +560,7 @@ async def serve_preview_file(
 
     await _require_live_original_access(session, cred, asset)
 
-    original = await _resolve_original(session, asset.id)
+    original = await _resolve_original(session, asset.id, cred.target_version_id)
     if original is None:
         raise _denied(404, "preview_source_unavailable", "无可用原文源")
     storage_ref, file_name, mime = original
@@ -556,7 +568,7 @@ async def serve_preview_file(
         path = storage.resolve_path(storage_ref)
         if not await run_in_threadpool(path.is_file):
             raise OSError("Missing source")
-    except (OSError, ValueError):
+    except (OSError, StorageError, ValueError):
         # 不回显 storage_ref / 真实路径。
         raise _denied(404, "preview_source_unavailable", "原文读取失败") from None
     return path, (mime or "application/octet-stream"), safe_filename(file_name)

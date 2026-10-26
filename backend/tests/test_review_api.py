@@ -6,6 +6,7 @@ import uuid
 
 import pytest_asyncio
 from sqlalchemy import func, select
+from test_preview_original_files import assert_preview_bytes, attach_original
 
 from app.models.audit import AuditEvent
 from app.models.identity import UserCompanyRole
@@ -628,6 +629,10 @@ async def test_company_upgrade_requires_independent_general_manager_and_director
     source_canonical_name = source_before.canonical_name
     source_version_before = await db_session.get(KnowledgeAssetVersion, source_version_id)
     source_directory_key = source_version_before.directory_key
+    original = b"# Project original copied to the company"
+    source_before.canonical_name = "source.md"
+    source_canonical_name = source_before.canonical_name
+    await attach_original(client, db_session, source_before, original)
     created = await client.post(
         _upgrade_url(), headers=_hdr(USER_PROJECT_MANAGER), json=_company_publication_body()
     )
@@ -671,6 +676,7 @@ async def test_company_upgrade_requires_independent_general_manager_and_director
     assert target_version.directory_key == "company.methodology"
     assert target_version.naming_rule_version == 11
     assert target.canonical_name.startswith("【方法论】")
+    await assert_preview_bytes(client, target_id, original, user=USER_BOSS)
 
     decisions = list(
         (
