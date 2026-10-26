@@ -11603,6 +11603,16 @@
             "title": "Editable",
             "type": "boolean"
           },
+          "effective_mode": {
+            "default": "reference",
+            "enum": [
+              "configurable",
+              "fixed",
+              "reference"
+            ],
+            "title": "Effective Mode",
+            "type": "string"
+          },
           "enabled": {
             "default": true,
             "title": "Enabled",

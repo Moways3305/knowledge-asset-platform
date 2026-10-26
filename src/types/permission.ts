@@ -17,6 +17,7 @@ export interface PermissionRuleDTO {
   unit: string | null;
   description: string | null;
   editable: boolean;
+  effective_mode?: "configurable" | "fixed" | "reference";
   enabled: boolean;
   updated_by_user_id: string | null;
   updated_by_name: string | null;
