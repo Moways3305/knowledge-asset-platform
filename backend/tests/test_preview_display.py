@@ -33,7 +33,7 @@ async def test_preview_entry_preserves_safe_unicode_display_title(
 ):
     office_settings(monkeypatch)
 
-    async def original(_session, _asset_id):
+    async def original(_session, _asset_id, _version_id):
         return "local://private-test-source", filename, "application/octet-stream"
 
     monkeypatch.setattr(preview, "_resolve_original", original)

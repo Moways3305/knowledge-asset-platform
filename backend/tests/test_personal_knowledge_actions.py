@@ -11,6 +11,7 @@ import uuid
 
 import pytest_asyncio
 from sqlalchemy import func, select
+from test_preview_original_files import assert_preview_bytes, attach_original
 
 from app.models.audit import AuditEvent
 from app.models.identity import Project
@@ -245,6 +246,8 @@ async def test_project_approval_creates_independent_target_version_without_mutat
     source_canonical_name = source_before.canonical_name
     source_version_before = await db_session.get(KnowledgeAssetVersion, source_version_id)
     source_directory_key = source_version_before.directory_key
+    original = b"# Personal original copied to the project"
+    await attach_original(client, db_session, source_before, original)
     submitted = await client.post(
         _submit(source_id),
         headers=_hdr(USER_CONSULTANT),
@@ -283,6 +286,7 @@ async def test_project_approval_creates_independent_target_version_without_mutat
     assert target_version.naming_rule_version == 10
     assert target_version.index_status == "indexing"
     assert target.canonical_name.startswith("【ALPHA-2026-交付成果】")
+    await assert_preview_bytes(client, target_id, original)
     index_job = await db_session.scalar(
         select(IndexingOperationJob).where(IndexingOperationJob.target_asset_id == target_id)
     )
@@ -318,6 +322,18 @@ async def test_project_approval_creates_independent_target_version_without_mutat
         )
     )
     assert derivative_count == 1
+
+    # Later source revisions must not replace the already approved project's original.
+    source_version_after.version_status = "superseded"
+    await db_session.flush()
+    newer = KnowledgeAssetVersion(
+        asset_id=source_id, version_no="V2", version_status="active", created_by=USER_CONSULTANT
+    )
+    db_session.add(newer)
+    await db_session.flush()
+    source.current_version_id = newer.id
+    await attach_original(client, db_session, source, b"# Later personal revision")
+    await assert_preview_bytes(client, target_id, original)
 
 
 async def test_publication_queue_failure_preserves_retryable_target(
