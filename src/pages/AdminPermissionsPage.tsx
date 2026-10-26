@@ -51,10 +51,15 @@ const scopeLabel: Record<string, string> = {
 };
 
 function valueText(rule: PermissionRuleDTO) {
-  if (rule.rule_type === "numeric")
-    return `${rule.value_number ?? 0}${rule.unit ? ` ${rule.unit}` : ""}`;
-  if (rule.rule_type === "toggle") return rule.value_bool ? "已启用" : "已停用";
-  return "由系统固定";
+  const value =
+    rule.rule_type === "numeric"
+      ? `${rule.value_number ?? 0}${rule.unit ? ` ${rule.unit}` : ""}`
+      : rule.rule_type === "toggle"
+        ? rule.value_bool
+          ? "已启用"
+          : "已停用"
+        : rule.value_text || "由系统固定";
+  return rule.effective_mode === "reference" ? `历史参考值：${value}` : value;
 }
 
 export default function AdminPermissionsPage() {
@@ -147,7 +152,12 @@ export default function AdminPermissionsPage() {
 
   const saveRule = useCallback(
     async (rule: PermissionRuleDTO, patch: { value_number?: number; value_bool?: boolean }) => {
-      if (savingId) return;
+      if (
+        savingId ||
+        !rule.editable ||
+        (rule.effective_mode && rule.effective_mode !== "configurable")
+      )
+        return;
       setSavingId(rule.rule_id);
       setRowErrors((current) => ({ ...current, [rule.rule_id]: "" }));
       try {
@@ -202,7 +212,7 @@ export default function AdminPermissionsPage() {
           {!loading && !error && (
             <div className={`gp-access-note ${canEditRules ? "is-edit" : "is-readonly"}`}>
               {canEditRules
-                ? "当前身份可修改业务权限规则。"
+                ? "当前身份可修改已接入运行的业务权限规则；系统固定项与历史参考值只读。"
                 : "当前身份为只读模式，规则修改需总经理或咨询总监权限。"}
             </div>
           )}
@@ -256,7 +266,7 @@ export default function AdminPermissionsPage() {
                   <tr>
                     <th>规则</th>
                     <th>分组</th>
-                    <th>当前设置</th>
+                    <th>规则取值</th>
                     <th className="gp-secondary-col">说明</th>
                     <th>操作</th>
                   </tr>
@@ -278,7 +288,11 @@ export default function AdminPermissionsPage() {
                           <strong>{rule.display_name}</strong>
                         </span>
                         <span className="gp-subline">
-                          {ruleTypeLabel[rule.rule_type] ?? "治理规则"}
+                          {rule.effective_mode === "reference"
+                            ? "仅供参考，不参与当前运行"
+                            : rule.effective_mode === "fixed"
+                              ? "系统固定策略"
+                              : (ruleTypeLabel[rule.rule_type] ?? "治理规则")}
                         </span>
                       </td>
                       <td>
@@ -325,7 +339,9 @@ export default function AdminPermissionsPage() {
                       </td>
                       <td>
                         <div className="gp-row-actions">
-                          {!rule.editable ? (
+                          {rule.effective_mode === "reference" ? (
+                            <span className="gp-muted">只读参考</span>
+                          ) : !rule.editable || rule.effective_mode === "fixed" ? (
                             <span className="gp-muted">系统固定</span>
                           ) : !canEditRules ? (
                             <span className="gp-muted">只读</span>

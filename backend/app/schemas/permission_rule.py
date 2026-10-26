@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -30,6 +31,7 @@ class PermissionRuleOut(BaseModel):
     unit: str | None = None
     description: str | None = None
     editable: bool = True
+    effective_mode: Literal["configurable", "fixed", "reference"] = "reference"
     enabled: bool = True
     updated_by_user_id: uuid.UUID | None = None
     # 安全显示名（无则前端显示 —）；绝不返回邮箱 / 其它身份细节。

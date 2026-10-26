@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
 from sqlalchemy import select
 
 from app.models.audit import AuditEvent
@@ -102,7 +103,7 @@ async def test_default_rules_idempotent(client, db_session):
 
 # ---------------- 写权限 ----------------
 async def test_boss_can_update_numeric(client):
-    rule = await _rule_by_key(client, USER_BOSS, "review_timeout_hours")
+    rule = await _rule_by_key(client, USER_BOSS, "access_request_timeout_hours")
     r = await client.patch(
         f"{RULES}/{rule['rule_id']}",
         headers=_hdr(USER_BOSS),
@@ -114,7 +115,7 @@ async def test_boss_can_update_numeric(client):
 
 
 async def test_director_can_update_toggle(client):
-    rule = await _rule_by_key(client, USER_DIRECTOR, "personal_knowledge_default_private")
+    rule = await _rule_by_key(client, USER_DIRECTOR, "company_l1_l2_original_for_business_user")
     r = await client.patch(
         f"{RULES}/{rule['rule_id']}",
         headers=_hdr(USER_DIRECTOR),
@@ -194,7 +195,7 @@ async def test_unknown_rule_404(client):
 
 # ---------------- 审计 ----------------
 async def test_update_writes_safe_audit(client, db_session):
-    rule = await _rule_by_key(client, USER_BOSS, "asset_expiry_days")
+    rule = await _rule_by_key(client, USER_BOSS, "access_grant_duration_days")
     r = await client.patch(
         f"{RULES}/{rule['rule_id']}",
         headers={**_hdr(USER_BOSS), "X-Trace-Id": "trc-permission-rules"},
@@ -215,9 +216,111 @@ async def test_update_writes_safe_audit(client, db_session):
     assert ev.target_type == "permission_rule"
     assert ev.target_id == uuid.UUID(rule["rule_id"])
     extra = ev.extra or {}
-    assert extra.get("rule_key") == "asset_expiry_days"
-    assert (ev.before_snapshot or {}).get("value_number") == 365
+    assert extra.get("rule_key") == "access_grant_duration_days"
+    assert (ev.before_snapshot or {}).get("value_number") == 7
     assert (ev.after_snapshot or {}).get("value_number") == 400
     blob = str(extra) + str(ev.before_snapshot) + str(ev.after_snapshot)
     for t in _LEAK_TOKENS:
         assert t not in blob.lower()
+
+
+async def test_retired_cross_project_rule_is_hidden_and_rejects_stale_write(client, db_session):
+    legacy = PermissionRule(
+        rule_key="cross_project_l1_l2_original_for_business_user",
+        rule_group="access_request",
+        rule_type="toggle",
+        display_name="跨项目 L1/L2 原文默认放行业务用户",
+        value_bool=True,
+        editable=True,
+        enabled=True,
+    )
+    db_session.add(legacy)
+    await db_session.commit()
+    await db_session.refresh(legacy)
+    rule_id, updated_at = legacy.id, legacy.updated_at
+    response = await client.get(RULES, headers=_hdr(USER_BOSS))
+    assert legacy.rule_key not in {r["rule_key"] for r in response.json()["items"]}
+    response = await client.patch(
+        f"{RULES}/{rule_id}", headers=_hdr(USER_BOSS), json={"value_bool": False}
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"]["denied_reason"] == "rule_not_editable"
+    await db_session.refresh(legacy)
+    assert legacy.value_bool is True and legacy.updated_at == updated_at
+    assert (
+        not (
+            await db_session.execute(
+                select(AuditEvent).where(
+                    AuditEvent.target_id == rule_id,
+                    AuditEvent.action == "config.permission_rule_updated",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "cross_project_source_threshold",
+        "cross_project_call_count_threshold",
+        "project_upgrade_signal_window_days",
+        "review_timeout_hours",
+        "asset_modify_rate_threshold",
+        "asset_not_helpful_threshold",
+        "asset_expiry_days",
+        "asset_archive_inactive_days",
+        "asset_archive_notice_days",
+    ],
+)
+async def test_reference_rule_cannot_claim_to_change_runtime(client, db_session, key):
+    await rules_service.ensure_default_rules(db_session)
+    stored = (
+        await db_session.execute(select(PermissionRule).where(PermissionRule.rule_key == key))
+    ).scalar_one()
+    stored.description = "旧说明：自动归档或直接触发处理"
+    stored.editable = True
+    await db_session.commit()
+    await db_session.refresh(stored)
+    old_value, old_time = stored.value_number, stored.updated_at
+    rule = await _rule_by_key(client, USER_BOSS, key)
+    assert rule["effective_mode"] == "reference" and rule["editable"] is False
+    assert "参考" in rule["description"] and "自动归档" not in rule["description"]
+    response = await client.patch(
+        f"{RULES}/{stored.id}", headers=_hdr(USER_BOSS), json={"value_number": 11}
+    )
+    assert response.status_code == 422
+    await db_session.refresh(stored)
+    assert stored.value_number == old_value and stored.updated_at == old_time
+    assert stored.description == "旧说明：自动归档或直接触发处理"
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "personal_knowledge_default_private",
+        "personal_to_project_material_requires_owner_submit",
+    ],
+)
+async def test_legacy_personal_toggle_is_presented_as_fixed_policy(client, db_session, key):
+    await rules_service.ensure_default_rules(db_session)
+    stored = (
+        await db_session.execute(select(PermissionRule).where(PermissionRule.rule_key == key))
+    ).scalar_one()
+    stored.rule_type = "toggle"
+    stored.value_bool = False
+    stored.editable = True
+    await db_session.commit()
+    await db_session.refresh(stored)
+    old_time = stored.updated_at
+    rule = await _rule_by_key(client, USER_BOSS, key)
+    assert rule["effective_mode"] == "fixed" and rule["editable"] is False
+    assert rule["rule_type"] == "fixed_path" and rule["value_text"]
+    response = await client.patch(
+        f"{RULES}/{stored.id}", headers=_hdr(USER_BOSS), json={"enabled": False}
+    )
+    assert response.status_code == 422
+    await db_session.refresh(stored)
+    assert stored.value_bool is False and stored.updated_at == old_time

@@ -1,7 +1,7 @@
 """权限规则配置中心服务。
 
 `permission_rules` 的幂等默认 seed、读取、更新。权限治理规则是**配置中心**：
-阈值 / 开关 / 固定路径三类配置项落库、可读写、写操作审计。
+运行中配置可由治理角色修改；固定策略与未接入运行的参考值只读，写操作审计。
 
 权限边界（后端权威）：
 - 读：admin / boss / consulting_director。consultant → 403。
@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Literal
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -93,18 +94,20 @@ def _fixed(key, group, name, text, unit, desc):
 # （lifecycle scan 不读本表），不改其运行时行为。
 DEFAULT_RULES: list[dict] = [
     # ---- 个人知识流转 ----
-    _toggle(
+    _fixed(
         "personal_knowledge_default_private",
         GROUP_PERSONAL,
         "个人知识默认私密",
-        True,
+        "仅本人可见",
+        None,
         "个人知识不参与他人检索，仅本人可用；其他顾问 / 项目经理 / 公司级检索均不命中他人个人知识",
     ),
-    _toggle(
+    _fixed(
         "personal_to_project_material_requires_owner_submit",
         GROUP_PERSONAL,
         "个人提交项目资料需本人确认",
-        True,
+        "须本人主动提交",
+        None,
         "个人知识进入项目资料区必须由本人主动提交，项目经理或其他顾问不能代为操作",
     ),
     _fixed(
@@ -122,7 +125,7 @@ DEFAULT_RULES: list[dict] = [
         "跨项目来源阈值",
         3,
         "个项目",
-        "项目知识被至少 N 个不同项目调用，表示具备跨项目复用广度",
+        "历史参考值，不参与当前复用统计；实际推荐条件由运行中的统计任务决定。",
     ),
     _num(
         "cross_project_call_count_threshold",
@@ -130,7 +133,7 @@ DEFAULT_RULES: list[dict] = [
         "跨项目调用次数阈值",
         10,
         "次",
-        "项目知识累计跨项目调用达到 N 次，表示具备复用强度；需与跨项目来源阈值共同判断",
+        "历史参考值，不参与当前复用统计；推荐只供人工审核，不会直接发布资料。",
     ),
     _num(
         "project_upgrade_signal_window_days",
@@ -138,7 +141,7 @@ DEFAULT_RULES: list[dict] = [
         "升格信号统计窗口",
         90,
         "天",
-        "仅统计最近 N 天内的跨项目来源与调用次数，避免历史噪声",
+        "历史参考值；当前复用统计未按此值限制统计窗口。",
     ),
     _num(
         "review_timeout_hours",
@@ -146,7 +149,7 @@ DEFAULT_RULES: list[dict] = [
         "升格审核超时",
         48,
         "小时",
-        "升格审核提交后超过此时间未处理，系统发送催审通知",
+        "历史参考值；当前未依据此值发送升格审核催办通知。",
     ),
     # ---- 访问申请 ----
     _num(
@@ -182,7 +185,7 @@ DEFAULT_RULES: list[dict] = [
         "高修改率预警阈值",
         30,
         "%",
-        "资产入库后修改率超过此值，触发质量复核建议",
+        "历史参考值；当前未依据修改率阈值触发复核，实际内容修改后需重新复核。",
     ),
     _num(
         "asset_not_helpful_threshold",
@@ -190,7 +193,7 @@ DEFAULT_RULES: list[dict] = [
         "负反馈预警阈值",
         3,
         "次",
-        "资产收到「无帮助」反馈达到此次数，标记为待复核",
+        "历史参考值；当前未依据此阈值改变复核状态，资料问题通过纠错流程处理。",
     ),
     _num(
         "asset_expiry_days",
@@ -198,7 +201,7 @@ DEFAULT_RULES: list[dict] = [
         "资产有效期",
         365,
         "天",
-        "资产超过有效期未更新，触发过期提醒与归档建议",
+        "历史参考值；复核提醒使用资料的下次复核日期，此值不决定资料有效性。",
     ),
     _num(
         "asset_archive_inactive_days",
@@ -206,7 +209,7 @@ DEFAULT_RULES: list[dict] = [
         "归档不活跃阈值",
         730,
         "天",
-        "资产超过此天数未被调用，进入归档候选。运行时归档扫描阈值以 alert_rules 为准，本项为治理配置视图",
+        "历史参考值；实际预警和候选条件在「告警设置」管理，归档须人工确认。",
     ),
     _num(
         "asset_archive_notice_days",
@@ -214,13 +217,29 @@ DEFAULT_RULES: list[dict] = [
         "归档预警提前天数",
         30,
         "天",
-        "资产距离自动归档还剩此天数时，向维护人发送归档预警。运行时来源为 alert_rules，本项为治理配置视图",
+        "历史参考值；实际预警等待期在「告警设置」管理，等待期后仅形成候选，归档须人工确认。",
     ),
 ]
 
 # 分组显示顺序（与前端一致）。
 GROUP_ORDER = [GROUP_PERSONAL, GROUP_UPGRADE, GROUP_ACCESS, GROUP_LIFECYCLE]
 _GROUP_RANK = {g: i for i, g in enumerate(GROUP_ORDER)}
+_DEFAULT_BY_KEY = {spec["rule_key"]: spec for spec in DEFAULT_RULES}
+# Stored legacy rows remain for historical inspection; they cannot restore a removed policy.
+_RETIRED_KEYS = {"cross_project_l1_l2_original_for_business_user"}
+_CONFIGURABLE_KEYS = {
+    "company_l1_l2_original_for_business_user",
+    "access_request_timeout_hours",
+    "access_grant_duration_days",
+}
+
+
+def _effective_mode(key: str) -> Literal["configurable", "fixed", "reference"]:
+    if key in _CONFIGURABLE_KEYS:
+        return "configurable"
+    if _DEFAULT_BY_KEY.get(key, {}).get("rule_type") == RULE_FIXED_PATH:
+        return "fixed"
+    return "reference"
 
 
 # ---------------------------------------------------------------------------
@@ -347,7 +366,7 @@ async def ensure_default_rules(session: AsyncSession) -> None:
                 default_text=spec.get("value_text"),
                 unit=spec.get("unit"),
                 description=spec.get("description"),
-                editable=spec["editable"],
+                editable=spec["editable"] and _effective_mode(spec["rule_key"]) == "configurable",
                 enabled=True,
             )
         )
@@ -357,21 +376,28 @@ async def ensure_default_rules(session: AsyncSession) -> None:
 
 
 def _to_out(rule: PermissionRule, names: dict[uuid.UUID, str]) -> PermissionRuleOut:
+    # Refresh presentation from the current contract without rewriting stored values or audit dates.
+    spec = _DEFAULT_BY_KEY.get(rule.rule_key, {})
+    mode = _effective_mode(rule.rule_key)
+    fixed = mode == "fixed"
     return PermissionRuleOut(
         rule_id=rule.id,
         rule_key=rule.rule_key,
         rule_group=rule.rule_group,
-        rule_type=rule.rule_type,
-        display_name=rule.display_name,
-        value_bool=rule.value_bool,
-        value_number=float(rule.value_number) if rule.value_number is not None else None,
-        value_text=rule.value_text,
+        rule_type=RULE_FIXED_PATH if fixed else rule.rule_type,
+        display_name=spec.get("display_name", rule.display_name),
+        value_bool=None if fixed else rule.value_bool,
+        value_number=float(rule.value_number)
+        if not fixed and rule.value_number is not None
+        else None,
+        value_text=spec.get("value_text") if fixed else rule.value_text,
         default_bool=rule.default_bool,
         default_number=float(rule.default_number) if rule.default_number is not None else None,
         default_text=rule.default_text,
         unit=rule.unit,
-        description=rule.description,
-        editable=rule.editable,
+        description=spec.get("description", "历史参考配置，当前未接入运行规则，仅供查看。"),
+        editable=mode == "configurable" and rule.editable and rule.rule_type != RULE_FIXED_PATH,
+        effective_mode=mode,
         enabled=rule.enabled,
         updated_by_user_id=rule.updated_by,
         updated_by_name=names.get(rule.updated_by) if rule.updated_by else None,
@@ -392,7 +418,15 @@ async def _resolve_names(
 async def list_rules(session: AsyncSession, caller: CallerContext) -> PermissionRulesResponse:
     _require_read(caller)
     await ensure_default_rules(session)
-    rules = list((await session.execute(select(PermissionRule))).scalars().all())
+    rules = list(
+        (
+            await session.execute(
+                select(PermissionRule).where(PermissionRule.rule_key.notin_(_RETIRED_KEYS))
+            )
+        )
+        .scalars()
+        .all()
+    )
     # 按分组顺序、再按 key 稳定排序，便于前端分组展示。
     rules.sort(key=lambda r: (_GROUP_RANK.get(r.rule_group, 99), r.rule_key))
     names = await _resolve_names(session, rules)
@@ -415,8 +449,12 @@ async def update_rule(
     if rule is None:
         raise _denied(404, "permission_rule_not_found", "权限规则不存在")
 
-    if rule.rule_type == RULE_FIXED_PATH or not rule.editable:
-        raise _denied(422, "rule_not_editable", "该规则为固定路径 / 只读，不可修改")
+    if (
+        _effective_mode(rule.rule_key) != "configurable"
+        or rule.rule_type == RULE_FIXED_PATH
+        or not rule.editable
+    ):
+        raise _denied(422, "rule_not_editable", "该规则已停用、由系统固定或仅供参考，不可修改")
 
     before: dict = {"enabled": rule.enabled}
     after: dict = {}

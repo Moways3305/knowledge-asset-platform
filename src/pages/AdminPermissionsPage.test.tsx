@@ -159,4 +159,41 @@ describe("AdminPermissionsPage", () => {
     expect(document.querySelectorAll(".gp-empty-visual svg")).toHaveLength(2);
     expect(screen.getAllByRole("button", { name: "重新加载" })).toHaveLength(2);
   });
+
+  it("keeps historical reference values visibly inactive and uneditable for governance", async () => {
+    vi.mocked(fetchAuthMe).mockResolvedValue({ ...me, activeCompanyRole: "boss" });
+    vi.mocked(fetchPermissionRules).mockResolvedValueOnce({
+      items: [{ ...rule, effective_mode: "reference", editable: false }],
+      total: 1,
+    });
+    render(<AdminPermissionsPage />);
+    expect(await screen.findByText("历史参考值：7 天")).toBeInTheDocument();
+    expect(screen.getByText("仅供参考，不参与当前运行")).toBeInTheDocument();
+    expect(screen.getByText("只读参考")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "编辑" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
+    expect(updatePermissionRule).not.toHaveBeenCalled();
+  });
+
+  it("shows the fixed personal policy instead of an obsolete toggle", async () => {
+    vi.mocked(fetchAuthMe).mockResolvedValue({ ...me, activeCompanyRole: "boss" });
+    vi.mocked(fetchPermissionRules).mockResolvedValueOnce({
+      items: [
+        {
+          ...rule,
+          rule_type: "fixed_path",
+          effective_mode: "fixed",
+          editable: false,
+          value_bool: false,
+          value_text: "仅本人可见",
+        },
+      ],
+      total: 1,
+    });
+    render(<AdminPermissionsPage />);
+    expect(await screen.findByText("仅本人可见")).toBeInTheDocument();
+    expect(screen.getByText("系统固定策略")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "启用" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "停用" })).not.toBeInTheDocument();
+  });
 });
