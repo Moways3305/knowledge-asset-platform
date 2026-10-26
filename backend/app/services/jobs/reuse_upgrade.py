@@ -21,7 +21,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.agent import AgentCall, AgentCallCitation
@@ -110,8 +110,24 @@ async def scan_reuse_and_recommend(
             lu = _to_naive_utc(last_used)
             cur = _to_naive_utc(asset.last_called_at) if asset.last_called_at else None
             if cur is None or lu > cur:
-                asset.last_called_at = last_used
-                updated += 1
+                # Usage telemetry is not a content edit. Preserve the database's
+                # current baseline (not a possibly stale ORM value), and never
+                # move usage backwards if another scan has already advanced it.
+                changed = await session.scalar(
+                    update(KnowledgeAsset)
+                    .where(
+                        KnowledgeAsset.id == asset.id,
+                        or_(
+                            KnowledgeAsset.last_called_at.is_(None),
+                            KnowledgeAsset.last_called_at < last_used,
+                        ),
+                    )
+                    .values(last_called_at=last_used, updated_at=KnowledgeAsset.updated_at)
+                    .returning(KnowledgeAsset.id)
+                )
+                if changed is not None:
+                    await session.refresh(asset, attribute_names=["last_called_at", "updated_at"])
+                    updated += 1
 
         # 仅 active project 资产、达到复用阈值、且未推过 → 推一条人审升格推荐。
         qualifies = (project_count >= min_projects) or (call_count >= min_calls)

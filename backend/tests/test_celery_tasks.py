@@ -16,8 +16,9 @@ import io
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from PIL import Image
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from app.models.agent import (
     AgentCall,
@@ -40,6 +41,7 @@ from app.seed.dev_seed import (
     USER_CONSULTANT,
     USER_DIRECTOR,
 )
+from app.services import knowledge_review
 from app.services.desensitization import NullDesensitizer
 from app.services.extraction import ExtractionPage, ExtractionResult
 from app.services.jobs import ingest_processing, lifecycle_scan, parse_reconcile, reuse_upgrade
@@ -852,3 +854,85 @@ async def test_reuse_scan_updates_usage_and_recommends_once(db_session):
     # 重复扫描去重：不再新增推荐。
     r2 = await reuse_upgrade.scan_reuse_and_recommend(db_session, trace_id="trc-reuse", min_calls=1)
     assert r2["recommended"] == 0
+
+
+@pytest.mark.parametrize("content_changed", [False, True])
+async def test_reuse_scan_preserves_content_baseline_and_review_state(db_session, content_changed):
+    asset = await db_session.get(KnowledgeAsset, KA_PROJECT_ALPHA)
+    baseline = _now() - timedelta(days=1)
+    asset.updated_at = baseline
+    asset.verified_at = baseline
+    asset.verified_updated_at = baseline - timedelta(hours=1) if content_changed else baseline
+    asset.review_due_at = _now() + timedelta(days=30)
+    asset.last_called_at = None
+    await db_session.commit()
+    await db_session.refresh(asset)
+    before_updated = asset.updated_at
+    before_verified = asset.verified_updated_at
+    expected_freshness = "changed" if content_changed else "verified"
+    assert knowledge_review.freshness(asset) == expected_freshness
+
+    await _cite_asset(db_session, asset_id=asset.id, project_id=PROJECT_ALPHA)
+    first = await reuse_upgrade.scan_reuse_and_recommend(db_session, min_calls=99)
+    await db_session.refresh(asset)
+    assert first["usage_updated"] == 1
+    assert asset.last_called_at is not None
+    assert asset.updated_at == before_updated
+    assert asset.verified_updated_at == before_verified
+    assert knowledge_review.freshness(asset) == expected_freshness
+    first_used = asset.last_called_at
+
+    repeated = await reuse_upgrade.scan_reuse_and_recommend(db_session, min_calls=99)
+    await db_session.refresh(asset)
+    assert repeated["usage_updated"] == 0
+    assert asset.last_called_at == first_used
+    assert asset.updated_at == before_updated
+
+    await _cite_asset(db_session, asset_id=asset.id, project_id=PROJECT_ALPHA)
+    newer = await reuse_upgrade.scan_reuse_and_recommend(db_session, min_calls=99)
+    await db_session.refresh(asset)
+    assert newer["usage_updated"] == 1
+    assert asset.last_called_at > first_used
+    assert asset.updated_at == before_updated
+    assert asset.verified_updated_at == before_verified
+    assert knowledge_review.freshness(asset) == expected_freshness
+
+
+@pytest.mark.parametrize("newer_usage", [False, True])
+async def test_reuse_scan_preserves_newer_database_values_with_stale_loaded_asset(
+    db_session, newer_usage
+):
+    asset = await db_session.get(KnowledgeAsset, KA_PROJECT_ALPHA)
+    baseline = _now() - timedelta(days=1)
+    asset.updated_at = baseline
+    asset.verified_at = baseline
+    asset.verified_updated_at = baseline
+    asset.review_due_at = _now() + timedelta(days=30)
+    asset.last_called_at = None
+    await db_session.commit()
+    await _cite_asset(db_session, asset_id=asset.id, project_id=PROJECT_ALPHA)
+
+    # A later database write is deliberately not synchronized into this session's
+    # already-loaded asset. This tests stale state, not simultaneous transactions.
+    latest_edit = _now()
+    latest_usage = latest_edit + timedelta(hours=1) if newer_usage else None
+    await db_session.execute(
+        update(KnowledgeAsset)
+        .where(KnowledgeAsset.id == asset.id)
+        .values(title="真实内容修改", updated_at=latest_edit, last_called_at=latest_usage)
+        .execution_options(synchronize_session=False)
+    )
+    await db_session.commit()
+    assert asset.updated_at == baseline
+    assert asset.last_called_at is None
+
+    result = await reuse_upgrade.scan_reuse_and_recommend(db_session, min_calls=99)
+    await db_session.refresh(asset)
+    assert result["usage_updated"] == (0 if newer_usage else 1)
+    assert asset.title == "真实内容修改"
+    assert asset.updated_at == latest_edit.replace(tzinfo=None)
+    assert knowledge_review.freshness(asset) == "changed"
+    if newer_usage:
+        assert asset.last_called_at == latest_usage.replace(tzinfo=None)
+    else:
+        assert asset.last_called_at is not None
