@@ -40,7 +40,13 @@ from app.worker.enqueue import enqueue_outbox_delivery
 _logger = logging.getLogger(__name__)
 
 # 已处理终态（再次入队/重跑直接跳过，保证幂等）。
-_DONE_STATUSES = {"completed", "completed_with_errors", "failed", "no_action"}
+_DONE_STATUSES = {
+    "submitted_pending_index",
+    "completed",
+    "completed_with_errors",
+    "failed",
+    "no_action",
+}
 
 
 @dataclass
@@ -151,7 +157,7 @@ async def _process_one(
     target: _Target,
     trace_id: str | None,
 ) -> str:
-    """处理单条资产：返回 'indexed' | 'skipped' | 'failed'（安全状态，不外泄内部 id）。"""
+    """Return indexed | indexing | skipped | failed without treating submission as indexing."""
     asset_id = target.asset_id
     version_id = target.version_id
     scope = target.scope
@@ -254,7 +260,7 @@ async def _process_one(
             trace_id=trace_id,
         )
     if outcome.index_status in {"indexed", "indexing"}:
-        return "indexed"
+        return outcome.index_status
     if outcome.index_status == "skipped":
         return "skipped"
     return "failed"
@@ -298,7 +304,7 @@ async def run_operation_job(
     job.started_at = utc_now()
     await session.commit()
 
-    success = failed = skipped = 0
+    success = failed = skipped = pending = 0
     try:
         targets = await _select_targets(session, job)
         total = len(targets)
@@ -325,6 +331,8 @@ async def run_operation_job(
                 result = "failed"
             if result == "indexed":
                 success += 1
+            elif result == "indexing":
+                pending += 1
             elif result == "skipped":
                 skipped += 1
             else:
@@ -361,7 +369,13 @@ async def run_operation_job(
     if total == 0:
         job.status = "no_action"
     else:
-        job.status = "completed" if failed == 0 else "completed_with_errors"
+        job.status = (
+            "completed_with_errors"
+            if failed
+            else "submitted_pending_index"
+            if pending
+            else "completed"
+        )
     job.finished_at = utc_now()
     await operation_events.publish_job_finished(session, job)
     await session.commit()
@@ -394,6 +408,7 @@ async def run_operation_job(
             "filters": job.scope_filter,
             "total": total,
             "success": success,
+            "pending": pending,
             "failed": failed,
             "skipped": skipped,
             "status": job.status,

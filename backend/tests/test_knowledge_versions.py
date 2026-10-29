@@ -8,6 +8,7 @@ from test_knowledge_review import headers, state, verify
 
 from app.models.ingest import IngestTask
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetSummary, KnowledgeAssetVersion
+from app.models.review import ReviewTask
 from app.seed.dev_seed import (
     KA_COMPANY_L2,
     KA_PERSONAL,
@@ -41,6 +42,44 @@ async def upload_update(client, asset, user=USER_CONSULTANT, version="V2"):
             "file": (f"notes-{version}.txt", f"新版实施方法与复盘 {version}".encode(), "text/plain")
         },
     )
+
+
+@pytest.mark.parametrize(
+    "task_status,review_status,allowed",
+    [
+        ("rejected", "rejected", True),
+        ("waiting_review", "rejected", True),
+        ("waiting_review", "pending_reviewer", False),
+        ("completed", "approved", False),
+    ],
+)
+async def test_version_reupload_uses_terminal_review_fact(
+    client, db_session, task_status, review_status, allowed
+):
+    asset = await source(db_session, KA_PROJECT_ALPHA, "project.deliverables")
+    first = await upload_update(client, asset, USER_PROJECT_MANAGER)
+    assert first.status_code == 200
+    task_id = uuid.UUID(first.json()["ingest_task_id"])
+    task = await db_session.get(IngestTask, task_id)
+    task.status = task_status
+    review = ReviewTask(
+        review_type="project_ingest_approval",
+        trigger_source="upload",
+        source_ingest_task_id=task.id,
+        submitted_by=USER_PROJECT_MANAGER,
+        status=review_status,
+        review_comment="保留历史审核意见",
+    )
+    db_session.add(review)
+    await db_session.commit()
+    repeated = await upload_update(client, asset, USER_PROJECT_MANAGER)
+    assert repeated.status_code == (200 if allowed else 409), repeated.text
+    if allowed:
+        assert repeated.json()["ingest_task_id"] != str(task_id)
+        blocked = await upload_update(client, asset, USER_PROJECT_MANAGER)
+        assert blocked.status_code == 409
+    await db_session.refresh(review)
+    assert review.status == review_status and review.review_comment == "保留历史审核意见"
 
 
 @pytest.mark.parametrize("stale_baseline", [False, True])

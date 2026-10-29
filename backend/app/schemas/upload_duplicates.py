@@ -80,10 +80,12 @@ class MyUploadItem(BaseModel):
     target_project_id: uuid.UUID | None = None
     target_project_name: str | None = None
     processing_status: str
+    review_comment: str | None = None
     final_status: Literal[
         "processing",
         "awaiting_confirmation",
         "waiting_review",
+        "rejected",
         "completed",
         "failed",
         "duplicate_skipped",

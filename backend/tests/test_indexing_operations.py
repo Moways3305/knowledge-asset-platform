@@ -243,7 +243,9 @@ async def test_detected_submission_interruption_reuses_version_and_creates_bindi
         TARGET_RETRY.format(operation_target=target), headers=_hdr(USER_ADMIN_ONLY)
     )
     assert recovered.status_code == 202
-    assert recovered.json()["success_count"] == 1
+    assert recovered.json()["success_count"] == 0
+    assert recovered.json()["pending_count"] == 1
+    assert recovered.json()["status"] == "submitted_pending_index"
 
     db_session.expire_all()
     final_version = (
@@ -465,6 +467,37 @@ class FakeWK:
 
 async def _async_return(val):
     return val
+
+
+@pytest.mark.parametrize("upstream_status", ["indexed", "indexing", "skipped", "index_failed"])
+async def test_operation_item_keeps_submission_distinct_from_indexed(monkeypatch, upstream_status):
+    from app.services.jobs import indexing_operations
+
+    monkeypatch.setattr(indexing_operations, "weknora_enabled", lambda: True)
+    monkeypatch.setattr(
+        "app.services.canonical_markdown.ensure_version_markdown",
+        lambda *_a, **_kw: _async_return(
+            SimpleNamespace(
+                content=b"safe", file_name="safe.md", mime="text/markdown", channel="test"
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        indexing,
+        "index_asset_version",
+        lambda *_a, **_kw: _async_return(SimpleNamespace(index_status=upstream_status)),
+    )
+    target = indexing_operations._Target(uuid.uuid4(), uuid.uuid4(), "personal", None, None, "L2")
+    result = await indexing_operations._process_one(
+        SimpleNamespace(get=lambda *_a: _async_return(None)),
+        SimpleNamespace(),
+        SimpleNamespace(),
+        operation_type="retry_index",
+        rebuild_index=False,
+        target=target,
+        trace_id=None,
+    )
+    assert result == ("failed" if upstream_status == "index_failed" else upstream_status)
 
 
 def _enable(monkeypatch, fake, *, embedding="test-embed"):
@@ -711,11 +744,12 @@ async def test_batch_retry_indexes_failed_assets(client, db_session, monkeypatch
     assert r.status_code == 202, r.text
     body = r.json()
     assert body["operation_type"] == "retry_index"
-    assert body["status"] == "completed"
+    assert body["status"] == "submitted_pending_index"
     assert body["total_count"] >= 2
-    assert body["success_count"] >= 2
+    assert body["success_count"] == 0
+    assert body["pending_count"] == body["total_count"]
     assert body["failed_count"] == 0
-    # 两条资产现在均 indexed。
+    # Both requests were submitted; neither asset is claimed searchable yet.
     for aid in (a1, a2):
         v = (
             await db_session.execute(
@@ -725,6 +759,26 @@ async def test_batch_retry_indexes_failed_assets(client, db_session, monkeypatch
             )
         ).scalar_one()
         assert v.index_status == "indexing"
+
+    # Redelivery of this finished submission job must not upload its targets again.
+    from app.services.jobs.indexing_operations import run_operation_job
+
+    uploaded = len(ok.uploads)
+    assert (
+        await run_operation_job(
+            db_session,
+            uuid.UUID(body["job_id"]),
+            weknora=ok,
+            storage=SimpleNamespace(),
+        )
+        == "submitted_pending_index"
+    )
+    assert len(ok.uploads) == uploaded
+    listed = (await client.get(JOBS, headers=_hdr(USER_ADMIN_ONLY))).json()
+    saved = next(item for item in listed["items"] if item["job_id"] == body["job_id"])
+    assert saved["pending_count"] == body["pending_count"]
+    assert set(saved["scope_filter"]) == {"scope", "project_id", "statuses", "limit"}
+    assert a1 not in str(saved) and a2 not in str(saved)
 
 
 async def test_batch_retry_partial_failure_completed_with_errors(client, monkeypatch):
@@ -749,7 +803,8 @@ async def test_batch_retry_partial_failure_completed_with_errors(client, monkeyp
     body = r.json()
     assert body["status"] == "completed_with_errors"
     assert body["total_count"] == 2
-    assert body["success_count"] >= 1
+    assert body["success_count"] == 0
+    assert body["pending_count"] == 1
     assert body["failed_count"] >= 1
     # 复核：a_ok 已 indexed → 再次单条 retry 返回 409；a_bad 仍 index_failed → 单条 retry 可再试（200）。
     r_ok = await client.post(f"/api/v1/knowledge/{a_ok}/retry-index", headers=_hdr(USER_CONSULTANT))
@@ -837,8 +892,9 @@ async def test_reparse_refreshes_parse_status(client, db_session, monkeypatch):
     assert body["operation_type"] == "reparse"
     assert body["scope_filter"]["parse_statuses"] == ["failed", "pending"]
     assert body["total_count"] == min(actionable_count, 50)
-    assert body["status"] in ("completed", "completed_with_errors")
-    assert body["success_count"] >= 1
+    assert body["status"] in ("submitted_pending_index", "completed_with_errors")
+    assert body["success_count"] == 0
+    assert body["pending_count"] >= 1
     # reparse 受控重传：旧 doc 被删、重新上传原文触发解析刷新。
     assert old_doc in ok.deleted
     assert len(ok.uploads) >= 1  # 确实重传了原文
@@ -1023,7 +1079,9 @@ async def test_targeted_retry_reuses_worker_chain_and_returns_one(client, db_ses
     body = response.json()
     assert body["operation_type"] == "retry_index"
     assert body["total_count"] == 1
-    assert body["success_count"] == 1
+    assert body["success_count"] == 0
+    assert body["pending_count"] == 1
+    assert body["status"] == "submitted_pending_index"
     assert asset_id not in response.text
     assert len(ok.uploads) == 1
 

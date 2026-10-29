@@ -21,6 +21,7 @@ from app.schemas.ingest import IngestConfirmRequest
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
 from app.services import domain_events
+from app.services.ingest_review_state import require_open_review
 from app.worker.enqueue import enqueue_outbox_delivery
 
 
@@ -38,6 +39,7 @@ async def create_or_get_project_ingest_review(
         )
     ).scalar_one_or_none()
     if existing is not None:
+        require_open_review(existing.status)
         return existing
     if request.target_project_id is None:
         raise RuntimeError("project ingest review requires target_project_id")

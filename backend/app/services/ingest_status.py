@@ -29,6 +29,7 @@ from app.services import audit as audit_service
 from app.services import error_catalog, indexing
 from app.services import knowledge as knowledge_service
 from app.services.desensitization import DesensitizationEngine
+from app.services.ingest_review_state import effective_status
 from app.services.llm_client import LLMClient, NullLLMClient, safe_llm_diagnostic
 from app.services.storage import LocalFileStorage
 from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient
@@ -80,7 +81,7 @@ _SAFE_ERRORS = {
     ),
     "file_text_unavailable": (
         "文件中未提取到可用文本。",
-        "请检查扫描清晰度后重试 OCR，或替换原文。",
+        "请检查扫描清晰度或补充可用正文后重新上传。",
     ),
     "ocr_failed": ("OCR 识别未完成，原文已保留。", "检查 OCR 服务或原文清晰度后重试此文件。"),
     "processing_interrupted": (
@@ -121,7 +122,7 @@ _SAFE_ERRORS = {
     ),
     "review_rejected": (
         "本次入库确认未通过审核。",
-        "根据审核意见修改内容后重新提交。",
+        "请根据审核意见修改后重新上传；原申请保留拒绝记录。",
     ),
     "indexing_skipped": (
         "资产已保存，但当前未进入知识底座索引。",
@@ -261,17 +262,22 @@ def _response(
     source_available: bool | None = None,
 ) -> IngestTaskStatusResponse:
     task, review, asset, version = ctx.task, ctx.review, ctx.asset, ctx.version
+    task_status = effective_status(task, review)
     stage = IngestTaskStage.upload_saved
     status = IngestTaskWorkflowStatus.processing
     retryable = False
     next_action = _action("wait", None, enabled=False)
     error = None
 
-    if task.status == IngestStatus.cancelled.value or task.cancel_requested:
+    if task_status == IngestStatus.cancelled.value:
         stage = IngestTaskStage.cancelled
         status = IngestTaskWorkflowStatus.cancelled
         next_action = _action("cancelled", None, enabled=False)
-    elif task.status in {IngestStatus.pending.value, IngestStatus.processing.value}:
+    elif task_status == IngestStatus.duplicate_skipped.value:
+        stage = IngestTaskStage.completed
+        status = IngestTaskWorkflowStatus.completed
+        next_action = _action("duplicate_skipped", None, enabled=False)
+    elif task_status in {IngestStatus.pending.value, IngestStatus.processing.value}:
         stage_value = task.processing_stage or (
             "upload_saved" if task.status == IngestStatus.pending.value else "text_extraction"
         )
@@ -285,13 +291,13 @@ def _response(
             retryable = task.created_by == caller.user_id or caller.can_discover_l5
             error = _safe_error("processing_interrupted")
             next_action = _action("retry_processing", "ingest_task_retry", enabled=retryable)
-        elif task.error_type == "processing_error":
+        elif task.error_type in {"processing_error", "timeout"}:
             stage = IngestTaskStage.failed
             status = IngestTaskWorkflowStatus.failed
             retryable = task.created_by == caller.user_id or caller.can_discover_l5
             error = _safe_error("ingest_processing_failed")
             next_action = _action("retry_processing", "ingest_task_retry", enabled=retryable)
-    elif task.status == IngestStatus.pending_confirmation.value:
+    elif task_status == IngestStatus.pending_confirmation.value:
         extraction_status = task.ai_result.extraction_status if task.ai_result else None
         if extraction_status == "unsupported":
             stage = IngestTaskStage.degraded_complete
@@ -313,16 +319,16 @@ def _response(
             if retryable
             else _action("review_and_confirm", "upload_task")
         )
-    elif task.status == IngestStatus.waiting_review.value:
+    elif task_status == IngestStatus.waiting_review.value:
         stage = IngestTaskStage.confirmation
         status = IngestTaskWorkflowStatus.waiting
         next_action = _action("view_review", "reviews", enabled=review is not None)
-    elif task.status == IngestStatus.rejected.value:
-        stage = IngestTaskStage.failed
+    elif task_status == IngestStatus.rejected.value:
+        stage = IngestTaskStage.confirmation
         status = IngestTaskWorkflowStatus.action_required
         error = _safe_error("review_rejected")
-        next_action = _action("edit_and_resubmit", "upload_task")
-    elif task.status == IngestStatus.failed.value:
+        next_action = _action("replace_file", "upload")
+    elif task_status == IngestStatus.failed.value:
         stage_value = task.processing_stage or "failed"
         stage = (
             IngestTaskStage(stage_value)
@@ -371,7 +377,7 @@ def _response(
             retryable = task.created_by == caller.user_id or caller.can_discover_l5
             error = _safe_error("processing_interrupted")
             next_action = _action("retry_processing", "ingest_task_retry", enabled=retryable)
-        elif task.error_type == "processing_error":
+        elif task.error_type in {"processing_error", "timeout"}:
             retryable = task.created_by == caller.user_id or caller.can_discover_l5
             error = _safe_error("ingest_processing_failed")
             next_action = _action("retry_processing", "ingest_task_retry", enabled=retryable)
@@ -404,7 +410,7 @@ def _response(
         else:
             error = _safe_error("file_parse_failed")
             next_action = _action("replace_file", "upload")
-    elif task.status == IngestStatus.completed.value:
+    elif task_status == IngestStatus.completed.value:
         can_retry_index = bool(asset and knowledge_service.can_retry_index(caller, asset))
         if version is None or version.index_status in {"not_indexed", "indexing"}:
             stage = (
@@ -455,12 +461,29 @@ def _response(
         status=status,
         updated_at=task.updated_at,
         last_progress_at=task.processing_heartbeat_at or task.updated_at,
-        next_retry_at=task.recovery_not_before,
+        next_retry_at=task.recovery_not_before
+        if task_status not in {"rejected", "cancelled", "duplicate_skipped", "completed"}
+        else None,
         retryable=retryable,
         next_action=next_action,
         error=error,
         result_asset_id=task.result_asset_id,
         review_id=review.id if review else None,
+    )
+
+
+def pending_task_status(
+    task: IngestTask,
+    caller: CallerContext,
+    *,
+    review: ReviewTask | None = None,
+    source_available: bool | None = None,
+) -> IngestTaskStatusResponse:
+    """Reuse the retry endpoint's contract for permission-filtered pending lists."""
+    return _response(
+        _TaskContext(task=task, review=review, asset=None, version=None),
+        caller,
+        source_available=source_available,
     )
 
 
@@ -751,6 +774,7 @@ async def retry_task(
         "extraction_process_terminated",
         "extraction_memory_limit",
         "processing_error",
+        "timeout",
         "worker_lost",
         "broker_or_container_restart",
         "worker_lost_recovery_exhausted",
@@ -765,6 +789,7 @@ async def retry_task(
                         "extraction_process_terminated",
                         "extraction_memory_limit",
                         "processing_error",
+                        "timeout",
                         "worker_lost",
                         "broker_or_container_restart",
                         "worker_lost_recovery_exhausted",

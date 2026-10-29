@@ -370,6 +370,9 @@ async def get_ai_result(
         raise _denied(403, "ingest_result_forbidden", "无权查看该入库任务的 AI 建议")
 
     advice = safe_naming_advice(ai)
+    from app.services.ingest_review_state import effective_status, reviews_by_task
+
+    review = (await reviews_by_task(session, [task])).get(task.id)
     update_context = None
     if task.update_of_asset_id and is_full:
         from app.services.knowledge_versions import update_context_for_task
@@ -379,7 +382,7 @@ async def get_ai_result(
         ingest_task_id=task.id,
         update_context=update_context,
         suggested_formed_on=task.suggested_formed_on if is_full else None,
-        status=task.status,
+        status=effective_status(task, review),
         suggested_asset_type=ai.suggested_asset_type if ai else None,
         **advice,
         suggested_ai_access_level=ai.suggested_ai_access_level if ai else None,
@@ -1060,7 +1063,6 @@ async def refresh_parse(
 _BATCH_CONFIRMABLE_PENDING_STATUSES: set[str] = {
     IngestStatus.pending_confirmation.value,
     IngestStatus.pending.value,
-    IngestStatus.rejected.value,
 }
 
 # Keep this aligned with delete_pending_task: these rows may be permanently
@@ -1100,7 +1102,8 @@ async def list_pending(
     from sqlalchemy.orm import defer, selectinload
 
     stmt = (
-        select(IngestTask)
+        select(IngestTask, ReviewTask)
+        .outerjoin(ReviewTask, ReviewTask.source_ingest_task_id == IngestTask.id)
         # 仅返回当前用户的待确认任务：result_asset_id 为空 且 created_by 匹配。
         .where(
             IngestTask.result_asset_id.is_(None),
@@ -1120,7 +1123,12 @@ async def list_pending(
     if statuses is not None:
         stmt = stmt.where(IngestTask.status.in_(statuses))
 
-    tasks = list((await session.execute(stmt)).scalars().all())
+    rows = (await session.execute(stmt)).all()
+    tasks = [task for task, _ in rows]
+    from app.services.ingest_review_state import effective_status
+    from app.services.ingest_status import pending_task_status
+
+    task_reviews = {task.id: review for task, review in rows if review is not None}
     duplicates = (
         await upload_duplicates.read_duplicates_batch(
             session,
@@ -1137,12 +1145,19 @@ async def list_pending(
     )
     items: list[PendingIngestItem] = []
     for t in tasks:
+        review = task_reviews.get(t.id)
+        task_status = effective_status(t, review)
+        if task_status == IngestStatus.cancelled.value:
+            continue
         timeout_source_available = bool(
             t.error_type != "processing_timeout"
             or storage is None
             or storage.inspect(t.source_file_ref).available
         )
         ai = t.ai_result
+        progress = pending_task_status(
+            t, caller, review=review, source_available=timeout_source_available
+        )
         advice = safe_naming_advice(ai)
         suggestion_state = _suggestion_generation_state(t, ai)
         display_subject = (
@@ -1157,7 +1172,7 @@ async def list_pending(
             else None
         )
         can_batch_confirm = (
-            t.status in _BATCH_CONFIRMABLE_PENDING_STATUSES
+            task_status in _BATCH_CONFIRMABLE_PENDING_STATUSES
             and ai is not None
             # Confirmation validates the editable title and summary fields below;
             # legacy extraction/generation diagnostics are display-only metadata.
@@ -1168,7 +1183,9 @@ async def list_pending(
             PendingIngestItem(
                 id=t.id,
                 source=t.source,
-                status=t.status,
+                status=task_status,
+                review_comment=review.review_comment if review else None,
+                next_action=progress.next_action,
                 source_file_name=t.source_file_name,
                 source_file_size=t.source_file_size,
                 target_scope=t.target_scope,
@@ -1190,21 +1207,7 @@ async def list_pending(
                     else t.error_message
                 ),
                 processing_stage=t.processing_stage,
-                retryable=(
-                    (
-                        t.processing_stage == "processing_interrupted"
-                        or t.status == IngestStatus.failed.value
-                    )
-                    and t.error_type
-                    not in {
-                        "configuration_error",
-                        "authentication_error",
-                        "model_unavailable",
-                        "source_file_unavailable",
-                        "ocr_resource_limit",
-                    }
-                    and timeout_source_available
-                ),
+                retryable=progress.retryable,
                 retry_count=t.retry_count,
                 suggested_title=display_subject,
                 suggested_one_liner=ai.suggested_one_liner if ai else None,

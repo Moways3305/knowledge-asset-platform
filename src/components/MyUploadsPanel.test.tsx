@@ -9,6 +9,39 @@ vi.mock("../api/ingest", () => ingestApi);
 describe("MyUploadsPanel", () => {
   beforeEach(() => ingestApi.fetchMyUploads.mockReset());
 
+  it("shows rejected history and its review comment without claiming ongoing processing", async () => {
+    ingestApi.fetchMyUploads.mockResolvedValue([
+      {
+        task_id: "rejected",
+        source_file_name: "拒绝资料.md",
+        uploaded_at: "2026-10-29T01:00:00Z",
+        processing_status: "rejected",
+        final_status: "rejected",
+        review_comment: "请补充依据",
+        duplicate_result: "none",
+        result_asset_id: null,
+      },
+    ]);
+    render(
+      <MemoryRouter>
+        <MyUploadsPanel onClose={vi.fn()} />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("拒绝资料.md")).toBeInTheDocument();
+    expect(
+      screen.getAllByText("审核已拒绝").filter((element) => element.tagName === "DD"),
+    ).toHaveLength(2);
+    expect(screen.getByText(/请补充依据/)).toBeInTheDocument();
+    expect(screen.queryByText("状态更新中")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "修改后重新上传" })).toHaveAttribute("href", "/upload");
+    fireEvent.change(screen.getByLabelText("最终状态"), { target: { value: "rejected" } });
+    await waitFor(() =>
+      expect(ingestApi.fetchMyUploads).toHaveBeenLastCalledWith(
+        expect.objectContaining({ finalStatus: "rejected" }),
+      ),
+    );
+  });
+
   it("shows separate processing, final, duplicate and permitted project facts", async () => {
     ingestApi.fetchMyUploads.mockResolvedValue([
       {

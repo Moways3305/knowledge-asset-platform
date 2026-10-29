@@ -9,7 +9,7 @@ import pytest
 from app.main import app
 from app.models.agent_registry import AgentWhitelistRule
 from app.models.identity import Project, ProjectMember
-from app.models.knowledge import KnowledgeAsset
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.weknora import WeknoraKbMapping
 from app.seed.dev_seed import (
     KA_COMPANY_L2,
@@ -268,6 +268,8 @@ async def test_self_service_search_follows_owner_for_l3_personal(client, db_sess
     asset = await db_session.get(KnowledgeAsset, KA_PERSONAL)
     asset.confidentiality_level = "L3"
     personal_kb = "wk-kb-personal-self-service"
+    version = await db_session.get(KnowledgeAssetVersion, asset.current_version_id)
+    version.weknora_kb_id = personal_kb
     db_session.add(
         WeknoraKbMapping(
             scope="personal",

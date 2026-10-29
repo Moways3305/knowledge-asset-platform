@@ -1,10 +1,13 @@
 const TASK_STATUS_LABEL: Record<string, string> = {
   needs_action: "待处理",
   submitted: "已提交",
+  submitted_pending_index: "已提交，待索引",
   processing: "处理中",
   completed: "已完成",
   partial: "部分完成",
   failed: "失败",
+  rejected: "审核已拒绝",
+  waiting_review: "等待审核",
   cancelled: "已取消",
   duplicate_skipped: "重复跳过",
 };

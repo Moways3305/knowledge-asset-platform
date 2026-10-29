@@ -1358,6 +1358,42 @@ describe("UploadStepB folder drop and batch rejection", () => {
     expect(screen.getByRole("button", { name: "移除" })).toBeInTheDocument();
   });
 
+  it("uses the rejected task over a stale completed upload and only offers a new upload", () => {
+    const task = {
+      ...pending("rejected-task", "refused.pdf"),
+      status: "rejected",
+      can_batch_confirm: false,
+      retryable: false,
+      review_comment: "请补充项目背景",
+    };
+    const flow = flowFixture({
+      localPendingTasks: [task],
+      batchSelection: [],
+      localUploadQueue: [
+        {
+          id: "old-local",
+          file: null,
+          fileName: "refused.pdf",
+          fileSize: 3,
+          fileType: "PDF",
+          status: "completed",
+          error: null,
+          ingestTaskId: task.id,
+          pollAttempts: 0,
+        },
+      ],
+    });
+    render(<UploadStepB flow={flow} />);
+    const row = screen.getByRole("button", { name: "refused.pdf" }).closest("tr")!;
+    expect(within(row).getByText("审核已拒绝")).toBeInTheDocument();
+    expect(within(row).getByText(/请补充项目背景/)).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "refused.pdf" })).toBeDisabled();
+    expect(within(row).queryByRole("button", { name: "确认入库" })).not.toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: "重试处理" })).not.toBeInTheDocument();
+    fireEvent.click(within(row).getByRole("button", { name: "修改后重新上传" }));
+    expect(flow.handleReset).toHaveBeenCalledOnce();
+  });
+
   it("shows the real transport batch progress for the session and each file", () => {
     const queue = [
       {

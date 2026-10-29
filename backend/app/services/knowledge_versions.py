@@ -10,6 +10,7 @@ from app.models.knowledge import KnowledgeAsset, KnowledgeAssetSummary, Knowledg
 from app.schemas.knowledge_review import Command
 from app.services import knowledge_review as trust
 from app.services.directories import display_path
+from app.services.ingest_review_state import effective_status, reviews_by_task
 from app.services.knowledge_version_baseline import replacement_baseline_matches
 from app.services.permission import AccessLayer, decide
 from app.services.permission_rules import load_access_policy
@@ -66,16 +67,20 @@ async def prepare_upload(
     if len(version_label) > 20 or order(version_label) <= order(label(version)):
         raise trust.reject(422, "新版本号必须高于原版本且不超过 20 字符")
     normalized = "V" + ".".join(str(part) for part in order(version_label))
-    existing = await session.scalar(
-        select(IngestTask.id)
-        .where(
-            IngestTask.update_of_asset_id == source.id,
-            IngestTask.update_version_label == normalized,
-            IngestTask.status.notin_(["cancelled", "failed", "duplicate_skipped"]),
+    existing = (
+        await session.scalars(
+            select(IngestTask).where(
+                IngestTask.update_of_asset_id == source.id,
+                IngestTask.update_version_label == normalized,
+            )
         )
-        .limit(1)
-    )
-    if existing:
+    ).all()
+    reviews = await reviews_by_task(session, existing)
+    if any(
+        effective_status(task, reviews.get(task.id))
+        not in {"cancelled", "failed", "duplicate_skipped", "rejected"}
+        for task in existing
+    ):
         raise trust.reject(409, "已有该版本的上传任务，请从版本历史继续处理")
     return source, version
 

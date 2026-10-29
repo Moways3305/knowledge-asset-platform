@@ -606,6 +606,7 @@ async def ops_indexing(
                             latest_job.finished_at.isoformat() if latest_job.finished_at else None
                         ),
                         "success_count": latest_job.success_count,
+                        "pending_count": latest_job.pending_count,
                         "failed_count": latest_job.failed_count,
                     }
                     if latest_job is not None

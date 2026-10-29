@@ -19,6 +19,7 @@ export type OperationStatus =
   | "not_started"
   | "queued"
   | "submitted"
+  | "submitted_pending_index"
   | "processing"
   | "awaiting_confirmation"
   | "awaiting_approval"
@@ -26,6 +27,9 @@ export type OperationStatus =
   | "completed"
   | "partial"
   | "failed"
+  | "rejected"
+  | "skipped"
+  | "no_action"
   | "cancelled"
   | "withdrawn"
   | "expired";
@@ -67,6 +71,13 @@ export const OPERATION_STATUS: Record<OperationStatus, OperationStatusDefinition
     Icon: LoaderCircle,
     terminal: false,
   },
+  submitted_pending_index: {
+    label: "已提交，待索引",
+    guidance: "本次维护提交时仍有资料待索引，当前可检索状态请查看资料详情。",
+    tone: "info",
+    Icon: Clock3,
+    terminal: true,
+  },
   awaiting_confirmation: {
     label: "待确认",
     guidance: "核对当前信息并决定下一步。",
@@ -103,10 +114,31 @@ export const OPERATION_STATUS: Record<OperationStatus, OperationStatusDefinition
     terminal: true,
   },
   failed: {
-    label: "失败，可重试",
-    guidance: "查看安全摘要，修正后重试。",
+    label: "失败",
+    guidance: "查看失败原因，按当前可用操作处理。",
     tone: "danger",
     Icon: XCircle,
+    terminal: true,
+  },
+  rejected: {
+    label: "已拒绝",
+    guidance: "查看审核意见，修改后重新发起。",
+    tone: "warning",
+    Icon: ShieldAlert,
+    terminal: true,
+  },
+  skipped: {
+    label: "已跳过",
+    guidance: "本项已跳过，不会继续执行。",
+    tone: "neutral",
+    Icon: Ban,
+    terminal: true,
+  },
+  no_action: {
+    label: "无需处理",
+    guidance: "本次检查已结束，没有需要执行的变更。",
+    tone: "neutral",
+    Icon: CheckCircle2,
     terminal: true,
   },
   cancelled: {
@@ -137,18 +169,23 @@ export function operationStatusFromJob(status: string): OperationStatus {
   if (["draft", "not_started"].includes(normalized)) return "not_started";
   if (["queued", "pending"].includes(normalized)) return "queued";
   if (["submitted", "accepted"].includes(normalized)) return "submitted";
+  if (normalized === "submitted_pending_index") return "submitted_pending_index";
   if (["running", "processing", "indexing", "migrating"].includes(normalized)) {
     return "processing";
   }
   if (["awaiting_confirmation", "pending_confirmation"].includes(normalized)) {
     return "awaiting_confirmation";
   }
-  if (["awaiting_approval", "pending_approval"].includes(normalized)) return "awaiting_approval";
+  if (["awaiting_approval", "pending_approval", "waiting_review"].includes(normalized))
+    return "awaiting_approval";
   if (["completed", "approved", "indexed"].includes(normalized)) return "completed";
   if (["completed_with_errors", "partial", "partially_completed"].includes(normalized)) {
     return "partial";
   }
-  if (["failed", "error"].includes(normalized)) return "failed";
+  if (["failed", "error", "approval_failed"].includes(normalized)) return "failed";
+  if (normalized === "rejected") return "rejected";
+  if (["duplicate_skipped", "skipped"].includes(normalized)) return "skipped";
+  if (normalized === "no_action") return "no_action";
   if (["cancelled", "canceled"].includes(normalized)) return "cancelled";
   if (["withdrawn", "revoked"].includes(normalized)) return "withdrawn";
   if (normalized === "expired") return "expired";

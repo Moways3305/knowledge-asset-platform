@@ -42,6 +42,54 @@ const task: WorkbenchTaskItemDTO = {
 };
 
 describe("TaskCenterDrawer", () => {
+  it("shows submitted indexing as waiting for indexing confirmation", () => {
+    render(
+      <MemoryRouter>
+        <TaskCenterDrawer
+          open
+          groups={{
+            my_tasks: [{ ...task, task_type: "indexing", status: "submitted_pending_index" }],
+            running_jobs: [],
+            attention_items: [],
+            recent_completed: [],
+          }}
+          onClose={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getAllByText("已提交，待索引").length).toBeGreaterThan(0);
+    expect(screen.queryByText("状态待确认")).not.toBeInTheDocument();
+  });
+
+  it("keeps a rejection distinct from processing failure and shows the actual next action", () => {
+    render(
+      <MemoryRouter>
+        <TaskCenterDrawer
+          open
+          groups={{
+            my_tasks: [
+              {
+                ...task,
+                task_type: "ingest",
+                status: "rejected",
+                next_action_label: "修改后重新上传",
+                route_key: "upload",
+                result_summary: "审核已拒绝：请补充依据",
+              },
+            ],
+            running_jobs: [],
+            attention_items: [],
+            recent_completed: [],
+          }}
+          onClose={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getAllByText("审核已拒绝").length).toBeGreaterThan(0);
+    expect(screen.getByText("审核已拒绝：请补充依据")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /修改后重新上传/ })).toHaveAttribute("href", "/upload");
+    expect(screen.queryByText("修正或重试")).not.toBeInTheDocument();
+  });
   it("shows safe task context and keeps long groups inside the drawer", () => {
     const onClose = vi.fn();
     const { container } = render(

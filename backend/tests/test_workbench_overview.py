@@ -87,7 +87,7 @@ async def test_processing_timeout_workbench_copy_is_actionable(client, db_sessio
     )
     assert item["result_summary"] == "处理超时，文件仍可重试"
     assert item["next_action_label"] == "重试处理"
-    assert item["next_action_key"] == "retry_ingest"
+    assert item["next_action_key"] == "retry_processing"
     assert "SECRET" not in response.text
 
 
@@ -278,8 +278,8 @@ async def test_cancelled_review_is_recent_terminal_work_not_an_active_task(clien
     assert not any(item["task_type"] == "review" for item in center["my_tasks"])
     assert not any(item["task_type"] == "review" for item in center["running_jobs"])
     completed = next(item for item in center["recent_completed"] if item["task_type"] == "review")
-    assert completed["status"] == "completed"
-    assert completed["result_summary"] == "审核已取消"
+    assert completed["status"] == "cancelled"
+    assert completed["result_summary"] == "审核已撤回或取消"
 
 
 async def test_only_confirm_ready_ingest_is_an_actionable_todo(client, db_session):
@@ -350,8 +350,8 @@ async def test_duplicate_skipped_ingest_remains_a_distinct_recent_terminal_state
     assert "server-only" not in response.text
 
 
-async def test_failed_and_rejected_ingest_appear_as_separate_ingest_failed_todo(client, db_session):
-    """收窄口径：failed / rejected 任务归入独立 ingest_failed 待办（error），不混入 ingest_pending。"""
+async def test_failed_and_rejected_ingest_have_distinct_todos(client, db_session):
+    """审核拒绝与技术失败分别计数，不混入待确认。"""
     user_id = await _create_business_user(db_session)
     db_session.add_all(
         [
@@ -389,8 +389,9 @@ async def test_failed_and_rejected_ingest_appear_as_separate_ingest_failed_todo(
     assert keys["ingest_pending"]["count"] == 1
     assert keys["ingest_pending"]["severity"] == "warning"
     assert keys["ingest_pending"]["action_key"] == "confirm_ingest"
-    # failed + rejected → ingest_failed（2，error）
-    assert keys["ingest_failed"]["count"] == 2
+    assert keys["ingest_failed"]["count"] == 1
+    assert keys["ingest_rejected"]["count"] == 1
+    assert keys["ingest_rejected"]["action_key"] == "replace_file"
     assert keys["ingest_failed"]["severity"] == "error"
     assert keys["ingest_failed"]["route_key"] == "upload"
     assert keys["ingest_failed"]["action_key"] == "retry_ingest"

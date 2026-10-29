@@ -18,10 +18,14 @@ export interface WorkbenchTodosSectionDTO {
 export type WorkbenchTaskStatus =
   | "needs_action"
   | "submitted"
+  | "submitted_pending_index"
   | "processing"
   | "completed"
   | "partial"
   | "failed"
+  | "waiting_review"
+  | "rejected"
+  | "cancelled"
   | "duplicate_skipped";
 export type WorkbenchTaskPriority = "urgent" | "high" | "normal" | "low";
 

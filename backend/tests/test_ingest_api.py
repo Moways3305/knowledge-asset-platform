@@ -1182,7 +1182,7 @@ async def test_admin_ingest_list_operational_only(client):
 # ────────────────────────── 删除待确认任务 ──────────────────────────
 
 
-async def test_rejected_history_can_confirm_or_be_permanently_rejected(client, db_session):
+async def test_rejected_history_cannot_confirm_but_can_be_removed(client, db_session):
     confirm_task_id = uuid.UUID(
         (await _create_task(client, USER_CONSULTANT, "confirm-rejected.md")).json()[
             "ingest_task_id"
@@ -1202,8 +1202,10 @@ async def test_rejected_history_can_confirm_or_be_permanently_rejected(client, d
         headers=_hdr(USER_CONSULTANT),
         json=_confirm_payload(target_scope="personal"),
     )
-    assert confirmed.status_code == 200
-    assert confirmed.json()["status"] == "completed"
+    assert confirmed.status_code == 409
+    assert "重新上传" in confirmed.json()["detail"]["message"]
+    await db_session.refresh(confirm_task)
+    assert confirm_task.status == "rejected"
 
     deleted = await client.delete(f"/api/v1/ingest/{delete_task_id}", headers=_hdr(USER_CONSULTANT))
     assert deleted.status_code == 200

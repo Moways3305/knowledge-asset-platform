@@ -211,12 +211,15 @@ async def _ensure_active_grant_for_request(
     existing = (
         (
             await session.execute(
-                select(AccessGrant).where(
+                select(AccessGrant)
+                .where(
                     AccessGrant.grantee_user_id == req.requester_user_id,
                     AccessGrant.asset_id == asset.id,
                     AccessGrant.grant_type == AccessGrantType.original_access.value,
                     AccessGrant.status == AccessGrantStatus.active.value,
                 )
+                .with_for_update()
+                .execution_options(populate_existing=True)
             )
         )
         .scalars()
@@ -604,18 +607,49 @@ async def list_requests(
 # ---------------------------------------------------------------------------
 # 审批 / 拒绝
 # ---------------------------------------------------------------------------
+async def _lock_request(
+    session: AsyncSession, request_id: uuid.UUID
+) -> OriginalAccessRequest | None:
+    # Match asset deletion/lifecycle writes: asset -> request -> existing grant.
+    # request.asset_id is immutable; read just that key before taking locks.
+    # Revocation takes only the grant lock and never locks the asset/request.
+    # Refresh after waiting, even when this Session cached active/pending rows.
+    with session.no_autoflush:
+        asset_id = await session.scalar(
+            select(OriginalAccessRequest.asset_id).where(OriginalAccessRequest.id == request_id)
+        )
+        if asset_id is None:
+            return None
+        asset = await session.scalar(
+            select(KnowledgeAsset)
+            .where(KnowledgeAsset.id == asset_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if asset is None:
+            return None
+        return (
+            await session.execute(
+                select(OriginalAccessRequest)
+                .where(OriginalAccessRequest.id == request_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one_or_none()
+
+
 async def _load_request(
     session: AsyncSession, request_id: uuid.UUID
 ) -> tuple[OriginalAccessRequest, KnowledgeAsset]:
-    req = (
-        await session.execute(
-            select(OriginalAccessRequest).where(OriginalAccessRequest.id == request_id)
-        )
-    ).scalar_one_or_none()
+    req = await _lock_request(session, request_id)
     if req is None:
         raise _denied(404, "original_access_request_not_found", "原文访问申请不存在")
     asset = (
-        await session.execute(select(KnowledgeAsset).where(KnowledgeAsset.id == req.asset_id))
+        await session.execute(
+            select(KnowledgeAsset)
+            .where(KnowledgeAsset.id == req.asset_id)
+            .execution_options(populate_existing=True)
+        )
     ).scalar_one_or_none()
     if asset is None:
         raise _denied(404, "knowledge_asset_not_found", "资产不存在")
@@ -653,6 +687,8 @@ async def approve_request(
     _require_approver(caller, asset)
     if req.status != AccessRequestStatus.pending.value:
         raise _denied(409, "request_already_finalized", "申请已处理，不能重复审批")
+    if asset.asset_status != AssetStatus.active.value:
+        raise _denied(409, "knowledge_asset_not_active", "资产已不可用，不能授予原文访问权限")
 
     now = utc_now()
     req.status = AccessRequestStatus.approved.value
@@ -836,6 +872,7 @@ async def _load_requester_ctx(session: AsyncSession, user_id: uuid.UUID) -> Call
                 selectinload(User.company_roles),
                 selectinload(User.project_members),
             )
+            .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
     return build_caller_context(user) if user is not None else None
@@ -843,7 +880,7 @@ async def _load_requester_ctx(session: AsyncSession, user_id: uuid.UUID) -> Call
 
 async def _auto_approve_one(
     session: AsyncSession,
-    req: OriginalAccessRequest,
+    request_id: uuid.UUID,
     *,
     now: datetime,
     days: int,
@@ -856,8 +893,18 @@ async def _auto_approve_one(
     保守跳过：机密资产（非 L1/L2）/ 资产不存在/已删除/归档/废弃 / 申请人 inactive 或非业务用户 /
     资产对申请人不可发现 / 即使授权也拿不到 original（L5、他人 personal 等硬边界）。
     """
+    req = await _lock_request(session, request_id)
+    if req is None or req.status != AccessRequestStatus.pending.value:
+        return "skipped_invalid"
+    created_at = _as_aware(req.created_at)
+    if created_at is None or created_at >= now - timedelta(hours=timeout_hours):
+        return "skipped_invalid"
     asset = (
-        await session.execute(select(KnowledgeAsset).where(KnowledgeAsset.id == req.asset_id))
+        await session.execute(
+            select(KnowledgeAsset)
+            .where(KnowledgeAsset.id == req.asset_id)
+            .execution_options(populate_existing=True)
+        )
     ).scalar_one_or_none()
     if asset is None or asset.asset_status != AssetStatus.active.value:
         return "skipped_invalid"
@@ -941,13 +988,13 @@ async def auto_approve_timed_out_original_access_requests(
         return {**stats, "enabled": False}
 
     cutoff = now - timedelta(hours=timeout_hours)
-    reqs = list(
+    request_ids = list(
         (
             await session.execute(
-                select(OriginalAccessRequest)
+                select(OriginalAccessRequest.id)
                 .where(OriginalAccessRequest.status == AccessRequestStatus.pending.value)
                 .where(OriginalAccessRequest.created_at < cutoff)
-                .order_by(OriginalAccessRequest.created_at)
+                .order_by(OriginalAccessRequest.created_at, OriginalAccessRequest.id)
                 .limit(limit)
             )
         )
@@ -956,18 +1003,22 @@ async def auto_approve_timed_out_original_access_requests(
     )
     days = await _grant_duration_days(session)
     policy = await load_access_policy(session)
-    for req in reqs:
+    for request_id in request_ids:
         stats["checked"] += 1
         try:
             outcome = await _auto_approve_one(
                 session,
-                req,
+                request_id,
                 now=now,
                 days=days,
                 timeout_hours=timeout_hours,
                 policy=policy,
                 trace_id=trace_id,
             )
+            if outcome != "approved":
+                # Release this skipped request's lock before processing another
+                # item. IDs remain usable after a later rollback expires ORM rows.
+                await session.commit()
             stats[outcome] += 1
         except Exception as exc:  # noqa: BLE001  # 单条失败不阻断整批；不泄露业务原文
             safe_log_exception(

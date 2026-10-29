@@ -16,7 +16,16 @@ import type { PendingIngestItemDTO } from "../../types/ingest";
 import { formatBeijingTime } from "../../utils/time";
 
 type Row = { id: string; local?: LocalUploadQueueItem; task?: PendingIngestItemDTO };
-type Filter = "actionable" | "all" | "active" | "ready" | "failed" | "completed" | "cancelled";
+type Filter =
+  | "actionable"
+  | "all"
+  | "active"
+  | "ready"
+  | "failed"
+  | "rejected"
+  | "waiting_review"
+  | "completed"
+  | "cancelled";
 
 export function mergeFileTasks(
   local: LocalUploadQueueItem[],
@@ -36,17 +45,28 @@ export function mergeFileTasks(
 }
 
 function state(row: Row): Filter {
-  if (row.local?.status === "cancelled") return "cancelled";
-  if (row.local && ["completed", "duplicate_skipped"].includes(row.local.status))
-    return "completed";
   if (row.task) {
+    if (row.task.status === "rejected") return "rejected";
+    if (row.task.status === "waiting_review") return "waiting_review";
+    if (row.task.status === "cancelled") return "cancelled";
+    if (["completed", "duplicate_skipped"].includes(row.task.status)) return "completed";
     if (row.task.status === "failed") return "failed";
     if (row.task.status === "pending_confirmation") return "ready";
     return "active";
   }
+  if (row.local?.status === "cancelled") return "cancelled";
+  if (row.local && ["completed", "duplicate_skipped"].includes(row.local.status))
+    return "completed";
   if (row.local?.status === "failed") return "failed";
   if (row.local?.status === "awaiting_confirmation") return "ready";
   return "active";
+}
+
+function canRetry(row: Row): boolean {
+  return (
+    state(row) === "failed" &&
+    (row.task ? row.task.retryable === true : row.local?.retryable !== false)
+  );
 }
 
 export default function UnifiedFileTasks({ flow }: { flow: UploadFlow }) {
@@ -115,17 +135,16 @@ export default function UnifiedFileTasks({ flow }: { flow: UploadFlow }) {
               取消本批上传
             </button>
           )}
-          {rows.some((row) => state(row) === "failed" && row.local?.retryable !== false) && (
+          {rows.some(canRetry) && (
             <button
               className="btn-secondary"
               disabled={Boolean(busy)}
               onClick={() =>
                 void perform("retry-all", async () => {
                   let failures = 0;
-                  for (const row of rows.filter((entry) => state(entry) === "failed")) {
+                  for (const row of rows.filter(canRetry)) {
                     try {
-                      if (row.local && row.local.retryable !== false)
-                        await flow.retryLocalUpload(row.local.id);
+                      if (row.local) await flow.retryLocalUpload(row.local.id);
                       else if (!row.local && row.task?.retryable)
                         await retryIngestTask(row.task.id);
                     } catch {
@@ -187,6 +206,8 @@ export default function UnifiedFileTasks({ flow }: { flow: UploadFlow }) {
               ["all", "全部"],
               ["active", "传输/处理中"],
               ["ready", "待确认"],
+              ["waiting_review", "等待审核"],
+              ["rejected", "审核已拒绝"],
               ["failed", "失败"],
               ["completed", "已处理"],
               ["cancelled", "已取消"],
@@ -234,31 +255,36 @@ export default function UnifiedFileTasks({ flow }: { flow: UploadFlow }) {
               const rowState = state(row);
               const name = local?.fileName ?? task?.source_file_name ?? "文件";
               const stage = task?.processing_stage ?? local?.processingStage;
-              const label = local?.needsReselection
-                ? "待补传原文件"
-                : rowState === "cancelled"
-                  ? "已取消"
-                  : local?.status === "duplicate_skipped"
-                    ? "因重复已跳过"
-                    : rowState === "completed"
-                      ? "处理已结束"
-                      : rowState === "ready"
-                        ? "待确认入库"
-                        : rowState === "failed"
-                          ? task || local?.ingestTaskId
-                            ? "处理失败"
-                            : "上传失败"
-                          : stage && PROCESSING_STAGE_LABELS[stage]
-                            ? PROCESSING_STAGE_LABELS[stage]
-                            : task
-                              ? (pendingStatusLabel[task.status] ?? "等待处理")
-                              : local?.status === "uploading"
-                                ? "上传中"
-                                : local?.status === "queued"
-                                  ? local.ingestTaskId
-                                    ? "等待处理"
-                                    : "等待上传"
-                                  : "处理中";
+              const label =
+                rowState === "rejected"
+                  ? "审核已拒绝"
+                  : rowState === "waiting_review"
+                    ? "等待审核"
+                    : local?.needsReselection
+                      ? "待补传原文件"
+                      : rowState === "cancelled"
+                        ? "已取消"
+                        : local?.status === "duplicate_skipped"
+                          ? "因重复已跳过"
+                          : rowState === "completed"
+                            ? "处理已结束"
+                            : rowState === "ready"
+                              ? "待确认入库"
+                              : rowState === "failed"
+                                ? task || local?.ingestTaskId
+                                  ? "处理失败"
+                                  : "上传失败"
+                                : stage && PROCESSING_STAGE_LABELS[stage]
+                                  ? PROCESSING_STAGE_LABELS[stage]
+                                  : task
+                                    ? (pendingStatusLabel[task.status] ?? "等待处理")
+                                    : local?.status === "uploading"
+                                      ? "上传中"
+                                      : local?.status === "queued"
+                                        ? local.ingestTaskId
+                                          ? "等待处理"
+                                          : "等待上传"
+                                        : "处理中";
               const canAct = task && !["completed", "cancelled"].includes(rowState);
               const size = task?.source_file_size ?? local?.fileSize;
               return (
@@ -281,7 +307,11 @@ export default function UnifiedFileTasks({ flow }: { flow: UploadFlow }) {
                     <button
                       className="upload77-task-select"
                       title={name}
-                      disabled={!canAct || flow.batchBusy}
+                      disabled={
+                        !canAct ||
+                        ["rejected", "waiting_review"].includes(rowState) ||
+                        flow.batchBusy
+                      }
                       onClick={() => task && void flow.handleSelectPendingTask(task)}
                     >
                       {name}
@@ -311,6 +341,9 @@ export default function UnifiedFileTasks({ flow }: { flow: UploadFlow }) {
                           task?.error_type ?? local?.errorCode,
                         )}
                       </p>
+                    )}
+                    {rowState === "rejected" && (
+                      <p>审核意见：{task?.review_comment || "请根据审核要求修改后重新上传。"}</p>
                     )}
                     {task && flow.batchStatus[task.id] && (
                       <BatchTaskProgress
@@ -367,16 +400,21 @@ export default function UnifiedFileTasks({ flow }: { flow: UploadFlow }) {
                           确认入库
                         </button>
                       )}
-                      {rowState === "failed" &&
-                        (local ? local.retryable !== false : task?.retryable) && (
-                          <button
-                            className="upload77-retry-link"
-                            disabled={Boolean(busy)}
-                            onClick={() => void retry(row)}
-                          >
-                            {busy === row.id ? "正在重试…" : "重试处理"}
-                          </button>
-                        )}
+                      {canRetry(row) && (
+                        <button
+                          className="upload77-retry-link"
+                          disabled={Boolean(busy)}
+                          onClick={() => void retry(row)}
+                        >
+                          {busy === row.id ? "正在重试…" : "重试处理"}
+                        </button>
+                      )}
+                      {(rowState === "rejected" ||
+                        (rowState === "failed" && task?.next_action?.key === "replace_file")) && (
+                        <button className="upload77-retry-link" onClick={flow.handleReset}>
+                          修改后重新上传
+                        </button>
+                      )}
                       {local && rowState === "failed" && (
                         <button
                           className="upload77-retry-link"

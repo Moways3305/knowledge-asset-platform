@@ -450,6 +450,9 @@ async def replace(session, caller, asset_id, req, trace_id):
         replacement_asset_id=str(target.id),
         reason=req.reason,
     )
+    # Both endpoints are already locked. Persist the replacement link before the
+    # lifecycle command refreshes its locked row; keep the same atomic transaction.
+    await session.flush()
     # Existing lifecycle command keeps revocation/audit behavior and commits atomically.
     await lifecycle.archive_confirm(
         session, caller, asset.id, ArchiveConfirmBody(reason=req.reason), trace_id

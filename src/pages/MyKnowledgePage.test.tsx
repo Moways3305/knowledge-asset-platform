@@ -390,6 +390,20 @@ describe("MyKnowledgePage complete personal workflow", () => {
     await waitFor(() => expect(screen.queryByText("旧查询结果")).not.toBeInTheDocument());
   });
 
+  it("shows initialization failure even when creating the knowledge base returns HTTP 200", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchMyKnowledgeBase).mockResolvedValue({ exists: false });
+    vi.mocked(createMyKnowledgeBase).mockResolvedValue({ exists: true, status: "init_failed" });
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "创建知识库" }));
+    await user.click(screen.getByRole("button", { name: "创建" }));
+    expect(
+      await screen.findByText("个人知识库初始化失败，请重试初始化或联系管理员。"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("个人知识库已就绪")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重新初始化" })).toBeInTheDocument();
+  });
+
   it("preserves knowledge-base creation and rename dialogs", async () => {
     const user = userEvent.setup();
     vi.mocked(fetchMyKnowledgeBase).mockResolvedValue({ exists: false });

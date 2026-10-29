@@ -252,6 +252,14 @@ class KnowledgeAssetChunk(Base):
     __table_args__ = (
         # 同一版本内 chunk 顺序位置唯一。
         UniqueConstraint("version_id", "chunk_index", name="uq_version_chunk_index"),
+        Index(
+            "ix_knowledge_chunks_identifier_vector",
+            text(
+                "to_tsvector('simple'::regconfig, "
+                "regexp_replace(content_text, '[^A-Za-z0-9]+', ' ', 'g'))"
+            ),
+            postgresql_using="gin",
+        ).ddl_if(dialect="postgresql"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)

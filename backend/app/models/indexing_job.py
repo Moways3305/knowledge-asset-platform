@@ -43,7 +43,7 @@ class IndexingOperationJob(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     # retry_index | reparse
     operation_type: Mapped[str] = mapped_column(String(20), nullable=False)
-    # queued | running | completed | completed_with_errors | failed
+    # queued | running | submitted_pending_index | completed | completed_with_errors | failed
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="queued")
     # 安全筛选条件（scope / project_id / statuses / limit）；绝不含原文 / 内部 ref。
     scope_filter: Mapped[dict | None] = mapped_column(JSON, nullable=True)
@@ -69,6 +69,19 @@ class IndexingOperationJob(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
+
+    @property
+    def pending_count(self) -> int:
+        """Submission-time snapshot, not a live claim that parsing is still pending.
+
+        Final jobs account for every target. Pending submissions are deliberately
+        excluded from success; deriving the remainder needs no IDs or migration.
+        """
+        if self.status not in {"submitted_pending_index", "completed_with_errors"}:
+            return 0
+        return max(
+            self.total_count - self.success_count - self.failed_count - self.skipped_count, 0
+        )
 
 
 class IndexingOpsSnapshot(Base):

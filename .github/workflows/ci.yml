@@ -115,7 +115,7 @@ jobs:
           KAP_TEST_POSTGRES_URL: ${{ env.DATABASE_URL }}
         run: |
           test -n "$KAP_TEST_POSTGRES_URL"
-          python -m pytest tests/test_directory_migration_postgres.py tests/test_original_access_grants_postgres.py tests/test_naming_rule_concurrency_postgres.py -q -rs
+          python -m pytest tests/test_directory_migration_postgres.py tests/test_original_access_grants_postgres.py tests/test_naming_rule_concurrency_postgres.py tests/test_retrieval_lexical_postgres.py tests/test_asset_terminal_state_postgres.py -q -rs
 
   backend-image:
     name: Backend (docker build)

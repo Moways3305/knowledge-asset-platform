@@ -360,6 +360,41 @@ async def test_index_failure_stays_invisible_and_retry_reuses_asset(
     assert succeeding.upload_count == 1
 
 
+async def test_bulk_approval_counts_business_failure_and_retry_truthfully(
+    client, db_session, monkeypatch
+):
+    monkeypatch.setattr("app.services.ingest.weknora_enabled", lambda: True)
+    patch_default_model(monkeypatch)
+    app.dependency_overrides[get_weknora_client] = lambda: _ApprovalWeKnora(fail=True)
+    _, review_id = await _submit(client, title="批量审批失败不能计为成功")
+
+    response = await client.post(
+        f"{REVIEWS}/bulk-action",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={"item_ids": [review_id], "action": "approve"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "completed_with_errors"
+    assert (body["succeeded"], body["failed"], body["skipped"]) == (0, 1, 0)
+    assert body["items"][0]["reason_code"] == "review_approval_failed"
+    assert "SECRET-LIKE" not in response.text
+    db_session.expire_all()
+    review = await db_session.get(ReviewTask, uuid.UUID(review_id))
+    assert review.status == "approval_failed"
+
+    succeeding = _ApprovalWeKnora(fail=False)
+    app.dependency_overrides[get_weknora_client] = lambda: succeeding
+    retried = await client.post(
+        f"{REVIEWS}/bulk-action",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={"item_ids": [review_id], "action": "approve"},
+    )
+    assert retried.status_code == 200
+    assert (retried.json()["succeeded"], retried.json()["failed"]) == (1, 0)
+    assert succeeding.upload_count == 1
+
+
 async def test_approval_revalidates_canonical_markdown_before_materialization(
     client, db_session, monkeypatch
 ):

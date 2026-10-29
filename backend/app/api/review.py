@@ -185,7 +185,7 @@ async def bulk_review_action(
         for review_id in batch:
             try:
                 if req.action == "approve":
-                    await review_service.approve(
+                    outcome = await review_service.approve(
                         session,
                         caller,
                         review_id,
@@ -195,16 +195,26 @@ async def bulk_review_action(
                         weknora=weknora,
                     )
                 else:
-                    await review_service.reject(
+                    outcome = await review_service.reject(
                         session,
                         caller,
                         review_id,
                         (req.review_comment or "").strip(),
                         trace_id,
                     )
-                batch_results.append(
-                    bulk_service.BulkItemResult(item_id=review_id, status="succeeded")
-                )
+                if outcome.status == "approval_failed":
+                    batch_results.append(
+                        bulk_service.BulkItemResult(
+                            item_id=review_id,
+                            status="failed",
+                            reason_code="review_approval_failed",
+                            message="入库处理失败，审核尚未完成，请查看任务状态后重试",
+                        )
+                    )
+                else:
+                    batch_results.append(
+                        bulk_service.BulkItemResult(item_id=review_id, status="succeeded")
+                    )
             except HTTPException as exc:
                 await session.rollback()
                 batch_results.append(bulk_service.skipped_from_http(review_id, exc))

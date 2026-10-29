@@ -1,5 +1,13 @@
 ﻿// 审核流 API 的 DTO 类型。
 
+export interface ReviewActionResponseDTO {
+  review_id: string;
+  status: string;
+  target_asset_id: string | null;
+  asset_zone: string | null;
+  index_status?: string | null;
+}
+
 export interface ReviewItemDTO {
   id: string;
   review_type: string;

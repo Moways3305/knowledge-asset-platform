@@ -267,7 +267,9 @@ try {
             reviewItem({
               id: "secret-review-82",
               asset_title: "本人已确认事项",
-              status: "approved",
+              review_type: "project_to_company",
+              status: "pending_reviewer",
+              general_manager_confirmation_status: "confirmed",
               can_decide: false,
               can_withdraw: true,
             }),
@@ -288,15 +290,33 @@ try {
           if (scenario.name === "review-action-failure") {
             return fulfill({ detail: { message: "upstream secret body" } }, 500);
           }
-          return fulfill({});
+          return fulfill({
+            review_id: requestUrl.pathname.split("/").at(-2),
+            status: "approved",
+            target_asset_id: "secret-asset-80",
+            asset_zone: "asset",
+            index_status: "indexed",
+          });
         }
         if (requestUrl.pathname.endsWith("/reject") && requestUrl.pathname.includes("/reviews/")) {
           reviewRejectCalls += 1;
-          return fulfill({});
+          return fulfill({
+            review_id: requestUrl.pathname.split("/").at(-2),
+            status: "rejected",
+            target_asset_id: null,
+            asset_zone: null,
+            index_status: null,
+          });
         }
         if (requestUrl.pathname.endsWith("/withdraw")) {
           reviewWithdrawCalls += 1;
-          return fulfill({});
+          return fulfill({
+            review_id: requestUrl.pathname.split("/").at(-2),
+            status: "cancelled",
+            target_asset_id: "secret-asset-80",
+            asset_zone: "asset",
+            index_status: null,
+          });
         }
 
         if (requestUrl.pathname === "/api/v1/original-access/grants") {

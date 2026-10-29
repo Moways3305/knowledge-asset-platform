@@ -4,17 +4,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/http";
 import {
   approveReview,
+  bulkRegisterReviewEvidence,
   fetchReviewPage,
   fetchReviews,
   rejectReview,
   withdrawReviewConfirmation,
 } from "../api/review";
-import type { ReviewItemDTO } from "../types/review";
+import type { ReviewActionResponseDTO, ReviewItemDTO } from "../types/review";
 import ReviewPage from "./ReviewPage";
 import ReviewCompletedPage from "./ReviewCompletedPage";
 
 vi.mock("../api/review", () => ({
   approveReview: vi.fn(),
+  bulkRegisterReviewEvidence: vi.fn(),
   fetchReviewPage: vi.fn(),
   fetchReviews: vi.fn(),
   rejectReview: vi.fn(),
@@ -41,6 +43,13 @@ const pending: ReviewItemDTO = {
   can_withdraw: false,
   general_manager_confirmation_status: null,
   consulting_director_confirmation_status: null,
+};
+
+const approved: ReviewActionResponseDTO = {
+  review_id: pending.id,
+  status: "approved",
+  target_asset_id: pending.target_asset_id,
+  asset_zone: "material",
 };
 
 function renderPage() {
@@ -74,9 +83,14 @@ describe("ReviewPage governance workspace", () => {
   beforeEach(() => {
     vi.mocked(fetchReviewPage).mockReset();
     vi.mocked(fetchReviews).mockReset().mockResolvedValue([pending]);
-    vi.mocked(approveReview).mockReset().mockResolvedValue();
-    vi.mocked(rejectReview).mockReset().mockResolvedValue();
-    vi.mocked(withdrawReviewConfirmation).mockReset().mockResolvedValue();
+    vi.mocked(approveReview).mockReset().mockResolvedValue(approved);
+    vi.mocked(rejectReview)
+      .mockReset()
+      .mockResolvedValue({ ...approved, status: "rejected" });
+    vi.mocked(withdrawReviewConfirmation)
+      .mockReset()
+      .mockResolvedValue({ ...approved, status: "rejected" });
+    vi.mocked(bulkRegisterReviewEvidence).mockReset();
   });
 
   it("uses the formal route workspace and sends real status and type filters", async () => {
@@ -112,6 +126,7 @@ describe("ReviewPage governance workspace", () => {
   });
 
   it("shows separate company confirmation seats and does not call one confirmation approval", async () => {
+    vi.mocked(approveReview).mockResolvedValue({ ...approved, status: "pending_reviewer" });
     vi.mocked(fetchReviews).mockResolvedValue([
       {
         ...pending,
@@ -124,10 +139,48 @@ describe("ReviewPage governance workspace", () => {
     expect(await screen.findByText("总经理：已确认")).toBeInTheDocument();
     expect(screen.getByText("咨询总监：待确认")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /^确认$/ }));
-    expect(
-      await screen.findByText("公司发布确认已提交，是否发布以审核状态为准。"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("本次确认已记录，审核仍在等待其余确认。")).toBeInTheDocument();
     expect(screen.queryByText("审核已通过。")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["approval_failed", "index_failed", "入库处理失败，审核尚未完成。请查看任务状态后重试。"],
+    ["approving", "indexing", "确认已受理，入库仍在处理中。"],
+    ["approved", "indexing", "审核已通过，索引仍在处理中；可检索状态请查看资料详情。"],
+  ])(
+    "honors the business result %s even when the request resolves",
+    async (status, index_status, message) => {
+      vi.mocked(approveReview).mockResolvedValue({ ...approved, status, index_status });
+      renderPage();
+      fireEvent.click(await screen.findByRole("button", { name: /^确认$/ }));
+      expect(await screen.findByText(message)).toBeInTheDocument();
+      expect(screen.queryByText("审核已通过。")).not.toBeInTheDocument();
+      expect(fetchReviews).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it("does not claim evidence moved a stale review into the pending queue", async () => {
+    vi.mocked(fetchReviews).mockResolvedValue([
+      { ...pending, review_type: "material_to_asset", status: "pending_evidence" },
+    ]);
+    vi.mocked(bulkRegisterReviewEvidence).mockResolvedValue({
+      transitioned: 0,
+      existing: 0,
+      skipped: 1,
+      failed: 0,
+    });
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "补充证据 / 查看要求" }));
+    fireEvent.change(screen.getByLabelText("适用说明（必填）"), {
+      target: { value: "验收复盘纪要" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "登记并转待审核" }));
+    expect(
+      await screen.findByText(
+        "补充证据处理完成：转待审核 0 项，重复证据 0 项，跳过 1 项，失败 0 项。",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("证据已登记，任务已进入待审核。")).not.toBeInTheDocument();
   });
 
   it("shows safe fields and never renders ids, trigger sources or unknown enums", async () => {
@@ -214,8 +267,8 @@ describe("ReviewPage governance workspace", () => {
     let completeApprove!: () => void;
     vi.mocked(approveReview).mockImplementationOnce(
       () =>
-        new Promise<void>((resolve) => {
-          completeApprove = resolve;
+        new Promise<ReviewActionResponseDTO>((resolve) => {
+          completeApprove = () => resolve(approved);
         }),
     );
     vi.mocked(fetchReviews).mockImplementation(async (options) =>
@@ -314,6 +367,19 @@ describe("ReviewCompletedPage read-only queue", () => {
     expect(screen.getByRole("columnheader", { name: "完成时间" })).toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /确认|拒绝|撤回|批量/ })).not.toBeInTheDocument();
+  });
+
+  it("distinguishes a withdrawn or cancelled review from rejection", async () => {
+    vi.mocked(fetchReviewPage).mockResolvedValue({
+      items: [{ ...completed, status: "cancelled" }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+    });
+    renderCompletedPage();
+    const row = (await screen.findByText(completed.asset_title!)).closest("tr")!;
+    expect(within(row).getByText("已撤回或取消")).toBeInTheDocument();
+    expect(within(row).queryByText("已拒绝")).not.toBeInTheDocument();
   });
 
   it("sends terminal filters and server pagination", async () => {

@@ -10,12 +10,13 @@ from typing import TypeVar
 
 from fastapi import HTTPException
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import safe_log_exception
 from app.models.identity import ProjectMember, User
 from app.models.ingest import IngestTask
+from app.models.review import ReviewTask
 from app.schemas.permission import CallerContext
 from app.schemas.workbench import (
     WorkbenchOperationsIndexing,
@@ -50,15 +51,22 @@ _TODO_DEFINITIONS = {
     "review_pending": ("warning", "reviews", "decide_review"),
     "ingest_pending": ("warning", "upload", "confirm_ingest"),
     "ingest_failed": ("error", "upload", "retry_ingest"),
+    "ingest_rejected": ("warning", "upload", "replace_file"),
     "original_access_pending": ("info", "original_access", "decide_original_access"),
 }
 _SEVERITY_ORDER = {"error": 0, "warning": 1, "info": 2}
 # 待确认口径收窄：只统计真正需要用户确认的任务；失败 / 被拒归入独立待办。
 _INGEST_PENDING_STATUSES = {"pending_confirmation"}
-_INGEST_FAILED_STATUSES = {"failed", "rejected"}
+_INGEST_FAILED_STATUSES = {"failed"}
 _REVIEW_TERMINAL_STATUSES = {"approved", "rejected", "cancelled"}
 _JOB_RUNNING_STATUSES = {"queued", "running"}
-_JOB_TERMINAL_STATUSES = {"completed", "completed_with_errors", "failed", "no_action"}
+_JOB_TERMINAL_STATUSES = {
+    "submitted_pending_index",
+    "completed",
+    "completed_with_errors",
+    "failed",
+    "no_action",
+}
 _PRIORITY_ORDER = {"urgent": 0, "high": 1, "normal": 2, "low": 3}
 _TASK_STATUS_ORDER = {"failed": 0, "needs_action": 1, "processing": 2, "submitted": 3}
 _OPS_TASK_TYPES = {
@@ -267,7 +275,9 @@ async def build_task_center(
                             task_type="review",
                             object_name=(review_item.asset_title or "知识资产审核").strip(),
                             project_name=review_item.project_name,
-                            status="completed",
+                            status="completed"
+                            if review_item.status == "approved"
+                            else review_item.status,
                             priority="low",
                             assignee=current_name,
                             responsibility="已处理",
@@ -278,9 +288,9 @@ async def build_task_center(
                             result_summary=(
                                 "审核已通过"
                                 if review_item.status == "approved"
-                                else "审核已取消"
+                                else "审核已撤回或取消"
                                 if review_item.status == "cancelled"
-                                else "审核已结束"
+                                else "审核已拒绝"
                             ),
                         )
                     )
@@ -302,7 +312,10 @@ async def build_task_center(
         for ingest_item in ingest_items:
             waiting = _waiting_minutes(ingest_item.created_at)
             actionable = ingest_item.status in {"pending_confirmation", "failed", "rejected"}
-            failed = ingest_item.status in {"failed", "rejected"}
+            rejected = ingest_item.status == "rejected"
+            waiting_review = ingest_item.status == "waiting_review"
+            failed = ingest_item.status == "failed"
+            next_action = ingest_item.next_action
             task = WorkbenchTaskItem(
                 task_ref=_task_ref("ingest", ingest_item.id),
                 task_type="ingest",
@@ -310,7 +323,11 @@ async def build_task_center(
                     ingest_item.suggested_title or ingest_item.source_file_name or "待入库资料"
                 ).strip(),
                 status=(
-                    "failed"
+                    "rejected"
+                    if rejected
+                    else "waiting_review"
+                    if waiting_review
+                    else "failed"
                     if failed
                     else "needs_action"
                     if actionable
@@ -321,37 +338,43 @@ async def build_task_center(
                 priority=_priority(
                     failed=failed, waiting_minutes=waiting, action_required=actionable
                 ),
-                assignee=current_name if actionable else "系统作业",
+                assignee=current_name
+                if actionable
+                else "项目审核人"
+                if waiting_review
+                else "系统作业",
                 responsibility="由你确认" if actionable else "由你发起",
                 created_at=ingest_item.created_at,
                 updated_at=ingest_item.updated_at or ingest_item.created_at,
                 waiting_minutes=waiting,
-                next_action_key="retry_ingest"
-                if failed
-                else "confirm_ingest"
-                if actionable
-                else None,
+                next_action_key=next_action.key if next_action and next_action.enabled else None,
                 next_action_label=(
-                    "重试处理"
-                    if ingest_item.error_type == "processing_timeout"
+                    "修改后重新上传"
+                    if rejected
+                    else "查看审核进度"
+                    if waiting_review
+                    else "重试处理"
+                    if ingest_item.retryable
                     else "重新上传"
-                    if ingest_item.error_type == "source_file_unavailable"
-                    else "修正或重试"
+                    if next_action and next_action.key == "replace_file"
+                    else "查看处理说明"
                     if failed
                     else "核对并确认"
                     if actionable
                     else "等待处理完成"
                 ),
-                route_key="upload",
+                route_key="reviews" if waiting_review else "upload",
                 result_summary=(
-                    "处理超时，文件仍可重试"
+                    f"审核已拒绝：{ingest_item.review_comment or '请根据审核要求修改后重新上传。'}"
+                    if rejected
+                    else "处理超时，文件仍可重试"
                     if ingest_item.error_type == "processing_timeout"
                     else "源文件不可用，请重新上传"
                     if ingest_item.error_type == "source_file_unavailable"
                     else None
                 ),
             )
-            (my_tasks if actionable else running_jobs).append(task)
+            (my_tasks if actionable or waiting_review else running_jobs).append(task)
 
         access_inbox = await original_access_service.list_requests(
             session, caller, box="inbox", status="pending"
@@ -477,6 +500,8 @@ async def build_task_center(
                 if job.status == "queued"
                 else "processing"
                 if job.status == "running"
+                else "submitted_pending_index"
+                if job.status == "submitted_pending_index"
                 else "partial"
                 if job.status == "completed_with_errors"
                 else "failed"
@@ -501,12 +526,17 @@ async def build_task_center(
                 next_action_key="inspect_operation",
                 next_action_label="处理失败项"
                 if mapped_status in {"failed", "partial"}
+                else "查看当前索引状态"
+                if mapped_status == "submitted_pending_index"
                 else "查看作业进度"
                 if mapped_status in {"submitted", "processing"}
                 else "查看作业结果",
                 route_key="models" if job.operation_type == "kb_migrate" else "admin_ingest",
                 result_summary=(
-                    f"成功 {job.success_count}，失败 {job.failed_count}，跳过 {job.skipped_count}"
+                    f"本次提交结束：已完成 {job.success_count}，提交时待索引 {job.pending_count}，"
+                    f"失败 {job.failed_count}；是否可检索以资产当前状态为准"
+                    if job.pending_count > 0
+                    else f"成功 {job.success_count}，失败 {job.failed_count}，跳过 {job.skipped_count}"
                     if mapped_status in {"completed", "partial", "failed"}
                     else None
                 ),
@@ -566,7 +596,9 @@ async def build_task_center(
         key=lambda item: (_PRIORITY_ORDER.get(item.priority, 9), -(item.waiting_minutes or 0)),
     )[:5]
     summary = WorkbenchTaskSummary(
-        needs_action=sum(item.status in {"needs_action", "failed"} for item in my_tasks),
+        needs_action=sum(
+            item.status in {"needs_action", "failed", "rejected"} for item in my_tasks
+        ),
         running=len(running_jobs),
         attention=len(attention_items),
         completed_today=len(recent_completed),
@@ -596,18 +628,30 @@ async def build_todos(
     )
     pending_reviews = sum(item.can_decide and item.status == "pending_reviewer" for item in reviews)
     failed_reviews = sum(item.can_decide and item.status == "approval_failed" for item in reviews)
+    upload_status = case(
+        # Keep the same precedence as ingest_review_state.effective_status:
+        # historical cancelled tasks can have cancel_requested=False and retain
+        # an earlier rejected review, but must never reappear as an upload todo.
+        (IngestTask.status == "cancelled", IngestTask.status),
+        (ReviewTask.status.in_({"rejected", "cancelled"}), ReviewTask.status),
+        else_=IngestTask.status,
+    )
     counts_by_status = {
         status: count
         for status, count in (
             await session.execute(
-                select(IngestTask.status, func.count())
+                select(upload_status, func.count())
+                .select_from(IngestTask)
+                .outerjoin(ReviewTask, ReviewTask.source_ingest_task_id == IngestTask.id)
                 .where(
                     IngestTask.created_by == caller.user_id,
                     IngestTask.result_asset_id.is_(None),
                     IngestTask.cancel_requested.is_(False),
-                    IngestTask.status.in_(_INGEST_PENDING_STATUSES | _INGEST_FAILED_STATUSES),
+                    upload_status.in_(
+                        _INGEST_PENDING_STATUSES | _INGEST_FAILED_STATUSES | {"rejected"}
+                    ),
                 )
-                .group_by(IngestTask.status)
+                .group_by(upload_status)
             )
         ).all()
     }
@@ -622,6 +666,7 @@ async def build_todos(
         "review_pending": pending_reviews,
         "ingest_pending": pending_ingest,
         "ingest_failed": failed_ingest,
+        "ingest_rejected": counts_by_status.get("rejected", 0),
         "original_access_pending": access_inbox.total,
     }
     items = [_todo_item(key, count) for key, count in counts.items() if count > 0]

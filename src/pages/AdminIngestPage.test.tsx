@@ -752,6 +752,38 @@ describe("AdminIngestPage operations reference", () => {
     expect(within(currentState).getByText("解析中断").closest("p")).toHaveTextContent("1");
   });
 
+  it("keeps accepted indexing distinct from searchable completion and does not resubmit", async () => {
+    const submitted = {
+      ...completedJob,
+      status: "submitted_pending_index",
+      total_count: 2,
+      success_count: 0,
+      pending_count: 2,
+      failed_count: 0,
+    };
+    vi.mocked(triggerIndexingRetry).mockResolvedValue(submitted);
+    vi.mocked(fetchIndexingJobs)
+      .mockResolvedValueOnce({ items: [], total: 0 })
+      .mockResolvedValue({ items: [submitted], total: 1 });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /^恢复索引/ }));
+    expect(
+      await screen.findByText(/恢复索引提交处理已结束：共 2 项，已完成 0 项，提交时待索引 2 项/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("作业已完成")).not.toBeInTheDocument();
+    const submittedJobRow = screen.getByText("已提交，待索引确认").closest("li");
+    expect(submittedJobRow).not.toBeNull();
+    await user.click(within(submittedJobRow!).getByRole("button", { name: "查看详情" }));
+    const dialog = screen.getByRole("dialog", { name: "索引维护作业" });
+    expect(within(dialog).getByText("提交时待索引")).toBeInTheDocument();
+    expect(within(dialog).getByText(/是否可检索以资产当前索引状态为准/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/待索引项勿重复提交/)).toBeInTheDocument();
+    expect(within(dialog).queryByText("无需后续操作。")).not.toBeInTheDocument();
+    expect(triggerIndexingRetry).toHaveBeenCalledTimes(1);
+  });
+
   it("treats a zero-target reparse as terminal and refreshes every dependent summary", async () => {
     vi.mocked(triggerIndexingReparse).mockResolvedValue({
       ...completedJob,
@@ -791,6 +823,13 @@ describe("AdminIngestPage operations reference", () => {
     await waitFor(() =>
       expect(screen.getAllByRole("button", { name: "正在执行：恢复索引" })[0]).toBeDisabled(),
     );
+    const runningRow = screen.getByText("执行中").closest("li");
+    await user.click(within(runningRow!).getByRole("button", { name: "查看详情" }));
+    expect(
+      within(screen.getByRole("dialog", { name: "索引维护作业" })).getByText(
+        /尚未达到最终完成状态/,
+      ),
+    ).toBeInTheDocument();
     await waitFor(() => expect(fetchIndexingJobs).toHaveBeenCalledTimes(3), {
       timeout: 3_500,
     });
@@ -798,6 +837,9 @@ describe("AdminIngestPage operations reference", () => {
     expect(fetchAdminIngest).toHaveBeenCalledTimes(3);
     expect(fetchOpsIndexing).toHaveBeenCalledTimes(3);
     expect(fetchIndexingHealth).toHaveBeenCalledTimes(3);
+    expect(
+      within(screen.getByRole("dialog", { name: "索引维护作业" })).getByText(/作业已到达终态/),
+    ).toBeInTheDocument();
 
     const stoppedAt = vi.mocked(fetchIndexingJobs).mock.calls.length;
     await act(async () => {

@@ -247,6 +247,32 @@ describe("NotificationBell", () => {
     await waitFor(() => expect(markNotificationsRead).toHaveBeenCalledWith(["notif-1"]));
   });
 
+  it("reloads a partial read batch without inventing read state for skipped rows", async () => {
+    vi.mocked(markNotificationsRead).mockResolvedValue({
+      requested_count: 1,
+      marked_count: 0,
+      already_read_count: 0,
+    });
+    // Keep the read refresh pending to expose any invented local success.
+    vi.mocked(fetchNotifications)
+      .mockResolvedValueOnce({
+        items: [notification],
+        total: 1,
+        page: 1,
+        page_size: 20,
+        unread_count: 1,
+        pending_count: 1,
+      })
+      .mockReturnValueOnce(new Promise(() => undefined));
+    renderBell();
+    fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "全部已读" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("部分通知状态或权限已变化");
+    expect(screen.getByText(/1 条未读/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "全部已读" })).toBeEnabled();
+    expect(fetchNotifications).toHaveBeenCalledTimes(2);
+  });
+
   it.each(["poll", "focus", "invalidation"])(
     "refreshes every expanded page on %s without retaining removed work",
     async (trigger) => {
