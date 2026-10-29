@@ -12,9 +12,11 @@ from pathlib import Path
 import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.sql import visitors
+from sqlalchemy.sql.elements import BinaryExpression
 
 from app.db.base import Base
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetFileObject
@@ -175,14 +177,40 @@ async def test_postgres_identifier_index_backfills_and_tracks_updates(tmp_path, 
             )
             plan = await session.scalar(text("EXPLAIN (FORMAT JSON) " + sql))
             assert "ix_knowledge_chunks_identifier_vector" in json.dumps(plan)
-            for anchor_is_left in (True, False):
-                boundary_sql = str(
-                    _boundary_matches(
-                        "CODE1234", postgresql=True, anchor_is_left=anchor_is_left
-                    ).compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
+            for anchor_is_left, identifier in (
+                (True, "CODE1234"),
+                (False, "BONUS-EDGE-1809"),
+            ):
+                boundary = _boundary_matches(
+                    identifier, postgresql=True, anchor_is_left=anchor_is_left
                 )
-                boundary_plan = await session.scalar(text("EXPLAIN (FORMAT JSON) " + boundary_sql))
-                assert "ix_knowledge_chunks_identifier_vector" in json.dumps(boundary_plan)
+                boundary_rows = (await session.execute(boundary)).all()
+                assert {
+                    (row.asset_id, row.version_id, row.single_chunk) for row in boundary_rows
+                } == {(KA_PROJECT_ALPHA, version_id, 0)}
+                # A tiny JOIN may correctly prefer the asset/version B-tree
+                # over GIN even with seqscan disabled. Prove the actual branch's
+                # anchor condition is GIN-usable without dictating join order.
+                # Extract its expression/alias rather than recreating a weaker
+                # predicate in this test; removing @@ from production must fail.
+                anchor_predicates = [
+                    node
+                    for node in visitors.iterate(boundary.whereclause)
+                    if isinstance(node, BinaryExpression)
+                    and getattr(node.operator, "opstring", None) == "@@"
+                ]
+                assert len(anchor_predicates) == 1
+                anchor = select(
+                    boundary.selected_columns.asset_id,
+                    boundary.selected_columns.version_id,
+                ).where(anchor_predicates[0])
+                anchor_sql = str(
+                    anchor.compile(
+                        dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+                    )
+                )
+                anchor_plan = await session.scalar(text("EXPLAIN (FORMAT JSON) " + anchor_sql))
+                assert "ix_knowledge_chunks_identifier_vector" in json.dumps(anchor_plan)
             await rebuild_version_chunks(
                 session,
                 asset_id=KA_PROJECT_ALPHA,
