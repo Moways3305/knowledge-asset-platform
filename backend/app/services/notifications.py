@@ -103,6 +103,11 @@ _EVENT_COPY = {
         "索引作业已完成",
         "你提交的索引作业已完成，可查看处理结果。",
     ),
+    "job.indexing.submitted": (
+        "indexing",
+        "索引请求已提交",
+        "提交处理已结束，索引结果仍需对账确认。请查看资产当前索引状态，勿重复提交。",
+    ),
     "job.indexing.partial": (
         "indexing",
         "索引作业部分完成",
@@ -113,6 +118,11 @@ _EVENT_COPY = {
         "parsing",
         "解析作业已完成",
         "你提交的解析作业已完成，可查看处理结果。",
+    ),
+    "job.parsing.submitted": (
+        "parsing",
+        "解析请求已提交",
+        "提交处理已结束，解析结果仍需对账确认。请查看资产当前索引状态，勿重复提交。",
     ),
     "job.parsing.partial": (
         "parsing",
@@ -509,6 +519,7 @@ async def notify_index_status_changed(
 async def notify_operation_job_finished(session: AsyncSession, job: IndexingOperationJob) -> None:
     """Create one safe terminal notification for the job requester."""
     if job.requested_by_user_id is None or job.status not in {
+        "submitted_pending_index",
         "completed",
         "completed_with_errors",
         "failed",
@@ -528,6 +539,8 @@ async def notify_operation_job_finished(session: AsyncSession, job: IndexingOper
     outcome = (
         "failed"
         if job.status == "failed"
+        else "submitted"
+        if job.status == "submitted_pending_index"
         else "partial"
         if job.status == "completed_with_errors"
         else "completed"

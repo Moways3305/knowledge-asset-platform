@@ -19,6 +19,7 @@ from app.models.knowledge import (
     KnowledgeAssetSummary,
     KnowledgeAssetVersion,
 )
+from app.models.review import ReviewTask
 from app.schemas.enums import AuditAction, AuditLogType, IngestStatus, KnowledgeScope, SummaryType
 from app.schemas.permission import AccessLayer, CallerContext
 from app.schemas.upload_duplicates import (
@@ -28,6 +29,7 @@ from app.schemas.upload_duplicates import (
     UploadDuplicateReadModel,
 )
 from app.services import audit as audit_service
+from app.services.ingest_review_state import effective_status, reviews_by_task
 from app.services.permission import decide
 
 _HASH_TASK_STATES = {
@@ -901,18 +903,23 @@ async def decide_duplicate(
     )
 
 
-def my_upload_projection(task: IngestTask, *, project_name: str | None = None) -> MyUploadItem:
-    if task.status == IngestStatus.cancelled.value or task.cancel_requested:
+def my_upload_projection(
+    task: IngestTask, *, project_name: str | None = None, review: ReviewTask | None = None
+) -> MyUploadItem:
+    status = effective_status(task, review)
+    if status == IngestStatus.cancelled.value:
         final_status = "cancelled"
-    elif task.status == IngestStatus.duplicate_skipped.value:
+    elif status == IngestStatus.rejected.value:
+        final_status = "rejected"
+    elif status == IngestStatus.duplicate_skipped.value:
         final_status = "duplicate_skipped"
-    elif task.status == IngestStatus.completed.value:
+    elif status == IngestStatus.completed.value:
         final_status = "completed"
-    elif task.status == IngestStatus.failed.value:
+    elif status == IngestStatus.failed.value:
         final_status = "failed"
-    elif task.status == IngestStatus.waiting_review.value:
+    elif status == IngestStatus.waiting_review.value:
         final_status = "waiting_review"
-    elif task.status == IngestStatus.pending_confirmation.value:
+    elif status == IngestStatus.pending_confirmation.value:
         final_status = "awaiting_confirmation"
     else:
         final_status = "processing"
@@ -931,7 +938,8 @@ def my_upload_projection(task: IngestTask, *, project_name: str | None = None) -
         target_scope=task.target_scope,
         target_project_id=task.target_project_id,
         target_project_name=project_name,
-        processing_status=task.status,
+        processing_status=status,
+        review_comment=review.review_comment if review else None,
         final_status=final_status,  # type: ignore[arg-type]
         duplicate_result=duplicate_result,  # type: ignore[arg-type]
         result_asset_id=task.result_asset_id,
@@ -974,9 +982,11 @@ async def list_my_uploads(
             )
         ).tuples()
         project_names = {project_id: project_name for project_id, project_name in project_rows}
+    reviews = await reviews_by_task(session, tasks)
     items = [
         my_upload_projection(
             task,
+            review=reviews.get(task.id),
             project_name=(
                 project_names.get(task.target_project_id)
                 if task.target_project_id is not None

@@ -109,7 +109,9 @@ export default function UploadPage() {
         </button>
       </div>
 
-      {historyOpen && <MyUploadsPanel onClose={() => setHistoryOpen(false)} />}
+      {historyOpen && (
+        <MyUploadsPanel onClose={() => setHistoryOpen(false)} onReupload={handleReset} />
+      )}
 
       {!historyOpen && activePath === "a" && !confirmationOpen && <UploadStepA flow={flow} />}
       {!historyOpen && activePath === "b" && !confirmationOpen && <UploadStepB flow={flow} />}

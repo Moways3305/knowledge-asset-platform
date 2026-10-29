@@ -237,8 +237,8 @@ describe("ProjectSettingsPage reference implementation", () => {
         asset_title: "不可处理记录",
       },
     ]);
-    reviewApi.approveReview.mockResolvedValue(undefined);
-    reviewApi.rejectReview.mockResolvedValue(undefined);
+    reviewApi.approveReview.mockResolvedValue({ status: "approved" });
+    reviewApi.rejectReview.mockResolvedValue({ status: "rejected" });
   });
 
   it("shows an honest loading state", () => {
@@ -519,6 +519,20 @@ describe("ProjectSettingsPage reference implementation", () => {
       expect(reviewApi.approveReview).toHaveBeenCalledWith(actionableReview.id, "项目经理确认通过"),
     );
     expect(await screen.findByText("暂无待确认任务")).toBeInTheDocument();
+    expect(reviewApi.fetchReviews).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows a resolved approval failure instead of silently accepting it", async () => {
+    reviewApi.fetchReviews.mockResolvedValue([actionableReview]);
+    reviewApi.approveReview.mockResolvedValue({
+      status: "approval_failed",
+      index_status: "index_failed",
+    });
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "通过" }));
+    expect(
+      await screen.findByText("入库处理失败，审核尚未完成。请查看任务状态后重试。"),
+    ).toBeInTheDocument();
     expect(reviewApi.fetchReviews).toHaveBeenCalledTimes(2);
   });
 

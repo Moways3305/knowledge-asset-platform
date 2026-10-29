@@ -300,6 +300,7 @@ export default function MyKnowledgePage() {
     }
     setActionBusy(true);
     setActionError(null);
+    setNotice(null);
     try {
       const data = await createMyKnowledgeBase({
         displayName: kbName.trim() || undefined,
@@ -309,7 +310,13 @@ export default function MyKnowledgePage() {
       setKb(data);
       setKbState("ready");
       setDialogKind(null);
-      setNotice(includeModels ? "个人知识库已创建" : "已重新发起初始化");
+      if (data.status === "init_failed") {
+        setActionError("个人知识库初始化失败，请重试初始化或联系管理员。");
+      } else if (data.status === "active") {
+        setNotice(includeModels ? "个人知识库已就绪" : "个人知识库初始化已完成");
+      } else {
+        setNotice("请求已受理，知识库尚未就绪，请稍后刷新状态。");
+      }
     } catch (error) {
       setActionError(safeActionError(error, "创建失败，请稍后重试"));
     } finally {
@@ -654,6 +661,11 @@ export default function MyKnowledgePage() {
       {notice && (
         <div className="mk83-notice" role="status">
           {notice}
+        </div>
+      )}
+      {actionError && !dialogKind && (
+        <div className="mk83-notice is-error" role="alert">
+          {actionError}
         </div>
       )}
 

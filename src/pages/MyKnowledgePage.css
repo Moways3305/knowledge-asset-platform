@@ -189,6 +189,11 @@
   background: #eef9f2;
   font-size: 13px;
 }
+.mk83-notice.is-error {
+  border-color: #efb9b5;
+  color: #9c2720;
+  background: #fff1f0;
+}
 .mk83-library {
   padding: 0;
   overflow: visible;

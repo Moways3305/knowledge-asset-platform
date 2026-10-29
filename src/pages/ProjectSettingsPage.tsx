@@ -30,6 +30,7 @@ import type {
 } from "../types/projectSettings";
 import type { ProjectListItemDTO } from "../types/project";
 import type { ReviewItemDTO } from "../types/review";
+import { reviewActionFeedback } from "../utils/reviewActionFeedback";
 import { formatBeijingTime } from "../utils/time";
 import { bizStageOptions } from "./upload/uploadConstants";
 import "./ProjectSettingsPage.css";
@@ -510,8 +511,10 @@ export default function ProjectSettingsPage() {
     setReviewBusy(review.id);
     setReviewsError(null);
     try {
-      await approveReview(review.id, "项目经理确认通过");
+      const result = await approveReview(review.id, "项目经理确认通过");
       await loadReviews(projectId);
+      const outcome = reviewActionFeedback(result, "approve");
+      if (outcome.tone === "error") setReviewsError(outcome.text);
     } catch (error) {
       setReviewsError(safeError(error, "确认操作失败，请重试"));
     } finally {
@@ -546,7 +549,12 @@ export default function ProjectSettingsPage() {
     setReviewBusy(reviewId);
     setRejectError(null);
     try {
-      await rejectReview(reviewId, reason);
+      const result = await rejectReview(reviewId, reason);
+      const outcome = reviewActionFeedback(result, "reject");
+      if (outcome.tone === "error") {
+        setRejectError(outcome.text);
+        return;
+      }
       setRejectTarget(null);
       setRejectReason("");
       await loadReviews(projectId);

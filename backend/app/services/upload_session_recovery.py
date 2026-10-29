@@ -20,6 +20,8 @@ from app.schemas.ingest import UploadSessionListResponse, UploadSessionResponse
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
 from app.services.desensitization import DesensitizationEngine
+from app.services.ingest_review_state import reviews_by_task
+from app.services.ingest_status import pending_task_status
 from app.services.jobs.ingest_cancellation import mark_stopped_task_cancelled
 from app.services.llm_client import LLMClient, NullLLMClient
 from app.services.storage import LocalFileStorage
@@ -305,6 +307,16 @@ async def retry_item(
     if task.processing_stage == "waiting_generation_config" and isinstance(llm, NullLLMClient):
         raise _denied(
             409, "generation_model_not_configured", "内容生成模型尚未配置，本次重试未发起"
+        )
+    review = (await reviews_by_task(session, [task])).get(task.id)
+    progress = pending_task_status(task, caller, review=review, source_available=True)
+    if not progress.retryable:
+        raise _denied(
+            409,
+            "upload_item_not_retryable",
+            progress.error.recovery_hint
+            if progress.error
+            else "该文件当前不可重试，请刷新查看最新状态。",
         )
     resume_stage = (
         "ocr_queued"

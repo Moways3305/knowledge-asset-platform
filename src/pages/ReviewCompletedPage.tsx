@@ -21,7 +21,7 @@ const reviewTypeLabel: Record<string, string> = {
 const statusLabel: Record<string, string> = {
   approved: "已通过",
   rejected: "已拒绝",
-  cancelled: "已取消",
+  cancelled: "已撤回或取消",
 };
 
 const reviewTypeFilters = [
@@ -37,7 +37,7 @@ const statusFilters = [
   { value: "", label: "全部状态" },
   { value: "approved", label: "已通过" },
   { value: "rejected", label: "已拒绝" },
-  { value: "cancelled", label: "已取消" },
+  { value: "cancelled", label: "已撤回或取消" },
 ];
 
 function safeTitle(item: ReviewItemDTO) {

@@ -342,6 +342,8 @@ export interface PendingIngestItemDTO {
   error_type: string | null;
   error_message: string | null;
   processing_stage?: IngestTaskStage | null;
+  review_comment?: string | null;
+  next_action?: IngestTaskStatusDTO["next_action"] | null;
   retryable?: boolean;
   retry_count?: number;
   last_progress_at?: string | null;
@@ -380,10 +382,12 @@ export interface MyUploadItemDTO {
   target_project_id: string | null;
   target_project_name: string | null;
   processing_status: string;
+  review_comment?: string | null;
   final_status:
     | "processing"
     | "awaiting_confirmation"
     | "waiting_review"
+    | "rejected"
     | "completed"
     | "failed"
     | "duplicate_skipped"

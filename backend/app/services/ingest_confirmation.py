@@ -26,6 +26,7 @@ from app.schemas.naming import NamingPreviewRequest
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
 from app.services import canonical_markdown, upload_duplicates
+from app.services.ingest_review_state import require_open_review, reviews_by_task
 from app.services.storage import LocalFileStorage
 
 if TYPE_CHECKING:
@@ -146,6 +147,10 @@ async def validate_and_route_confirmation(
         )
     if task.cancel_requested or task.status == IngestStatus.cancelled.value:
         raise _denied(409, "ingest_cancelled", "该上传已取消，不能确认入库")
+    require_open_review(task.status)
+    existing_review = (await reviews_by_task(session, [task])).get(task.id)
+    if existing_review is not None:
+        require_open_review(existing_review.status)
     if task.update_of_asset_id:
         from app.services.knowledge_versions import validate_update_confirmation
 
@@ -261,7 +266,7 @@ async def validate_and_route_confirmation(
             )
             return IngestConfirmResponse(
                 task_id=task.id,
-                status=IngestStatus.waiting_review.value,
+                status=task.status,
                 result_asset_id=None,
                 review_id=review.id,
                 index_status=None,

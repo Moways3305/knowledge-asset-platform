@@ -5658,6 +5658,11 @@
             "title": "Operation Type",
             "type": "string"
           },
+          "pending_count": {
+            "default": 0,
+            "title": "Pending Count",
+            "type": "integer"
+          },
           "requested_at": {
             "anyOf": [
               {
@@ -9958,6 +9963,7 @@
               "processing",
               "awaiting_confirmation",
               "waiting_review",
+              "rejected",
               "completed",
               "failed",
               "duplicate_skipped",
@@ -9981,6 +9987,17 @@
               }
             ],
             "title": "Result Asset Id"
+          },
+          "review_comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Comment"
           },
           "source_file_name": {
             "title": "Source File Name",
@@ -11284,6 +11301,16 @@
             ],
             "title": "Naming Parsed Fields"
           },
+          "next_action": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IngestTaskNextAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "next_retry_at": {
             "anyOf": [
               {
@@ -11328,6 +11355,17 @@
             "default": false,
             "title": "Retryable",
             "type": "boolean"
+          },
+          "review_comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Comment"
           },
           "source": {
             "title": "Source",

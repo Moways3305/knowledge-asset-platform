@@ -84,6 +84,8 @@ async def delete_asset(
             select(KnowledgeAsset)
             .where(KnowledgeAsset.id == asset_id)
             .options(selectinload(KnowledgeAsset.tags))
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
     not_found = _denied(404, "knowledge_asset_not_found", "知识资产不存在或不可见")

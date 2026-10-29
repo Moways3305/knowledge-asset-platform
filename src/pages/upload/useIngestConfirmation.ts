@@ -392,6 +392,20 @@ export function useIngestConfirmation({
     return ai;
   }, []);
 
+  const blockClosedTask = useCallback((ai: IngestAiResultDTO) => {
+    const messages: Record<string, string> = {
+      rejected: "该入库申请已被拒绝，请根据审核意见修改后重新上传。",
+      cancelled: "该任务已取消，请重新上传。",
+      waiting_review: "该申请正在等待审核，请在审核记录中查看进度。",
+      completed: "该任务已完成，请在上传记录中查看资产详情。",
+      duplicate_skipped: "该文件已跳过重复，不再等待确认。",
+    };
+    if (!messages[ai.status]) return false;
+    setFlowState("idle");
+    setApiError(messages[ai.status]);
+    return true;
+  }, []);
+
   const handleSelectPendingTask = useCallback(
     async (task: PendingIngestItemDTO) => {
       beforeSingleTask();
@@ -422,6 +436,7 @@ export function useIngestConfirmation({
         const ai = await pollAiResult(task.id, isCurrent);
         if (!ai || !isCurrent()) return;
         applyAiResult(ai);
+        if (blockClosedTask(ai)) return;
         if (ai.status === "processing") {
           setProcessingNote(
             "后台仍在处理该企微微盘文件（抽取 / LLM 内容处理），请稍后刷新重试，暂不可确认。",
@@ -443,7 +458,14 @@ export function useIngestConfirmation({
         setFlowState("idle");
       }
     },
-    [applyAiResult, beforeSingleTask, beginWorkflowRun, isCurrentWorkflowRun, pollAiResult],
+    [
+      applyAiResult,
+      blockClosedTask,
+      beforeSingleTask,
+      beginWorkflowRun,
+      isCurrentWorkflowRun,
+      pollAiResult,
+    ],
   );
 
   const handleStart = useCallback(async () => {
@@ -489,6 +511,7 @@ export function useIngestConfirmation({
         return;
       }
       applyAiResult(ai);
+      if (blockClosedTask(ai)) return;
       if (ai.status === "failed") {
         setProcessingNote(
           `文件处理失败：${ai.error_message ?? "无法从该文件抽取内容"}。请检查文件后重新上传，当前不可提交入库。`,
@@ -512,6 +535,7 @@ export function useIngestConfirmation({
     }
   }, [
     applyAiResult,
+    blockClosedTask,
     beforeSingleTask,
     beginWorkflowRun,
     isCurrentWorkflowRun,
@@ -531,6 +555,7 @@ export function useIngestConfirmation({
       const ai = await pollAiResult(taskId, isCurrent);
       if (!ai || !isCurrent()) return;
       applyAiResult(ai);
+      if (blockClosedTask(ai)) return;
       if (ai.status === "processing") {
         setProcessingNote("后台仍在处理，请稍后重新检查，当前不可确认入库。");
         return;
@@ -548,7 +573,15 @@ export function useIngestConfirmation({
       setApiError(error instanceof ApiError ? error.message : "任务状态暂时无法获取，请稍后重试");
       setFlowState(activePath === "a" ? "idle" : "file_selected");
     }
-  }, [activePath, applyAiResult, beginWorkflowRun, isCurrentWorkflowRun, pollAiResult, taskId]);
+  }, [
+    activePath,
+    applyAiResult,
+    blockClosedTask,
+    beginWorkflowRun,
+    isCurrentWorkflowRun,
+    pollAiResult,
+    taskId,
+  ]);
 
   // 重新生成 AI 建议：仅对暂时性生成失败（response_error / timeout）开放。
   // 后端 retry 端点会重排队入库处理；受理后轮询 ai-result 直至生成完成。
@@ -574,6 +607,7 @@ export function useIngestConfirmation({
         const ai = await pollAiResult(taskId, isCurrent);
         if (!ai || !isCurrent()) return;
         applyAiResult(ai);
+        if (blockClosedTask(ai)) return;
         if (ai.status === "processing") {
           setRegenerationError("后台仍在重新生成建议，请稍后刷新查看。");
           return;
@@ -591,6 +625,7 @@ export function useIngestConfirmation({
       const ai = await fetchIngestAiResult(taskId);
       if (!isCurrent()) return;
       applyAiResult(ai);
+      if (blockClosedTask(ai)) return;
       if (ai.summary_status !== "generated") {
         setRegenerationError(status.error?.message ?? "重新生成未能完成，请稍后再试或联系管理员。");
       }
@@ -602,7 +637,14 @@ export function useIngestConfirmation({
     } finally {
       if (isCurrent()) setRegenerating(false);
     }
-  }, [applyAiResult, beginWorkflowRun, isCurrentWorkflowRun, pollAiResult, taskId]);
+  }, [
+    applyAiResult,
+    blockClosedTask,
+    beginWorkflowRun,
+    isCurrentWorkflowRun,
+    pollAiResult,
+    taskId,
+  ]);
 
   const handleSubmit = useCallback(async () => {
     const runId = beginWorkflowRun();

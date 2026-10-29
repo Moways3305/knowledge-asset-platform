@@ -49,7 +49,7 @@ from app.schemas.permission import (
     EffectiveAccessSource,
     PermissionDecision,
 )
-from app.services import original_access
+from app.services import original_access, retrieval_lexical
 from app.services.desensitization import OutputDesensitizer
 from app.services.llm_client import LLMClient, LLMError, NullLLMClient
 from app.services.permission import decide
@@ -196,8 +196,9 @@ async def recall_assets(
     if not query or not kb_ids or knowledge_ids == []:
         return []
     policy = await load_access_policy(session)
+    identifier = retrieval_lexical.literal_identifier(query)
     queries = [query]
-    for alternative in (search_queries or [])[:3]:
+    for alternative in ([] if identifier else (search_queries or []))[:3]:
         term = alternative.strip()
         if term and len(term) <= 60 and term not in queries and len(queries) < 3:
             queries.append(term)
@@ -338,15 +339,27 @@ async def recall_assets(
             },
         )
 
+    literal_bodies = await retrieval_lexical.recall_literal_body(
+        session,
+        caller,
+        query=query,
+        kb_ids=kb_ids,
+        knowledge_ids=knowledge_ids,
+        channel=channel,
+        policy=policy,
+    )
+    literal_ids = {asset.id for asset, _ in literal_bodies}
+
     # 收集命中的 knowledge_id（= 业务库 weknora_doc_id），批量映射回 active 版本/资产。
     doc_ids = {c["knowledge_id"] for c in chunks if c.get("knowledge_id")}
-    if not doc_ids and not metadata:
+    if not doc_ids and not metadata and not literal_bodies:
         return []
     versions = list(
         (
             await session.execute(
                 select(KnowledgeAssetVersion)
                 .where(KnowledgeAssetVersion.weknora_doc_id.in_(doc_ids))
+                .where(KnowledgeAssetVersion.weknora_kb_id.in_(kb_ids))
                 .where(KnowledgeAssetVersion.version_status == _ACTIVE_VERSION)
                 .where(
                     or_(
@@ -368,7 +381,7 @@ async def recall_assets(
     )
     doc_to_version = {v.weknora_doc_id: v for v in versions}
     asset_ids = {v.asset_id for v in versions}
-    if not asset_ids and not metadata:
+    if not asset_ids and not metadata and not literal_bodies:
         return []
     assets = list(
         (
@@ -391,6 +404,8 @@ async def recall_assets(
     recalled: dict[uuid.UUID, RecalledAsset] = {}
     for rank, (asset, version) in enumerate(metadata, start=1):
         recalled[asset.id] = RecalledAsset(asset=asset, version=version, score=1 / (60 + rank))
+    for asset, version in literal_bodies:
+        recalled.setdefault(asset.id, RecalledAsset(asset=asset, version=version, score=0.0))
     for c in chunks:
         version = doc_to_version.get(c["knowledge_id"])
         if version is None:  # 孤儿/非 active 版本 → 丢弃，不透出无主内容
@@ -412,6 +427,21 @@ async def recall_assets(
 
     # 批量取调用人对召回资产的 active 原文授权，原文层判断统一叠加。
     granted_ids = await original_access.active_grant_asset_ids(session, caller, recalled.keys())
+    registered_versions: set[uuid.UUID] = set()
+    if identifier and recalled:
+        registered_versions = set(
+            (
+                await session.scalars(
+                    select(KnowledgeAssetChunk.version_id)
+                    .where(
+                        KnowledgeAssetChunk.version_id.in_(
+                            [r.version.id for r in recalled.values()]
+                        )
+                    )
+                    .distinct()
+                )
+            ).all()
+        )
     # L1/L2 原文默认放行由运行时 policy 决定。
 
     # 逐资产三层判断（discovery 被拒的资产连卡片都不出）。
@@ -438,6 +468,10 @@ async def recall_assets(
             has_original_grant=has_grant,
             policy=policy,
         )
+        if identifier and not _matches_permitted_identifier(
+            entry, identifier, literal_ids, registered_versions
+        ):
+            continue
         out.append(entry)
 
     # Literal title/tag matches must not be pushed out by a different upstream
@@ -446,7 +480,11 @@ async def recall_assets(
     metadata_rank = {asset.id: rank for rank, (asset, _version) in enumerate(metadata)}
     out.sort(
         key=lambda r: (
-            (0, metadata_rank[r.asset.id]) if r.asset.id in metadata_rank else (1, -r.score)
+            (0, 0)
+            if r.asset.id in literal_ids
+            else (1, metadata_rank[r.asset.id])
+            if r.asset.id in metadata_rank
+            else (2, -r.score)
         )
     )
     # 仅记召回数量；绝不记 query / chunk 正文 / kb·doc id。
@@ -456,10 +494,48 @@ async def recall_assets(
             "result_count": len(out),
             "chunk_candidate_count": len(chunks),
             "metadata_candidate_count": len(metadata),
+            "literal_candidate_count": len(literal_bodies),
             "query_count": len(queries),
         },
     )
     return out
+
+
+def _matches_permitted_identifier(
+    entry: RecalledAsset,
+    value: str,
+    body_ids: set[uuid.UUID],
+    registered_versions: set[uuid.UUID],
+) -> bool:
+    """Private body hits cannot become an existence oracle for summary-only users."""
+    asset = entry.asset
+    public_texts: list[str | None] = [asset.title, *(tag.tag_name for tag in asset.tags)]
+    if entry.summary and entry.summary.allowed:
+        current_summaries = {
+            summary.summary_type: summary.content
+            for summary in asset.summaries
+            if summary.version_id == entry.version.id
+        }
+        if asset.confidentiality_level in _REDACTED_LEVELS:
+            public_texts.append(
+                current_summaries.get("redacted_summary") or current_summaries.get("safe_summary")
+            )
+        else:
+            public_texts.extend(
+                current_summaries.get(key) for key in ("one_liner", "detailed", "key_points")
+            )
+    if any(retrieval_lexical.literal_in_text(value, text) for text in public_texts):
+        return True
+    return entry.can_view_original and (
+        asset.id in body_ids
+        or (
+            entry.version.id not in registered_versions
+            and any(
+                retrieval_lexical.literal_in_text(value, chunk.get("content"))
+                for chunk in entry.matched_chunks
+            )
+        )
+    )
 
 
 # ---------------------------------------------------------------------------

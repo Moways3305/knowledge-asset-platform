@@ -199,16 +199,17 @@ export default function NotificationBell() {
     setBusy(true);
     setMutationError(null);
     try {
-      await markNotificationsRead(ids);
+      const result = await markNotificationsRead(ids);
       sequence.current += 1;
-      setItems((current) =>
-        current.map((item) =>
-          ids.includes(item.id)
-            ? { ...item, is_read: true, read_at: new Date().toISOString() }
-            : item,
-        ),
-      );
-      setUnread((value) => Math.max(0, value - ids.length));
+      // The server may skip rows whose visibility changed. Counts do not tell
+      // us which rows changed, so reload the current expanded scope instead of
+      // fabricating read flags/timestamps for every requested id.
+      inFlight.current?.abort();
+      inFlight.current = null;
+      if (result.marked_count + result.already_read_count < ids.length) {
+        setMutationError("部分通知状态或权限已变化，请以刷新后的列表为准。");
+      }
+      window.dispatchEvent(new Event(TASK_STATUS_INVALIDATED_EVENT));
     } catch {
       setMutationError("全部已读未能保存，列表保持原状，请重试。");
     } finally {

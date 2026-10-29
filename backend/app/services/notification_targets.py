@@ -12,6 +12,7 @@ from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Load
 
 from app.db.utils import utc_now
 from app.models.indexing_job import IndexingOperationJob
@@ -25,6 +26,7 @@ from app.schemas.enums import AccessRequestStatus, CompanyRole, ProjectRole
 from app.schemas.notification import NotificationTarget
 from app.schemas.permission import AccessLayer, CallerContext
 from app.services.company_confirmation_policy import select_confirmation_role
+from app.services.ingest_review_state import effective_status
 from app.services.permission import decide, knowledge_manager_allowed
 from app.services.review_queries import decision_states
 from app.services.storage import LocalFileStorage
@@ -37,6 +39,7 @@ _ROUTES = {
     "indexing_job": "admin_ingest",
     "knowledge_asset": "knowledge_detail",
 }
+_INGEST_REVIEWS = "ingest_reviews_by_task"
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,8 +61,10 @@ def _review_status(task: ReviewTask, can_decide: bool) -> tuple[str, bool]:
     status = (
         "failed"
         if task.status == "approval_failed"
+        else task.status
+        if task.status in {"rejected", "cancelled"}
         else "completed"
-        if task.status in {"approved", "rejected", "cancelled"}
+        if task.status == "approved"
         else "processing"
         if task.status == "approving"
         else "needs_action"
@@ -105,8 +110,7 @@ async def resolve(
         if row.event_type == "review.decided":
             if review_task.submitted_by != caller.user_id:
                 return None
-            status = "completed"
-            action_required = False
+            status, action_required = _review_status(review_task, False)
         elif row.event_type == "review.project_pending":
             can_decide = bool(
                 row.project_id is not None
@@ -164,26 +168,44 @@ async def resolve(
         ingest_task = await get(IngestTask, row.target_id)
         if ingest_task is None or ingest_task.created_by != caller.user_id:
             return None
-        if ingest_task.cancel_requested or ingest_task.status == "cancelled":
+        if facts is not None:
+            ingest_review = facts.get(_INGEST_REVIEWS, {}).get(ingest_task.id)
+        else:
+            ingest_review = await session.scalar(
+                select(ReviewTask)
+                .where(ReviewTask.source_ingest_task_id == ingest_task.id)
+                .options(Load(ReviewTask).load_only(ReviewTask.id, ReviewTask.status))
+            )
+        task_status = effective_status(ingest_task, ingest_review)
+        if task_status in {"cancelled", "rejected", "completed", "duplicate_skipped"}:
+            # A terminal business outcome supersedes stale processing diagnostics.
+            # Re-upload after rejection starts a new task; it cannot retry this one.
             return VisibleNotificationTarget(
                 target=NotificationTarget(route_key=route_key, resource_id=row.target_id),
-                status="cancelled",
+                status=task_status,
                 action_required=False,
+                failure_reason="本次入库确认未通过审核。" if task_status == "rejected" else None,
+                recovery_suggestion=(
+                    "请根据审核意见修改后重新上传；原申请保留拒绝记录。"
+                    if task_status == "rejected"
+                    else None
+                ),
             )
         effective_error_type = ingest_task.error_type
         if effective_error_type == "processing_timeout" and storage is not None:
             if not storage.inspect(ingest_task.source_file_ref).available:
                 effective_error_type = "source_file_unavailable"
-        action_required = ingest_task.status == "failed"
+        action_required = task_status == "failed"
         status = {
             "failed": "failed",
             "processing": "processing",
             "completed": "completed",
             "duplicate_skipped": "duplicate_skipped",
             "cancelled": "cancelled",
+            "rejected": "rejected",
             "waiting_review": "submitted",
             "pending_confirmation": "needs_action",
-        }.get(ingest_task.status, "submitted")
+        }.get(task_status, "submitted")
         failure_reason = (
             "处理超时，文件仍可重试"
             if effective_error_type == "processing_timeout"
@@ -307,6 +329,7 @@ async def resolve(
         status = {
             "queued": "submitted",
             "running": "processing",
+            "submitted_pending_index": "submitted",
             "completed": "completed",
             "no_action": "completed",
             "completed_with_errors": "partial",
@@ -326,7 +349,7 @@ async def resolve(
 
 async def preload_targets(session: AsyncSession, rows: list[BusinessNotification]) -> dict:
     """Request-local facts for one bounded chunk; resolve still enforces permissions."""
-    facts: dict[type, dict[Any, Any]] = {}
+    facts: dict[Any, dict[Any, Any]] = {}
     models: dict[str, Any] = {
         "review": ReviewTask,
         "original_access_request": OriginalAccessRequest,
@@ -336,6 +359,30 @@ async def preload_targets(session: AsyncSession, rows: list[BusinessNotification
     }
     for kind, model in models.items():
         ids = {row.target_id for row in rows if row.target_kind == kind}
+        if kind == "ingest_task":
+            # Keep one domain query per notification chunk. Loading each linked
+            # review in resolve() would add an N+1 to inbox pagination/counts.
+            pairs = (
+                (
+                    await session.execute(
+                        select(IngestTask, ReviewTask)
+                        .outerjoin(ReviewTask, ReviewTask.source_ingest_task_id == IngestTask.id)
+                        .where(IngestTask.id.in_(ids))
+                        .options(
+                            Load(ReviewTask).load_only(
+                                ReviewTask.id, ReviewTask.source_ingest_task_id, ReviewTask.status
+                            )
+                        )
+                    )
+                ).all()
+                if ids
+                else []
+            )
+            facts[IngestTask] = {task.id: task for task, _review in pairs}
+            facts[_INGEST_REVIEWS] = {
+                task.id: review for task, review in pairs if review is not None
+            }
+            continue
         facts[model] = {
             item.id: item
             for item in (

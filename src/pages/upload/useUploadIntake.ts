@@ -557,6 +557,30 @@ export function useUploadIntake({
                   : candidate,
               ),
             );
+          } else if (
+            status.status === "completed" ||
+            status.error?.code === "review_rejected" ||
+            status.next_action?.key === "view_review"
+          ) {
+            refreshPending = true;
+            updateLocalUploadQueue((items) =>
+              items.map((candidate) =>
+                candidate.id === item.id
+                  ? {
+                      ...candidate,
+                      file: null,
+                      pollAttempts,
+                      processingStage: status.stage,
+                      status:
+                        status.next_action?.key === "duplicate_skipped"
+                          ? "duplicate_skipped"
+                          : "completed",
+                      retryable: false,
+                      error: null,
+                    }
+                  : candidate,
+              ),
+            );
           } else if (failed) {
             updateLocalUploadQueue((items) =>
               items.map((candidate) =>
@@ -566,6 +590,7 @@ export function useUploadIntake({
                       pollAttempts,
                       processingStage: status.stage,
                       status: "failed",
+                      retryable: status.retryable,
                       error: status.error?.message ?? "文件处理失败，请检查文件后重试",
                     }
                   : candidate,

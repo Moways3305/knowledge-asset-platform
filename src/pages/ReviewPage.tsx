@@ -15,7 +15,8 @@ import { BulkSelectionRail, SelectionCheckbox } from "../components/BulkSelectio
 import DataTable, { type Column } from "../components/DataTable";
 import GovernanceWorkspace from "../components/GovernanceWorkspace";
 import DetailDrawer from "../components/DetailDrawer";
-import type { ReviewItemDTO } from "../types/review";
+import type { ReviewActionResponseDTO, ReviewItemDTO } from "../types/review";
+import { reviewActionFeedback, type ReviewAction } from "../utils/reviewActionFeedback";
 import { formatBeijingTime } from "../utils/time";
 
 const SAFE_FALLBACK = "信息待确认";
@@ -73,7 +74,7 @@ const reviewTypeFilters = [
   { token: "5", apiValue: "lifecycle_change", label: "生命周期变更" },
 ];
 
-type Feedback = { tone: "success" | "error"; text: string } | null;
+type Feedback = { tone: "success" | "error" | "info"; text: string } | null;
 
 function safeTitle(item: ReviewItemDTO) {
   return item.asset_title?.trim() || "待确认知识";
@@ -151,16 +152,17 @@ export default function ReviewPage() {
 
   const runAction = async (
     item: ReviewItemDTO,
-    action: () => Promise<void>,
-    successText: string,
+    action: () => Promise<ReviewActionResponseDTO>,
+    kind: ReviewAction,
   ) => {
     setBusyId(item.id);
     setFeedback(null);
     try {
-      await action();
+      const result = await action();
       await load();
-      setFeedback({ tone: "success", text: successText });
-      return true;
+      const outcome = reviewActionFeedback(result, kind);
+      setFeedback(outcome);
+      return outcome.tone !== "error";
     } catch {
       setFeedback({ tone: "error", text: "操作未完成，请稍后重试。" });
       return false;
@@ -241,7 +243,7 @@ export default function ReviewPage() {
     const completed = await runAction(
       rejectTarget,
       () => rejectReview(rejectTarget.id, reason),
-      "审核已拒绝。",
+      "reject",
     );
     if (completed) {
       setRejectTarget(null);
@@ -374,13 +376,7 @@ export default function ReviewPage() {
                 type="button"
                 disabled={busyId === item.id}
                 onClick={() =>
-                  void runAction(
-                    item,
-                    () => approveReview(item.id, "确认通过"),
-                    item.review_type === "project_to_company"
-                      ? "公司发布确认已提交，是否发布以审核状态为准。"
-                      : "审核已通过。",
-                  )
+                  void runAction(item, () => approveReview(item.id, "确认通过"), "approve")
                 }
               >
                 确认
@@ -406,7 +402,7 @@ export default function ReviewPage() {
               type="button"
               disabled={busyId === item.id}
               onClick={() =>
-                void runAction(item, () => approveReview(item.id, "重试入库"), "已重新提交处理。")
+                void runAction(item, () => approveReview(item.id, "重试入库"), "approve")
               }
             >
               重试
@@ -421,7 +417,7 @@ export default function ReviewPage() {
                 void runAction(
                   item,
                   () => withdrawReviewConfirmation(item.id, "撤回本人确认"),
-                  "确认已撤回。",
+                  "withdraw",
                 )
               }
             >
@@ -643,11 +639,14 @@ export default function ReviewPage() {
                   description: evidenceDescription.trim(),
                   idempotency_key: crypto.randomUUID(),
                 })
-                  .then(async () => {
+                  .then(async (result) => {
                     setEvidenceTarget(null);
                     setEvidenceReviewIds([]);
                     await load();
-                    setFeedback({ tone: "success", text: "证据已登记，任务已进入待审核。" });
+                    setFeedback({
+                      tone: result.failed > 0 || result.skipped > 0 ? "error" : "success",
+                      text: `补充证据处理完成：转待审核 ${result.transitioned} 项，重复证据 ${result.existing} 项，跳过 ${result.skipped} 项，失败 ${result.failed} 项。`,
+                    });
                   })
                   .catch(() => setFeedback({ tone: "error", text: "证据未提交，请稍后重试。" }))
                   .finally(() => setEvidenceBusy(false));

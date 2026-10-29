@@ -1391,6 +1391,46 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     expect(ingest.fetchIngestTaskStatus).toHaveBeenCalledTimes(terminalCallCount);
   });
 
+  it.each(["completed", "duplicate_skipped"])(
+    "服务端 %s 终止旧上传轮询，不变成超时失败",
+    async (outcome) => {
+      ingest.createIngestUpload.mockResolvedValue({ ingest_task_id: "finished-task" });
+      ingest.fetchIngestTaskStatus.mockResolvedValue({
+        ...taskStatus("finished-task", "completed", "completed"),
+        next_action:
+          outcome === "duplicate_skipped"
+            ? { key: "duplicate_skipped", route_key: null, enabled: false }
+            : null,
+      });
+      const { result } = renderHook(() => useUploadFlow());
+      await waitFor(() => expect(auth.fetchAuthMe).toHaveBeenCalled());
+      act(() => result.current.handleFileDrop([new File(["finished"], "finished.pdf")]));
+      await act(async () => result.current.confirmPendingSelection());
+      await waitFor(() =>
+        expect(result.current.localUploadQueue[0]).toMatchObject({
+          status: outcome,
+          retryable: false,
+          error: null,
+        }),
+      );
+      const calls = ingest.fetchIngestTaskStatus.mock.calls.length;
+      await new Promise((resolve) => window.setTimeout(resolve, 35));
+      expect(ingest.fetchIngestTaskStatus).toHaveBeenCalledTimes(calls);
+    },
+  );
+
+  it.each(["rejected", "waiting_review", "completed", "cancelled", "duplicate_skipped"])(
+    "旧确认页读取 %s 不重新开放确认",
+    async (outcome) => {
+      ingest.fetchIngestAiResult.mockResolvedValue({ ...readyAiResult, status: outcome });
+      const { result } = renderHook(() => useUploadFlow());
+      await act(async () => result.current.handleSelectPendingTask(pendingTask("t1", "doc.pptx")));
+      expect(result.current.flowState).not.toBe("ready");
+      expect(result.current.apiError).toBeTruthy();
+      expect(ingest.confirmIngest).not.toHaveBeenCalled();
+    },
+  );
+
   it("服务端取消状态终止轮询并释放浏览器文件引用", async () => {
     ingest.createIngestUpload.mockResolvedValue({ ingest_task_id: "cancelled-task" });
     ingest.fetchIngestTaskStatus.mockResolvedValue(

@@ -4,6 +4,7 @@ import type {
   AssetizationPreflightItemDTO,
   AssetizationSubmitResponseDTO,
   EvidenceInputDTO,
+  ReviewActionResponseDTO,
   ReviewItemDTO,
   ReviewListResponseDTO,
 } from "../types/review";
@@ -46,12 +47,18 @@ export async function fetchReviewPage(
   return apiGet<ReviewListResponseDTO>(`/api/v1/reviews?${qs.toString()}`);
 }
 
-export async function approveReview(reviewId: string, comment?: string): Promise<void> {
-  await apiPost(`/api/v1/reviews/${reviewId}/approve`, { review_comment: comment ?? null });
+export async function approveReview(
+  reviewId: string,
+  comment?: string,
+): Promise<ReviewActionResponseDTO> {
+  return apiPost(`/api/v1/reviews/${reviewId}/approve`, { review_comment: comment ?? null });
 }
 
-export async function rejectReview(reviewId: string, comment: string): Promise<void> {
-  await apiPost(`/api/v1/reviews/${reviewId}/reject`, { review_comment: comment });
+export async function rejectReview(
+  reviewId: string,
+  comment: string,
+): Promise<ReviewActionResponseDTO> {
+  return apiPost(`/api/v1/reviews/${reviewId}/reject`, { review_comment: comment });
 }
 
 export async function bulkReviewAction(input: {
@@ -78,8 +85,8 @@ export async function bulkReviewAction(input: {
 export async function withdrawReviewConfirmation(
   reviewId: string,
   comment?: string,
-): Promise<void> {
-  await apiPost(`/api/v1/reviews/${reviewId}/withdraw`, { review_comment: comment ?? null });
+): Promise<ReviewActionResponseDTO> {
+  return apiPost(`/api/v1/reviews/${reviewId}/withdraw`, { review_comment: comment ?? null });
 }
 
 export async function requestCompanyUpgrade(

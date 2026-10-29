@@ -838,10 +838,37 @@ async def test_company_upgrade_reject_and_withdraw_are_terminal(client, db_sessi
         json={"review_comment": "撤回确认"},
     )
     assert withdrawn.status_code == 200
-    assert withdrawn.json()["status"] == "rejected"
+    assert withdrawn.json()["status"] == "cancelled"
     assert (
         await client.post(f"{REVIEWS}/{retry_id}/approve", headers=_hdr(USER_DIRECTOR), json={})
     ).status_code == 409
+
+
+async def test_submitter_withdrawal_is_cancelled_in_completed_reviews(client, db_session):
+    withdrawn = await client.post(
+        f"{REVIEWS}/{REVIEW_SEED}/withdraw",
+        headers=_hdr(USER_CONSULTANT),
+        json={"review_comment": "需要补充内容，主动撤回"},
+    )
+    assert withdrawn.status_code == 200
+    assert withdrawn.json()["status"] == "cancelled"
+    completed = await client.get(
+        f"{REVIEWS}?queue=completed&status=cancelled", headers=_hdr(USER_CONSULTANT)
+    )
+    assert any(
+        item["id"] == str(REVIEW_SEED) and item["status"] == "cancelled"
+        for item in completed.json()["items"]
+    )
+    refused = await client.get(
+        f"{REVIEWS}?queue=completed&status=rejected", headers=_hdr(USER_CONSULTANT)
+    )
+    assert not any(item["id"] == str(REVIEW_SEED) for item in refused.json()["items"])
+    late = await client.post(
+        f"{REVIEWS}/{REVIEW_SEED}/approve", headers=_hdr(USER_PROJECT_MANAGER), json={}
+    )
+    assert late.status_code == 409
+    task = await db_session.get(ReviewTask, REVIEW_SEED)
+    assert task.review_comment == "需要补充内容，主动撤回"
 
 
 async def test_missing_director_keeps_company_upgrade_pending(client, db_session):

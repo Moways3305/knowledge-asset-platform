@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 from starlette.concurrency import run_in_threadpool
 
-from app.models.ingest import IngestTask, UploadSession
+from app.models.ingest import IngestTask, IngestTaskAiResult, UploadSession
+from app.models.review import ReviewTask
 from app.schemas.ingest import UploadSessionItemResponse, UploadSessionResponse
 from app.schemas.permission import CallerContext
+from app.services.ingest_status import pending_task_status
 from app.services.storage import LocalFileStorage
 from app.services.upload_duplicates import read_duplicates_batch
 from app.services.upload_session_state import COMPLETED_ITEM_STATES, TERMINAL_ITEM_STATES
@@ -41,14 +44,22 @@ async def build_response(
 ) -> UploadSessionResponse:
     visible_items = [item for item in value.items if item.status != "cancelled"]
     task_ids = [item.ingest_task_id for item in visible_items if item.ingest_task_id]
-    tasks = {
-        task.id: task
-        for task in (
-            (await session.execute(select(IngestTask).where(IngestTask.id.in_(task_ids))))
-            .scalars()
-            .all()
+    # Both relationships are one-to-one. Read their status facts with the task
+    # instead of adding two round trips to every upload polling request.
+    rows = (
+        await session.execute(
+            select(IngestTask, ReviewTask)
+            .outerjoin(ReviewTask, ReviewTask.source_ingest_task_id == IngestTask.id)
+            .where(IngestTask.id.in_(task_ids))
+            .options(
+                joinedload(IngestTask.ai_result).load_only(
+                    IngestTaskAiResult.extraction_status, IngestTaskAiResult.naming_parsed_fields
+                )
+            )
         )
-    }
+    ).all()
+    tasks = {task.id: task for task, _ in rows}
+    reviews = {task.id: review for task, review in rows if review is not None}
     task_facts = {
         task.id: (task.processing_stage, task.retry_count, task.error_type, task.updated_at)
         for task in tasks.values()
@@ -57,6 +68,17 @@ async def build_response(
     source_available = await run_in_threadpool(
         lambda: {task_id: storage.inspect(ref).available for task_id, ref in source_refs.items()}
     )
+    retryable_tasks = {
+        task_id
+        for task_id, task in tasks.items()
+        if task.status == "failed"
+        and pending_task_status(
+            task,
+            caller,
+            review=reviews.get(task_id),
+            source_available=source_available.get(task_id, False),
+        ).retryable
+    }
     duplicates = await read_duplicates_batch(
         session,
         caller,
@@ -131,8 +153,7 @@ async def build_response(
                     item.status == "failed"
                     and item.ingest_task_id is not None
                     and source_available.get(item.ingest_task_id, False)
-                    and task_facts.get(item.ingest_task_id, (None, 0, None, None))[2]
-                    not in {"configuration_error", "authentication_error", "model_unavailable"}
+                    and item.ingest_task_id in retryable_tasks
                 ),
                 retry_count=(
                     task_facts.get(item.ingest_task_id, (None, 0, None, None))[1]

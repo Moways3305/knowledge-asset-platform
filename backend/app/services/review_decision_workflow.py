@@ -613,7 +613,7 @@ async def withdraw_company_confirmation(
     if task.review_type != ReviewType.project_to_company.value:
         raise _denied(422, "withdraw_not_supported", "该审核类型不支持撤回确认")
     if task.status != ReviewTaskStatus.pending_reviewer.value:
-        raise _denied(409, "review_already_finalized", "已完成或已拒绝的升格不可撤回")
+        raise _denied(409, "review_already_finalized", "已结束的升格不可撤回")
     states = (await _decision_states(session, [task])).get(task.id, {})
     owned = next(
         (
@@ -638,7 +638,7 @@ async def withdraw_company_confirmation(
     )
     apply_review_decision(
         task,
-        target_status=ReviewTaskStatus.rejected.value,
+        target_status=ReviewTaskStatus.cancelled.value,
         comment=comment,
         decided_at=datetime.now(timezone.utc),
     )
@@ -694,7 +694,7 @@ async def withdraw_review(
         raise _denied(409, "review_already_decided", "任务已进入处理或终态，不能撤回")
     apply_review_decision(
         task,
-        target_status=ReviewTaskStatus.rejected.value,
+        target_status=ReviewTaskStatus.cancelled.value,
         comment=(comment or "发起人撤回").strip(),
         decided_at=datetime.now(timezone.utc),
     )

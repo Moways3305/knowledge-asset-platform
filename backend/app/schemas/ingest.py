@@ -443,6 +443,8 @@ class PendingIngestItem(BaseModel):
     # authorization or validation.
     can_batch_confirm: bool = False
     can_batch_reject: bool = False
+    review_comment: str | None = None
+    next_action: IngestTaskNextAction | None = None
     # 抽取 / 错误为运营元数据（不含抽取全文）。
     extraction_status: str | None = None
     error_type: str | None = None

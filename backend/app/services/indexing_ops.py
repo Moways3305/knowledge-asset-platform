@@ -639,6 +639,7 @@ def _job_summary(job: IndexingOperationJob, name: str | None) -> IndexingJobSumm
         finished_at=job.finished_at,
         total_count=job.total_count,
         success_count=job.success_count,
+        pending_count=job.pending_count,
         failed_count=job.failed_count,
         skipped_count=job.skipped_count,
         error_code=job.error_code,

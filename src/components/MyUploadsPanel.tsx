@@ -8,6 +8,7 @@ const statusLabels: Record<MyUploadItemDTO["final_status"], string> = {
   processing: "处理中",
   awaiting_confirmation: "待确认",
   waiting_review: "等待审核",
+  rejected: "审核已拒绝",
   completed: "已完成",
   failed: "处理失败",
   duplicate_skipped: "跳过重复",
@@ -15,16 +16,24 @@ const statusLabels: Record<MyUploadItemDTO["final_status"], string> = {
 };
 
 const processingLabels: Record<string, string> = {
+  pending: "等待处理",
   processing: "处理中",
   pending_confirmation: "待确认",
   waiting_review: "等待审核",
+  rejected: "审核已拒绝",
   completed: "处理完成",
   failed: "处理失败",
   duplicate_skipped: "已跳过重复",
   cancelled: "已取消",
 };
 
-export default function MyUploadsPanel({ onClose }: { onClose: () => void }) {
+export default function MyUploadsPanel({
+  onClose,
+  onReupload,
+}: {
+  onClose: () => void;
+  onReupload?: () => void;
+}) {
   const [items, setItems] = useState<MyUploadItemDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +97,7 @@ export default function MyUploadsPanel({ onClose }: { onClose: () => void }) {
             <option value="processing">处理中</option>
             <option value="awaiting_confirmation">待确认</option>
             <option value="waiting_review">等待审核</option>
+            <option value="rejected">审核已拒绝</option>
             <option value="completed">已完成</option>
             <option value="failed">失败</option>
             <option value="duplicate_skipped">跳过重复</option>
@@ -160,6 +170,20 @@ export default function MyUploadsPanel({ onClose }: { onClose: () => void }) {
                   </dd>
                 </div>
               </dl>
+              {item.final_status === "rejected" && (
+                <>
+                  <p>审核意见：{item.review_comment || "请根据审核要求修改资料后重新上传。"}</p>
+                  <Link
+                    to="/upload"
+                    onClick={() => {
+                      onReupload?.();
+                      onClose();
+                    }}
+                  >
+                    修改后重新上传
+                  </Link>
+                </>
+              )}
               {item.result_asset_id && (
                 <Link to={`/knowledge/${item.result_asset_id}`}>查看资产详情</Link>
               )}

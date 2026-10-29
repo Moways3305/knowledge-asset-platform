@@ -87,6 +87,7 @@ export interface OpsIndexingFailedItemDTO {
     requested_at: string | null;
     finished_at: string | null;
     success_count: number;
+    pending_count?: number;
     failed_count: number;
   } | null;
 }
@@ -149,7 +150,7 @@ export interface IndexingReparseRequestDTO {
 export interface IndexingJobSummaryDTO {
   job_id: string;
   operation_type: string; // retry_index | reparse
-  status: string; // queued | running | completed | completed_with_errors | failed | no_action
+  status: string; // queued | running | submitted_pending_index | completed | completed_with_errors | failed | no_action
   scope_filter: Record<string, unknown> | null;
   requested_by_name: string | null;
   requested_at: string | null;
@@ -157,6 +158,7 @@ export interface IndexingJobSummaryDTO {
   finished_at: string | null;
   total_count: number;
   success_count: number;
+  pending_count?: number; // 提交结束时待索引数量，不是实时资产状态。
   failed_count: number;
   skipped_count: number;
   error_code: string | null;

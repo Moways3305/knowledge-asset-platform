@@ -530,6 +530,34 @@ async def test_finished_operation_job_is_deduplicated_and_projects_safe_status(c
     assert body["items"][0]["target"]["route_key"] == "models"
 
 
+async def test_submitted_index_job_notifies_pending_confirmation_instead_of_completion(
+    client, db_session
+):
+    job = IndexingOperationJob(
+        operation_type="retry_index",
+        status="submitted_pending_index",
+        requested_by_user_id=USER_ADMIN_ONLY,
+        total_count=2,
+        success_count=0,
+        failed_count=0,
+        skipped_count=0,
+        scope_filter={"scope": "all"},
+    )
+    db_session.add(job)
+    await db_session.flush()
+    await notify_operation_job_finished(db_session, job)
+    await notify_operation_job_finished(db_session, job)
+    await db_session.commit()
+
+    body = (await client.get(API, headers=_headers(USER_ADMIN_ONLY))).json()
+    assert body["total"] == 1
+    item = body["items"][0]
+    assert item["task_status"] == "submitted"
+    assert "已提交" in item["title"]
+    assert "已完成" not in item["title"]
+    assert "对账确认" in str(item)
+
+
 async def test_duplicate_skipped_ingest_projects_a_distinct_terminal_notification_status(
     client, db_session
 ):
@@ -626,7 +654,7 @@ async def test_cancelled_review_notification_is_not_actionable(client, db_sessio
 
     body = (await client.get(API, headers=_headers(USER_PROJECT_MANAGER))).json()
     item = next(value for value in body["items"] if value["target"]["resource_id"] == str(task.id))
-    assert item["task_status"] == "completed"
+    assert item["task_status"] == "cancelled"
     assert item["task_group"] == "recent_completed"
     assert item["action_required"] is False
 

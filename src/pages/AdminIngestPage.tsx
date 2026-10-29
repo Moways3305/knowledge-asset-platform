@@ -59,6 +59,7 @@ const jobOpLabel: Record<string, string> = {
 const jobStatusLabel: Record<string, string> = {
   queued: "等待执行",
   running: "执行中",
+  submitted_pending_index: "已提交，待索引确认",
   completed: "已完成",
   completed_with_errors: "完成，部分未成功",
   failed: "执行失败",
@@ -239,7 +240,9 @@ export default function AdminIngestPage() {
   const [retryTarget, setRetryTarget] = useState<OpsIndexingFailedItemDTO | null>(null);
   const [targetBusy, setTargetBusy] = useState(false);
   const [targetError, setTargetError] = useState<string | null>(null);
-  const [selectedJob, setSelectedJob] = useState<IndexingJobSummaryDTO | null>(null);
+  const [selectedJobSnapshot, setSelectedJob] = useState<IndexingJobSummaryDTO | null>(null);
+  const selectedJob =
+    opsJobs.find((job) => job.job_id === selectedJobSnapshot?.job_id) ?? selectedJobSnapshot;
   const [showAllRecoveryItems, setShowAllRecoveryItems] = useState(false);
   const [timeoutRecovery, setTimeoutRecovery] = useState<ProcessingTimeoutRecoveryDTO | null>(null);
   const [timeoutRecoveryBusy, setTimeoutRecoveryBusy] = useState(false);
@@ -537,11 +540,16 @@ export default function AdminIngestPage() {
       );
       return;
     }
-    const isTerminal = ["completed", "completed_with_errors", "failed", "no_action"].includes(
-      job.status,
-    );
+    const isTerminal = [
+      "submitted_pending_index",
+      "completed",
+      "completed_with_errors",
+      "failed",
+      "no_action",
+    ].includes(job.status);
+    const pending = job.pending_count ?? 0;
     setOpsFeedbackState(
-      !isTerminal
+      !isTerminal || job.status === "submitted_pending_index"
         ? "submitted"
         : job.status === "completed"
           ? "success"
@@ -550,9 +558,11 @@ export default function AdminIngestPage() {
             : "error",
     );
     setOpsNote(
-      isTerminal
-        ? `${label}已到达终态：共 ${job.total_count} 项，成功 ${job.success_count} 项，失败 ${job.failed_count} 项，跳过 ${job.skipped_count} 项。`
-        : `${label}请求已提交，共 ${job.total_count} 项；作业仍在排队或处理中，当前计数不是最终结果。`,
+      isTerminal && pending > 0
+        ? `${label}提交处理已结束：共 ${job.total_count} 项，已完成 ${job.success_count} 项，提交时待索引 ${pending} 项，失败 ${job.failed_count} 项，跳过 ${job.skipped_count} 项。是否可检索以资产当前索引状态为准，请等待自动对账，勿重复提交。`
+        : isTerminal
+          ? `${label}已到达终态：共 ${job.total_count} 项，成功 ${job.success_count} 项，失败 ${job.failed_count} 项，跳过 ${job.skipped_count} 项。`
+          : `${label}请求已提交，共 ${job.total_count} 项；作业仍在排队或处理中，当前计数不是最终结果。`,
     );
   }, []);
 
@@ -1198,6 +1208,7 @@ export default function AdminIngestPage() {
                     <small>
                       共 {job.total_count} · 成功 {job.success_count} · 失败 {job.failed_count} ·
                       跳过 {job.skipped_count}
+                      {(job.pending_count ?? 0) > 0 && ` · 提交时待索引 ${job.pending_count}`}
                     </small>
                     <button
                       type="button"
@@ -1537,7 +1548,7 @@ export default function AdminIngestPage() {
               <h4>最近恢复作业</h4>
               <p>
                 {retryTarget.latest_job
-                  ? `${safeJobStatus(retryTarget.latest_job.status)} · 成功 ${retryTarget.latest_job.success_count} · 失败 ${retryTarget.latest_job.failed_count}`
+                  ? `${safeJobStatus(retryTarget.latest_job.status)} · 成功 ${retryTarget.latest_job.success_count} · 提交时待索引 ${retryTarget.latest_job.pending_count ?? 0} · 失败 ${retryTarget.latest_job.failed_count}`
                   : "尚未发起过单条恢复作业"}
               </p>
               <small>进入当前状态：{formatBeijingTime(retryTarget.updated_at)}</small>
@@ -1569,11 +1580,14 @@ export default function AdminIngestPage() {
             description={
               selectedJob.status === "queued" || selectedJob.status === "running"
                 ? "请求已被服务端接受，但尚未达到最终完成状态。"
-                : "作业已到达终态，请依据下方安全计数决定是否继续处理失败项。"
+                : (selectedJob.pending_count ?? 0) > 0
+                  ? "本次提交处理已结束，下方待索引数是提交时快照；是否可检索以资产当前索引状态为准。"
+                  : "作业已到达终态，请依据下方安全计数决定是否继续处理失败项。"
             }
             counts={[
               { label: "总计", value: selectedJob.total_count },
               { label: "成功", value: selectedJob.success_count, tone: "success" },
+              { label: "提交时待索引", value: selectedJob.pending_count ?? 0, tone: "warning" },
               { label: "失败", value: selectedJob.failed_count, tone: "danger" },
               { label: "跳过", value: selectedJob.skipped_count, tone: "warning" },
             ]}
@@ -1587,9 +1601,11 @@ export default function AdminIngestPage() {
             nextStep={
               selectedJob.status === "queued" || selectedJob.status === "running"
                 ? "系统会继续刷新作业状态，请勿把本次 HTTP 返回当作完成。"
-                : selectedJob.failed_count > 0
-                  ? "检查失败任务摘要，修正后再发起重试。"
-                  : "无需后续操作。"
+                : (selectedJob.pending_count ?? 0) > 0
+                  ? "等待自动对账并查看资产当前索引状态；待索引项勿重复提交，失败项修正后再重试。"
+                  : selectedJob.failed_count > 0
+                    ? "检查失败任务摘要，修正后再发起重试。"
+                    : "作业处理已结束，是否可检索请查看资产当前索引状态。"
             }
             compact
           />

@@ -103,7 +103,12 @@ async def _load_governable_asset(
         raise _denied(403, "admin_business_permission_denied", "admin 不拥有业务生命周期治理权")
 
     asset = (
-        await session.execute(select(KnowledgeAsset).where(KnowledgeAsset.id == asset_id))
+        await session.execute(
+            select(KnowledgeAsset)
+            .where(KnowledgeAsset.id == asset_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
     ).scalar_one_or_none()
     not_found = _denied(404, "knowledge_asset_not_found", "知识资产不存在或不可见")
     if asset is None:
