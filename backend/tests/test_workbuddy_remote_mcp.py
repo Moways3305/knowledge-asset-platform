@@ -122,6 +122,9 @@ async def test_slow_qa_returns_tool_result_before_remote_guard_deadline(client, 
         session = resources[-1]
         try:
             await session.initialize()
+            # initialize() only queues notifications/initialized. A completed
+            # request drains that HTTP write before the QA-specific timer starts.
+            await asyncio.wait_for(session.list_tools(), timeout=10)
             result = await asyncio.wait_for(
                 session.call_tool(
                     "kap_answer_from_knowledge", {"query": "周期？", "scope": "company"}
