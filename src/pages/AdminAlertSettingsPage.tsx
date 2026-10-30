@@ -5,6 +5,7 @@ import { ApiError } from "../api/http";
 import { PageHeader, PageSection, PageToolbar, ProductPage } from "../components/ProductLayout";
 import type { AlertRuleDTO } from "../types/alert";
 import { formatBeijingTime } from "../utils/time";
+import "./AdminAlertSettingsPage.css";
 
 const severityLabel: Record<string, string> = { critical: "严重", error: "错误", warning: "警告" };
 const channelLabel: Record<string, string> = {
@@ -191,13 +192,13 @@ export default function AdminAlertSettingsPage() {
               <table className="secops-table">
                 <thead>
                   <tr>
-                    <th>级别</th>
+                    <th className="alert-severity-column">级别</th>
                     <th>规则名称</th>
-                    <th>阈值</th>
+                    <th className="alert-threshold-column">阈值</th>
                     <th className="secops-col-secondary">通知渠道</th>
                     <th className="secops-col-secondary">防重复</th>
                     <th className="secops-col-secondary">更新时间</th>
-                    <th>状态</th>
+                    <th className="alert-status-column">状态</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -214,67 +215,75 @@ export default function AdminAlertSettingsPage() {
                       <td className="secops-primary">{rule.rule_name}</td>
                       <td>
                         <div className="secops-threshold">
-                          {editingIds.has(rule.id) ? (
-                            <input
-                              aria-label={`${rule.rule_name}阈值`}
-                              type="number"
-                              min={1}
-                              value={drafts[rule.id] ?? ""}
-                              disabled={saving.has(rule.id)}
-                              onChange={(event) =>
-                                setDrafts((current) => ({
-                                  ...current,
-                                  [rule.id]: event.target.value,
-                                }))
-                              }
-                            />
-                          ) : (
-                            <span>{rule.threshold ?? "—"}</span>
-                          )}
-                          <span>{rule.threshold_unit ?? ""}</span>
-                          {editingIds.has(rule.id) ? (
-                            <>
-                              <button
-                                className="btn-small btn-small-primary"
+                          <div className="alert-threshold-value">
+                            {editingIds.has(rule.id) ? (
+                              <input
+                                aria-label={`${rule.rule_name}阈值`}
+                                type="number"
+                                min={1}
+                                value={drafts[rule.id] ?? ""}
                                 disabled={saving.has(rule.id)}
-                                onClick={() => commitThreshold(rule)}
-                              >
-                                保存阈值
-                              </button>
+                                onChange={(event) =>
+                                  setDrafts((current) => ({
+                                    ...current,
+                                    [rule.id]: event.target.value,
+                                  }))
+                                }
+                              />
+                            ) : (
+                              <span>{rule.threshold ?? "—"}</span>
+                            )}
+                            <span>{rule.threshold_unit ?? ""}</span>
+                          </div>
+                          <div
+                            className="alert-threshold-actions"
+                            role="group"
+                            aria-label={`${rule.rule_name}阈值操作`}
+                          >
+                            {editingIds.has(rule.id) ? (
+                              <>
+                                <button
+                                  className="btn-small btn-small-primary"
+                                  disabled={saving.has(rule.id)}
+                                  onClick={() => commitThreshold(rule)}
+                                >
+                                  保存阈值
+                                </button>
+                                <button
+                                  className="btn-small"
+                                  disabled={saving.has(rule.id)}
+                                  onClick={() => {
+                                    setDrafts((current) => ({
+                                      ...current,
+                                      [rule.id]: String(rule.threshold ?? ""),
+                                    }));
+                                    setEditingIds((current) => {
+                                      const next = new Set(current);
+                                      next.delete(rule.id);
+                                      return next;
+                                    });
+                                  }}
+                                >
+                                  取消
+                                </button>
+                              </>
+                            ) : (
                               <button
                                 className="btn-small"
+                                aria-label={`编辑${rule.rule_name}阈值`}
                                 disabled={saving.has(rule.id)}
                                 onClick={() => {
                                   setDrafts((current) => ({
                                     ...current,
                                     [rule.id]: String(rule.threshold ?? ""),
                                   }));
-                                  setEditingIds((current) => {
-                                    const next = new Set(current);
-                                    next.delete(rule.id);
-                                    return next;
-                                  });
+                                  setEditingIds((current) => new Set(current).add(rule.id));
                                 }}
                               >
-                                取消
+                                编辑
                               </button>
-                            </>
-                          ) : (
-                            <button
-                              className="btn-small"
-                              aria-label={`编辑${rule.rule_name}阈值`}
-                              disabled={saving.has(rule.id)}
-                              onClick={() => {
-                                setDrafts((current) => ({
-                                  ...current,
-                                  [rule.id]: String(rule.threshold ?? ""),
-                                }));
-                                setEditingIds((current) => new Set(current).add(rule.id));
-                              }}
-                            >
-                              编辑
-                            </button>
-                          )}
+                            )}
+                          </div>
                         </div>
                         {rowErrors[rule.id] && (
                           <span className="secops-row-error" role="alert">

@@ -97,7 +97,7 @@ const rule = {
   rule_name: "连续登录失败",
   severity: "critical",
   threshold: 5,
-  threshold_unit: "次",
+  threshold_unit: "versions",
   enabled: true,
   notification_channels: ["in_app"],
   dedup_strategy: "cooldown",
@@ -132,12 +132,17 @@ try {
   browser = await chromium.launch({ args: ["--disable-gpu"] });
   for (const target of pages)
     for (const scenario of scenarios)
-      for (const viewport of viewports) {
+      for (const viewport of target.name === "alerts" && scenario === "normal"
+        ? [...viewports, { name: "929", width: 929, height: 667 }]
+        : viewports) {
         const context = await browser.newContext({ viewport });
         const consoleMessages = [];
+        let writeRequests = 0;
         await context.route("**/*", async (route) => {
           const request = route.request();
           const url = new URL(request.url());
+          if (url.pathname.startsWith("/api/") && !["GET", "OPTIONS"].includes(request.method()))
+            writeRequests += 1;
           const fulfill = (body, status = 200) =>
             route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
           if (url.pathname === "/api/v1/auth/me") return fulfill(authMe);
@@ -194,7 +199,29 @@ try {
                   }
                 : authOverview,
             );
-          if (isRules) return fulfill({ items: scenario === "empty" ? [] : [rule] });
+          if (isRules)
+            return fulfill({
+              items:
+                scenario === "empty"
+                  ? []
+                  : [
+                      rule,
+                      {
+                        ...rule,
+                        id: "read-only-120",
+                        rule_name: "解析停滞判定时长",
+                        threshold: 120,
+                        threshold_unit: "minutes",
+                      },
+                      {
+                        ...rule,
+                        id: "read-only-360",
+                        rule_name: "运维告警冷却期",
+                        threshold: 360,
+                        threshold_unit: "minutes",
+                      },
+                    ],
+            });
           if (isNotices) return fulfill({ items: scenario === "empty" ? [] : [notice] });
           if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/admin/ops/"))
             return fulfill({ detail: { message: "route missing" } }, 404);
@@ -205,6 +232,59 @@ try {
         page.on("pageerror", (error) => consoleMessages.push(error.message));
         await page.goto(`${base}${target.path}`, { waitUntil: "networkidle" });
         await page.getByRole("heading", { name: target.heading }).waitFor();
+        let alertThresholdLayout = true;
+        if (target.name === "alerts" && scenario === "normal") {
+          const row = page
+            .getByRole("row")
+            .filter({ has: page.getByText(rule.rule_name, { exact: true }) });
+          await row.getByRole("button", { name: `编辑${rule.rule_name}阈值` }).click();
+          await row.getByRole("spinbutton").fill("11");
+          await row.getByRole("button", { name: "取消", exact: true }).scrollIntoViewIfNeeded();
+          alertThresholdLayout = await row.evaluate((element) => {
+            const cell = element.querySelector("td:nth-child(3)").getBoundingClientRect();
+            const status = element.querySelector(".secops-toggle").getBoundingClientRect();
+            const controls = [...element.querySelectorAll(".alert-threshold-actions button")];
+            return (
+              controls.every((button) => {
+                const rect = button.getBoundingClientRect();
+                const hit = document.elementFromPoint(
+                  rect.left + rect.width / 2,
+                  rect.top + rect.height / 2,
+                );
+                const overlapsStatus =
+                  rect.left < status.right &&
+                  rect.right > status.left &&
+                  rect.top < status.bottom &&
+                  rect.bottom > status.top;
+                return (
+                  rect.left >= cell.left &&
+                  rect.right <= cell.right + 1 &&
+                  rect.left >= 0 &&
+                  rect.right <= innerWidth &&
+                  !overlapsStatus &&
+                  Boolean(hit && button.contains(hit))
+                );
+              }) &&
+              [...document.querySelectorAll(".alert-threshold-value > span")].every((span) => {
+                const range = document.createRange();
+                range.selectNodeContents(span);
+                return range.getClientRects().length === 1;
+              })
+            );
+          });
+          await page.screenshot({
+            path: path.join(outDir, `alerts-threshold-edit-${viewport.name}.png`),
+            fullPage: true,
+            animations: "disabled",
+          });
+          await row.getByRole("button", { name: "取消", exact: true }).click();
+          await row.getByRole("button", { name: `编辑${rule.rule_name}阈值` }).waitFor();
+          alertThresholdLayout =
+            alertThresholdLayout &&
+            (await row.getByRole("spinbutton").count()) === 0 &&
+            (await row.getByRole("button", { name: `${rule.rule_name}停用` }).isEnabled()) &&
+            writeRequests === 0;
+        }
         const screenshot = path.join(outDir, `${target.name}-${scenario}-${viewport.name}.png`);
         await page.screenshot({ path: screenshot, fullPage: true, animations: "disabled" });
         const metrics = await page.evaluate(
@@ -271,6 +351,7 @@ try {
           screenshot,
           ...metrics,
           consoleLeak,
+          alertThresholdLayout,
           pass:
             metrics.overflowX <= 2 &&
             metrics.safe &&
@@ -283,7 +364,8 @@ try {
             metrics.noCharts &&
             metrics.honestEmpty &&
             metrics.expectedState &&
-            !consoleLeak,
+            !consoleLeak &&
+            alertThresholdLayout,
         });
         await context.close();
       }
