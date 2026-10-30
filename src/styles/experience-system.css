@@ -1,5 +1,17 @@
 /* KAP task experience system: one status language across pages and overlays. */
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .product-page-current-status {
   display: flex;
   align-items: center;

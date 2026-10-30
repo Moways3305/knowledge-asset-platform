@@ -285,6 +285,9 @@ describe("UploadStepB folder drop and batch rejection", () => {
       expect(table).toHaveClass("upload-unified-table");
       expect(table.closest(".upload77-table-wrap")).not.toBeNull();
       expect(table.querySelectorAll("thead th")).toHaveLength(4);
+      const selectionHeader = screen.getByRole("columnheader", { name: "选择文件" });
+      expect(selectionHeader).toHaveAttribute("scope", "col");
+      expect(selectionHeader).toBeEmptyDOMElement();
       expect(screen.getByRole("columnheader", { name: "文件" })).toBeInTheDocument();
       expect(screen.queryByRole("columnheader", { name: "建议主题" })).not.toBeInTheDocument();
       expect(screen.queryByRole("columnheader", { name: "建议标题" })).not.toBeInTheDocument();

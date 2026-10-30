@@ -285,9 +285,7 @@ export default function UnifiedFileTasks({ flow }: { flow: UploadFlow }) {
         <table className="upload77-table upload-unified-table">
           <thead>
             <tr>
-              <th>
-                <span className="sr-only">选择文件</span>
-              </th>
+              <th scope="col" aria-label="选择文件" />
               <th>文件</th>
               <th>状态</th>
               <th>操作</th>

@@ -2220,6 +2220,9 @@
   cursor: pointer;
   padding: 8px;
 }
+.upload77-wecom .upload-batch-controls > summary {
+  color: #eaf1ff;
+}
 .upload-batch-controls[open] {
   display: flex;
   flex-wrap: wrap;
