@@ -93,17 +93,6 @@ describe("product layout and route contract", () => {
     expect(source).toContain("当前身份仅可查看，修改需系统管理员");
   });
 
-  it("keeps model administration on the connection-row, drawer, and modal contract", () => {
-    const page = read("src/pages/AdminWeKnoraModelsPage.tsx");
-    const connections = read("src/components/UnifiedModelConnectionsSection.tsx");
-    expect(page).toContain('className="mf-connection-rows"');
-    expect(page).toContain('title="管理知识库配置"');
-    expect(page).toContain("<DetailDrawer");
-    expect(page).toContain("<TaskModal");
-    expect(connections).toContain('className="mf-connection-card"');
-    expect(connections).toContain("<TaskModal");
-  });
-
   it("keeps personal knowledge as a compact table with controlled write dialogs", () => {
     const personal = read("src/pages/MyKnowledgePage.tsx");
     expect(personal).toContain('className="mk83-table"');

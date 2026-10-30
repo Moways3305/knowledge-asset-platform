@@ -77,6 +77,7 @@ const person: PersonDTO = {
 };
 
 function roleRow(label: string) {
+  fireEvent.click(screen.getByRole("button", { name: "公司角色" }));
   const labelNode = screen
     .getAllByText(label)
     .find((node) => node.closest(".pp-project-role-item"));
@@ -416,6 +417,7 @@ describe("AdminPeoplePage governance controls", () => {
       new ApiError(500, "raw membership secret"),
     );
     await renderDetail();
+    fireEvent.click(screen.getByRole("button", { name: "项目任命" }));
     const projectRow = screen
       .getAllByText("示例项目")
       .map((node) => node.closest<HTMLElement>(".pp-project-role-item"))
@@ -446,6 +448,7 @@ describe("AdminPeoplePage governance controls", () => {
       new ApiError(409, "raw project manager detail", "last_project_manager_protected"),
     );
     await renderDetail();
+    fireEvent.click(screen.getByRole("button", { name: "项目任命" }));
     fireEvent.click(screen.getByRole("button", { name: "移除" }));
     fireEvent.click(
       within(screen.getByRole("dialog", { name: /确认/ })).getByRole("button", { name: "确认" }),

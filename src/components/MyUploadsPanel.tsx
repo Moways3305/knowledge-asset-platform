@@ -77,7 +77,7 @@ export default function MyUploadsPanel({
           <h2 id="my-uploads-title">我上传的资料</h2>
         </div>
         <button className="btn-secondary" type="button" onClick={onClose}>
-          关闭
+          返回上传
         </button>
       </header>
       <div className="my-uploads-filters" aria-label="上传记录筛选">
@@ -136,40 +136,40 @@ export default function MyUploadsPanel({
                 <strong>{item.source_file_name}</strong>
                 <span>{new Date(item.uploaded_at).toLocaleString()}</span>
               </div>
-              <dl>
-                <div>
-                  <dt>目标</dt>
-                  <dd>
-                    {item.target_scope === "personal"
-                      ? "个人库"
-                      : item.target_scope === "project"
-                        ? item.target_project_name
-                          ? `项目库 · ${item.target_project_name}`
-                          : "项目库"
-                        : item.target_scope === "company"
-                          ? "公司库"
-                          : "待选择"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>处理状态</dt>
-                  <dd>{processingLabels[item.processing_status] ?? "状态更新中"}</dd>
-                </div>
-                <div>
-                  <dt>最终状态</dt>
-                  <dd>{statusLabels[item.final_status]}</dd>
-                </div>
-                <div>
-                  <dt>重复处理</dt>
-                  <dd>
-                    {item.duplicate_result === "skipped"
-                      ? "本次不入库"
-                      : item.duplicate_result === "independent"
-                        ? "作为独立资料入库"
-                        : "无"}
-                  </dd>
-                </div>
-              </dl>
+              <p className="my-upload-final-status">{statusLabels[item.final_status]}</p>
+              <details>
+                <summary>处理详情</summary>
+                <dl>
+                  <div>
+                    <dt>目标</dt>
+                    <dd>
+                      {item.target_scope === "personal"
+                        ? "个人库"
+                        : item.target_scope === "project"
+                          ? item.target_project_name
+                            ? `项目库 · ${item.target_project_name}`
+                            : "项目库"
+                          : item.target_scope === "company"
+                            ? "公司库"
+                            : "待选择"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>处理状态</dt>
+                    <dd>{processingLabels[item.processing_status] ?? "状态更新中"}</dd>
+                  </div>
+                  <div>
+                    <dt>重复处理</dt>
+                    <dd>
+                      {item.duplicate_result === "skipped"
+                        ? "本次不入库"
+                        : item.duplicate_result === "independent"
+                          ? "作为独立资料入库"
+                          : "无"}
+                    </dd>
+                  </div>
+                </dl>
+              </details>
               {item.final_status === "rejected" && (
                 <>
                   <p>审核意见：{item.review_comment || "请根据审核要求修改资料后重新上传。"}</p>

@@ -79,6 +79,7 @@ describe("AdminNamingRulesPage directory governance", () => {
   it("adds a company third-level directory to draft with stable parent and inherited defaults", async () => {
     render(<AdminNamingRulesPage />);
     await screen.findByText("目录治理");
+    fireEvent.click(screen.getByText("新建三级目录", { selector: "summary" }));
     fireEvent.change(screen.getByLabelText("所属分类"), {
       target: { value: "company.methodology" },
     });
@@ -110,7 +111,8 @@ describe("AdminNamingRulesPage directory governance", () => {
 
   it("saves the exact draft stamp, then publishes only the successfully saved draft", async () => {
     render(<AdminNamingRulesPage />);
-    const name = await screen.findByDisplayValue("02 方法论");
+    fireEvent.click(await screen.findByRole("button", { name: "编辑02 方法论" }));
+    const name = screen.getByDisplayValue("02 方法论");
     fireEvent.change(name, { target: { value: "02 核对后的方法论" } });
     expect(screen.getByRole("button", { name: /发布正式目录/ })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: /保存草稿/ }));
@@ -135,7 +137,8 @@ describe("AdminNamingRulesPage directory governance", () => {
         }),
     );
     render(<AdminNamingRulesPage />);
-    const name = await screen.findByDisplayValue("02 方法论");
+    fireEvent.click(await screen.findByRole("button", { name: "编辑02 方法论" }));
+    const name = screen.getByDisplayValue("02 方法论");
     fireEvent.change(name, { target: { value: "先提交的名称" } });
     const saveButton = screen.getByRole("button", { name: /保存草稿/ });
     act(() => {
@@ -173,7 +176,8 @@ describe("AdminNamingRulesPage directory governance", () => {
         new ApiError(409, "目录草稿已更新，请重新加载后核对"),
       );
       render(<AdminNamingRulesPage />);
-      const name = await screen.findByDisplayValue("02 方法论");
+      fireEvent.click(await screen.findByRole("button", { name: "编辑02 方法论" }));
+      const name = screen.getByDisplayValue("02 方法论");
       if (action === "save") fireEvent.change(name, { target: { value: "我的未保存输入" } });
       fireEvent.click(
         screen.getByRole("button", { name: action === "save" ? /保存草稿/ : /发布正式目录/ }),
@@ -215,7 +219,8 @@ describe("AdminNamingRulesPage directory governance", () => {
         }),
     );
     render(<AdminNamingRulesPage />);
-    const name = await screen.findByDisplayValue("02 方法论");
+    fireEvent.click(await screen.findByRole("button", { name: "编辑02 方法论" }));
+    const name = screen.getByDisplayValue("02 方法论");
     const publishButton = screen.getByRole("button", { name: /发布正式目录/ });
     act(() => {
       publishButton.click();
@@ -232,17 +237,19 @@ describe("AdminNamingRulesPage directory governance", () => {
   it("shows formal directories without category or project-code management", async () => {
     render(<AdminNamingRulesPage />);
     expect(await screen.findByText("目录治理")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("02 方法论")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "编辑02 方法论" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("目录名称")).not.toBeInTheDocument();
     expect(screen.queryByText("目录类别")).not.toBeInTheDocument();
     expect(screen.queryByText("项目代码")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("tab", { name: "项目目录" }));
-    expect(screen.getByDisplayValue("03 交付成果")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "项目目录" }));
+    expect(screen.getByRole("button", { name: "编辑03 交付成果" })).toBeInTheDocument();
   });
 
   it("round-trips historical categories unchanged while saving directory edits", async () => {
     render(<AdminNamingRulesPage />);
-    const name = await screen.findByDisplayValue("02 方法论");
+    fireEvent.click(await screen.findByRole("button", { name: "编辑02 方法论" }));
+    const name = screen.getByDisplayValue("02 方法论");
     fireEvent.change(name, { target: { value: "02 方法与工具" } });
     fireEvent.click(screen.getByRole("button", { name: /保存草稿/ }));
 

@@ -751,3 +751,88 @@
     gap: 4px;
   }
 }
+
+.pk-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pk-row-actions > a {
+  color: var(--color-primary);
+  white-space: nowrap;
+}
+.pk-row-actions .action-menu-trigger {
+  max-width: 100%;
+  min-height: 30px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.pk-table th:last-child {
+  width: 180px;
+}
+@media (max-width: 1100px) {
+  .pk-list-section .product-table-scroll-hint {
+    display: none;
+  }
+  .pk-table {
+    min-width: 0;
+  }
+  .pk-table thead {
+    display: block;
+  }
+  .pk-table thead tr {
+    display: block;
+  }
+  .pk-table thead th {
+    display: none;
+  }
+  .pk-table thead th:first-child {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: auto;
+  }
+  .pk-table thead th:first-child::after {
+    content: "全选当前页可操作资料";
+  }
+  .pk-table tbody {
+    display: block;
+  }
+  .pk-table tr {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr);
+    padding: 12px;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .pk-table td {
+    width: auto;
+    height: auto;
+    min-width: 0;
+    border: 0;
+    padding: 5px;
+  }
+  .pk-table td:first-child {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .pk-table td:not(:first-child) {
+    grid-column: 2;
+  }
+  .pk-table td:nth-child(3)::before {
+    content: "所属区域：";
+    color: var(--color-text-secondary);
+  }
+  .pk-table td:nth-child(4)::before {
+    content: "保密级别：";
+    color: var(--color-text-secondary);
+  }
+  .pk-table td:nth-child(5)::before {
+    content: "状态：";
+    color: var(--color-text-secondary);
+  }
+  .pk-table td:nth-child(6)::before {
+    content: "最后更新：";
+    color: var(--color-text-secondary);
+  }
+}

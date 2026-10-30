@@ -542,3 +542,102 @@
     margin-left: 0;
   }
 }
+
+/* Keep list controls and compact statistics in one scanning path. */
+.mk83-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.mk83-stats article {
+  flex: 1 1 140px;
+  min-height: 0;
+  padding: 10px 12px;
+}
+.mk83-stat-icon,
+.mk83-stat-copy small {
+  display: none;
+}
+.mk83-stat-copy {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.mk83-toolbar {
+  align-items: center;
+  flex-wrap: wrap;
+}
+.mk83-toolbar form {
+  flex: 1 1 240px;
+}
+.mk83-filter-panel {
+  left: 0;
+  right: auto;
+  max-width: min(340px, calc(100vw - 48px));
+}
+@media (max-width: 1100px) {
+  .mk83-more {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .mk83-more-menu {
+    position: static;
+    width: 100%;
+    min-width: 0;
+    margin-top: 6px;
+  }
+  .mk83-stats article {
+    flex-basis: calc(50% - 8px);
+    min-height: 0;
+  }
+  .mk83-table {
+    min-width: 0;
+  }
+  .mk83-table thead {
+    display: block;
+  }
+  .mk83-table thead tr {
+    display: block;
+  }
+  .mk83-table thead th {
+    display: none;
+  }
+  .mk83-table thead th:first-child {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: auto;
+  }
+  .mk83-table thead th:first-child::after {
+    content: "全选当前页可操作资料";
+  }
+  .mk83-table tbody {
+    display: block;
+  }
+  .mk83-table tr {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr);
+    padding: 12px;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .mk83-table td {
+    border: 0;
+    padding: 5px;
+    min-width: 0;
+  }
+  .mk83-table td:first-child {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .mk83-table td:not(:first-child) {
+    grid-column: 2;
+  }
+  .mk83-table td:nth-child(3)::before {
+    content: "更新时间：";
+    color: var(--color-text-secondary);
+  }
+  .mk83-table td:nth-child(4)::before {
+    content: "个人状态：";
+    color: var(--color-text-secondary);
+  }
+}

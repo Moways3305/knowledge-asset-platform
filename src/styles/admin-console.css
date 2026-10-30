@@ -109,15 +109,6 @@
     --admin-row-height: 50px;
   }
 
-  .admin-control-page .product-page-actions,
-  .admin-control-page .product-page-actions > * {
-    width: 100%;
-  }
-
-  .admin-control-page .product-page-actions button {
-    justify-content: center;
-  }
-
   .admin-control-page :where(.gp-summary-list, .secops-summary-list) {
     grid-template-columns: 1fr;
   }

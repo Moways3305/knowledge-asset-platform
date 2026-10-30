@@ -1,0 +1,22 @@
+.people89-page .pp-governance-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 18px 0 12px;
+}
+.people89-page .pp-governance-tabs [aria-pressed="true"] {
+  background: var(--color-primary, #243e55);
+  color: #fff;
+}
+.people89-page .pp-detail-panel [role="region"][hidden] {
+  display: none;
+}
+.people89-page .pp-governance-feedback {
+  position: sticky;
+  bottom: 0;
+  background: var(--color-bg-surface);
+}
+.people89-page .pp-governance-feedback:has(.up-submit-notice) {
+  padding: 12px 0;
+  border-top: 1px solid var(--color-border, #dbe2e8);
+}

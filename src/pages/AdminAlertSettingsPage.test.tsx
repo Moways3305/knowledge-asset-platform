@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, within, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchAlertRules, updateAlertRule } from "../api/admin";
 import { ApiError } from "../api/http";
@@ -41,11 +41,14 @@ describe("AdminAlertSettingsPage", () => {
     for (const secret of ["rule-secret"]) expect(container.innerHTML).not.toContain(secret);
   });
 
-  it("saves threshold on blur and toggles only the selected rule", async () => {
+  it("saves thresholds only on explicit save and toggles only the selected rule", async () => {
     render(<AdminAlertSettingsPage />);
-    const input = await screen.findByLabelText("连续登录失败阈值");
+    fireEvent.click(await screen.findByRole("button", { name: "编辑连续登录失败阈值" }));
+    const input = screen.getByLabelText("连续登录失败阈值");
     fireEvent.change(input, { target: { value: "8" } });
     fireEvent.blur(input);
+    expect(updateAlertRule).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "保存阈值" }));
     await waitFor(() =>
       expect(updateAlertRule).toHaveBeenCalledWith("rule-secret", { threshold: 8 }),
     );
@@ -58,12 +61,53 @@ describe("AdminAlertSettingsPage", () => {
   it("recovers the edited row after a safe update failure", async () => {
     vi.mocked(updateAlertRule).mockRejectedValueOnce(new ApiError(500, "raw webhook credential"));
     render(<AdminAlertSettingsPage />);
-    const input = await screen.findByLabelText("连续登录失败阈值");
+    fireEvent.click(await screen.findByRole("button", { name: "编辑连续登录失败阈值" }));
+    const input = screen.getByLabelText("连续登录失败阈值");
     fireEvent.change(input, { target: { value: "9" } });
     fireEvent.blur(input);
+    expect(updateAlertRule).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "保存阈值" }));
     expect(await screen.findByText("保存失败，请重试。")).toBeInTheDocument();
     expect(input).toHaveValue(5);
     expect(document.body.innerHTML).not.toContain("raw webhook credential");
+  });
+
+  it("cancels a changed threshold without writing it", async () => {
+    render(<AdminAlertSettingsPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "编辑连续登录失败阈值" }));
+    fireEvent.change(screen.getByLabelText("连续登录失败阈值"), { target: { value: "11" } });
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(updateAlertRule).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "编辑连续登录失败阈值" }));
+    expect(screen.getByLabelText("连续登录失败阈值")).toHaveValue(5);
+  });
+
+  it("keeps another row's draft when an earlier save resolves", async () => {
+    const other = { ...rule, id: "second-rule", rule_name: "上传失败", threshold: 3 };
+    vi.mocked(fetchAlertRules).mockResolvedValue({ items: [rule, other] });
+    let finish!: (value: AlertRuleDTO) => void;
+    vi.mocked(updateAlertRule).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    render(<AdminAlertSettingsPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "编辑连续登录失败阈值" }));
+    const firstInput = screen.getByLabelText("连续登录失败阈值");
+    fireEvent.change(firstInput, { target: { value: "8" } });
+    fireEvent.click(within(firstInput.closest("tr")!).getByRole("button", { name: "保存阈值" }));
+    fireEvent.click(screen.getByRole("button", { name: "编辑上传失败阈值" }));
+    const otherInput = screen.getByLabelText("上传失败阈值");
+    fireEvent.change(otherInput, { target: { value: "9" } });
+    await act(async () => finish({ ...rule, threshold: 8 }));
+    expect(screen.getByLabelText("上传失败阈值")).toHaveValue(9);
+    expect(screen.queryByLabelText("连续登录失败阈值")).not.toBeInTheDocument();
+    expect(updateAlertRule).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(otherInput.closest("tr")!).getByRole("button", { name: "保存阈值" }));
+    await waitFor(() =>
+      expect(updateAlertRule).toHaveBeenLastCalledWith("second-rule", { threshold: 9 }),
+    );
   });
 
   it.each([

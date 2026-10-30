@@ -52,11 +52,11 @@ const approved: ReviewActionResponseDTO = {
   asset_zone: "material",
 };
 
-function renderPage() {
+function renderPage(entry = "/review") {
   return render(
     <MemoryRouter
       future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-      initialEntries={["/review"]}
+      initialEntries={[entry]}
     >
       <Routes>
         <Route path="/review" element={<ReviewPage />} />
@@ -91,6 +91,68 @@ describe("ReviewPage governance workspace", () => {
       .mockReset()
       .mockResolvedValue({ ...approved, status: "rejected" });
     vi.mocked(bulkRegisterReviewEvidence).mockReset();
+  });
+
+  it("selects without submitting and exposes batch actions only after selection", async () => {
+    renderPage();
+    await screen.findByText(pending.asset_title!);
+    expect(screen.queryByRole("button", { name: "一键全选确认" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /批量通过/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("checkbox", { name: "全选当前页可审核项" }));
+    expect(screen.getByRole("button", { name: "批量通过（1）" })).toBeInTheDocument();
+    expect(approveReview).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "清除选择" }));
+    expect(screen.queryByRole("button", { name: /批量通过/ })).not.toBeInTheDocument();
+  });
+
+  it("uses one selection bar for reviewable and evidence-pending items", async () => {
+    vi.mocked(fetchReviews).mockResolvedValue([
+      pending,
+      {
+        ...pending,
+        id: "evidence",
+        status: "pending_evidence",
+        asset_title: "待补证资料",
+        can_decide: false,
+      },
+    ]);
+    renderPage();
+    fireEvent.click(
+      await screen.findByRole("checkbox", { name: `选择审核项 ${pending.asset_title}` }),
+    );
+    fireEvent.click(screen.getByRole("checkbox", { name: "选择审核项 待补证资料" }));
+    expect(screen.getAllByRole("region", { name: "批量操作" })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "批量通过（1）" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "批量补充证据（1）" })).toBeInTheDocument();
+    expect(screen.getByText("已选择全部符合当前筛选条件的 2 项")).toBeInTheDocument();
+    expect(approveReview).not.toHaveBeenCalled();
+  });
+
+  it("locates a project review only within the returned visible queue", async () => {
+    vi.mocked(fetchReviews).mockResolvedValue([
+      pending,
+      { ...pending, id: "other", asset_title: "其他事项" },
+    ]);
+    renderPage(`/review?review_id=${pending.id}&project_id=${pending.target_project_id}`);
+    expect(await screen.findByText(pending.asset_title!)).toBeInTheDocument();
+    expect(screen.queryByText("其他事项")).not.toBeInTheDocument();
+    expect(fetchReviews).toHaveBeenCalledWith({
+      queue: "open",
+      status: undefined,
+      reviewType: undefined,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "查看全部待办" }));
+    expect(screen.getByText("其他事项")).toBeInTheDocument();
+    expect(approveReview).not.toHaveBeenCalled();
+  });
+
+  it("shows an honest missing-record state without fetching an arbitrary deep-link id", async () => {
+    renderPage(`/review?review_id=${pending.id}&project_id=wrong-project`);
+    expect(await screen.findByText(/当前可见审核记录中未找到该事项/)).toBeInTheDocument();
+    expect(screen.queryByText(pending.asset_title!)).not.toBeInTheDocument();
+    expect(fetchReviews).toHaveBeenCalledTimes(1);
+    expect(approveReview).not.toHaveBeenCalled();
   });
 
   it("uses the formal route workspace and sends real status and type filters", async () => {

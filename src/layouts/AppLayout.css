@@ -5967,6 +5967,22 @@ body {
 .product-button-icon {
   display: inline-grid;
   place-items: center;
+  flex: 0 0 auto;
+}
+
+.product-button.is-icon-only {
+  width: var(--control-height);
+  padding: 0;
+  flex: 0 0 auto;
+}
+
+.product-button.is-icon-only.is-small {
+  width: var(--control-height-sm);
+}
+
+.product-button:focus-visible {
+  outline: 2px solid var(--color-accent-1);
+  outline-offset: 2px;
 }
 
 .form-field {
@@ -6210,12 +6226,14 @@ body {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 24px;
+  flex-wrap: wrap;
+  gap: 12px 24px;
   padding: 2px 0 14px;
   border-bottom: 1px solid var(--color-border);
 }
 
 .product-page-heading {
+  flex: 1 1 300px;
   min-width: 0;
   max-width: 760px;
 }
@@ -6268,7 +6286,9 @@ body {
 }
 
 .product-page-actions {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  max-width: 100%;
+  margin-left: auto;
   justify-content: flex-end;
 }
 
@@ -6289,9 +6309,19 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 20px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--color-border);
+}
+
+.product-section-header > :first-child {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.product-section-actions {
+  max-width: 100%;
 }
 
 .product-section-header h3,
@@ -6331,12 +6361,17 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 8px 16px;
   background: var(--color-bg-muted);
   border: 0;
   border-bottom: 1px solid var(--color-border);
   border-radius: 0;
+}
+
+.product-toolbar-start {
+  flex: 1 1 240px;
 }
 
 .product-toolbar-end {
@@ -6575,6 +6610,12 @@ body {
     align-items: stretch;
     flex-direction: column;
     gap: 10px;
+  }
+
+  .product-page-heading,
+  .product-section-header > :first-child,
+  .product-toolbar-start {
+    flex: 0 1 auto;
   }
 
   .product-page-actions,

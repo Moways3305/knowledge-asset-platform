@@ -310,15 +310,15 @@ describe("HomeDashboardPage task-first workbench", () => {
     expect(screen.getByText(/重复跳过 ·/)).toBeInTheDocument();
   });
 
-  it("opens the priority task from the focus surface and switches groups from the rhythm rail", async () => {
+  it("opens the priority task from the focus surface and uses one set of task tabs", async () => {
     renderPage();
 
     const focus = await screen.findByRole("button", { name: "打开今日焦点任务" });
-    const rhythm = screen.getByLabelText("今日工作节奏");
-    const running = within(rhythm).getByRole("button", { name: /进行中1/ });
+    expect(screen.queryByLabelText("今日工作节奏")).not.toBeInTheDocument();
+    const running = screen.getByRole("tab", { name: /进行中1/ });
 
     fireEvent.click(running);
-    expect(running).toHaveAttribute("aria-pressed", "true");
+    expect(running).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText(/处理中 · 4\/10/)).toBeInTheDocument();
 
     fireEvent.click(focus);

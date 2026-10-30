@@ -30,7 +30,8 @@ describe("MyUploadsPanel", () => {
     expect(await screen.findByText("拒绝资料.md")).toBeInTheDocument();
     expect(
       screen.getAllByText("审核已拒绝").filter((element) => element.tagName === "DD"),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
+    expect(document.querySelector(".my-upload-final-status")).toHaveTextContent("审核已拒绝");
     expect(screen.getByText(/请补充依据/)).toBeInTheDocument();
     expect(screen.queryByText("状态更新中")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "修改后重新上传" })).toHaveAttribute("href", "/upload");
@@ -116,7 +117,8 @@ describe("MyUploadsPanel", () => {
     expect(await screen.findByText("已取消资料.pdf")).toBeInTheDocument();
     expect(
       screen.getAllByText("已取消").filter((element) => element.tagName === "DD"),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
+    expect(document.querySelector(".my-upload-final-status")).toHaveTextContent("已取消");
     fireEvent.change(screen.getByLabelText("最终状态"), { target: { value: "cancelled" } });
     await waitFor(() =>
       expect(ingestApi.fetchMyUploads).toHaveBeenLastCalledWith(

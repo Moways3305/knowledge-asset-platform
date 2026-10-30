@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -149,7 +149,7 @@ function renderPage() {
 }
 
 async function openRuntimeDetails(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(await screen.findByText("运行详情", { selector: "summary span" }));
+  await user.click(await screen.findByRole("button", { name: /^运行诊断/ }));
 }
 
 describe("AdminIngestPage operations reference", () => {
@@ -257,6 +257,7 @@ describe("AdminIngestPage operations reference", () => {
       total: statuses.length,
     });
     renderPage();
+    await openRuntimeDetails(userEvent.setup());
     const overview = screen.getByLabelText("入库运行概览");
     await within(overview).findByText("共 9 项");
     const counts = overview
@@ -334,7 +335,7 @@ describe("AdminIngestPage operations reference", () => {
     confirm.mockRestore();
   });
 
-  it("renders the recovery track without the old operations tabs and only safe failure data", async () => {
+  it("separates recovery, jobs and diagnostics while displaying only safe failure data", async () => {
     renderPage();
 
     expect(await screen.findByRole("heading", { name: "索引恢复控制台" })).toBeInTheDocument();
@@ -359,6 +360,7 @@ describe("AdminIngestPage operations reference", () => {
 
     expect(await screen.findByText("连接检查未通过，请确认平台配置。")).toBeInTheDocument();
     expect(screen.getByText("1 项解析中断，等待恢复")).toBeInTheDocument();
+    await openRuntimeDetails(userEvent.setup());
     expect(screen.getByText("共 1 项")).toBeInTheDocument();
     expect(screen.getByLabelText("近 14 天模型用量")).toHaveTextContent("2外部请求数");
     expect(screen.getByLabelText("近 14 天模型用量")).toHaveTextContent("30总 token");
@@ -366,6 +368,7 @@ describe("AdminIngestPage operations reference", () => {
     expect(screen.getByLabelText("按日和调用场景的模型用量")).toHaveTextContent(
       "2026-07-17内容生成2 次外部请求 · 30 token缓存命中率 50%",
     );
+    fireEvent.click(screen.getByRole("button", { name: "待恢复任务" }));
     expect(document.body).toHaveTextContent("绝不能显示的业务标题");
     expect(document.body).not.toHaveTextContent("绝不能显示的项目名称");
     expect(document.body).not.toHaveTextContent("绝不能显示的人员名称");
@@ -373,6 +376,7 @@ describe("AdminIngestPage operations reference", () => {
     expect(document.body).not.toHaveTextContent("asset-secret-84");
     expect(document.body).not.toHaveTextContent("UPSTREAM_SECRET_CODE");
     expect(document.body).not.toHaveTextContent("critical");
+    await openRuntimeDetails(userEvent.setup());
     expect(screen.getByText("正在积累运维数据")).toBeInTheDocument();
     expect(screen.queryByLabelText("近 24 小时索引运维趋势")).not.toBeInTheDocument();
     expect(screen.getAllByText("待确认").length).toBeGreaterThan(0);
@@ -619,6 +623,7 @@ describe("AdminIngestPage operations reference", () => {
       ],
     });
     renderPage();
+    await openRuntimeDetails(userEvent.setup());
 
     expect(await screen.findByText("心跳过期")).toBeInTheDocument();
     expect(screen.getAllByText("正常").length).toBeGreaterThan(0);
@@ -663,6 +668,7 @@ describe("AdminIngestPage operations reference", () => {
       })),
     });
     renderPage();
+    await openRuntimeDetails(userEvent.setup());
 
     expect(await screen.findByText("近 24 小时索引运维趋势")).toBeInTheDocument();
     const visibleTicks = document.querySelectorAll(".ao85-trend-tick:not(.is-hidden)");
@@ -675,8 +681,10 @@ describe("AdminIngestPage operations reference", () => {
   it("isolates a health endpoint failure from the indexing panels", async () => {
     vi.mocked(fetchIndexingHealth).mockRejectedValue(new Error("SECRET health payload"));
     renderPage();
+    await openRuntimeDetails(userEvent.setup());
 
     expect(await screen.findByText("运行健康暂时无法加载。")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "待恢复任务" }));
     expect(screen.getByText("1 项解析中断，等待恢复")).toBeInTheDocument();
     expect(screen.queryByLabelText("近 24 小时索引运维趋势")).not.toBeInTheDocument();
     expect(document.body).not.toHaveTextContent("SECRET health payload");
@@ -685,6 +693,7 @@ describe("AdminIngestPage operations reference", () => {
   it("does not render a trend when the health endpoint is forbidden", async () => {
     vi.mocked(fetchIndexingHealth).mockRejectedValue(new ApiError(403, "SECRET forbidden"));
     renderPage();
+    await openRuntimeDetails(userEvent.setup());
 
     expect(await screen.findByText("运行健康暂时无法加载。")).toBeInTheDocument();
     expect(screen.queryByLabelText("近 24 小时索引运维趋势")).not.toBeInTheDocument();
@@ -706,7 +715,6 @@ describe("AdminIngestPage operations reference", () => {
     renderPage();
 
     const retry = await screen.findByRole("button", { name: /^恢复索引/ });
-    await openRuntimeDetails(user);
     await user.click(screen.getByRole("checkbox", { name: "包含已跳过" }));
     await user.click(screen.getByRole("checkbox", { name: "包含未索引" }));
     await user.selectOptions(screen.getByRole("combobox", { name: "处理上限" }), "100");
@@ -717,7 +725,7 @@ describe("AdminIngestPage operations reference", () => {
       statuses: ["index_failed", "skipped", "not_indexed"],
       limit: 100,
     });
-    expect(screen.getAllByRole("button", { name: "正在执行：恢复索引" })).toHaveLength(3);
+    expect(screen.getAllByRole("button", { name: "正在执行：恢复索引" })).toHaveLength(2);
     expect(screen.getAllByRole("button", { name: "正在执行：恢复索引" })[1]).toBeDisabled();
 
     resolveJob({ ...completedJob, status: "running" });
@@ -773,6 +781,7 @@ describe("AdminIngestPage operations reference", () => {
       await screen.findByText(/恢复索引提交处理已结束：共 2 项，已完成 0 项，提交时待索引 2 项/),
     ).toBeInTheDocument();
     expect(screen.queryByText("作业已完成")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "作业记录" }));
     const submittedJobRow = screen.getByText("已提交，待索引确认").closest("li");
     expect(submittedJobRow).not.toBeNull();
     await user.click(within(submittedJobRow!).getByRole("button", { name: "查看详情" }));
@@ -796,7 +805,6 @@ describe("AdminIngestPage operations reference", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await openRuntimeDetails(user);
     await user.click(await screen.findByRole("button", { name: /^重新解析/ }));
 
     expect(
@@ -823,6 +831,7 @@ describe("AdminIngestPage operations reference", () => {
     await waitFor(() =>
       expect(screen.getAllByRole("button", { name: "正在执行：恢复索引" })[0]).toBeDisabled(),
     );
+    await user.click(screen.getByRole("button", { name: "作业记录" }));
     const runningRow = screen.getByText("执行中").closest("li");
     await user.click(within(runningRow!).getByRole("button", { name: "查看详情" }));
     expect(
@@ -833,7 +842,6 @@ describe("AdminIngestPage operations reference", () => {
     await waitFor(() => expect(fetchIndexingJobs).toHaveBeenCalledTimes(3), {
       timeout: 3_500,
     });
-    await waitFor(() => expect(screen.getByRole("button", { name: /^恢复索引/ })).toBeEnabled());
     expect(fetchAdminIngest).toHaveBeenCalledTimes(3);
     expect(fetchOpsIndexing).toHaveBeenCalledTimes(3);
     expect(fetchIndexingHealth).toHaveBeenCalledTimes(3);
@@ -841,6 +849,9 @@ describe("AdminIngestPage operations reference", () => {
       within(screen.getByRole("dialog", { name: "索引维护作业" })).getByText(/作业已到达终态/),
     ).toBeInTheDocument();
 
+    await user.click(screen.getByRole("button", { name: "返回作业列表" }));
+    await user.click(screen.getByRole("button", { name: "待恢复任务" }));
+    expect(screen.getByRole("button", { name: /^恢复索引/ })).toBeEnabled();
     const stoppedAt = vi.mocked(fetchIndexingJobs).mock.calls.length;
     await act(async () => {
       await new Promise((resolve) => window.setTimeout(resolve, 1_700));
@@ -904,7 +915,6 @@ describe("AdminIngestPage operations reference", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await openRuntimeDetails(user);
     await user.click(await screen.findByRole("button", { name: "重新解析（4 项）" }));
     await waitFor(() =>
       expect(triggerIndexingReparse).toHaveBeenCalledWith({
@@ -926,6 +936,7 @@ describe("AdminIngestPage operations reference", () => {
 
     expect(await screen.findByText("索引状态暂时无法加载")).toBeInTheDocument();
     expect(screen.getByText("恢复任务暂时无法加载")).toBeInTheDocument();
+    await openRuntimeDetails(userEvent.setup());
     expect(screen.getByText("共 1 项")).toBeInTheDocument();
     expect(screen.getAllByText("处理中").length).toBeGreaterThan(0);
     expect(document.body).not.toHaveTextContent("SECRET upstream failure");
@@ -944,7 +955,7 @@ describe("AdminIngestPage operations reference", () => {
     expect(await screen.findAllByText("当前没有待恢复索引")).toHaveLength(2);
   });
 
-  it("keeps parse-only recovery in the folded runtime details", async () => {
+  it("keeps bounded parse-only recovery in the recovery workspace", async () => {
     const user = userEvent.setup();
     vi.mocked(fetchOpsIndexing).mockResolvedValue({
       ...ops,
@@ -961,7 +972,6 @@ describe("AdminIngestPage operations reference", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText("当前没有索引失败项")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "重新解析" })).not.toBeInTheDocument();
-    await openRuntimeDetails(user);
     expect(screen.getByRole("button", { name: "重新解析（2 项）" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "重新解析（2 项）" }));
     await waitFor(() =>

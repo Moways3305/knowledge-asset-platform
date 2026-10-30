@@ -10,6 +10,7 @@ import {
 } from "../api/knowledgeVersions";
 import { fetchTrust, replaceTrust } from "../api/knowledgeTrust";
 import { formatBeijingTime } from "../utils/time";
+import { ActionGroup } from "./ActionLayout";
 import TaskModal from "./TaskModal";
 import "./KnowledgeVersionPanel.css";
 
@@ -100,13 +101,14 @@ export default function KnowledgeVersionPanel({
     ) : null;
   return (
     <section className="knowledge-versions" aria-label="资料版本管理">
+      <h2>版本管理</h2>
       {state.current_asset_id && state.current_asset_id !== assetId && (
         <p className="knowledge-version-replaced">
           此版本不是当前已确认使用的版本。
           <Link to={`/knowledge/${state.current_asset_id}`}>查看当前版本</Link>
         </p>
       )}
-      <div className="knowledge-version-actions">
+      <ActionGroup className="knowledge-version-actions" label="版本操作">
         {state.can_update && (
           <button
             type="button"
@@ -132,7 +134,7 @@ export default function KnowledgeVersionPanel({
         >
           版本历史与差异
         </button>
-      </div>
+      </ActionGroup>
       <TaskModal
         open={open === "upload"}
         title="更新这份资料"

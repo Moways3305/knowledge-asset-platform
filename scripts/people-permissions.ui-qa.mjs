@@ -22,15 +22,7 @@ const targets = [
     path: "/admin/people",
     root: ".people89-page",
     table: ".pp-table",
-    scenarios: [
-      "landing",
-      "normal",
-      "relations-1",
-      "relations-2",
-      "empty",
-      "failure",
-      "forbidden",
-    ],
+    scenarios: ["landing", "normal", "relations-1", "relations-2", "empty", "failure", "forbidden"],
   },
   {
     name: "permissions",
@@ -231,6 +223,15 @@ try {
         if (target.name === "people" && scenario === "normal") {
           await page.getByRole("button", { name: "查看 / 治理" }).click();
           await page.getByRole("dialog", { name: "人员治理详情" }).waitFor();
+          for (const name of ["账号", "公司角色", "项目任命"]) {
+            await page.getByRole("button", { name, exact: true }).click();
+            await page.getByRole("region", { name, exact: true }).waitFor();
+            await page.screenshot({
+              path: path.join(outDir, `people-${name}-${viewport.name}.png`),
+              fullPage: true,
+              animations: "disabled",
+            });
+          }
         }
         const screenshot = path.join(outDir, `${target.name}-${scenario}-${viewport.name}.png`);
         await page.screenshot({ path: screenshot, fullPage: true, animations: "disabled" });
@@ -250,9 +251,12 @@ try {
               ...(pageRoot?.querySelectorAll(".pp-table-wrap, .gp-table-wrap") ?? []),
             ];
             const rows = pageRoot?.querySelectorAll(`${target.table} tbody tr`) ?? [];
-            const isPeopleDataScenario = ["landing", "normal", "relations-1", "relations-2"].includes(
-              scenario,
-            );
+            const isPeopleDataScenario = [
+              "landing",
+              "normal",
+              "relations-1",
+              "relations-2",
+            ].includes(scenario);
             const stateOkay =
               target.name === "company-kb"
                 ? Boolean(pageRoot?.querySelector(".ckb-empty-card"))
@@ -273,7 +277,9 @@ try {
             ];
             const emptyState = pageRoot?.querySelector(".gp-empty-content, .ig-empty-state");
             const emptyRect = emptyState?.getBoundingClientRect();
-            const actionButtons = [...(main?.querySelectorAll("button") ?? [])];
+            const actionButtons = [...(main?.querySelectorAll("button") ?? [])].filter(
+              (button) => button.getBoundingClientRect().width > 0,
+            );
             const drawer = pageRoot?.querySelector(".pp-detail-panel")?.getBoundingClientRect();
             const governanceRows = [
               ...(pageRoot?.querySelectorAll(

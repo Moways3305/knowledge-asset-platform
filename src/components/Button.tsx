@@ -1,27 +1,36 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 
 export type ButtonVariant = "primary" | "secondary" | "danger" | "ghost";
 export type ButtonSize = "small" | "medium";
 
-interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;
   size?: ButtonSize;
   icon?: ReactNode;
-}
+} & (
+    | { iconOnly: true; "aria-label": string; icon: ReactNode; children?: never }
+    | { iconOnly?: false; children?: ReactNode }
+  );
 
-export default function Button({
-  variant = "secondary",
-  size = "medium",
-  icon,
-  className = "",
-  children,
-  type = "button",
-  ...props
-}: ButtonProps) {
+const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
+  {
+    variant = "secondary",
+    size = "medium",
+    icon,
+    iconOnly = false,
+    className = "",
+    children,
+    type = "button",
+    ...props
+  },
+  ref,
+) {
   return (
     <button
       type={type}
-      className={`product-button is-${variant} is-${size} ${className}`.trim()}
+      ref={ref}
+      className={`product-button is-${variant} is-${size} ${iconOnly ? "is-icon-only" : ""} ${className}`.trim()}
+      title={props.title ?? (iconOnly ? props["aria-label"] : undefined)}
       {...props}
     >
       {icon && (
@@ -32,4 +41,6 @@ export default function Button({
       {children}
     </button>
   );
-}
+});
+
+export default Button;

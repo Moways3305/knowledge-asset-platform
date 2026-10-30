@@ -13,6 +13,11 @@ const flow = vi.hoisted(() => ({
     confirmSubmitted: false,
     awaitingProjectReview: false,
     taskId: "test-task-id",
+    projects: [] as Array<{ projectId: string; projectName: string }>,
+    targetLibrary: "",
+    targetLocked: false,
+    setTargetLibrary: vi.fn(),
+    setTargetProjectId: vi.fn(),
   },
 }));
 
@@ -29,9 +34,12 @@ vi.mock("./upload/UploadConfirmPanel", () => ({
   ),
 }));
 
-function renderPage() {
+function renderPage(entry = "/upload") {
   return render(
-    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter
+      initialEntries={[entry]}
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+    >
       <UploadPage />
     </MemoryRouter>,
   );
@@ -43,6 +51,11 @@ describe("UploadPage reference workflow", () => {
     flow.current.confirmReady = false;
     flow.current.confirmSubmitted = false;
     flow.current.awaitingProjectReview = false;
+    flow.current.projects = [];
+    flow.current.targetLibrary = "";
+    flow.current.targetLocked = false;
+    flow.current.setTargetLibrary.mockReset();
+    flow.current.setTargetProjectId.mockReset();
     flow.current.switchPath.mockReset();
     flow.current.handleReset.mockReset();
     flow.current.handleDeletePending.mockReset();
@@ -59,6 +72,28 @@ describe("UploadPage reference workflow", () => {
     fireEvent.click(screen.getByRole("button", { name: "企微微盘待确认" }));
     expect(flow.current.switchPath).toHaveBeenCalledWith("a");
   });
+
+  it("prefills a permitted project only for a new unlocked confirmation", () => {
+    flow.current.projects = [{ projectId: "allowed", projectName: "当前项目" }];
+    flow.current.confirmReady = true;
+    renderPage("/upload?project_id=allowed&source=local");
+    expect(flow.current.setTargetLibrary).toHaveBeenCalledWith("project");
+    expect(flow.current.setTargetProjectId).toHaveBeenCalledWith("allowed");
+  });
+
+  it.each(["unavailable", "locked", "selected"])(
+    "preserves the target when the project context is %s",
+    (condition) => {
+      flow.current.projects =
+        condition === "unavailable" ? [] : [{ projectId: "allowed", projectName: "当前项目" }];
+      flow.current.confirmReady = true;
+      flow.current.targetLocked = condition === "locked";
+      flow.current.targetLibrary = condition === "selected" ? "personal" : "";
+      renderPage("/upload?project_id=allowed&source=local");
+      expect(flow.current.setTargetLibrary).not.toHaveBeenCalled();
+      expect(flow.current.setTargetProjectId).not.toHaveBeenCalled();
+    },
+  );
 
   it("does not present a pending project submission as already in the knowledge base", () => {
     flow.current.confirmSubmitted = true;

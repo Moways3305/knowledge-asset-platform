@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bot, Database, RefreshCw, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { RefreshCw } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
   fetchWeknoraDefaultModels,
@@ -15,6 +15,7 @@ import {
 } from "../api/modelConnections";
 import { ApiError } from "../api/http";
 import { useAuth } from "../auth/AuthContext";
+import { ActionGroup, ActionMenu, FormActions } from "../components/ActionLayout";
 import DetailDrawer from "../components/DetailDrawer";
 import KbMigrateDialog from "../components/KbMigrateDialog";
 import OperationStatusCard from "../components/OperationStatusCard";
@@ -80,7 +81,7 @@ export default function AdminWeKnoraModelsPage() {
   const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
-  const [drawer, setDrawer] = useState<DrawerKind>(null);
+  const [drawer, setDrawer] = useState<DrawerKind>(isGlobalOperator ? "external" : "knowledge");
   const [defaultsModal, setDefaultsModal] = useState<"external" | "foundation" | null>(null);
   const [selectedKb, setSelectedKb] = useState<KbConfigDTO | null>(null);
   const [migrationKb, setMigrationKb] = useState<KbConfigDTO | null>(null);
@@ -100,7 +101,9 @@ export default function AdminWeKnoraModelsPage() {
 
   const canEdit = (isGlobalOperator || capabilities.isProjectManager) && !forbidden;
 
+  const loadVersion = useRef(0);
   const load = useCallback(async () => {
+    const version = ++loadVersion.current;
     setLoading(true);
     setError(null);
     setNotConfigured(false);
@@ -111,6 +114,7 @@ export default function AdminWeKnoraModelsPage() {
         fetchWeknoraKbConfigs(),
         isGlobalOperator ? fetchWeknoraDefaultModels() : Promise.resolve(emptyDefaults),
       ]);
+      if (version !== loadVersion.current) return;
       setModels(availableModels);
       setKbConfigs(configs);
       setDefaults(modelDefaults);
@@ -119,22 +123,27 @@ export default function AdminWeKnoraModelsPage() {
           fetchModelConnections(),
           fetchModelUsageAssignments(),
         ]);
+        if (version !== loadVersion.current) return;
         setExternalConnections(connections.items);
         setExternalDefaultRef(assignments.external_llm_default?.model_ref ?? "");
       }
     } catch (caught) {
+      if (version !== loadVersion.current) return;
       if (caught instanceof ApiError && caught.status === 503) setNotConfigured(true);
       else if (caught instanceof ApiError && caught.status === 403) {
         setForbidden(true);
         setError("当前身份仅可查看允许的配置摘要。");
       } else setError("模型与知识库配置暂时无法加载，请刷新后重试。");
     } finally {
-      setLoading(false);
+      if (version === loadVersion.current) setLoading(false);
     }
   }, [isGlobalOperator]);
 
   useEffect(() => {
     void load();
+    return () => {
+      loadVersion.current += 1;
+    };
   }, [load]);
 
   const migrationActive = kbConfigs.some((config) =>
@@ -254,7 +263,7 @@ export default function AdminWeKnoraModelsPage() {
   };
 
   const openKbConfig = (config: KbConfigDTO) => {
-    setDrawer(null);
+    setDrawer("knowledge");
     setKbDraft({
       chat: config.chat?.model_ref ?? "",
       embedding: config.embedding?.model_ref ?? "",
@@ -294,12 +303,12 @@ export default function AdminWeKnoraModelsPage() {
 
   const openMigration = (config: KbConfigDTO) => {
     setSelectedKb(null);
-    setDrawer(null);
+    setDrawer("knowledge");
     setMigrationKb(config);
   };
 
   const showMigrationResult = (config: KbConfigDTO) => {
-    setDrawer(null);
+    setDrawer("knowledge");
     setMigrationResult(config);
     setDrawer("migration");
   };
@@ -324,28 +333,6 @@ export default function AdminWeKnoraModelsPage() {
         }
         actions={
           <div className="mf-page-actions">
-            <button
-              className="btn-small-primary"
-              onClick={() =>
-                setDrawer(
-                  !isGlobalOperator || counts.anomalies
-                    ? "knowledge"
-                    : externalIssues
-                      ? "external"
-                      : modelIssues
-                        ? "weknora"
-                        : "external",
-                )
-              }
-            >
-              {!isGlobalOperator
-                ? counts.anomalies
-                  ? "处理知识库异常"
-                  : "管理知识库配置"
-                : connectionIssues
-                  ? "处理连接异常"
-                  : "管理模型连接"}
-            </button>
             <button
               className="btn-small mf-refresh"
               onClick={refreshAll}
@@ -373,96 +360,40 @@ export default function AdminWeKnoraModelsPage() {
       )}
 
       <section className="mf-connection-workspace admin-workspace-panel" aria-label="连接管理">
-        <div className="admin-workspace-heading">
-          <h2>连接管理</h2>
-          <span>{connectionIssues ? "异常连接已置顶" : "所有连接均可继续使用"}</span>
+        <div className="mf-workspace-tabs" role="group" aria-label="模型配置工作区">
+          <button
+            className="btn-small"
+            aria-pressed={drawer === "external"}
+            aria-label="管理外部 LLM"
+            disabled={loading}
+            onClick={() => setDrawer("external")}
+          >
+            外部 LLM{externalIssues > 0 ? `（${externalIssues} 项异常）` : ""}
+          </button>
+          <button
+            className="btn-small"
+            aria-pressed={drawer === "weknora"}
+            aria-label="管理 WeKnora 模型"
+            disabled={loading}
+            onClick={() => setDrawer("weknora")}
+          >
+            WeKnora 底座{modelIssues > 0 ? `（${modelIssues} 项异常）` : ""}
+          </button>
+          <button
+            className="btn-small"
+            aria-pressed={drawer === "knowledge" || drawer === "migration"}
+            aria-label="管理知识库配置"
+            disabled={loading}
+            onClick={() => setDrawer("knowledge")}
+          >
+            知识库配置{counts.anomalies > 0 ? `（${counts.anomalies} 项异常）` : ""}
+          </button>
         </div>
-        <div className="mf-connection-rows">
-          <div
-            className={`mf-connection-row${externalIssues ? " is-actionable" : ""}`}
-            style={{ order: externalIssues ? 0 : 10 }}
-          >
-            <Sparkles size={19} aria-hidden="true" />
-            <div>
-              <h3>外部 LLM</h3>
-              <small>内容生成与项目问答</small>
-            </div>
-            <StatusBadge
-              tone={externalIssues ? "danger" : "success"}
-              label={
-                externalIssues
-                  ? `${externalIssues} 个连接异常`
-                  : `${externalConnections.filter((item) => item.enabled).length} 个连接可用`
-              }
-            />
-            <span>{externalDefaultRef ? "默认用途已配置" : "下一步：设置默认用途"}</span>
-            <button
-              className="btn-small"
-              aria-label="管理外部 LLM"
-              onClick={() => setDrawer("external")}
-            >
-              查看连接
-            </button>
-          </div>
-          <div
-            className={`mf-connection-row${modelIssues ? " is-actionable" : ""}`}
-            style={{ order: modelIssues ? 0 : 20 }}
-          >
-            <Bot size={19} aria-hidden="true" />
-            <div>
-              <h3>WeKnora 底座</h3>
-              <small>嵌入、对话、重排与多模态</small>
-            </div>
-            <StatusBadge
-              tone={modelIssues ? "danger" : "success"}
-              label={
-                modelIssues
-                  ? `${modelIssues} 个凭据缺失`
-                  : `${models.filter((item) => item.enabled).length} 个模型启用`
-              }
-            />
-            <span>
-              {modelIssues ? "下一步：补齐凭据" : `默认嵌入：${slotName(defaults.embedding)}`}
-            </span>
-            <button
-              className="btn-small"
-              aria-label="管理 WeKnora 模型"
-              onClick={() => setDrawer("weknora")}
-            >
-              查看底座
-            </button>
-          </div>
-          <div
-            className={`mf-connection-row${counts.anomalies ? " is-actionable" : ""}`}
-            style={{ order: counts.anomalies ? 0 : 30 }}
-          >
-            <Database size={19} aria-hidden="true" />
-            <div>
-              <h3>知识库配置</h3>
-              <small>公司、项目与个人知识库</small>
-            </div>
-            <StatusBadge
-              tone={counts.anomalies ? "danger" : counts.migrating ? "info" : "success"}
-              label={
-                counts.anomalies
-                  ? `${counts.anomalies} 项异常`
-                  : counts.migrating
-                    ? `${counts.migrating} 项迁移中`
-                    : `${kbConfigs.length} 个知识库可用`
-              }
-            />
-            <span>
-              {counts.anomalies ? "下一步：修复初始化或迁移" : `待初始化 ${counts.pending} 项`}
-            </span>
-            <button
-              className="btn-small"
-              aria-label="管理知识库配置"
-              onClick={() => setDrawer("knowledge")}
-            >
-              查看知识库
-            </button>
-          </div>
-        </div>
+        <p className="mf-kb-footnote">
+          {connectionIssues
+            ? `${connectionIssues} 项配置需要处理，请查看对应工作区。`
+            : "连接状态已同步。"}
+        </p>
       </section>
 
       {notConfigured && (
@@ -475,134 +406,135 @@ export default function AdminWeKnoraModelsPage() {
         索引失败资产仍在 <Link to="/admin/ingest">入库管理</Link> 或资产详情中重试。
       </p>
 
-      <DetailDrawer
-        open={drawer === "external"}
-        title="管理外部 LLM"
-        description="搜索、测试并维护 KAP 直接调用的模型连接。"
-        onClose={() => {
-          setDrawer(null);
-          void load();
-        }}
-      >
-        {canEdit && isGlobalOperator && (
-          <div className="mf-drawer-secondary-actions">
-            <button className="btn-small" onClick={() => setDefaultsModal("external")}>
-              编辑默认用途
-            </button>
-          </div>
-        )}
-        <UnifiedModelConnectionsSection
-          canEdit={canEdit && isGlobalOperator}
-          refreshSignal={refreshSignal}
-          showUsageControls={false}
-        />
-      </DetailDrawer>
-
-      <DetailDrawer
-        open={drawer === "weknora"}
-        title="管理 WeKnora 模型"
-        description="维护知识库底座可选择的模型，不展示凭据或内部地址。"
-        onClose={() => {
-          setDrawer(null);
-          void load();
-        }}
-      >
-        {canEdit && isGlobalOperator && (
-          <div className="mf-drawer-secondary-actions">
-            <button className="btn-small" onClick={openFoundationDefaults}>
-              编辑默认底座
-            </button>
-          </div>
-        )}
-        <WeknoraModelsSection canEdit={canEdit && isGlobalOperator} refreshSignal={refreshSignal} />
-      </DetailDrawer>
-
-      <DetailDrawer
-        open={drawer === "knowledge"}
-        title="管理知识库配置"
-        description="按名称、范围和运行状态查找知识库。"
-        onClose={() => setDrawer(null)}
-      >
-        <div className="mf-drawer-filters">
-          <input
-            aria-label="搜索知识库"
-            placeholder="搜索知识库、项目或归属人"
-            value={kbQuery}
-            onChange={(event) => setKbQuery(event.target.value)}
-          />
-          <select
-            aria-label="知识库范围"
-            value={kbScope}
-            onChange={(event) => setKbScope(event.target.value)}
-          >
-            <option value="all">全部范围</option>
-            <option value="company">公司库</option>
-            <option value="project">项目库</option>
-            <option value="personal">个人库</option>
-          </select>
-          <select
-            aria-label="知识库状态"
-            value={kbStatus}
-            onChange={(event) => setKbStatus(event.target.value)}
-          >
-            <option value="all">全部状态</option>
-            <option value="init_failed">未初始化</option>
-            <option value="migrating">迁移中</option>
-            <option value="exception">异常</option>
-          </select>
-        </div>
-        <div className="mf-kb-drawer-list">
-          {filteredKbs.length === 0 ? (
-            <div className="mf-empty-state">
-              <strong>没有匹配的知识库</strong>
-              <span>调整搜索或筛选条件后重试。</span>
+      {drawer === "external" && (
+        <section className="mf-inline-workspace" aria-label="管理外部 LLM" role="region">
+          {canEdit && isGlobalOperator && (
+            <div className="mf-drawer-secondary-actions">
+              <button
+                className="btn-small"
+                disabled={loading}
+                onClick={() => setDefaultsModal("external")}
+              >
+                编辑默认用途
+              </button>
             </div>
-          ) : (
-            filteredKbs.map((config) => (
-              <article className="mf-kb-drawer-row" key={config.mapping_id}>
-                <div>
-                  <strong>{config.kb_name}</strong>
-                  <span>
-                    {config.project_name ??
-                      config.owner_name ??
-                      scopeLabel[config.scope] ??
-                      config.scope}
-                  </span>
-                </div>
-                <div className="mf-kb-row-facts">
-                  <span>{scopeLabel[config.scope] ?? config.scope}</span>
-                  <StatusBadge
-                    tone={
-                      config.mapping_status === "init_failed"
-                        ? "danger"
-                        : config.mapping_status === "migrating"
-                          ? "info"
-                          : "success"
-                    }
-                    label={mappingStatusLabel[config.mapping_status] ?? config.mapping_status}
-                  />
-                  <span>嵌入：{slotName(config.embedding)}</span>
-                </div>
-                <div className="mf-kb-row-actions">
-                  {canEdit && (
-                    <button className="btn-small" onClick={() => openKbConfig(config)}>
-                      配置
-                    </button>
-                  )}
-                  {config.migration && (
-                    <button className="btn-small" onClick={() => showMigrationResult(config)}>
-                      查看迁移结果
-                    </button>
-                  )}
-                </div>
-                {config.config_error && (
-                  <p className="mf-safe-error">初始化未完成，请检查模型兼容性后重试。</p>
-                )}
-              </article>
-            ))
           )}
-        </div>
-      </DetailDrawer>
+          <UnifiedModelConnectionsSection
+            canEdit={canEdit && isGlobalOperator}
+            refreshSignal={refreshSignal}
+            onChanged={load}
+            showUsageControls={false}
+          />
+        </section>
+      )}
+
+      {drawer === "weknora" && (
+        <section className="mf-inline-workspace" aria-label="管理 WeKnora 模型" role="region">
+          {canEdit && isGlobalOperator && (
+            <div className="mf-drawer-secondary-actions">
+              <button className="btn-small" disabled={loading} onClick={openFoundationDefaults}>
+                编辑默认底座
+              </button>
+            </div>
+          )}
+          <WeknoraModelsSection
+            canEdit={canEdit && isGlobalOperator}
+            refreshSignal={refreshSignal}
+            onChanged={load}
+          />
+        </section>
+      )}
+
+      {drawer === "knowledge" && (
+        <section className="mf-inline-workspace" aria-label="管理知识库配置" role="region">
+          <div className="mf-drawer-filters">
+            <input
+              aria-label="搜索知识库"
+              placeholder="搜索知识库、项目或归属人"
+              value={kbQuery}
+              onChange={(event) => setKbQuery(event.target.value)}
+            />
+            <select
+              aria-label="知识库范围"
+              value={kbScope}
+              onChange={(event) => setKbScope(event.target.value)}
+            >
+              <option value="all">全部范围</option>
+              <option value="company">公司库</option>
+              <option value="project">项目库</option>
+              <option value="personal">个人库</option>
+            </select>
+            <select
+              aria-label="知识库状态"
+              value={kbStatus}
+              onChange={(event) => setKbStatus(event.target.value)}
+            >
+              <option value="all">全部状态</option>
+              <option value="init_failed">未初始化</option>
+              <option value="migrating">迁移中</option>
+              <option value="exception">异常</option>
+            </select>
+          </div>
+          <div className="mf-kb-drawer-list">
+            {filteredKbs.length === 0 ? (
+              <div className="mf-empty-state">
+                <strong>没有匹配的知识库</strong>
+                <span>调整搜索或筛选条件后重试。</span>
+              </div>
+            ) : (
+              filteredKbs.map((config) => (
+                <article className="mf-kb-drawer-row" key={config.mapping_id}>
+                  <div>
+                    <strong>{config.kb_name}</strong>
+                    <span>
+                      {config.project_name ??
+                        config.owner_name ??
+                        scopeLabel[config.scope] ??
+                        config.scope}
+                    </span>
+                  </div>
+                  <div className="mf-kb-row-facts">
+                    <span>{scopeLabel[config.scope] ?? config.scope}</span>
+                    <StatusBadge
+                      tone={
+                        config.mapping_status === "init_failed"
+                          ? "danger"
+                          : config.mapping_status === "migrating"
+                            ? "info"
+                            : "success"
+                      }
+                      label={mappingStatusLabel[config.mapping_status] ?? config.mapping_status}
+                    />
+                    <span>嵌入：{slotName(config.embedding)}</span>
+                  </div>
+                  <div className="mf-kb-row-actions">
+                    {canEdit && (
+                      <ActionGroup label={`${config.kb_name}操作`}>
+                        <button className="btn-small" onClick={() => openKbConfig(config)}>
+                          配置
+                        </button>
+                        <ActionMenu label="更多知识库操作">
+                          <button className="btn-small" onClick={() => openMigration(config)}>
+                            迁移到新嵌入模型
+                          </button>
+                        </ActionMenu>
+                      </ActionGroup>
+                    )}
+                    {config.migration && (
+                      <button className="btn-small" onClick={() => showMigrationResult(config)}>
+                        查看迁移结果
+                      </button>
+                    )}
+                  </div>
+                  {config.config_error && (
+                    <p className="mf-safe-error">初始化未完成，请检查模型兼容性后重试。</p>
+                  )}
+                </article>
+              ))
+            )}
+          </div>
+        </section>
+      )}
 
       <TaskModal
         open={defaultsModal === "external"}
@@ -611,7 +543,10 @@ export default function AdminWeKnoraModelsPage() {
         onClose={() => !busy && setDefaultsModal(null)}
         busy={busy}
         footer={
-          <>
+          <FormActions>
+            <button className="btn-small" onClick={() => setDefaultsModal(null)} disabled={busy}>
+              取消
+            </button>
             <button
               className="btn-small-primary"
               onClick={() => void saveExternalDefault()}
@@ -619,10 +554,7 @@ export default function AdminWeKnoraModelsPage() {
             >
               保存默认用途
             </button>
-            <button className="btn-small" onClick={() => setDefaultsModal(null)} disabled={busy}>
-              取消
-            </button>
-          </>
+          </FormActions>
         }
       >
         <label className="ws-form-field">
@@ -651,7 +583,10 @@ export default function AdminWeKnoraModelsPage() {
         busy={busy}
         size="large"
         footer={
-          <>
+          <FormActions>
+            <button className="btn-small" onClick={() => setDefaultsModal(null)} disabled={busy}>
+              取消
+            </button>
             <button
               className="btn-small-primary"
               onClick={() => void saveFoundationDefaults()}
@@ -659,10 +594,7 @@ export default function AdminWeKnoraModelsPage() {
             >
               保存默认底座
             </button>
-            <button className="btn-small" onClick={() => setDefaultsModal(null)} disabled={busy}>
-              取消
-            </button>
-          </>
+          </FormActions>
         }
       >
         <div className="ws-form-grid mf-modal-model-grid">
@@ -707,23 +639,7 @@ export default function AdminWeKnoraModelsPage() {
         busy={busy}
         size="large"
         footer={
-          <>
-            <button
-              className="btn-small-primary"
-              onClick={() => void saveKbConfig()}
-              disabled={busy}
-            >
-              保存知识库配置
-            </button>
-            {selectedKb && canEdit && (
-              <button
-                className="btn-small"
-                onClick={() => openMigration(selectedKb)}
-                disabled={busy}
-              >
-                迁移到新嵌入模型
-              </button>
-            )}
+          <FormActions>
             <button
               className="btn-small"
               onClick={() => {
@@ -734,7 +650,14 @@ export default function AdminWeKnoraModelsPage() {
             >
               取消
             </button>
-          </>
+            <button
+              className="btn-small-primary"
+              onClick={() => void saveKbConfig()}
+              disabled={busy}
+            >
+              保存知识库配置
+            </button>
+          </FormActions>
         }
       >
         <div className="ws-form-grid mf-modal-model-grid">

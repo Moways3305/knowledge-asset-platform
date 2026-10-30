@@ -593,3 +593,20 @@
     width: 96%;
   }
 }
+
+@media (max-width: 760px) {
+  .project78-page {
+    height: auto;
+    min-height: 0;
+  }
+  .project78-context {
+    max-height: none;
+    overflow-y: visible;
+  }
+  .project78-facts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .project78-assistant {
+    min-height: 440px;
+  }
+}

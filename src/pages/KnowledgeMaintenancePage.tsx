@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import { ApiError } from "../api/http";
 import { fetchMaintenance, type MaintenancePage } from "../api/knowledgeTrust";
 import { formatBeijingTime } from "../utils/time";
+import { PageHeader, FilterBar, ProductPage } from "../components/ProductLayout";
+import PagePagination from "../components/PagePagination";
 import "./KnowledgeMaintenancePage.css";
 
 export default function KnowledgeMaintenancePage() {
@@ -10,6 +12,19 @@ export default function KnowledgeMaintenancePage() {
   const [retry, setRetry] = useState(0);
   const [data, setData] = useState<MaintenancePage | null>(null);
   const [error, setError] = useState("");
+  const [kind, setKind] = useState("");
+  const [scope, setScope] = useState("");
+  const taskKind = (item: MaintenancePage["items"][number]) =>
+    item.awaiting_my_verification ? "verify" : item.needs_correction ? "corrections" : "review";
+  const labels: Record<string, string> = {
+    verify: "验证处理结果",
+    corrections: "处理纠错",
+    review: "安排或完成复核",
+  };
+  const items =
+    data?.items.filter(
+      (item) => (!kind || taskKind(item) === kind) && (!scope || item.scope === scope),
+    ) ?? [];
   useEffect(() => {
     let current = true;
     setData(null);
@@ -26,11 +41,11 @@ export default function KnowledgeMaintenancePage() {
     };
   }, [page, retry]);
   return (
-    <main className="product-page knowledge-maintenance-page">
-      <header>
-        <h1>知识维护</h1>
-        <p>你负责的待安排、待复核和待纠错资料，以及等待你验证的处理结果。</p>
-      </header>
+    <ProductPage className="knowledge-maintenance-page">
+      <PageHeader
+        title="知识维护"
+        description="你负责的待安排、待复核和待纠错资料，以及等待你验证的处理结果。"
+      />
       {error && (
         <p role="alert">
           {error}{" "}
@@ -43,7 +58,29 @@ export default function KnowledgeMaintenancePage() {
       {data && (
         <>
           <p>共 {data.total} 项待办。到期不会自动归档，旧版需人工确认处理。</p>
-          {data.items.length ? (
+          <FilterBar ariaLabel="维护待办本页筛选">
+            <label>
+              本页待办类型
+              <select value={kind} onChange={(event) => setKind(event.target.value)}>
+                <option value="">全部类型</option>
+                {Object.entries(labels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              本页范围
+              <select value={scope} onChange={(event) => setScope(event.target.value)}>
+                <option value="">全部范围</option>
+                <option value="personal">个人</option>
+                <option value="project">项目</option>
+                <option value="company">公司</option>
+              </select>
+            </label>
+          </FilterBar>
+          {items.length ? (
             <div className="table-scroll">
               <table>
                 <thead>
@@ -56,7 +93,7 @@ export default function KnowledgeMaintenancePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.items.map((item) => (
+                  {items.map((item) => (
                     <tr key={item.asset_id}>
                       <td data-label="资料">{item.title}</td>
                       <td data-label="范围">
@@ -74,7 +111,11 @@ export default function KnowledgeMaintenancePage() {
                             : "安排或完成复核"}
                       </td>
                       <td data-label="操作">
-                        <Link to={`/knowledge/${item.asset_id}`}>查看并处理</Link>
+                        <Link
+                          to={`/knowledge/${encodeURIComponent(item.asset_id)}?maintenance=${taskKind(item)}`}
+                        >
+                          {labels[taskKind(item)]}
+                        </Link>
                       </td>
                     </tr>
                   ))}
@@ -82,23 +123,21 @@ export default function KnowledgeMaintenancePage() {
               </table>
             </div>
           ) : (
-            <p>暂无待办。资料更新、到期或收到纠错时会出现在这里。</p>
+            <p>
+              {data.items.length
+                ? "本页没有符合筛选的待办，可调整条件或查看其他页。"
+                : "暂无待办。资料更新、到期或收到纠错时会出现在这里。"}
+            </p>
           )}
-          <nav aria-label="维护待办分页">
-            <button type="button" disabled={page <= 1} onClick={() => setPage((n) => n - 1)}>
-              上一页
-            </button>
-            <span> 第 {page} 页 </span>
-            <button
-              type="button"
-              disabled={page * data.page_size >= data.total}
-              onClick={() => setPage((n) => n + 1)}
-            >
-              下一页
-            </button>
-          </nav>
+          <PagePagination
+            ariaLabel="维护待办分页"
+            page={page}
+            totalPages={Math.max(1, Math.ceil(data.total / data.page_size))}
+            onPageChange={setPage}
+            summary={`第 ${page} 页，本页显示 ${items.length} 项`}
+          />
         </>
       )}
-    </main>
+    </ProductPage>
   );
 }

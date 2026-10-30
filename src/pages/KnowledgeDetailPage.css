@@ -70,15 +70,12 @@
 
 .kdetail-primary-action {
   align-self: center;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 12px;
+  max-width: 100%;
 }
 
 .kdetail-publication-action {
   display: grid;
-  justify-items: end;
+  justify-items: start;
   gap: 6px;
 }
 
@@ -87,7 +84,28 @@
   color: #687187;
   font-size: 12px;
   line-height: 1.45;
-  text-align: right;
+  text-align: left;
+}
+
+.kdetail-governance-panel > .action-group {
+  justify-content: flex-start;
+}
+
+.kdetail-version-area:has(.knowledge-versions) {
+  padding: 20px;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+}
+
+.kdetail-version-area .knowledge-versions {
+  margin: 0;
+}
+
+.knowledge-versions > h2 {
+  margin: 0 0 14px;
+  color: var(--color-text-heading);
+  font-size: 16px;
 }
 
 .kdetail-primary-action .btn-primary,
@@ -721,11 +739,6 @@ section.kdetail-panel {
   .kdetail-header {
     grid-template-columns: minmax(0, 1fr);
     padding: 18px;
-  }
-
-  .kdetail-primary-action .btn-primary,
-  .kdetail-primary-action .btn-secondary {
-    width: 100%;
   }
 
   .kdetail-facts,

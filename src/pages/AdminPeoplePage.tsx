@@ -1,4 +1,4 @@
-﻿import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import {
   BriefcaseBusiness,
   ChevronDown,
@@ -28,6 +28,7 @@ import {
 import type { PersonDTO } from "../types/people";
 import { formatBeijingTime } from "../utils/time";
 import { useAuth } from "../auth/AuthContext";
+import "./AdminPeoplePage.css";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { PageHeader, ProductPage } from "../components/ProductLayout";
 
@@ -74,6 +75,7 @@ export default function AdminPeoplePage() {
   const [filterStatus, setFilterStatus] = useState("");
   const [q, setQ] = useState("");
 
+  const [detailTab, setDetailTab] = useState<"account" | "roles" | "projects">("account");
   const [detail, setDetail] = useState<PersonDTO | null>(null);
   const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
   const detailRequestVersion = useRef(0);
@@ -183,6 +185,7 @@ export default function AdminPeoplePage() {
   }, [people]);
 
   const openDetail = useCallback(async (userId: string, trigger?: HTMLElement) => {
+    setDetailTab("account");
     const requestVersion = ++detailRequestVersion.current;
     if (trigger) detailTriggerRef.current = trigger;
     selectedUserIdRef.current = userId;
@@ -314,22 +317,6 @@ export default function AdminPeoplePage() {
                     <X size={14} /> 关闭
                   </button>
                 </div>
-                {actionError && (
-                  <div
-                    className="up-submit-notice"
-                    style={{ color: "var(--color-danger-fg, #b00)" }}
-                  >
-                    {actionError}
-                  </div>
-                )}
-                {actionNote && (
-                  <div
-                    className="up-submit-notice"
-                    style={{ color: "var(--color-success-fg, #176)" }}
-                  >
-                    {actionNote}
-                  </div>
-                )}
                 <div className={`pp-active-identity ${canManageProjects ? "is-governance" : ""}`}>
                   <span>当前工作身份</span>
                   <strong>{activeIdentityLabel}</strong>
@@ -376,317 +363,342 @@ export default function AdminPeoplePage() {
                   </div>
                 </div>
 
-                {/* 人员账号治理 */}
-                {canManageProjects &&
-                (capabilities.isBoss ||
-                  !detail.company_roles.some(
-                    (role) => role.company_role === "boss" && role.status === "active",
-                  )) ? (
-                  <>
-                    <h4 style={{ marginTop: 14 }}>人员账号状态</h4>
-                    <div
-                      className="pp-actions-row"
-                      style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
+                <div className="pp-governance-tabs" role="group" aria-label="人员治理分区">
+                  {(
+                    [
+                      ["account", "账号"],
+                      ["roles", "公司角色"],
+                      ["projects", "项目任命"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <button
+                      className="btn-small"
+                      type="button"
+                      aria-pressed={detailTab === key}
+                      disabled={busyKey !== null}
+                      key={key}
+                      onClick={() => {
+                        setDetailTab(key);
+                        setActionError(null);
+                        setActionNote(null);
+                      }}
                     >
-                      <button
-                        type="button"
-                        disabled={busyKey === "account-status"}
-                        onClick={async () => {
-                          if (
-                            !(await confirmAsync(
-                              detail.status === "active" ? "确认停用该账号？" : "确认启用该账号？",
-                              { danger: detail.status === "active" },
-                            ))
-                          )
-                            return;
-                          setBusyKey("account-status");
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <section role="region" aria-label="账号" hidden={detailTab !== "account"}>
+                  {/* 人员账号治理 */}
+                  {canManageProjects &&
+                  (capabilities.isBoss ||
+                    !detail.company_roles.some(
+                      (role) => role.company_role === "boss" && role.status === "active",
+                    )) ? (
+                    <>
+                      <h4 style={{ marginTop: 14 }}>人员账号状态</h4>
+                      <div
+                        className="pp-actions-row"
+                        style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
+                      >
+                        <button
+                          type="button"
+                          className={`btn-small ${detail.status === "active" ? "pp-remove-btn" : ""}`}
+                          disabled={busyKey === "account-status"}
+                          onClick={async () => {
+                            if (
+                              !(await confirmAsync(
+                                detail.status === "active"
+                                  ? "确认停用该账号？"
+                                  : "确认启用该账号？",
+                                { danger: detail.status === "active" },
+                              ))
+                            )
+                              return;
+                            setBusyKey("account-status");
+                            setActionError(null);
+                            setActionNote(null);
+                            const next = detail.status === "active" ? "inactive" : "active";
+                            try {
+                              await setUserStatus(detail.user_id, next);
+                              setActionNote(
+                                next === "inactive" ? "已停用账号并撤销其会话" : "已启用账号",
+                              );
+                              await refreshAfterWrite(detail.user_id);
+                            } catch (e) {
+                              setActionError(describeError(e, "更新账号状态失败"));
+                            } finally {
+                              setBusyKey(null);
+                            }
+                          }}
+                        >
+                          {busyKey === "account-status"
+                            ? "处理中…"
+                            : detail.status === "active"
+                              ? "停用账号"
+                              : "启用账号"}
+                        </button>
+                      </div>
+
+                      {/* 密码设置 / 重置 */}
+                      <h4 style={{ marginTop: 14 }}>登录密码</h4>
+                      <SetPasswordForm
+                        onSubmit={async (password) => {
+                          setBusyKey("password");
                           setActionError(null);
                           setActionNote(null);
-                          const next = detail.status === "active" ? "inactive" : "active";
                           try {
-                            await setUserStatus(detail.user_id, next);
-                            setActionNote(
-                              next === "inactive" ? "已停用账号并撤销其会话" : "已启用账号",
-                            );
+                            await setUserPassword(detail.user_id, password);
+                            setActionNote("密码已设置 / 重置");
                             await refreshAfterWrite(detail.user_id);
                           } catch (e) {
-                            setActionError(describeError(e, "更新账号状态失败"));
+                            setActionError(describeError(e, "设置密码失败"));
                           } finally {
                             setBusyKey(null);
                           }
                         }}
-                      >
-                        {busyKey === "account-status"
-                          ? "处理中…"
-                          : detail.status === "active"
-                            ? "停用账号"
-                            : "启用账号"}
-                      </button>
-                    </div>
-
-                    {/* 密码设置 / 重置 */}
-                    <h4 style={{ marginTop: 14 }}>登录密码</h4>
-                    <SetPasswordForm
-                      onSubmit={async (password) => {
-                        setActionError(null);
-                        setActionNote(null);
-                        try {
-                          await setUserPassword(detail.user_id, password);
-                          setActionNote("密码已设置 / 重置");
-                          await refreshAfterWrite(detail.user_id);
-                        } catch (e) {
-                          setActionError(describeError(e, "设置密码失败"));
-                        }
-                      }}
-                    />
-                  </>
-                ) : (
-                  <p className="pp-no-project" style={{ marginTop: 14 }}>
-                    当前身份不可修改该人员的账号状态或密码。
-                  </p>
-                )}
-
-                {/* 公司角色管理 */}
-                <h4 style={{ marginTop: 14 }}>公司角色</h4>
-                <div className="pp-project-role-list">
-                  {COMPANY_ROLE_OPTIONS.map((role) => {
-                    const current = detail.company_roles.find((item) => item.company_role === role);
-                    const currentStatus = current?.status ?? "unassigned";
-                    const allowed = canManageCompanyRole(role);
-                    const nextStatus = currentStatus === "active" ? "inactive" : "active";
-                    return (
-                      <div
-                        key={role}
-                        className="pp-project-role-item"
-                        style={{ display: "flex", gap: 8, alignItems: "center" }}
-                      >
-                        <span className="pp-pr-project">{companyRoleLabel[role]}</span>
-                        <span className={`pp-status-pill ${statusCls[currentStatus] ?? ""}`}>
-                          {current ? statusLabel[currentStatus] : "未授予"}
-                        </span>
-                        {allowed ? (
-                          <button
-                            type="button"
-                            className="btn-small"
-                            disabled={busyKey === `company-${role}`}
-                            onClick={async () => {
-                              if (
-                                !(await confirmAsync(
-                                  `确认${currentStatus === "active" ? "停用" : "授予或恢复"}${companyRoleLabel[role]}角色？`,
-                                ))
-                              )
-                                return;
-                              setBusyKey(`company-${role}`);
-                              setActionError(null);
-                              setActionNote(null);
-                              try {
-                                await setCompanyRole(detail.user_id, {
-                                  company_role: role,
-                                  status: nextStatus,
-                                });
-                                setActionNote(
-                                  nextStatus === "active"
-                                    ? `${companyRoleLabel[role]}已恢复或授予`
-                                    : `${companyRoleLabel[role]}已停用`,
-                                );
-                                await refreshAfterWrite(detail.user_id);
-                              } catch (e) {
-                                setActionError(describeError(e, "更新公司角色失败"));
-                              } finally {
-                                setBusyKey(null);
-                              }
-                            }}
-                          >
-                            {busyKey === `company-${role}`
-                              ? "保存中…"
-                              : currentStatus === "active"
-                                ? "停用"
-                                : current
-                                  ? "恢复"
-                                  : "授予"}
-                          </button>
-                        ) : (
-                          <span className="pp-toolbar-hint">当前身份只读</span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* 项目成员关系管理 */}
-                <h4 style={{ marginTop: 14 }}>项目成员关系</h4>
-                <p className="pp-toolbar-hint" style={{ marginBottom: 8 }}>
-                  此处仅管理项目经理任命；项目内角色（辅导老师/顾问）请到项目设置页管理。
-                </p>
-                {membershipError && (
-                  <div className="pp-membership-inline-error" role="alert">
-                    <span>{membershipError.message}</span>
-                    <Link to={`/project/${membershipError.projectId}/settings`}>
-                      前往“{membershipError.projectName}”项目设置
-                    </Link>
-                  </div>
-                )}
-                <div className="pp-project-role-list">
-                  {detail.project_memberships.length > 0 ? (
-                    detail.project_memberships.map((m) => (
-                      <div
-                        key={m.membership_id}
-                        className="pp-project-role-item"
-                        style={{ display: "flex", gap: 8, alignItems: "center" }}
-                      >
-                        <span className="pp-pr-project">{m.project_name}</span>
-                        {canManageProjectRole(m.project_role) ? (
-                          <select
-                            className="up-edit-select"
-                            disabled={busyKey === `membership-role-${m.membership_id}`}
-                            value={m.project_role}
-                            onChange={async (e) => {
-                              if (!(await confirmAsync("确认更新该项目角色？"))) return;
-                              setBusyKey(`membership-role-${m.membership_id}`);
-                              setActionError(null);
-                              setActionNote(null);
-                              try {
-                                await patchProjectMembership(detail.user_id, m.membership_id, {
-                                  project_role: e.target.value,
-                                });
-                                setActionNote("项目角色已更新");
-                                await refreshAfterWrite(detail.user_id);
-                              } catch (err) {
-                                setActionError(describeError(err, "更新项目角色失败"));
-                              } finally {
-                                setBusyKey(null);
-                              }
-                            }}
-                          >
-                            {PROJECT_ROLE_OPTIONS.map((r) => (
-                              <option key={r} value={r}>
-                                {projectRoleLabel[r]}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <span>{projectRoleLabel[m.project_role] ?? "项目成员"}</span>
-                        )}
-                        <span className={`pp-status-pill ${statusCls[m.status] ?? ""}`}>
-                          {statusLabel[m.status] ?? "状态未知"}
-                        </span>
-                        {canManageProjectRole(m.project_role) && (
-                          <>
+                      />
+                    </>
+                  ) : (
+                    <p className="pp-no-project" style={{ marginTop: 14 }}>
+                      当前身份不可修改该人员的账号状态或密码。
+                    </p>
+                  )}
+                </section>
+                <section role="region" aria-label="公司角色" hidden={detailTab !== "roles"}>
+                  {/* 公司角色管理 */}
+                  <h4 style={{ marginTop: 14 }}>公司角色</h4>
+                  <div className="pp-project-role-list">
+                    {COMPANY_ROLE_OPTIONS.map((role) => {
+                      const current = detail.company_roles.find(
+                        (item) => item.company_role === role,
+                      );
+                      const currentStatus = current?.status ?? "unassigned";
+                      const allowed = canManageCompanyRole(role);
+                      const nextStatus = currentStatus === "active" ? "inactive" : "active";
+                      return (
+                        <div
+                          key={role}
+                          className="pp-project-role-item"
+                          style={{ display: "flex", gap: 8, alignItems: "center" }}
+                        >
+                          <span className="pp-pr-project">{companyRoleLabel[role]}</span>
+                          <span className={`pp-status-pill ${statusCls[currentStatus] ?? ""}`}>
+                            {current ? statusLabel[currentStatus] : "未授予"}
+                          </span>
+                          {allowed ? (
                             <button
                               type="button"
                               className="btn-small"
-                              disabled={busyKey === `membership-${m.membership_id}`}
+                              disabled={busyKey === `company-${role}`}
                               onClick={async () => {
                                 if (
                                   !(await confirmAsync(
-                                    m.status === "active"
-                                      ? "确认停用该项目成员关系？"
-                                      : "确认启用该项目成员关系？",
+                                    `确认${currentStatus === "active" ? "停用" : "授予或恢复"}${companyRoleLabel[role]}角色？`,
                                   ))
                                 )
                                   return;
-                                setBusyKey(`membership-${m.membership_id}`);
+                                setBusyKey(`company-${role}`);
                                 setActionError(null);
                                 setActionNote(null);
-                                const next = m.status === "active" ? "inactive" : "active";
                                 try {
-                                  await patchProjectMembership(detail.user_id, m.membership_id, {
-                                    status: next,
+                                  await setCompanyRole(detail.user_id, {
+                                    company_role: role,
+                                    status: nextStatus,
                                   });
-                                  setActionNote("项目成员状态已更新");
+                                  setActionNote(
+                                    nextStatus === "active"
+                                      ? `${companyRoleLabel[role]}已恢复或授予`
+                                      : `${companyRoleLabel[role]}已停用`,
+                                  );
                                   await refreshAfterWrite(detail.user_id);
-                                } catch (err) {
-                                  setActionError(describeError(err, "更新成员状态失败"));
+                                } catch (e) {
+                                  setActionError(describeError(e, "更新公司角色失败"));
                                 } finally {
                                   setBusyKey(null);
                                 }
                               }}
                             >
-                              {busyKey === `membership-${m.membership_id}`
+                              {busyKey === `company-${role}`
                                 ? "保存中…"
-                                : m.status === "active"
+                                : currentStatus === "active"
                                   ? "停用"
-                                  : "启用"}
+                                  : current
+                                    ? "恢复"
+                                    : "授予"}
                             </button>
-                            <button
-                              type="button"
-                              className="btn-small pp-remove-btn"
-                              disabled={busyKey === `membership-remove-${m.membership_id}`}
-                              onClick={async () => {
-                                if (
-                                  !(await confirmAsync(
-                                    `确认移除“${m.project_name}”的项目成员关系？此操作不可恢复。`,
-                                    { danger: true },
-                                  ))
-                                )
-                                  return;
-                                setBusyKey(`membership-remove-${m.membership_id}`);
-                                setActionError(null);
-                                setActionNote(null);
-                                setMembershipError(null);
-                                try {
-                                  await removeProjectMembership(detail.user_id, m.membership_id);
-                                  setActionNote("项目成员关系已移除");
-                                  await refreshAfterWrite(detail.user_id);
-                                } catch (err) {
+                          ) : (
+                            <span className="pp-toolbar-hint">当前身份只读</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+                <section role="region" aria-label="项目任命" hidden={detailTab !== "projects"}>
+                  {/* 项目成员关系管理 */}
+                  <h4 style={{ marginTop: 14 }}>项目成员关系</h4>
+                  <p className="pp-toolbar-hint" style={{ marginBottom: 8 }}>
+                    此处仅管理项目经理任命；项目内角色（辅导老师/顾问）请到项目设置页管理。
+                  </p>
+                  {membershipError && (
+                    <div className="pp-membership-inline-error" role="alert">
+                      <span>{membershipError.message}</span>
+                      <Link to={`/project/${membershipError.projectId}/settings`}>
+                        前往“{membershipError.projectName}”项目设置
+                      </Link>
+                    </div>
+                  )}
+                  <div className="pp-project-role-list">
+                    {detail.project_memberships.length > 0 ? (
+                      detail.project_memberships.map((m) => (
+                        <div
+                          key={m.membership_id}
+                          className="pp-project-role-item"
+                          style={{ display: "flex", gap: 8, alignItems: "center" }}
+                        >
+                          <span className="pp-pr-project">{m.project_name}</span>
+                          <span>{projectRoleLabel[m.project_role] ?? "项目成员"}</span>
+                          <span className={`pp-status-pill ${statusCls[m.status] ?? ""}`}>
+                            {statusLabel[m.status] ?? "状态未知"}
+                          </span>
+                          {canManageProjectRole(m.project_role) && (
+                            <>
+                              <button
+                                type="button"
+                                className="btn-small"
+                                disabled={busyKey === `membership-${m.membership_id}`}
+                                onClick={async () => {
                                   if (
-                                    err instanceof ApiError &&
-                                    err.deniedReason === "last_project_manager_protected"
-                                  ) {
-                                    setMembershipError({
-                                      message:
-                                        "该项目仍然存在，且这是最后一位有效项目经理，不能单独移除。请先在项目设置中完成项目收尾。",
-                                      projectId: m.project_id,
-                                      projectName: m.project_name,
+                                    !(await confirmAsync(
+                                      m.status === "active"
+                                        ? "确认停用该项目成员关系？"
+                                        : "确认启用该项目成员关系？",
+                                    ))
+                                  )
+                                    return;
+                                  setBusyKey(`membership-${m.membership_id}`);
+                                  setActionError(null);
+                                  setActionNote(null);
+                                  const next = m.status === "active" ? "inactive" : "active";
+                                  try {
+                                    await patchProjectMembership(detail.user_id, m.membership_id, {
+                                      status: next,
                                     });
-                                  } else {
-                                    setActionError(describeError(err, "移除成员关系失败"));
+                                    setActionNote("项目成员状态已更新");
+                                    await refreshAfterWrite(detail.user_id);
+                                  } catch (err) {
+                                    setActionError(describeError(err, "更新成员状态失败"));
+                                  } finally {
+                                    setBusyKey(null);
                                   }
-                                } finally {
-                                  setBusyKey(null);
-                                }
-                              }}
-                            >
-                              {busyKey === `membership-remove-${m.membership_id}`
-                                ? "移除中…"
-                                : "移除"}
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    ))
+                                }}
+                              >
+                                {busyKey === `membership-${m.membership_id}`
+                                  ? "保存中…"
+                                  : m.status === "active"
+                                    ? "停用"
+                                    : "启用"}
+                              </button>
+                              <button
+                                type="button"
+                                className="btn-small pp-remove-btn"
+                                disabled={busyKey === `membership-remove-${m.membership_id}`}
+                                onClick={async () => {
+                                  if (
+                                    !(await confirmAsync(
+                                      `确认移除“${m.project_name}”的项目成员关系？此操作不可恢复。`,
+                                      { danger: true },
+                                    ))
+                                  )
+                                    return;
+                                  setBusyKey(`membership-remove-${m.membership_id}`);
+                                  setActionError(null);
+                                  setActionNote(null);
+                                  setMembershipError(null);
+                                  try {
+                                    await removeProjectMembership(detail.user_id, m.membership_id);
+                                    setActionNote("项目成员关系已移除");
+                                    await refreshAfterWrite(detail.user_id);
+                                  } catch (err) {
+                                    if (
+                                      err instanceof ApiError &&
+                                      err.deniedReason === "last_project_manager_protected"
+                                    ) {
+                                      setMembershipError({
+                                        message:
+                                          "该项目仍然存在，且这是最后一位有效项目经理，不能单独移除。请先在项目设置中完成项目收尾。",
+                                        projectId: m.project_id,
+                                        projectName: m.project_name,
+                                      });
+                                    } else {
+                                      setActionError(describeError(err, "移除成员关系失败"));
+                                    }
+                                  } finally {
+                                    setBusyKey(null);
+                                  }
+                                }}
+                              >
+                                {busyKey === `membership-remove-${m.membership_id}`
+                                  ? "移除中…"
+                                  : "移除"}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      ))
+                    ) : (
+                      <span className="pp-no-project">未加入项目</span>
+                    )}
+                  </div>
+                  {canManageProjects ? (
+                    <AddMembershipForm
+                      projects={knownProjects}
+                      onSubmit={async (project_id, project_role) => {
+                        if (!(await confirmAsync("确认新增或更新该项目成员关系？"))) return;
+                        setBusyKey("membership-add");
+                        setActionError(null);
+                        setActionNote(null);
+                        try {
+                          await upsertProjectMembership(detail.user_id, {
+                            project_id,
+                            project_role,
+                            status: "active",
+                          });
+                          setActionNote("项目成员关系已新增 / 更新");
+                          await refreshAfterWrite(detail.user_id);
+                        } catch (e) {
+                          setActionError(describeError(e, "新增项目成员关系失败"));
+                        } finally {
+                          setBusyKey(null);
+                        }
+                      }}
+                    />
                   ) : (
-                    <span className="pp-no-project">未加入项目</span>
+                    <p className="pp-no-project">
+                      总经理或咨询总监任命项目经理；项目经理在本项目内维护辅导老师与顾问。
+                    </p>
+                  )}
+                </section>
+                <div className="pp-governance-feedback" aria-live="polite">
+                  {actionError && (
+                    <div
+                      className="up-submit-notice"
+                      role="status"
+                      style={{ color: "var(--color-danger-fg, #b00)" }}
+                    >
+                      {actionError}
+                    </div>
+                  )}
+                  {actionNote && (
+                    <div
+                      className="up-submit-notice"
+                      role="status"
+                      style={{ color: "var(--color-success-fg, #176)" }}
+                    >
+                      {actionNote}
+                    </div>
                   )}
                 </div>
-                {canManageProjects ? (
-                  <AddMembershipForm
-                    projects={knownProjects}
-                    onSubmit={async (project_id, project_role) => {
-                      if (!(await confirmAsync("确认新增或更新该项目成员关系？"))) return;
-                      setBusyKey("membership-add");
-                      setActionError(null);
-                      setActionNote(null);
-                      try {
-                        await upsertProjectMembership(detail.user_id, {
-                          project_id,
-                          project_role,
-                          status: "active",
-                        });
-                        setActionNote("项目成员关系已新增 / 更新");
-                        await refreshAfterWrite(detail.user_id);
-                      } catch (e) {
-                        setActionError(describeError(e, "新增项目成员关系失败"));
-                      } finally {
-                        setBusyKey(null);
-                      }
-                    }}
-                  />
-                ) : (
-                  <p className="pp-no-project">
-                    总经理或咨询总监任命项目经理；项目经理在本项目内维护辅导老师与顾问。
-                  </p>
-                )}
               </div>
             </section>
           )}

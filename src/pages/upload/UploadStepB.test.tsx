@@ -285,6 +285,9 @@ describe("UploadStepB folder drop and batch rejection", () => {
       expect(table).toHaveClass("upload-unified-table");
       expect(table.closest(".upload77-table-wrap")).not.toBeNull();
       expect(table.querySelectorAll("thead th")).toHaveLength(4);
+      const selectionHeader = screen.getByRole("columnheader", { name: "选择文件" });
+      expect(selectionHeader).toHaveAttribute("scope", "col");
+      expect(selectionHeader).toBeEmptyDOMElement();
       expect(screen.getByRole("columnheader", { name: "文件" })).toBeInTheDocument();
       expect(screen.queryByRole("columnheader", { name: "建议主题" })).not.toBeInTheDocument();
       expect(screen.queryByRole("columnheader", { name: "建议标题" })).not.toBeInTheDocument();
@@ -394,10 +397,12 @@ describe("UploadStepB folder drop and batch rejection", () => {
     fireEvent.click(screen.getByRole("button", { name: "下一页" }));
     expect(screen.getByText("file-9.pdf")).toBeInTheDocument();
     expect(screen.getByText("处理超时，稍后可重试")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "重试可恢复失败项" }));
+    fireEvent.click(screen.getByRole("button", { name: "全部失败项操作" }));
+    fireEvent.click(screen.getByRole("button", { name: /重试全部可恢复失败项/ }));
     await waitFor(() => expect(retryLocalUpload).toHaveBeenCalledWith("queue-9"));
+    fireEvent.click(screen.getByRole("button", { name: "全部失败项操作" }));
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "重试可恢复失败项" })).toBeEnabled(),
+      expect(screen.getByRole("button", { name: /重试全部可恢复失败项/ })).toBeEnabled(),
     );
   });
 
@@ -423,8 +428,10 @@ describe("UploadStepB folder drop and batch rejection", () => {
     }));
     render(<UploadStepB flow={flowFixture({ localUploadQueue: queue, retryLocalUpload })} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "重试可恢复失败项" }));
+    fireEvent.click(screen.getByRole("button", { name: "全部失败项操作" }));
+    fireEvent.click(screen.getByRole("button", { name: /重试全部可恢复失败项/ }));
     expect(retryLocalUpload).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "全部失败项操作" }));
     expect(screen.getByRole("button", { name: "正在重试失败项…" })).toBeDisabled();
 
     await act(async () => releases[0]());
@@ -433,7 +440,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
     await waitFor(() => expect(retryLocalUpload).toHaveBeenCalledTimes(3));
     await act(async () => releases[2]());
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "重试可恢复失败项" })).toBeEnabled(),
+      expect(screen.getByRole("button", { name: /重试全部可恢复失败项/ })).toBeEnabled(),
     );
   });
 
@@ -475,6 +482,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
 
     expect(screen.getByRole("button", { name: "正在重试…" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "移除" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "全部失败项操作" }));
     expect(screen.getByRole("button", { name: "清理全部失败项" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "移除" }));
     fireEvent.click(screen.getByRole("button", { name: "清理全部失败项" }));

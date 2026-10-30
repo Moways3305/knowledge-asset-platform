@@ -164,12 +164,18 @@ function assertResult(result) {
     result.pageTitle !== "上传文件" ||
     result.fakeFeatureVisible ||
     result.sensitiveTextVisible ||
+    !result.globalSrOnlyReady ||
     !result.retiredInputsAbsent ||
     result.classificationCalls > 0;
   if (commonFailure) return false;
   if (result.scenario === "local-empty") return result.emptyUploadReady;
   if (result.scenario === "canonical-processing")
-    return result.canonicalGenerating && Boolean(result.canonicalScreenshot);
+    return (
+      result.canonicalGenerating &&
+      Boolean(result.canonicalScreenshot) &&
+      result.selectionHeaderAccessible &&
+      result.batchSummaryColor === "rgb(234, 241, 255)"
+    );
   if (result.scenario === "local-queue")
     return (
       result.queueOrderValid &&
@@ -1014,7 +1020,33 @@ try {
               element.getBoundingClientRect().height <= lineHeight * 2 + 2
             );
           };
+          const selectionHeader = document.querySelector(
+            ".upload-unified-table thead th:first-child",
+          );
+          const batchSummary = document.querySelector(".upload-batch-controls > summary");
+          // Every scenario starts in a fresh browser context directly at /upload.
+          // Verify the shared utility without first loading the settings page.
+          const srOnlyProbe = document.createElement("span");
+          srOnlyProbe.className = "sr-only";
+          srOnlyProbe.textContent = "可访问标签样式探针";
+          document.body.append(srOnlyProbe);
+          const srOnlyStyle = getComputedStyle(srOnlyProbe);
+          const globalSrOnlyReady =
+            srOnlyStyle.position === "absolute" &&
+            srOnlyStyle.width === "1px" &&
+            srOnlyStyle.height === "1px" &&
+            srOnlyStyle.overflow === "hidden" &&
+            srOnlyStyle.whiteSpace === "nowrap";
+          srOnlyProbe.remove();
           return {
+            globalSrOnlyReady,
+            selectionHeaderAccessible: Boolean(
+              selectionHeader &&
+              selectionHeader.getAttribute("aria-label") === "选择文件" &&
+              selectionHeader.getAttribute("scope") === "col" &&
+              !selectionHeader.textContent.trim(),
+            ),
+            batchSummaryColor: batchSummary ? getComputedStyle(batchSummary).color : null,
             overflowX: root.scrollWidth - root.clientWidth,
             shellOverlap:
               window.innerWidth >= 1000 && rail && deck ? Math.max(0, rail.right - deck.left) : 0,

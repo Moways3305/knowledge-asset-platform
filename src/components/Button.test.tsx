@@ -3,6 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import Button from "./Button";
 
 describe("Button", () => {
+  it("names icon-only actions and exposes the same description as a tooltip", () => {
+    render(<Button iconOnly icon={<svg />} aria-label="刷新列表" />);
+    expect(screen.getByRole("button", { name: "刷新列表" })).toHaveAttribute("title", "刷新列表");
+    expect(screen.getByRole("button", { name: "刷新列表" })).toHaveClass("is-icon-only");
+  });
   it("uses the shared primary and size contract", () => {
     render(
       <Button variant="primary" size="small">

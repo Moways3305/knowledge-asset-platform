@@ -1,5 +1,6 @@
+import ProjectWorkspaceNav from "../components/ProjectWorkspaceNav";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BookOpen, Bot, CheckSquare, Plus, RefreshCw, Send, Settings, Upload } from "lucide-react";
+import { Bot, CheckSquare, Plus, RefreshCw, Send, Upload } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   fetchProjectOverview,
@@ -231,6 +232,12 @@ function ProjectWorkspace({
         </div>
       </header>
 
+      <ProjectWorkspaceNav
+        projectId={projectId}
+        current="overview"
+        canManage={overview.capabilities.can_manage_members}
+        canViewKnowledge={overview.capabilities.can_view_knowledge}
+      />
       <div className="project78-workspace">
         <aside className="project78-context" aria-label="项目上下文">
           <section className="project78-project-status">
@@ -277,31 +284,22 @@ function ProjectWorkspace({
           </dl>
 
           <nav className="project78-context-actions" aria-label="项目操作">
-            {overview.capabilities.can_view_knowledge && (
-              <Link to={`/project/${projectId}/knowledge`}>
-                <BookOpen size={16} aria-hidden="true" />
-                <span>项目知识库</span>
-              </Link>
-            )}
             {overview.capabilities.can_upload_material && (
-              <Link to="/upload">
+              <Link to={`/upload?source=local&project_id=${encodeURIComponent(projectId)}`}>
                 <Upload size={16} aria-hidden="true" />
                 <span>上传资料</span>
               </Link>
             )}
             {overview.capabilities.can_confirm_assets &&
               overview.counts.pending_review_count > 0 && (
-                <Link to={`/project/${projectId}/settings`} className="is-review-action">
+                <Link
+                  to={`/review?project_id=${encodeURIComponent(projectId)}`}
+                  className="is-review-action"
+                >
                   <CheckSquare size={16} aria-hidden="true" />
                   <span>处理待审核（{overview.counts.pending_review_count}）</span>
                 </Link>
               )}
-            {overview.capabilities.can_manage_members && (
-              <Link to={`/project/${projectId}/settings`}>
-                <Settings size={16} aria-hidden="true" />
-                <span>项目设置</span>
-              </Link>
-            )}
           </nav>
 
           {overview.capabilities.can_manage_members && (

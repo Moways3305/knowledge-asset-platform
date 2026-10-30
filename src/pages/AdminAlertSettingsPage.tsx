@@ -20,6 +20,7 @@ const dedupLabel: Record<string, string> = {
 
 export default function AdminAlertSettingsPage() {
   const [rules, setRules] = useState<AlertRuleDTO[]>([]);
+  const [editingIds, setEditingIds] = useState<Set<string>>(new Set());
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<Set<string>>(new Set());
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
@@ -40,6 +41,7 @@ export default function AdminAlertSettingsPage() {
         ),
       );
       setRowErrors({});
+      setEditingIds(new Set());
     } catch (reason) {
       setRules([]);
       setError(
@@ -77,6 +79,12 @@ export default function AdminAlertSettingsPage() {
       try {
         const updated = await updateAlertRule(rule.id, patch);
         setRules((current) => current.map((item) => (item.id === rule.id ? updated : item)));
+        if (patch.threshold !== undefined)
+          setEditingIds((current) => {
+            const next = new Set(current);
+            next.delete(rule.id);
+            return next;
+          });
         setDrafts((current) => ({ ...current, [rule.id]: String(updated.threshold ?? "") }));
       } catch (reason) {
         setDrafts((current) => ({ ...current, [rule.id]: String(rule.threshold ?? "") }));
@@ -107,6 +115,12 @@ export default function AdminAlertSettingsPage() {
         return;
       }
       if (value !== rule.threshold) void saveRule(rule, { threshold: value });
+      else
+        setEditingIds((current) => {
+          const next = new Set(current);
+          next.delete(rule.id);
+          return next;
+        });
     },
     [drafts, saveRule],
   );
@@ -200,21 +214,67 @@ export default function AdminAlertSettingsPage() {
                       <td className="secops-primary">{rule.rule_name}</td>
                       <td>
                         <div className="secops-threshold">
-                          <input
-                            aria-label={`${rule.rule_name}阈值`}
-                            type="number"
-                            min={1}
-                            value={drafts[rule.id] ?? ""}
-                            disabled={saving.has(rule.id)}
-                            onChange={(event) =>
-                              setDrafts((current) => ({
-                                ...current,
-                                [rule.id]: event.target.value,
-                              }))
-                            }
-                            onBlur={() => commitThreshold(rule)}
-                          />
+                          {editingIds.has(rule.id) ? (
+                            <input
+                              aria-label={`${rule.rule_name}阈值`}
+                              type="number"
+                              min={1}
+                              value={drafts[rule.id] ?? ""}
+                              disabled={saving.has(rule.id)}
+                              onChange={(event) =>
+                                setDrafts((current) => ({
+                                  ...current,
+                                  [rule.id]: event.target.value,
+                                }))
+                              }
+                            />
+                          ) : (
+                            <span>{rule.threshold ?? "—"}</span>
+                          )}
                           <span>{rule.threshold_unit ?? ""}</span>
+                          {editingIds.has(rule.id) ? (
+                            <>
+                              <button
+                                className="btn-small btn-small-primary"
+                                disabled={saving.has(rule.id)}
+                                onClick={() => commitThreshold(rule)}
+                              >
+                                保存阈值
+                              </button>
+                              <button
+                                className="btn-small"
+                                disabled={saving.has(rule.id)}
+                                onClick={() => {
+                                  setDrafts((current) => ({
+                                    ...current,
+                                    [rule.id]: String(rule.threshold ?? ""),
+                                  }));
+                                  setEditingIds((current) => {
+                                    const next = new Set(current);
+                                    next.delete(rule.id);
+                                    return next;
+                                  });
+                                }}
+                              >
+                                取消
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              className="btn-small"
+                              aria-label={`编辑${rule.rule_name}阈值`}
+                              disabled={saving.has(rule.id)}
+                              onClick={() => {
+                                setDrafts((current) => ({
+                                  ...current,
+                                  [rule.id]: String(rule.threshold ?? ""),
+                                }));
+                                setEditingIds((current) => new Set(current).add(rule.id));
+                              }}
+                            >
+                              编辑
+                            </button>
+                          )}
                         </div>
                         {rowErrors[rule.id] && (
                           <span className="secops-row-error" role="alert">
@@ -240,7 +300,7 @@ export default function AdminAlertSettingsPage() {
                           className={`secops-toggle ${rule.enabled ? "is-on" : ""}`}
                           aria-label={`${rule.rule_name}${rule.enabled ? "停用" : "启用"}`}
                           aria-pressed={rule.enabled}
-                          disabled={saving.has(rule.id)}
+                          disabled={saving.has(rule.id) || editingIds.has(rule.id)}
                           onClick={() => void saveRule(rule, { enabled: !rule.enabled })}
                         >
                           {saving.has(rule.id) ? "保存中…" : rule.enabled ? "已启用" : "已停用"}

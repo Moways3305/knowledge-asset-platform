@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { ApiError } from "../api/http";
 import {
   fetchTrust,
@@ -32,12 +32,17 @@ interface KnowledgeTrustPanelProps {
 }
 
 export default function KnowledgeTrustPanel(props: KnowledgeTrustPanelProps) {
-  const [open, setOpen] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const requestedSection = params.get("maintenance");
+  const section = ["review", "corrections", "verify"].includes(requestedSection ?? "")
+    ? requestedSection
+    : null;
+  const [open, setOpen] = useState(Boolean(section));
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    setOpen(false);
-  }, [props.assetId]);
+    setOpen(Boolean(section));
+  }, [props.assetId, section]);
 
   return (
     <>
@@ -57,9 +62,22 @@ export default function KnowledgeTrustPanel(props: KnowledgeTrustPanelProps) {
         size="large"
         portal
         busy={busy}
-        onClose={() => setOpen(false)}
+        onClose={() => {
+          setOpen(false);
+          if (section)
+            setParams(
+              (previous) => {
+                const next = new URLSearchParams(previous);
+                next.delete("maintenance");
+                return next;
+              },
+              { replace: true },
+            );
+        }}
       >
-        {open && <KnowledgeTrustContent {...props} onBusyChange={setBusy} />}
+        {open && (
+          <KnowledgeTrustContent {...props} initialSection={section} onBusyChange={setBusy} />
+        )}
       </TaskModal>
     </>
   );
@@ -70,14 +88,20 @@ function KnowledgeTrustContent({
   revision,
   onChanged,
   onBusyChange,
-}: KnowledgeTrustPanelProps & { onBusyChange: (busy: boolean) => void }) {
+  initialSection,
+}: KnowledgeTrustPanelProps & {
+  onBusyChange: (busy: boolean) => void;
+  initialSection: string | null;
+}) {
   const [state, setState] = useState<TrustState | null>(null);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [owner, setOwner] = useState("");
   const [due, setDue] = useState("");
-  const [reason, setReason] = useState("");
+  const [reasons, setReasons] = useState<Record<string, string>>({});
+  const sectionRef = useRef<HTMLElement>(null);
+  const focusedSection = useRef(false);
   const [replacementId, setReplacementId] = useState("");
   const [replacementQuery, setReplacementQuery] = useState("");
   const [replacementOptions, setReplacementOptions] = useState<
@@ -98,7 +122,7 @@ function KnowledgeTrustContent({
     setReplacementId("");
     setReplacementQuery("");
     setReplacementOptions([]);
-    setReason("");
+    setReasons({});
     setConfirmArchive(false);
     setDue("");
     void fetchTrust(assetId)
@@ -121,7 +145,17 @@ function KnowledgeTrustContent({
     };
   }, [assetId, revision]);
 
-  async function run(action: () => Promise<TrustState>, message: string) {
+  useEffect(() => {
+    if (!state || !initialSection || focusedSection.current) return;
+    const target = sectionRef.current?.querySelector<HTMLElement>(
+      initialSection === "review" ? "#trust-review-heading" : "#trust-corrections-heading",
+    );
+    target?.focus();
+    target?.scrollIntoView?.({ block: "nearest" });
+    focusedSection.current = true;
+  }, [state, initialSection]);
+
+  async function run(action: () => Promise<TrustState>, message: string, reasonKey?: string) {
     if (lock.current) return;
     lock.current = true;
     setBusy(true);
@@ -134,7 +168,7 @@ function KnowledgeTrustContent({
       if (generation.current === current) {
         setState(result);
         setNote(message);
-        setReason("");
+        if (reasonKey) setReasons((current) => ({ ...current, [reasonKey]: "" }));
         // Parent reload invalidates metadata editors opened before this governance change.
         onChanged?.(result);
       }
@@ -159,13 +193,32 @@ function KnowledgeTrustContent({
         )}
       </section>
     );
-  const body = { expected_updated_at: state.updated_at, reason };
-  const valid = reason.trim().length > 0 && !busy;
+  const body = (key: string) => ({
+    expected_updated_at: state.updated_at,
+    reason: reasons[key] ?? "",
+  });
+  const valid = (key: string) => Boolean(reasons[key]?.trim()) && !busy;
+  const reasonField = (key: string, label: string) => (
+    <label className="knowledge-trust-reason">
+      {label}（必填）
+      <textarea
+        value={reasons[key] ?? ""}
+        maxLength={1000}
+        disabled={busy}
+        onChange={(event) => setReasons((current) => ({ ...current, [key]: event.target.value }))}
+      />
+    </label>
+  );
   const active = state.freshness !== "archived";
   const deadline = due && !Number.isNaN(Date.parse(due)) ? new Date(due).toISOString() : null;
 
   return (
-    <section className="knowledge-trust" aria-label="知识维护与复核" aria-busy={busy}>
+    <section
+      ref={sectionRef}
+      className="knowledge-trust"
+      aria-label="知识维护与复核"
+      aria-busy={busy}
+    >
       <header>
         <h3>复核状态</h3>
         <span>{freshnessLabels[state.freshness]}</span>
@@ -193,29 +246,31 @@ function KnowledgeTrustContent({
       )}
       {error && <p role="alert">{error}</p>}
       {note && <p role="status">{note}</p>}
-      <label>
-        处理说明或纠错问题
-        <textarea
-          value={reason}
-          maxLength={1000}
-          onChange={(e) => setReason(e.target.value)}
-          placeholder="说明核查结果、修改内容，或资料中的具体问题。"
-        />
-      </label>
       {active && (
-        <button
-          type="button"
-          disabled={!valid}
-          onClick={() =>
-            void run(() => reportCorrection(assetId, body), "纠错已提交，处理后需要你再次验证。")
-          }
-        >
-          提出纠错
-        </button>
+        <div className="knowledge-trust-task">
+          <h3>提出新的纠错</h3>
+          {reasonField("report", "纠错问题")}
+          <button
+            type="button"
+            disabled={!valid("report")}
+            onClick={() =>
+              void run(
+                () => reportCorrection(assetId, body("report")),
+                "纠错已提交，处理后需要你再次验证。",
+                "report",
+              )
+            }
+          >
+            提出纠错
+          </button>
+        </div>
       )}
       {state.can_manage && (
-        <details>
+        <details open={initialSection === "review" || undefined}>
           <summary>安排复核与处理旧版</summary>
+          <h3 id="trust-review-heading" tabIndex={-1}>
+            维护安排与复核
+          </h3>
           {active && (
             <>
               <div className="knowledge-trust-fields">
@@ -239,36 +294,42 @@ function KnowledgeTrustContent({
                   />
                 </label>
               </div>
+              {reasonField("policy", "维护安排说明")}
               <div className="knowledge-trust-actions">
                 <button
                   type="button"
-                  disabled={!valid || !owner || !deadline}
+                  disabled={!valid("policy") || !owner || !deadline}
                   onClick={() =>
                     void run(
                       () =>
                         saveTrustPolicy(assetId, {
-                          ...body,
+                          ...body("policy"),
                           maintainer_user_id: owner,
                           review_due_at: deadline,
                         }),
                       "维护责任和复核日期已保存。",
+                      "policy",
                     )
                   }
                 >
                   保存维护安排
                 </button>
+              </div>
+              {reasonField("review", "复核结论说明")}
+              <div className="knowledge-trust-actions">
                 <button
                   type="button"
-                  disabled={!valid || !deadline || !state.maintainer_user_id}
+                  disabled={!valid("review") || !deadline || !state.maintainer_user_id}
                   onClick={() =>
                     void run(
                       () =>
                         reviewTrust(assetId, {
-                          ...body,
+                          ...body("review"),
                           outcome: "verified",
                           next_review_at: deadline,
                         }),
                       "复核已通过。",
+                      "review",
                     )
                   }
                 >
@@ -276,17 +337,20 @@ function KnowledgeTrustContent({
                 </button>
                 <button
                   type="button"
-                  disabled={!valid || !state.maintainer_user_id}
+                  disabled={!valid("review") || !state.maintainer_user_id}
                   onClick={() =>
                     void run(
-                      () => reviewTrust(assetId, { ...body, outcome: "needs_update" }),
+                      () => reviewTrust(assetId, { ...body("review"), outcome: "needs_update" }),
                       "已标记需要更新，请编辑资料或关联新版。",
+                      "review",
                     )
                   }
                 >
                   标记需要更新
                 </button>
               </div>
+              <h3>关联新版与归档</h3>
+              {reasonField("replacement", "替代关系说明")}
               <label>
                 查找新版资料
                 <input
@@ -382,18 +446,22 @@ function KnowledgeTrustContent({
               <button
                 type="button"
                 disabled={
-                  !valid || !candidate || candidate.freshness !== "verified" || !confirmArchive
+                  !valid("replacement") ||
+                  !candidate ||
+                  candidate.freshness !== "verified" ||
+                  !confirmArchive
                 }
                 onClick={() =>
                   void run(
                     () =>
                       replaceTrust(assetId, {
-                        ...body,
+                        ...body("replacement"),
                         replacement_asset_id: candidate?.asset_id,
                         expected_replacement_updated_at: candidate?.updated_at,
                         confirm_archive: true,
                       }),
                     "已关联新版并归档旧版。",
+                    "replacement",
                   )
                 }
               >
@@ -402,41 +470,51 @@ function KnowledgeTrustContent({
             </>
           )}
           {state.replacement_asset_id && (
-            <button
-              type="button"
-              disabled={!valid}
-              onClick={() =>
-                void run(
-                  () => replaceTrust(assetId, { ...body, replacement_asset_id: null }),
-                  "替代关系已撤销，旧版仍保持归档，需要单独确认启用。",
-                )
-              }
-            >
-              撤销替代关系（不自动启用）
-            </button>
+            <div>
+              {reasonField("replacement", "替代关系说明")}
+              <button
+                type="button"
+                disabled={!valid("replacement")}
+                onClick={() =>
+                  void run(
+                    () =>
+                      replaceTrust(assetId, { ...body("replacement"), replacement_asset_id: null }),
+                    "替代关系已撤销，旧版仍保持归档，需要单独确认启用。",
+                    "replacement",
+                  )
+                }
+              >
+                撤销替代关系（不自动启用）
+              </button>
+            </div>
           )}
         </details>
       )}
-      <h3>资料纠错</h3>
+      <h3 id="trust-corrections-heading" tabIndex={-1}>
+        资料纠错
+      </h3>
       {!state.corrections.length && <p>暂无你可查看的纠错记录。</p>}
       {state.corrections.map((item) => (
         <article key={item.id}>
           <strong>{correctionLabels[item.status]}</strong>
           <p>{item.description}</p>
           {item.resolution && <p>处理说明：{item.resolution}</p>}
+          {(item.can_resolve || item.can_verify) &&
+            reasonField(`correction:${item.id}`, `此条纠错的处理说明`)}
           {item.can_resolve && (
             <button
               type="button"
-              disabled={!valid}
+              disabled={!valid(`correction:${item.id}`)}
               onClick={() =>
                 void run(
                   () =>
                     transitionCorrection(assetId, item.id, {
                       expected_updated_at: item.updated_at,
-                      reason,
+                      reason: reasons[`correction:${item.id}`] ?? "",
                       action: "resolve",
                     }),
                   "已处理，等待提出者验证。",
+                  `correction:${item.id}`,
                 )
               }
             >
@@ -447,16 +525,17 @@ function KnowledgeTrustContent({
             <div className="knowledge-trust-actions">
               <button
                 type="button"
-                disabled={!valid}
+                disabled={!valid(`correction:${item.id}`)}
                 onClick={() =>
                   void run(
                     () =>
                       transitionCorrection(assetId, item.id, {
                         expected_updated_at: item.updated_at,
-                        reason,
+                        reason: reasons[`correction:${item.id}`] ?? "",
                         action: "verify",
                       }),
                     "纠错已验证解决。",
+                    `correction:${item.id}`,
                   )
                 }
               >
@@ -464,16 +543,17 @@ function KnowledgeTrustContent({
               </button>
               <button
                 type="button"
-                disabled={!valid}
+                disabled={!valid(`correction:${item.id}`)}
                 onClick={() =>
                   void run(
                     () =>
                       transitionCorrection(assetId, item.id, {
                         expected_updated_at: item.updated_at,
-                        reason,
+                        reason: reasons[`correction:${item.id}`] ?? "",
                         action: "reopen",
                       }),
                     "已重新打开纠错，等待再次处理。",
+                    `correction:${item.id}`,
                   )
                 }
               >

@@ -8,6 +8,7 @@ import {
   reportCorrection,
   replaceTrust,
   transitionCorrection,
+  saveTrustPolicy,
   type TrustState,
 } from "../api/knowledgeTrust";
 import { ApiError } from "../api/http";
@@ -47,6 +48,47 @@ function open() {
   fireEvent.click(screen.getByRole("button", { name: "知识维护与复核" }));
 }
 
+it("keeps each maintenance reason scoped to its action and preserves other drafts after saving", async () => {
+  vi.mocked(saveTrustPolicy).mockResolvedValue({ ...initial, updated_at: "2026-10-08T02:00:00Z" });
+  open();
+  await screen.findByText("尚未复核");
+  fireEvent.click(screen.getByText("安排复核与处理旧版"));
+  fireEvent.change(screen.getByLabelText("纠错问题（必填）"), {
+    target: { value: "另一条待提交纠错" },
+  });
+  expect(screen.getByRole("button", { name: "保存维护安排" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "确认复核通过" })).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("维护安排说明（必填）"), {
+    target: { value: "调整复核安排" },
+  });
+  expect(screen.getByRole("button", { name: "确认复核通过" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "保存维护安排" }));
+  await waitFor(() =>
+    expect(saveTrustPolicy).toHaveBeenCalledWith(
+      "old",
+      expect.objectContaining({ reason: "调整复核安排", expected_updated_at: initial.updated_at }),
+    ),
+  );
+  await waitFor(() => expect(screen.getByLabelText("维护安排说明（必填）")).toHaveValue(""));
+  expect(screen.getByLabelText("纠错问题（必填）")).toHaveValue("另一条待提交纠错");
+  expect(reportCorrection).not.toHaveBeenCalled();
+});
+
+it("opens the requested maintenance section without exposing manager actions to a reader", async () => {
+  vi.mocked(fetchTrust).mockResolvedValue({ ...initial, can_manage: false, maintainers: [] });
+  render(
+    <MemoryRouter initialEntries={["/knowledge/old?maintenance=verify"]}>
+      <KnowledgeTrustPanel assetId="old" />
+    </MemoryRouter>,
+  );
+  await screen.findByText("尚未复核");
+  expect(screen.getByRole("dialog", { name: "知识维护与复核" })).toBeInTheDocument();
+  expect(screen.queryByText("安排复核与处理旧版")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "保存维护安排" })).not.toBeInTheDocument();
+  fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+});
+
 it("keeps the form off the page and loads fresh state each time the dialog opens", async () => {
   render(
     <MemoryRouter>
@@ -54,13 +96,13 @@ it("keeps the form off the page and loads fresh state each time the dialog opens
     </MemoryRouter>,
   );
   expect(fetchTrust).not.toHaveBeenCalled();
-  expect(screen.queryByLabelText("处理说明或纠错问题")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("纠错问题（必填）")).not.toBeInTheDocument();
   const trigger = screen.getByRole("button", { name: "知识维护与复核" });
   trigger.focus();
   fireEvent.click(trigger);
   await screen.findByText("尚未复核");
   expect(screen.getByRole("dialog", { name: "知识维护与复核" })).toBeInTheDocument();
-  fireEvent.change(screen.getByLabelText("处理说明或纠错问题"), {
+  fireEvent.change(screen.getByLabelText("纠错问题（必填）"), {
     target: { value: "未提交内容" },
   });
   fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
@@ -69,7 +111,7 @@ it("keeps the form off the page and loads fresh state each time the dialog opens
   fireEvent.click(trigger);
   await screen.findByText("尚未复核");
   expect(fetchTrust).toHaveBeenCalledTimes(2);
-  expect(screen.getByLabelText("处理说明或纠错问题")).toHaveValue("");
+  expect(screen.getByLabelText("纠错问题（必填）")).toHaveValue("");
 });
 
 it("prevents closing during a write and restores closing when it completes", async () => {
@@ -82,7 +124,7 @@ it("prevents closing during a write and restores closing when it completes", asy
   );
   open();
   await screen.findByText("尚未复核");
-  fireEvent.change(screen.getByLabelText("处理说明或纠错问题"), { target: { value: "需核对" } });
+  fireEvent.change(screen.getByLabelText("纠错问题（必填）"), { target: { value: "需核对" } });
   fireEvent.click(screen.getByRole("button", { name: "提出纠错" }));
   expect(screen.getByRole("button", { name: "关闭弹窗" })).toBeDisabled();
   fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
@@ -105,7 +147,7 @@ it("reports a correction with the loaded concurrency token", async () => {
   vi.mocked(reportCorrection).mockResolvedValue(initial);
   open();
   await screen.findByText("尚未复核");
-  fireEvent.change(screen.getByLabelText("处理说明或纠错问题"), {
+  fireEvent.change(screen.getByLabelText("纠错问题（必填）"), {
     target: { value: "第三段数据有误" },
   });
   fireEvent.click(screen.getByRole("button", { name: "提出纠错" }));
@@ -130,7 +172,9 @@ it("requires candidate verification and explicit old-version archive confirmatio
   open();
   await screen.findByText("尚未复核");
   fireEvent.click(screen.getByText("安排复核与处理旧版"));
-  fireEvent.change(screen.getByLabelText("处理说明或纠错问题"), { target: { value: "新版替代" } });
+  fireEvent.change(screen.getByLabelText("替代关系说明（必填）"), {
+    target: { value: "新版替代" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "查找可关联新版" }));
   await screen.findByRole("option", { name: "新版资料" });
   fireEvent.change(screen.getByLabelText("新版资料", { exact: true }), {
@@ -158,7 +202,7 @@ it("keeps conflict errors visible and does not silently retry writes", async () 
   vi.mocked(reportCorrection).mockRejectedValue(new ApiError(409, "记录已更新，请刷新后重试"));
   open();
   await screen.findByText("尚未复核");
-  fireEvent.change(screen.getByLabelText("处理说明或纠错问题"), { target: { value: "有误" } });
+  fireEvent.change(screen.getByLabelText("纠错问题（必填）"), { target: { value: "有误" } });
   fireEvent.click(screen.getByRole("button", { name: "提出纠错" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("记录已更新");
   expect(reportCorrection).toHaveBeenCalledTimes(1);
@@ -184,7 +228,7 @@ it("allows the reporter to reopen a resolved correction", async () => {
   open();
   await screen.findByText("尚未复核");
   await screen.findByText("待提出者验证");
-  fireEvent.change(screen.getByLabelText("处理说明或纠错问题"), {
+  fireEvent.change(screen.getByLabelText("此条纠错的处理说明（必填）"), {
     target: { value: "还没有解决" },
   });
   fireEvent.click(screen.getByRole("button", { name: "仍有问题，重新处理" }));

@@ -265,6 +265,17 @@ function AppShell() {
   const [logoutBusy, setLogoutBusy] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
 
+  // Desktop collapse must not leak into the tablet rail or the mobile drawer.
+  useEffect(() => {
+    const syncNavigationMode = () => {
+      if (window.innerWidth <= 860) setRailCollapsed(false);
+      if (window.innerWidth > 700) setMobileNavOpen(false);
+    };
+    syncNavigationMode();
+    window.addEventListener("resize", syncNavigationMode);
+    return () => window.removeEventListener("resize", syncNavigationMode);
+  }, []);
+
   // 路由变化时自动收起手机抽屉，避免导航后抽屉遮住内容。
   useEffect(() => {
     setMobileNavOpen(false);

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, cleanup } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, cleanup, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import CompanyGovernancePage from "./CompanyGovernancePage";
@@ -40,7 +40,7 @@ it("requires selection, preview and reason before mutation", async () => {
     </MemoryRouter>,
   );
   expect(await screen.findByRole("button", { name: "历史研究报告" })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "预览归档" })).toBeDisabled();
+  expect(screen.queryByRole("button", { name: "预览归档" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByLabelText("选择 历史研究报告"));
   fireEvent.click(screen.getByRole("button", { name: "预览归档" }));
   expect(applyGovernance).not.toHaveBeenCalled();
@@ -70,5 +70,29 @@ it("clears selection when switching to archive centre", async () => {
   fireEvent.click(screen.getByLabelText("选择 历史研究报告"));
   fireEvent.click(screen.getByRole("button", { name: "归档中心" }));
   await waitFor(() => expect(fetchGovernance).toHaveBeenCalledWith("archived", "", "", 1));
-  expect(screen.getByRole("button", { name: "预览恢复" })).toBeDisabled();
+  expect(screen.queryByRole("button", { name: "预览恢复" })).not.toBeInTheDocument();
+});
+
+it("starts the existing preview from inspected detail and still requires a reason", async () => {
+  render(
+    <MemoryRouter>
+      <CompanyGovernancePage />
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "核验" }));
+  const detail = screen.getByRole("dialog", { name: item.title });
+  fireEvent.click(within(detail).getByRole("button", { name: "预览归档" }));
+  expect(applyGovernance).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "确认归档" })).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("处理原因（必填）"), { target: { value: "核验后归档" } });
+  fireEvent.click(screen.getByRole("button", { name: "确认归档" }));
+  await waitFor(() =>
+    expect(applyGovernance).toHaveBeenCalledWith(
+      [item],
+      "archive",
+      "historical",
+      "核验后归档",
+      undefined,
+    ),
+  );
 });

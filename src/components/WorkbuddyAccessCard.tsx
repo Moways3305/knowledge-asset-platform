@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import "./WorkbuddyAccessCard.css";
+import Button from "./Button";
+import ConfirmDialog from "./ConfirmDialog";
 import { ApiError } from "../api/http";
 import { useAuth } from "../auth/AuthContext";
 import {
@@ -37,6 +39,7 @@ export default function WorkbuddyAccessCard() {
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [confirmRevoke, setConfirmRevoke] = useState(false);
   const [confirmRegeneration, setConfirmRegeneration] = useState(false);
   const [platform, setPlatform] = useState<WorkbuddyPlatform>(suggestedPlatform);
   const [architecture, setArchitecture] = useState<WorkbuddyArchitecture>("x64");
@@ -99,6 +102,7 @@ export default function WorkbuddyAccessCard() {
     setBusy(true);
     try {
       await revokeWorkbuddyToken();
+      setConfirmRevoke(false);
       setOneTime(null);
       await loadStatus();
     } catch (nextError) {
@@ -185,9 +189,17 @@ export default function WorkbuddyAccessCard() {
           <span>最近连接 {formatBeijingTime(status.lastConnectedAt)}</span>
         )}
         {status?.enabled && (
-          <button type="button" onClick={revoke} disabled={busy}>
-            撤销
-          </button>
+          <Button
+            variant="danger"
+            size="small"
+            onClick={() => {
+              setError(null);
+              setConfirmRevoke(true);
+            }}
+            disabled={busy}
+          >
+            撤销手动凭证
+          </Button>
         )}
       </div>
       {error && (
@@ -362,6 +374,18 @@ export default function WorkbuddyAccessCard() {
           </button>
         </div>
       </details>
+      <ConfirmDialog
+        open={confirmRevoke}
+        title="撤销手动凭证？"
+        description="当前手动配置将立即失效，已授权应用的 OAuth 授权不受影响。"
+        confirmText="确认撤销手动凭证"
+        danger
+        busy={busy}
+        error={error}
+        errorDescription={error}
+        onCancel={() => setConfirmRevoke(false)}
+        onConfirm={() => void revoke()}
+      />
     </section>
   );
 }

@@ -1,3 +1,4 @@
+import { ActionMenu } from "../../components/ActionLayout";
 import { useState } from "react";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import PagePagination from "../../components/PagePagination";
@@ -78,6 +79,15 @@ export default function UnifiedFileTasks({ flow }: { flow: UploadFlow }) {
   const [reselection, setReselection] = useState<LocalUploadQueueItem | null>(null);
   const [replacementFile, setReplacementFile] = useState<File | null>(null);
   const rows = mergeFileTasks(flow.localUploadQueue, flow.localPendingTasks);
+  const canCancelTransfer = flow.localUploadQueue.some((item) =>
+    ["queued", "uploading", "processing"].includes(item.status),
+  );
+  const canFinishTransfer =
+    flow.uploadSession &&
+    flow.uploadSession.upload_completed === false &&
+    flow.uploadSession.status !== "cancelled" &&
+    flow.uploadSession.items.every((item) => !item.transport_batch_number || item.ingest_task_id);
+  const hasFailedLocalUploads = flow.localUploadQueue.some((item) => item.status === "failed");
   const actionable = rows.filter((row) => !["completed", "cancelled"].includes(state(row)));
   const filtered =
     filter === "actionable"
@@ -124,64 +134,68 @@ export default function UnifiedFileTasks({ flow }: { flow: UploadFlow }) {
           >
             刷新
           </button>
-          {flow.localUploadQueue.some((item) =>
-            ["queued", "uploading", "processing"].includes(item.status),
-          ) && (
-            <button
-              className="btn-secondary"
-              onClick={() => setCancelOpen(true)}
-              disabled={flow.isCancellingUpload}
-            >
-              取消本批上传
-            </button>
+          {(canCancelTransfer || canFinishTransfer) && (
+            <details className="upload-batch-controls">
+              <summary>本批传输操作</summary>
+              {canCancelTransfer && (
+                <button
+                  className="btn-secondary"
+                  onClick={() => setCancelOpen(true)}
+                  disabled={flow.isCancellingUpload}
+                >
+                  取消本批上传
+                </button>
+              )}
+              {canFinishTransfer && (
+                <button
+                  className="btn-secondary"
+                  disabled={Boolean(busy) || flow.isCancellingUpload}
+                  onClick={() => void perform("finish-upload", flow.finishRecoveredUpload)}
+                >
+                  完成本批传输
+                </button>
+              )}
+            </details>
           )}
-          {rows.some(canRetry) && (
-            <button
-              className="btn-secondary"
-              disabled={Boolean(busy)}
-              onClick={() =>
-                void perform("retry-all", async () => {
-                  let failures = 0;
-                  for (const row of rows.filter(canRetry)) {
-                    try {
-                      if (row.local) await flow.retryLocalUpload(row.local.id);
-                      else if (!row.local && row.task?.retryable)
-                        await retryIngestTask(row.task.id);
-                    } catch {
-                      failures += 1;
-                    }
+          {(rows.some(canRetry) || hasFailedLocalUploads) && (
+            <ActionMenu label="全部失败项操作">
+              <p>作用于全部文件任务，不受当前筛选或选择限制。</p>
+              {rows.some(canRetry) && (
+                <button
+                  className="btn-secondary"
+                  disabled={Boolean(busy)}
+                  onClick={() =>
+                    void perform("retry-all", async () => {
+                      let failures = 0;
+                      for (const row of rows.filter(canRetry)) {
+                        try {
+                          if (row.local) await flow.retryLocalUpload(row.local.id);
+                          else if (!row.local && row.task?.retryable)
+                            await retryIngestTask(row.task.id);
+                        } catch {
+                          failures += 1;
+                        }
+                      }
+                      await flow.loadLocalPending();
+                      if (failures) setError(`${failures} 项重试请求未完成，其余文件已继续处理。`);
+                    })
                   }
-                  await flow.loadLocalPending();
-                  if (failures) setError(`${failures} 项重试请求未完成，其余文件已继续处理。`);
-                })
-              }
-            >
-              {busy === "retry-all" ? "正在重试失败项…" : "重试可恢复失败项"}
-            </button>
-          )}
-          <PendingBatchActions tasks={tasks} flow={flow} />
-          {flow.uploadSession &&
-            flow.uploadSession.upload_completed === false &&
-            flow.uploadSession.status !== "cancelled" &&
-            flow.uploadSession.items.every(
-              (item) => !item.transport_batch_number || item.ingest_task_id,
-            ) && (
-              <button
-                className="btn-secondary"
-                disabled={Boolean(busy) || flow.isCancellingUpload}
-                onClick={() => void perform("finish-upload", flow.finishRecoveredUpload)}
-              >
-                完成本批传输
-              </button>
-            )}
-          {flow.localUploadQueue.some((item) => item.status === "failed") && (
-            <button
-              className="btn-secondary"
-              disabled={Boolean(busy)}
-              onClick={() => void perform("remove-failed", flow.removeFailedLocalUploads)}
-            >
-              清理全部失败项
-            </button>
+                >
+                  {busy === "retry-all"
+                    ? "正在重试失败项…"
+                    : `重试全部可恢复失败项（${rows.filter(canRetry).length}）`}
+                </button>
+              )}
+              {hasFailedLocalUploads && (
+                <button
+                  className="btn-secondary"
+                  disabled={Boolean(busy)}
+                  onClick={() => void perform("remove-failed", flow.removeFailedLocalUploads)}
+                >
+                  清理全部失败项
+                </button>
+              )}
+            </ActionMenu>
           )}
           {pendingSelectionReason(tasks, flow) && (
             <span className="upload77-selection-reason">{pendingSelectionReason(tasks, flow)}</span>
@@ -237,13 +251,41 @@ export default function UnifiedFileTasks({ flow }: { flow: UploadFlow }) {
           {error || flow.localPendingError}
         </p>
       )}
+      <div
+        className={flow.batchSelection.length ? "upload-selected-actions" : ""}
+        role="region"
+        aria-label="已选文件操作"
+      >
+        <label className="upload-select-all">
+          <PendingSelectAll tasks={tasks} flow={flow} />
+          全选当前可处理项
+        </label>
+        {flow.batchSelection.length > 0 && (
+          <>
+            <strong>
+              已选择 {tasks.filter((task) => flow.batchSelection.includes(task.id)).length}{" "}
+              项当前筛选中的文件
+            </strong>
+            <button
+              type="button"
+              disabled={flow.batchBusy}
+              onClick={() =>
+                tasks
+                  .filter((task) => flow.batchSelection.includes(task.id))
+                  .forEach((task) => flow.toggleBatchTask(task.id))
+              }
+            >
+              清除当前选择
+            </button>
+          </>
+        )}
+        <PendingBatchActions tasks={tasks} flow={flow} />
+      </div>
       <div className="upload77-table-wrap">
         <table className="upload77-table upload-unified-table">
           <thead>
             <tr>
-              <th>
-                <PendingSelectAll tasks={tasks} flow={flow} />
-              </th>
+              <th scope="col" aria-label="选择文件" />
               <th>文件</th>
               <th>状态</th>
               <th>操作</th>

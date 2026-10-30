@@ -1,3 +1,5 @@
+import ProjectWorkspaceNav from "../components/ProjectWorkspaceNav";
+import { FormActions } from "../components/ActionLayout";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AlertTriangle, Check, ClipboardCheck, RotateCcw, Save, Trash2, X } from "lucide-react";
@@ -622,26 +624,6 @@ export default function ProjectSettingsPage() {
                 </select>
               </label>
             )}
-            {canWrite && dirty && (
-              <div className="ps74-header-actions" aria-label="未保存设置操作">
-                <button
-                  className="product-button is-secondary"
-                  disabled={saving}
-                  onClick={discardDraft}
-                >
-                  <RotateCcw size={16} aria-hidden="true" />
-                  放弃未保存
-                </button>
-                <button
-                  className="product-button is-primary"
-                  disabled={saving}
-                  onClick={() => void saveDraft()}
-                >
-                  <Save size={16} aria-hidden="true" />
-                  {saving ? "保存中…" : "保存设置"}
-                </button>
-              </div>
-            )}
           </>
         }
       />
@@ -663,6 +645,12 @@ export default function ProjectSettingsPage() {
         />
       )}
 
+      <ProjectWorkspaceNav projectId={projectId} current="settings" canManage />
+      <nav className="ps74-section-nav" aria-label="项目设置分区">
+        <a href="#project-policy-heading">配置</a>
+        <a href="#project-members-heading">成员</a>
+        <a href="#pending-review-heading">待审核</a>
+      </nav>
       <div className="ps74-layout">
         <div className="ps74-main-column">
           <section className="ps74-section" aria-labelledby="project-basic-heading">
@@ -858,14 +846,47 @@ export default function ProjectSettingsPage() {
                 <small>当前绑定仅展示后端提供的脱敏标签，新值不会在保存后回显。</small>
               </div>
             </div>
+            {canWrite && dirty && (
+              <FormActions
+                sticky
+                description="仅保存本区的命名、入库策略与企微绑定设置。"
+                className="ps74-save-actions"
+              >
+                <button
+                  className="product-button is-secondary"
+                  disabled={saving}
+                  onClick={discardDraft}
+                >
+                  <RotateCcw size={16} aria-hidden="true" />
+                  放弃未保存
+                </button>
+                <button
+                  className="product-button is-primary"
+                  disabled={saving}
+                  onClick={() => void saveDraft()}
+                >
+                  <Save size={16} aria-hidden="true" />
+                  {saving ? "保存中…" : "保存设置"}
+                </button>
+              </FormActions>
+            )}
           </section>
 
           <section className="ps74-section" aria-labelledby="project-members-heading">
             <div className="ps74-section-header">
               <div>
                 <h2 id="project-members-heading">项目成员与项目内角色</h2>
-                <p>项目经理可维护本项目的辅导老师和顾问；项目经理身份在此不可调整。</p>
+                <p>成员操作单独提交并立即生效，不需要点击“保存设置”。项目经理身份在此不可调整。</p>
               </div>
+              {canEditProjectRoles && !addMemberOpen && (
+                <button
+                  type="button"
+                  className="product-button is-secondary is-small"
+                  onClick={openAddMemberForm}
+                >
+                  添加成员
+                </button>
+              )}
             </div>
             <div className="ps74-table-wrap">
               <table className="ps74-members-table">
@@ -958,15 +979,7 @@ export default function ProjectSettingsPage() {
             </div>
             {canEditProjectRoles && (
               <div className="ps74-member-action-row">
-                {!addMemberOpen ? (
-                  <button
-                    type="button"
-                    className="product-button is-secondary is-small"
-                    onClick={openAddMemberForm}
-                  >
-                    添加成员
-                  </button>
-                ) : (
+                {addMemberOpen && (
                   <div className="ps74-add-member-form">
                     <div className="ps74-add-member-fields">
                       <label>
@@ -1095,7 +1108,10 @@ export default function ProjectSettingsPage() {
                       {review.created_at ? ` · ${formatBeijingTime(review.created_at)}` : ""}
                     </p>
                     <div className="ps74-review-actions">
-                      <Link to="/review" className="product-button is-secondary is-small">
+                      <Link
+                        to={`/review?review_id=${encodeURIComponent(review.id)}&project_id=${encodeURIComponent(projectId)}`}
+                        className="product-button is-secondary is-small"
+                      >
                         查看
                       </Link>
                       {review.can_decide && (

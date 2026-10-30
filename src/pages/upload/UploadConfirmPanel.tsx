@@ -1,3 +1,4 @@
+import { FormActions } from "../../components/ActionLayout";
 import { ArrowRight, CheckCircle2, XCircle } from "lucide-react";
 import { Link } from "react-router-dom";
 import ModelAdvancedSettings from "../../components/ModelAdvancedSettings";
@@ -475,23 +476,25 @@ export default function UploadConfirmPanel({
               {apiError}
             </div>
           )}
-          <button
-            className="btn-primary upload77-submit"
-            disabled={!canSubmit}
-            onClick={handleSubmit}
-            type="button"
-          >
-            {(namingPreview?.notices.length ?? 0) > 0 ? "仍然确认入库" : "确认入库"}
-          </button>
-          <button className="upload77-reject" onClick={onReject} type="button">
-            <XCircle size={14} aria-hidden="true" />
-            拒绝入库
-          </button>
-          <button className="upload77-exit" onClick={onExit} type="button">
-            退出
-          </button>
         </aside>
       </div>
+      <FormActions sticky description="确认前请核对内容、目标知识库与密级。">
+        <button
+          className="btn-primary upload77-submit"
+          disabled={!canSubmit}
+          onClick={handleSubmit}
+          type="button"
+        >
+          {(namingPreview?.notices.length ?? 0) > 0 ? "仍然确认入库" : "确认入库"}
+        </button>
+        <button className="upload77-reject" onClick={onReject} type="button">
+          <XCircle size={14} aria-hidden="true" />
+          拒绝入库
+        </button>
+        <button className="upload77-exit" onClick={onExit} type="button">
+          返回文件任务
+        </button>
+      </FormActions>
     </section>
   );
 }

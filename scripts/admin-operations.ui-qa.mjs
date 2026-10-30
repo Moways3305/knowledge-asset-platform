@@ -403,11 +403,17 @@ try {
       page.on("pageerror", (error) => messages.push(error.message));
       await page.goto(`${base}/admin/ingest`, { waitUntil: "networkidle" });
       await page.getByRole("heading", { name: "索引恢复控制台" }).waitFor();
-      const outerRuntimeDetails = page.locator(".irc-runtime-details");
-      await outerRuntimeDetails.locator(":scope > summary").click();
-      const runtimeDetails = page.locator(".ao85-runtime-details");
-      const runtimeSummary = runtimeDetails.locator("summary");
-      await runtimeSummary.click();
+      const recoveryScenarios = [
+        "category-filter",
+        "view-all",
+        "target-success",
+        "target-conflict",
+        "target-running",
+        "indexing-error",
+        "empty",
+      ];
+      if (!recoveryScenarios.includes(scenario))
+        await page.getByRole("button", { name: /^运行诊断/ }).click();
 
       if (scenario === "category-filter") {
         await page.getByLabel("诊断类别筛选").selectOption("configuration");
@@ -468,9 +474,8 @@ try {
         await page.getByLabel("近 24 小时索引运维趋势").waitFor();
       }
 
-      await runtimeSummary.click();
-      await outerRuntimeDetails.locator(":scope > summary").click();
-      const trendInitiallyDeferred = await outerRuntimeDetails.evaluate((node) => !node.open);
+      await page.getByRole("button", { name: "待恢复任务" }).click();
+      const trendInitiallyDeferred = (await page.locator(".ao85-trend").count()) === 0;
       await page.evaluate(() => {
         window.scrollTo(0, 0);
         document.querySelectorAll("*").forEach((node) => {
@@ -479,8 +484,7 @@ try {
       });
       const screenshot = path.join(outDir, `${scenario}-${viewport.name}.png`);
       await page.screenshot({ path: screenshot, animations: "disabled", fullPage: true });
-      await outerRuntimeDetails.locator(":scope > summary").click();
-      await runtimeSummary.click();
+      await page.getByRole("button", { name: /^运行诊断/ }).click();
 
       const trendExpected = !["insufficient-data", "health-error", "forbidden"].includes(scenario);
       const trendReadability = {
@@ -548,109 +552,118 @@ try {
       }
 
       releaseTarget?.();
-      const result = await page.evaluate((scenarioName) => {
-        const text = document.body.innerText;
-        const root = document.documentElement;
-        const recoveryOverview = document
-          .querySelector(".irc-recovery-overview")
-          ?.getBoundingClientRect();
-        const taskPanel = document.querySelector(".ao84-failures")?.getBoundingClientRect();
-        const secrets = [
-          "secret-target-asset-85",
-          "secret-config-target-85",
-          "secret-job-id-85",
-          "secret-trace-id-85",
-          "绝不能显示的业务标题",
-          "绝不能显示的项目名称",
-          "绝不能显示的人员名称",
-          "绝不能显示的原始文件名",
-          "storage_ref",
-          "SECRET_JOB_CODE",
-          "SECRET JOB MESSAGE",
-          "SECRET denial",
-          "SECRET health payload",
-          "SECRET indexing payload",
-          "SECRET conflict",
-        ];
-        const enums = [
-          "index_failed",
-          "retry_index",
-          "external_service",
-          "configuration",
-          "healthy",
-          "stale",
-        ];
-        const failureWrap = document.querySelector(".ao84-failures .irc-task-list-wrap");
-        const failureState = failureWrap?.querySelector(".ao84-table-state");
-        const mobileFailureLayout =
-          root.clientWidth > 640 ||
-          Boolean(
-            failureWrap &&
-            failureWrap.scrollWidth <= failureWrap.clientWidth + 2 &&
-            [...failureWrap.querySelectorAll(".irc-task-list > li")].every(
-              (row) => getComputedStyle(row).display === "grid",
-            ),
-          );
-        const stateRect = failureState?.getBoundingClientRect();
-        return {
-          scenario: scenarioName,
-          overflowX: root.scrollWidth - root.clientWidth,
-          clipped: [...document.querySelectorAll("a, button, select")].filter(
-            (node) => node.scrollWidth > node.clientWidth + 2,
-          ).length,
-          panels: Number(Boolean(recoveryOverview)) + Number(Boolean(taskPanel)),
-          dispositionFirst: Boolean(
-            recoveryOverview &&
-            taskPanel &&
-            recoveryOverview.y < taskPanel.y &&
-            Math.abs(recoveryOverview.width - taskPanel.width) <= 2,
-          ),
-          safe: secrets.every((term) => !text.includes(term)),
-          localized: enums.every((term) => !text.includes(term)),
-          noInstructionCopy: !text.includes("优先恢复失败、卡住和待确认的入库与索引任务。"),
-          mobileFailureLayout,
-          compactFailureState:
+      const runtimeText = await page.locator("body").innerText();
+      await page.getByRole("button", { name: "待恢复任务" }).click();
+      const result = await page.evaluate(
+        ({ scenarioName, runtimeText }) => {
+          const text = `${runtimeText}\n${document.body.innerText}`;
+          const root = document.documentElement;
+          const recoveryOverview = document
+            .querySelector(".irc-recovery-overview")
+            ?.getBoundingClientRect();
+          const taskPanel = document.querySelector(".ao84-failures")?.getBoundingClientRect();
+          const secrets = [
+            "secret-target-asset-85",
+            "secret-config-target-85",
+            "secret-job-id-85",
+            "secret-trace-id-85",
+            "绝不能显示的业务标题",
+            "绝不能显示的项目名称",
+            "绝不能显示的人员名称",
+            "绝不能显示的原始文件名",
+            "storage_ref",
+            "SECRET_JOB_CODE",
+            "SECRET JOB MESSAGE",
+            "SECRET denial",
+            "SECRET health payload",
+            "SECRET indexing payload",
+            "SECRET conflict",
+          ];
+          const enums = [
+            "index_failed",
+            "retry_index",
+            "external_service",
+            "configuration",
+            "healthy",
+            "stale",
+          ];
+          const failureWrap = document.querySelector(".ao84-failures .irc-task-list-wrap");
+          const failureState = failureWrap?.querySelector(".ao84-table-state");
+          const mobileFailureLayout =
             root.clientWidth > 640 ||
-            !failureState ||
             Boolean(
-              stateRect &&
-              stateRect.width <= (failureWrap?.clientWidth ?? 0) + 2 &&
-              stateRect.height <= 180,
+              failureWrap &&
+              failureWrap.scrollWidth <= failureWrap.clientWidth + 2 &&
+              [...failureWrap.querySelectorAll(".irc-task-list > li")].every(
+                (row) => getComputedStyle(row).display === "grid",
+              ),
+            );
+          const stateRect = failureState?.getBoundingClientRect();
+          return {
+            scenario: scenarioName,
+            overflowX: root.scrollWidth - root.clientWidth,
+            clipped: [...document.querySelectorAll("a, button, select")].filter(
+              (node) => node.scrollWidth > node.clientWidth + 2,
+            ).length,
+            panels: Number(Boolean(recoveryOverview)) + Number(Boolean(taskPanel)),
+            dispositionFirst: Boolean(
+              recoveryOverview &&
+              taskPanel &&
+              recoveryOverview.y < taskPanel.y &&
+              Math.abs(recoveryOverview.width - taskPanel.width) <= 2,
             ),
-          healthVisible: text.includes("运行健康"),
-          trendVisible: Boolean(document.querySelector(".ao85-trend")),
-          insufficient: text.includes("正在积累运维数据"),
-          stale: text.includes("心跳过期"),
-          categoryFiltered:
-            text.includes("请完成平台默认模型配置。") &&
-            !text.includes("连接检查未通过，请确认平台配置。"),
-          success: text.includes("单条索引恢复已到达终态：共 1 项") && text.includes("作业已完成"),
-          conflict: text.includes("任务状态已变化或正在执行，请刷新后重试。"),
-          targetLocked:
-            document.querySelectorAll(".ao85-target-retry").length > 0 &&
-            [...document.querySelectorAll(".ao85-target-retry")].every((button) => button.disabled),
-          indexingError: text.includes("索引状态暂时无法加载"),
-          healthError: text.includes("运行健康暂时无法加载"),
-          forbidden: text.includes("入库概览暂时无法加载") && text.includes("索引状态暂时无法加载"),
-          empty: text.includes("当前没有待恢复索引"),
-          parseRuntimeAction: Boolean(
-            [...document.querySelectorAll("button")].find(
-              (button) => button.textContent?.includes("重新解析（2 项）") && !button.disabled,
+            safe: secrets.every((term) => !text.includes(term)),
+            localized: enums.every((term) => !text.includes(term)),
+            noInstructionCopy: !text.includes("优先恢复失败、卡住和待确认的入库与索引任务。"),
+            mobileFailureLayout,
+            compactFailureState:
+              root.clientWidth > 640 ||
+              !failureState ||
+              Boolean(
+                stateRect &&
+                stateRect.width <= (failureWrap?.clientWidth ?? 0) + 2 &&
+                stateRect.height <= 180,
+              ),
+            healthVisible: text.includes("运行健康"),
+            trendVisible: runtimeText.includes("近 24 小时索引运维趋势"),
+            insufficient: text.includes("正在积累运维数据"),
+            stale: text.includes("心跳过期"),
+            categoryFiltered:
+              text.includes("请完成平台默认模型配置。") &&
+              !text.includes("连接检查未通过，请确认平台配置。"),
+            success:
+              text.includes("单条索引恢复已到达终态：共 1 项") && text.includes("作业已完成"),
+            conflict: text.includes("任务状态已变化或正在执行，请刷新后重试。"),
+            targetLocked:
+              document.querySelectorAll(".ao85-target-retry").length > 0 &&
+              [...document.querySelectorAll(".ao85-target-retry")].every(
+                (button) => button.disabled,
+              ),
+            indexingError: text.includes("索引状态暂时无法加载"),
+            healthError: text.includes("运行健康暂时无法加载"),
+            forbidden:
+              text.includes("入库概览暂时无法加载") && text.includes("索引状态暂时无法加载"),
+            empty: text.includes("当前没有待恢复索引"),
+            parseRuntimeAction: Boolean(
+              [...document.querySelectorAll("button")].find(
+                (button) => button.textContent?.includes("重新解析（2 项）") && !button.disabled,
+              ),
             ),
-          ),
-          viewAll: text.includes("当前条件不满足，已安全跳过。") && text.includes("收起为优先项"),
-          oldTabsRemoved:
-            !document.querySelector('[aria-label="管理员运维页面"]') &&
-            !document.querySelector(".ao84-tabs"),
-          recoveryHierarchy:
-            text.includes("索引恢复控制台") &&
-            text.includes("让未完成索引恢复为可检索资料") &&
-            text.includes("已入库") &&
-            text.includes("索引提交") &&
-            (text.includes("解析中") || text.includes("中断待恢复")) &&
-            text.includes("可检索"),
-        };
-      }, scenario);
+            viewAll: text.includes("当前条件不满足，已安全跳过。") && text.includes("收起为优先项"),
+            oldTabsRemoved:
+              !document.querySelector('[aria-label="管理员运维页面"]') &&
+              !document.querySelector(".ao84-tabs"),
+            recoveryHierarchy:
+              text.includes("索引恢复控制台") &&
+              text.includes("让未完成索引恢复为可检索资料") &&
+              text.includes("已入库") &&
+              text.includes("索引提交") &&
+              (text.includes("解析中") || text.includes("中断待恢复")) &&
+              text.includes("可检索"),
+          };
+        },
+        { scenarioName: scenario, runtimeText },
+      );
       result.consoleLeak = messages.some((message) => /secret|storage_ref|token/i.test(message));
       result.targetCalls = targetCalls;
       result.targetPathSafe = targetPathSafe;

@@ -398,8 +398,22 @@ try {
           ).length,
           statsReady:
             scenarioName === "forbidden" ||
-            (stats.length === 4 && stats.every((box) => box.height >= 120)),
-          tableReady: !table || table.width >= 820,
+            (stats.length === 4 &&
+              stats.every(
+                (box) =>
+                  box.height > 0 &&
+                  box.height <= 90 &&
+                  box.left >= 0 &&
+                  box.right <= window.innerWidth,
+              )),
+          tableReady:
+            !table ||
+            (window.innerWidth <= 1100
+              ? table.width <= window.innerWidth &&
+                [...document.querySelectorAll(".mk83-table tbody tr")].every(
+                  (row) => getComputedStyle(row).display === "grid",
+                )
+              : table.width >= 820),
           internalVisible: internalTerms.some((term) =>
             text.toLowerCase().includes(term.toLowerCase()),
           ),

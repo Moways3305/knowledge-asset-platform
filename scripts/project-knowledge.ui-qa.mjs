@@ -142,15 +142,22 @@ function accepted(result) {
   if (["empty-projects", "inaccessible"].includes(result.scenario)) {
     return !result.tableVisible && result.safeStateVisible;
   }
-  if (!result.tableVisible || !result.toolbarBeforeTable || result.maxRowHeight > 76) return false;
+  if (
+    !result.tableVisible ||
+    !result.toolbarBeforeTable ||
+    (!result.mobileCards && result.maxRowHeight > 76) ||
+    !result.rowActionsVisible ||
+    !result.cardScrollHintHidden
+  )
+    return false;
   if (result.scenario === "member-list") {
     return (
       result.qaInitiallyCollapsed &&
       result.modelOptionsLazy &&
       result.domOrderCorrect &&
       result.qaEntryCount === 1 &&
-      result.qaOutsideInitialViewport &&
-      result.bottomQaVisible &&
+      result.qaInInitialViewport &&
+      result.topQaVisible &&
       !result.managerActionVisible
     );
   }
@@ -160,8 +167,8 @@ function accepted(result) {
       result.modelOptionsLazy &&
       result.domOrderCorrect &&
       result.qaEntryCount === 1 &&
-      result.qaOutsideInitialViewport &&
-      result.bottomQaVisible &&
+      result.qaInInitialViewport &&
+      result.topQaVisible &&
       result.managerActionVisible
     );
   }
@@ -395,9 +402,9 @@ try {
         domOrderCorrect: false,
         qaEntryCount: 0,
         qaInitiallyCollapsed: false,
-        qaOutsideInitialViewport: false,
+        qaInInitialViewport: false,
       };
-      let bottomQaVisible = false;
+      let topQaVisible = false;
 
       if (scenario === "empty-projects") {
         await page.getByText("当前账号无此入口").waitFor();
@@ -432,17 +439,22 @@ try {
             const toolbar = document.querySelector(".pk-filter-form");
             const list = document.querySelector(".pk-list-section");
             const pagination = document.querySelector(".pk-pagination");
-            const qa = document.querySelector(".pk-qa-section");
+            const qa = document.querySelector(
+              ".project-workspace-nav button[aria-haspopup='dialog']",
+            );
             const follows = (first, second) =>
               Boolean(first?.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
             return {
               domOrderCorrect:
-                follows(toolbar, list) && follows(list, pagination) && follows(pagination, qa),
-              qaEntryCount: document.querySelectorAll(".pk-qa-section").length,
+                follows(qa, toolbar) && follows(toolbar, list) && follows(list, pagination),
+              qaEntryCount: document.querySelectorAll(
+                ".project-workspace-nav button[aria-haspopup='dialog']",
+              ).length,
               qaInitiallyCollapsed:
-                document.querySelector(".pk-qa-toggle")?.getAttribute("aria-expanded") === "false",
-              qaOutsideInitialViewport: Boolean(
-                qa && qa.getBoundingClientRect().top >= window.innerHeight,
+                qa?.getAttribute("aria-expanded") === "false" &&
+                !document.querySelector(".pk-qa-body"),
+              qaInInitialViewport: Boolean(
+                qa && qa.getBoundingClientRect().bottom <= window.innerHeight,
               ),
             };
           });
@@ -451,8 +463,10 @@ try {
             fullPage: false,
             animations: "disabled",
           });
-          await page.locator(".pk-qa-section").scrollIntoViewIfNeeded();
-          bottomQaVisible = await page.locator(".pk-qa-toggle").isVisible();
+          topQaVisible = await page
+            .getByRole("button", { name: "项目问答", exact: true })
+            .isVisible();
+          await page.locator(".pk-pagination").scrollIntoViewIfNeeded();
           await page.screenshot({
             path: path.join(outDir, `${scenario}-${viewport.name}-page-bottom.png`),
             fullPage: false,
@@ -510,12 +524,13 @@ try {
         }
 
         if (scenario === "manager-list") {
+          await page.getByRole("button", { name: "更多操作：年度辅导项目知识" }).click();
           await page.getByRole("button", { name: "发布到公司知识库" }).waitFor();
-          await page.getByLabel("更多操作：年度辅导项目知识").click();
-          await page.getByRole("menuitem", { name: "删除" }).waitFor();
+          await page.getByRole("button", { name: "删除", exact: true }).waitFor();
         }
 
         if (["upgrade-publication", "upgrade-failure"].includes(scenario)) {
+          await page.getByRole("button", { name: "更多操作：年度辅导项目知识" }).click();
           await page.getByRole("button", { name: "发布到公司知识库" }).click();
           const dialog = page.getByRole("dialog", { name: "发布到公司知识库" });
           const directory = dialog.getByRole("combobox", { name: "正式目录" });
@@ -566,8 +581,24 @@ try {
             tableVisible: Boolean(document.querySelector(".pk-table")),
             toolbarBeforeTable: Boolean(toolbar && table && toolbar.bottom <= table.top + 24),
             maxRowHeight: Math.max(0, ...rows.map((row) => row.getBoundingClientRect().height)),
+            mobileCards:
+              window.innerWidth <= 1100 &&
+              rows.every((row) => getComputedStyle(row).display === "grid"),
+            cardScrollHintHidden:
+              window.innerWidth > 1100 ||
+              [...document.querySelectorAll(".pk-list-section .product-table-scroll-hint")].every(
+                (hint) => getComputedStyle(hint).display === "none",
+              ),
+            rowActionsVisible: [...document.querySelectorAll(".pk-row-actions")].every(
+              (actions) => {
+                const rect = actions.getBoundingClientRect();
+                return rect.left >= 0 && rect.right <= window.innerWidth && rect.height > 0;
+              },
+            ),
             qaInitiallyCollapsed:
-              document.querySelector(".pk-qa-toggle")?.getAttribute("aria-expanded") === "false",
+              document
+                .querySelector(".project-workspace-nav button[aria-haspopup='dialog']")
+                ?.getAttribute("aria-expanded") === "false",
             managerActionVisible: Boolean(document.querySelector(".pk-publish-action")),
             qaInputDisabled:
               document.querySelector(".pk-qa-body textarea") instanceof HTMLTextAreaElement &&
@@ -656,7 +687,7 @@ try {
         knowledgeCalls,
         qaModelCalls,
         modelOptionsLazy,
-        bottomQaVisible,
+        topQaVisible,
         ...initialLayout,
       });
 
