@@ -152,23 +152,26 @@ export default function UploadPage() {
         </p>
       )}
       {!historyOpen && !confirmationOpen && (
-        <div className="upload77-source-switch" aria-label="资料来源">
-          <button
-            className={activePath === "b" ? "is-active" : ""}
-            aria-pressed={activePath === "b"}
-            onClick={() => selectSource("b")}
-            type="button"
-          >
-            本地上传
-          </button>
-          <button
-            className={activePath === "a" ? "is-active" : ""}
-            aria-pressed={activePath === "a"}
-            onClick={() => selectSource("a")}
-            type="button"
-          >
-            企微微盘待确认
-          </button>
+        <div className="upload77-source-toolbar">
+          <span className="upload77-source-label">资料来源</span>
+          <div className="upload77-source-switch" role="group" aria-label="资料来源">
+            <button
+              className={activePath === "b" ? "is-active" : ""}
+              aria-pressed={activePath === "b"}
+              onClick={() => selectSource("b")}
+              type="button"
+            >
+              本地上传
+            </button>
+            <button
+              className={activePath === "a" ? "is-active" : ""}
+              aria-pressed={activePath === "a"}
+              onClick={() => selectSource("a")}
+              type="button"
+            >
+              企微微盘待确认
+            </button>
+          </div>
         </div>
       )}
 

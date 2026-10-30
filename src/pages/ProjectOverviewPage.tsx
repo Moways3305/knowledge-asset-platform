@@ -1,7 +1,7 @@
 import ProjectWorkspaceNav from "../components/ProjectWorkspaceNav";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Bot, CheckSquare, Plus, RefreshCw, Send, Upload } from "lucide-react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   fetchProjectOverview,
   fetchProjectQaModelOptions,
@@ -11,7 +11,9 @@ import {
 import { useAuth } from "../auth/AuthContext";
 import CreateProjectModal from "../components/CreateProjectModal";
 import LoadingError from "../components/LoadingError";
-import { ProductPage } from "../components/ProductLayout";
+import { PageHeader, PageSection, ProductPage } from "../components/ProductLayout";
+import StatusBadge from "../components/StatusBadge";
+import { formatBeijingTime } from "../utils/time";
 import type { ProjectQaModelOptionDTO, ProjectQaResponseDTO } from "../types/agent";
 import type { ProjectListItemDTO, ProjectOverviewDTO } from "../types/project";
 import "./ProjectOverviewPage.css";
@@ -109,8 +111,11 @@ function ProjectWorkspace({
   canCreate?: boolean;
 }) {
   const projectId = selectedProject.id;
+  const [searchParams] = useSearchParams();
+  const view = searchParams.get("view") === "qa" ? "qa" : "overview";
   const overviewRequest = useRef(0);
   const modelRequest = useRef(0);
+  const modelLoaded = useRef(false);
   const qaRequest = useRef(0);
   const [overviewState, setOverviewState] = useState<OverviewState>({ status: "loading" });
   const [modelState, setModelState] = useState<ModelState>({ status: "loading" });
@@ -141,6 +146,7 @@ function ProjectWorkspace({
     try {
       const response = await fetchProjectQaModelOptions(projectId);
       if (request !== modelRequest.current) return;
+      modelLoaded.current = true;
       const selected = response.items.find((item) => item.is_default) ?? response.items[0];
       setModelState({
         status: "ready",
@@ -154,13 +160,18 @@ function ProjectWorkspace({
 
   useEffect(() => {
     void loadOverview();
-    void loadModels();
     return () => {
       overviewRequest.current += 1;
-      modelRequest.current += 1;
       qaRequest.current += 1;
     };
-  }, [loadModels, loadOverview]);
+  }, [loadOverview]);
+
+  useEffect(() => {
+    if (view === "qa" && !modelLoaded.current) void loadModels();
+    return () => {
+      modelRequest.current += 1;
+    };
+  }, [loadModels, view]);
 
   const submitQuestion = useCallback(
     async (value: string) => {
@@ -216,42 +227,41 @@ function ProjectWorkspace({
 
   return (
     <ProductPage className="project78-page">
-      <header className="project78-switchbar">
-        <div>
-          <span>项目协作空间</span>
-          <strong>{selectedProject.name}</strong>
-        </div>
-        <div className="project78-switchbar-actions">
-          {canCreate && onCreateClick && (
-            <button type="button" className="project78-create-btn" onClick={onCreateClick}>
-              <Plus size={14} aria-hidden="true" />
-              新建项目
-            </button>
-          )}
-          <ProjectPicker projects={projects} value={projectId} onChange={onSwitch} />
-        </div>
-      </header>
+      <PageHeader
+        title={overview.project.name}
+        description={
+          <>
+            {overview.project.client_name && <span>{overview.project.client_name} · </span>}
+            {PROJECT_ROLE[overview.project.project_role] ?? "项目成员"}
+          </>
+        }
+        status={
+          <StatusBadge
+            label={PROJECT_STATUS[overview.project.status] ?? "状态待确认"}
+            tone={overview.project.status === "active" ? "success" : "neutral"}
+          />
+        }
+        actions={
+          <div className="project78-header-actions">
+            {canCreate && onCreateClick && (
+              <button type="button" className="product-button is-secondary" onClick={onCreateClick}>
+                <Plus size={14} aria-hidden="true" />
+                新建项目
+              </button>
+            )}
+            <ProjectPicker projects={projects} value={projectId} onChange={onSwitch} />
+          </div>
+        }
+      />
 
       <ProjectWorkspaceNav
         projectId={projectId}
-        current="overview"
+        current={view}
         canManage={overview.capabilities.can_manage_members}
         canViewKnowledge={overview.capabilities.can_view_knowledge}
       />
-      <div className="project78-workspace">
-        <aside className="project78-context" aria-label="项目上下文">
-          <section className="project78-project-status">
-            <span className="project78-section-label">项目状态</span>
-            <h2>{overview.project.name}</h2>
-            {overview.project.client_name && <p>{overview.project.client_name}</p>}
-            <div className="project78-status-line">
-              <span className="project78-status-badge">
-                {PROJECT_STATUS[overview.project.status] ?? "状态待确认"}
-              </span>
-              <span>{PROJECT_ROLE[overview.project.project_role] ?? "项目成员"}</span>
-            </div>
-          </section>
-
+      {view === "overview" ? (
+        <div className="project78-overview">
           <dl className="project78-facts" aria-label="项目数据概览">
             <div>
               <dt>资料</dt>
@@ -260,18 +270,6 @@ function ProjectWorkspace({
             <div>
               <dt>资产</dt>
               <dd>{overview.counts.asset_count}</dd>
-            </div>
-            <div>
-              <dt>待确认</dt>
-              <dd>{overview.counts.pending_confirmation_count}</dd>
-            </div>
-            <div>
-              <dt>待审核</dt>
-              <dd>{overview.counts.pending_review_count}</dd>
-            </div>
-            <div>
-              <dt>原文申请</dt>
-              <dd>{overview.counts.original_access_request_count}</dd>
             </div>
             <div>
               <dt>知识库</dt>
@@ -283,29 +281,79 @@ function ProjectWorkspace({
             </div>
           </dl>
 
-          <nav className="project78-context-actions" aria-label="项目操作">
-            {overview.capabilities.can_upload_material && (
-              <Link to={`/upload?source=local&project_id=${encodeURIComponent(projectId)}`}>
-                <Upload size={16} aria-hidden="true" />
-                <span>上传资料</span>
-              </Link>
-            )}
-            {overview.capabilities.can_confirm_assets &&
-              overview.counts.pending_review_count > 0 && (
-                <Link
-                  to={`/review?project_id=${encodeURIComponent(projectId)}`}
-                  className="is-review-action"
-                >
-                  <CheckSquare size={16} aria-hidden="true" />
-                  <span>处理待审核（{overview.counts.pending_review_count}）</span>
-                </Link>
+          <PageSection
+            title="项目工作"
+            description="查看当前项目的待办情况，继续整理和确认知识。"
+            actions={
+              <div className="project78-work-actions">
+                {overview.capabilities.can_confirm_assets &&
+                  overview.counts.pending_review_count > 0 && (
+                    <Link
+                      to={`/review?project_id=${encodeURIComponent(projectId)}`}
+                      className="product-button is-primary"
+                    >
+                      <CheckSquare size={16} aria-hidden="true" />
+                      处理待审核（{overview.counts.pending_review_count}）
+                    </Link>
+                  )}
+                {overview.capabilities.can_upload_material && (
+                  <Link
+                    className={`product-button ${overview.capabilities.can_confirm_assets && overview.counts.pending_review_count > 0 ? "is-secondary" : "is-primary"}`}
+                    to={`/upload?source=local&project_id=${encodeURIComponent(projectId)}`}
+                  >
+                    <Upload size={16} aria-hidden="true" />
+                    上传资料
+                  </Link>
+                )}
+              </div>
+            }
+          >
+            <dl className="project78-work-summary">
+              <div>
+                <dt>待确认</dt>
+                <dd>{overview.counts.pending_confirmation_count}</dd>
+              </div>
+              <div>
+                <dt>待审核</dt>
+                <dd>{overview.counts.pending_review_count}</dd>
+              </div>
+              <div>
+                <dt>原文申请</dt>
+                <dd>{overview.counts.original_access_request_count}</dd>
+              </div>
+            </dl>
+          </PageSection>
+
+          {overview.capabilities.can_view_knowledge && (
+            <PageSection title="最近项目资料" description="继续查看本项目最近更新的可访问资料。">
+              {overview.recent_activity.length > 0 ? (
+                <ul className="project78-recent-list">
+                  {overview.recent_activity.map((item) => (
+                    <li key={item.asset_id}>
+                      <Link
+                        to={`/knowledge/${encodeURIComponent(item.asset_id)}`}
+                        state={{
+                          backTo: `/project/${encodeURIComponent(projectId)}`,
+                          backLabel: "返回项目概览",
+                          source: "project",
+                        }}
+                      >
+                        {item.title}
+                      </Link>
+                      <span>{CITED_ZONE[item.zone] ?? "区域待确认"}</span>
+                      <time>{formatBeijingTime(item.updated_at)}</time>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="project78-muted">暂无最近更新的项目资料。</p>
               )}
-          </nav>
+            </PageSection>
+          )}
 
           {overview.capabilities.can_manage_members && (
-            <section className="project78-members" aria-labelledby="project78-members-title">
-              <span className="project78-section-label">关键成员</span>
-              <h3 id="project78-members-title">项目协作成员</h3>
+            <details className="project78-members">
+              <summary>项目协作成员（{overview.members.length}）</summary>
               {overview.members.length > 0 ? (
                 <ul>
                   {overview.members.map((member) => (
@@ -324,11 +372,11 @@ function ProjectWorkspace({
               ) : (
                 <p className="project78-muted">暂无成员信息。</p>
               )}
-            </section>
+            </details>
           )}
-        </aside>
-
-        <main className="project78-assistant" aria-labelledby="project78-assistant-title">
+        </div>
+      ) : (
+        <section className="project78-assistant" aria-labelledby="project78-assistant-title">
           <header className="project78-assistant-header">
             <div className="project78-assistant-title">
               <span className="project78-bot-mark" aria-hidden="true">
@@ -425,7 +473,14 @@ function ProjectWorkspace({
                           className="project78-citation"
                           key={`${citation.citation_order}-${citation.asset_title}`}
                         >
-                          <Link to={`/knowledge/${encodeURIComponent(citation.asset_id)}`}>
+                          <Link
+                            to={`/knowledge/${encodeURIComponent(citation.asset_id)}`}
+                            state={{
+                              backTo: `/project/${encodeURIComponent(projectId)}?view=qa`,
+                              backLabel: "返回项目问答",
+                              source: "project",
+                            }}
+                          >
                             [{citation.citation_order}] {citation.asset_title}
                           </Link>
                           <small>{CITED_ZONE[citation.cited_zone] ?? "来源区域待确认"}</small>
@@ -451,7 +506,11 @@ function ProjectWorkspace({
               disabled={!canAsk || asking}
               onChange={(event) => setQuestion(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
+                if (
+                  event.key === "Enter" &&
+                  (event.ctrlKey || event.metaKey) &&
+                  !event.nativeEvent.isComposing
+                ) {
                   event.preventDefault();
                   void submitQuestion(question);
                 }
@@ -459,7 +518,7 @@ function ProjectWorkspace({
             />
             <div className="project78-composer-controls">
               <label>
-                <span className="project78-sr-only">问答模型</span>
+                <span>问答模型</span>
                 <select
                   aria-label="问答模型"
                   value={modelState.status === "ready" ? modelState.selectedRef : ""}
@@ -485,6 +544,7 @@ function ProjectWorkspace({
                     ))}
                 </select>
               </label>
+              <span className="project78-keyboard-hint">Ctrl / ⌘ + Enter 提问</span>
               <button
                 type="button"
                 className="project78-send"
@@ -494,17 +554,19 @@ function ProjectWorkspace({
                 onClick={() => void submitQuestion(question)}
               >
                 <Send size={17} aria-hidden="true" />
+                {asking ? "提问中" : "提问"}
               </button>
             </div>
           </div>
-        </main>
-      </div>
+        </section>
+      )}
     </ProductPage>
   );
 }
 
 export default function ProjectOverviewPage() {
   const { id = "" } = useParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { capabilities } = useAuth();
   const listRequest = useRef(0);
@@ -603,7 +665,11 @@ export default function ProjectOverviewPage() {
 
   const selectedProject = projects.find((project) => project.id === id);
   const switchProject = (projectId: string) => {
-    if (projects.some((project) => project.id === projectId)) navigate(`/project/${projectId}`);
+    if (projects.some((project) => project.id === projectId)) {
+      navigate(
+        `/project/${encodeURIComponent(projectId)}${searchParams.get("view") === "qa" ? "?view=qa" : ""}`,
+      );
+    }
   };
 
   if (!selectedProject) {

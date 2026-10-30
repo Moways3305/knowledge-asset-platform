@@ -1,14 +1,6 @@
 import ProjectWorkspaceNav from "../components/ProjectWorkspaceNav";
-import TaskModal from "../components/TaskModal";
 import { ActionMenu } from "../components/ActionLayout";
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type FormEvent,
-  type KeyboardEvent,
-} from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { FileText, Search } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
@@ -17,7 +9,6 @@ import {
   fetchKnowledgePage,
 } from "../api/knowledge";
 import { ControlledBulkRequestError } from "../api/bulk";
-import { fetchProjectQaModelOptions, projectQa } from "../api/project";
 import { preflightAssetization, registerAssetEvidence, submitAssetization } from "../api/review";
 import { useAuth } from "../auth/AuthContext";
 import DataTable, { type Column } from "../components/DataTable";
@@ -38,7 +29,6 @@ import {
 } from "../components/ProductLayout";
 import StatusBadge from "../components/StatusBadge";
 import PagePagination from "../components/PagePagination";
-import type { ProjectQaModelOptionDTO, ProjectQaResponseDTO } from "../types/agent";
 import type { AssetizationPreflightItemDTO, EvidenceInputDTO } from "../types/review";
 import type {
   AssetStatus,
@@ -137,18 +127,6 @@ function ProjectKnowledgeWorkspace({
   const [listRetryKey, setListRetryKey] = useState(0);
   const listRequestRef = useRef(0);
 
-  const [qaOpen, setQaOpen] = useState(false);
-  const [models, setModels] = useState<ProjectQaModelOptionDTO[]>([]);
-  const [selectedModelIndex, setSelectedModelIndex] = useState("");
-  const [modelsState, setModelsState] = useState<"idle" | "loading" | "ready" | "error">("idle");
-  const [modelsRetryKey, setModelsRetryKey] = useState(0);
-  const modelRequestRef = useRef(0);
-  const [qaInput, setQaInput] = useState("");
-  const [qaQuestion, setQaQuestion] = useState("");
-  const [qaResult, setQaResult] = useState<ProjectQaResponseDTO | null>(null);
-  const [qaState, setQaState] = useState<"idle" | "loading" | "error">("idle");
-  const qaRequestRef = useRef(0);
-
   const [upgradeAsset, setUpgradeAsset] = useState<KnowledgeCardVM | null>(null);
   const [upgradeNotice, setUpgradeNotice] = useState<{
     tone: "success" | "error";
@@ -241,42 +219,13 @@ function ProjectKnowledgeWorkspace({
     zone,
   ]);
 
-  useEffect(() => {
-    if (!qaOpen) return;
-    const requestId = ++modelRequestRef.current;
-    let active = true;
-    setModelsState("loading");
-    void fetchProjectQaModelOptions(project.projectId)
-      .then((response) => {
-        if (!active || requestId !== modelRequestRef.current) return;
-        setModels(response.items);
-        const defaultIndex = response.items.findIndex((item) => item.is_default);
-        setSelectedModelIndex(
-          response.items.length === 0 ? "" : String(defaultIndex >= 0 ? defaultIndex : 0),
-        );
-        setModelsState("ready");
-      })
-      .catch(() => {
-        if (!active || requestId !== modelRequestRef.current) return;
-        setModels([]);
-        setSelectedModelIndex("");
-        setModelsState("error");
-      });
-    return () => {
-      active = false;
-    };
-  }, [modelsRetryKey, project.projectId, qaOpen]);
-
   useEffect(
     () => () => {
       listRequestRef.current += 1;
-      modelRequestRef.current += 1;
-      qaRequestRef.current += 1;
     },
     [],
   );
 
-  const selectedModel = models[Number(selectedModelIndex)];
   const hasActiveFilters = Boolean(
     keyword ||
     zone ||
@@ -307,35 +256,6 @@ function ProjectKnowledgeWorkspace({
     event.preventDefault();
     setKeyword(keywordInput.trim());
     setPage(1);
-  };
-
-  const askQuestion = async () => {
-    const question = qaInput.trim();
-    if (!question || !selectedModel || qaState === "loading") return;
-    const requestId = ++qaRequestRef.current;
-    setQaQuestion(question);
-    setQaResult(null);
-    setQaState("loading");
-    try {
-      const response = await projectQa(project.projectId, {
-        query: question,
-        modelRef: selectedModel.model_ref,
-      });
-      if (requestId !== qaRequestRef.current) return;
-      setQaResult(response);
-      setQaState("idle");
-    } catch {
-      if (requestId !== qaRequestRef.current) return;
-      setQaResult(null);
-      setQaState("error");
-    }
-  };
-
-  const handleQaKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-      event.preventDefault();
-      void askQuestion();
-    }
   };
 
   const openUpgrade = useCallback(
@@ -729,8 +649,6 @@ function ProjectKnowledgeWorkspace({
         projectId={project.projectId}
         current="knowledge"
         canManage={project.projectRole === "project_manager"}
-        onAsk={() => setQaOpen(true)}
-        askOpen={qaOpen}
       />
 
       <form className="pk-filter-form" onSubmit={submitKeyword}>
@@ -1176,119 +1094,6 @@ function ProjectKnowledgeWorkspace({
           </>
         )}
       </PageSection>
-
-      <TaskModal
-        open={qaOpen}
-        onClose={() => setQaOpen(false)}
-        title="项目问答"
-        description={`基于${project.projectName}的当前可访问资料提问。`}
-        portal
-        size="large"
-      >
-        {qaOpen && (
-          <div className="pk-qa-body">
-            {modelsState === "error" ? (
-              <div className="pk-qa-state" role="status">
-                <span>问答模型暂时无法加载。</span>
-                <button
-                  className="product-button is-secondary is-small"
-                  type="button"
-                  onClick={() => {
-                    setModelsRetryKey((value) => value + 1);
-                  }}
-                >
-                  重试
-                </button>
-              </div>
-            ) : (
-              <>
-                <div className="pk-qa-controls">
-                  <label htmlFor="pk-qa-model">
-                    <span>问答模型</span>
-                    <select
-                      id="pk-qa-model"
-                      value={selectedModelIndex}
-                      onChange={(event) => setSelectedModelIndex(event.target.value)}
-                      disabled={modelsState === "loading" || models.length === 0}
-                    >
-                      {modelsState === "loading" && <option value="">正在加载…</option>}
-                      {modelsState === "ready" && models.length === 0 && (
-                        <option value="">暂无可用模型</option>
-                      )}
-                      {models.map((model, index) => (
-                        <option key={index} value={String(index)}>
-                          {model.display_name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {modelsState === "ready" && models.length === 0 && (
-                    <span className="pk-qa-state">当前项目暂无可用问答模型。</span>
-                  )}
-                </div>
-                <textarea
-                  value={qaInput}
-                  onChange={(event) => setQaInput(event.target.value)}
-                  onKeyDown={handleQaKeyDown}
-                  placeholder="向当前项目知识提问…"
-                  disabled={modelsState !== "ready" || models.length === 0}
-                  rows={3}
-                />
-                <div className="pk-qa-submit-row">
-                  <span>Ctrl / Command + Enter 发送</span>
-                  <button
-                    className="product-button is-primary is-small"
-                    type="button"
-                    disabled={!qaInput.trim() || !selectedModel || qaState === "loading"}
-                    onClick={() => void askQuestion()}
-                  >
-                    {qaState === "loading" ? "正在回答…" : "提问"}
-                  </button>
-                </div>
-                {qaState === "error" && (
-                  <div className="pk-qa-error" role="alert">
-                    问答暂时未完成，请稍后重试。
-                  </div>
-                )}
-                {qaQuestion && (qaResult || qaState === "loading") && (
-                  <div className="pk-conversation">
-                    <div className="pk-question">
-                      <span>你的问题</span>
-                      <p>{qaQuestion}</p>
-                    </div>
-                    {qaResult && (
-                      <div className="pk-answer">
-                        <span>
-                          {qaResult.answer_status === "insufficient_evidence"
-                            ? "依据不足"
-                            : "项目问答"}
-                        </span>
-                        <p>{qaResult.response_text}</p>
-                        {qaResult.citations.length > 0 && (
-                          <div className="pk-citations">
-                            <strong>引用</strong>
-                            {qaResult.citations.map((citation, index) => (
-                              <div
-                                key={`${citation.asset_title}-${citation.citation_order}-${index}`}
-                              >
-                                <Link to={`/knowledge/${encodeURIComponent(citation.asset_id)}`}>
-                                  [{citation.citation_order}] {citation.asset_title}
-                                </Link>
-                                <small>{safeZone(citation.cited_zone)}</small>
-                                {citation.is_pending_review && <em>内容待审核，请谨慎参考</em>}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        )}
-      </TaskModal>
     </ProductPage>
   );
 }

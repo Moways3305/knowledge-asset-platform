@@ -174,7 +174,9 @@ function assertResult(result) {
       result.canonicalGenerating &&
       Boolean(result.canonicalScreenshot) &&
       result.selectionHeaderAccessible &&
-      result.batchSummaryColor === "rgb(234, 241, 255)"
+      result.batchSummaryContrast >= 4.5 &&
+      result.intakeDetailsCollapsed &&
+      result.compactTaskEntry
     );
   if (result.scenario === "local-queue")
     return (
@@ -212,9 +214,12 @@ function assertResult(result) {
       result.classificationCalls === 0
     );
   }
-  if (result.scenario === "confirm-ready") return result.confirmVisible;
+  if (result.scenario === "confirm-ready")
+    return result.confirmVisible && result.confirmationOrderValid;
   if (result.scenario === "project-naming-ready") {
-    return result.confirmVisible && result.projectNamingLayoutValid;
+    return (
+      result.confirmVisible && result.projectNamingLayoutValid && result.confirmationOrderValid
+    );
   }
   if (result.scenario === "project-submitted") {
     return result.projectWaiting && !result.claimsProjectComplete && result.confirmPayloadValid;
@@ -1024,6 +1029,44 @@ try {
             ".upload-unified-table thead th:first-child",
           );
           const batchSummary = document.querySelector(".upload-batch-controls > summary");
+          // Check readable contrast instead of tying the task workspace to its
+          // former dark palette. Transparent surfaces inherit an opaque ancestor.
+          const textContrast = (element) => {
+            if (!element) return 0;
+            const rgb = (color) => color.match(/[\d.]+/g)?.map(Number) ?? [];
+            let background = [255, 255, 255];
+            for (let ancestor = element; ancestor; ancestor = ancestor.parentElement) {
+              const candidate = rgb(getComputedStyle(ancestor).backgroundColor);
+              if (candidate.length >= 3 && (candidate[3] ?? 1) === 1) {
+                background = candidate;
+                break;
+              }
+            }
+            const luminance = (color) => {
+              const channels = color.slice(0, 3).map((value) => {
+                const channel = value / 255;
+                return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+              });
+              return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+            };
+            const foregroundLuminance = luminance(rgb(getComputedStyle(element).color));
+            const backgroundLuminance = luminance(background);
+            return (
+              (Math.max(foregroundLuminance, backgroundLuminance) + 0.05) /
+              (Math.min(foregroundLuminance, backgroundLuminance) + 0.05)
+            );
+          };
+          const intakeDetails = document.querySelector(".upload77-intake-details");
+          const dropzone = document.querySelector(".upload77-dropzone");
+          const taskWorkspace = document.querySelector(".upload-file-tasks");
+          const targets = document.querySelector(".upload77-targets");
+          const processingDetails = document.querySelector(".upload77-processing-details");
+          const precedes = (before, after) =>
+            Boolean(
+              before &&
+              after &&
+              before.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING,
+            );
           // Every scenario starts in a fresh browser context directly at /upload.
           // Verify the shared utility without first loading the settings page.
           const srOnlyProbe = document.createElement("span");
@@ -1046,7 +1089,20 @@ try {
               selectionHeader.getAttribute("scope") === "col" &&
               !selectionHeader.textContent.trim(),
             ),
-            batchSummaryColor: batchSummary ? getComputedStyle(batchSummary).color : null,
+            batchSummaryContrast: textContrast(batchSummary),
+            intakeDetailsCollapsed: Boolean(intakeDetails && !intakeDetails.open),
+            compactTaskEntry: Boolean(
+              dropzone &&
+              taskWorkspace &&
+              dropzone.dataset.compact === "true" &&
+              dropzone.getBoundingClientRect().height <= 190 &&
+              precedes(dropzone, taskWorkspace),
+            ),
+            confirmationOrderValid:
+              precedes(targets, formColumn) &&
+              precedes(formColumn, processingDetails) &&
+              !processingDetails.open &&
+              targets.getBoundingClientRect().bottom <= formColumn.getBoundingClientRect().top + 1,
             overflowX: root.scrollWidth - root.clientWidth,
             shellOverlap:
               window.innerWidth >= 1000 && rail && deck ? Math.max(0, rail.right - deck.left) : 0,
