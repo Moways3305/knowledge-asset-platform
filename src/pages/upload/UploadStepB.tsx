@@ -34,16 +34,7 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
     localPendingTasks,
   } = flow;
   const [isDragging, setIsDragging] = useState(false);
-  const pendingCounts = localPendingTasks.reduce(
-    (counts, task) => {
-      if (task.processing_stage === "ocr_queued") counts.queued += 1;
-      else if (task.processing_stage === "processing_interrupted") counts.interrupted += 1;
-      else if (task.status === "failed") counts.failed += 1;
-      else if (task.status === "pending_confirmation") counts.succeeded += 1;
-      return counts;
-    },
-    { queued: 0, interrupted: 0, failed: 0, succeeded: 0 },
-  );
+  const hasTasks = localPendingTasks.length > 0 || (flow.localUploadQueue?.length ?? 0) > 0;
   const flowMeta = flowLabel(flowState);
   const canRefresh = flowState === "processing" && Boolean(processingNote);
   const extractionStatusText = extractionLabel[extraction?.status ?? ""] ?? "状态待确认";
@@ -100,6 +91,7 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
         {!hasFile ? (
           <div
             className="upload-dropzone upload77-dropzone"
+            data-compact={hasTasks ? "true" : "false"}
             data-dragging={isDragging ? "true" : "false"}
             onDragEnter={(event) => {
               event.preventDefault();
@@ -121,17 +113,15 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
               void handleDataTransferDrop(event.dataTransfer);
             }}
           >
-            {localPendingTasks.length > 0 && (
-              <p className="upload77-selection-reason" aria-label="入库处理状态统计">
-                排队 {pendingCounts.queued} · 中断 {pendingCounts.interrupted} · 失败{" "}
-                {pendingCounts.failed} · 已处理 {pendingCounts.succeeded}
-              </p>
-            )}
             <UploadCloud size={30} strokeWidth={1.7} aria-hidden="true" />
-            <h2>{isDragging ? "松开即可逐项检查" : "拖放文件到这里"}</h2>
-            <p className="dropzone-hint">
-              支持 Word、Excel、PPT、PDF、Markdown 和文本，单文件最大 100 MB
-            </p>
+            <div className="upload77-dropzone-copy">
+              <h2>
+                {isDragging ? "松开即可逐项检查" : hasTasks ? "继续添加文件" : "拖放文件到这里"}
+              </h2>
+              <p className="dropzone-hint">
+                支持 Word、Excel、PPT、PDF、Markdown 和文本，单文件最大 100 MB
+              </p>
+            </div>
             <div className="upload77-dropzone-actions">
               <button
                 className="btn-primary"
@@ -141,7 +131,7 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                 选择文件
               </button>
               <button
-                className="btn-primary"
+                className="btn-secondary"
                 onClick={() => folderRef.current?.click()}
                 type="button"
               >
@@ -242,37 +232,40 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
             <strong>{intakeFeedback.message}</strong>
             <span>队列逐项状态为最终依据，刷新后仍会从服务端恢复。</span>
           </div>
-          <dl>
-            <div>
-              <dt>检测</dt>
-              <dd>{intakeFeedback.total}</dd>
-            </div>
-            <div>
-              <dt>已接收</dt>
-              <dd>{intakeFeedback.accepted}</dd>
-            </div>
-            <div>
-              <dt>等待批次</dt>
-              <dd>{intakeFeedback.waitingBatches}</dd>
-            </div>
-            <div>
-              <dt>{flow.uploadSession ? "失败" : "拒绝"}</dt>
-              <dd>{intakeFeedback.rejected}</dd>
-            </div>
-          </dl>
-          {intakeFeedback.unuploaded != null && (
-            <p>
-              未接收 {intakeFeedback.unuploaded} · 已取消/移除 {intakeFeedback.cancelled ?? 0}
-              {(intakeFeedback.unaccounted ?? 0) > 0 && ` · 待核实 ${intakeFeedback.unaccounted}`}
-              {intakeFeedback.rejected > 0 && "（失败数可能包含已接收文件的处理失败）"}
-            </p>
-          )}
-          {intakeFeedback.batchSizes.length > 1 && (
-            <details>
-              <summary>传输批次详情</summary>
-              <p>批次分布：{intakeFeedback.batchSizes.join(" + ")}</p>
-            </details>
-          )}
+          <details className="upload77-intake-details">
+            <summary>查看接收与批次明细</summary>
+            <dl>
+              <div>
+                <dt>检测</dt>
+                <dd>{intakeFeedback.total}</dd>
+              </div>
+              <div>
+                <dt>已接收</dt>
+                <dd>{intakeFeedback.accepted}</dd>
+              </div>
+              <div>
+                <dt>等待批次</dt>
+                <dd>{intakeFeedback.waitingBatches}</dd>
+              </div>
+              <div>
+                <dt>{flow.uploadSession ? "失败" : "拒绝"}</dt>
+                <dd>{intakeFeedback.rejected}</dd>
+              </div>
+            </dl>
+            {intakeFeedback.unuploaded != null && (
+              <p>
+                未接收 {intakeFeedback.unuploaded} · 已取消/移除 {intakeFeedback.cancelled ?? 0}
+                {(intakeFeedback.unaccounted ?? 0) > 0 && ` · 待核实 ${intakeFeedback.unaccounted}`}
+                {intakeFeedback.rejected > 0 && "（失败数可能包含已接收文件的处理失败）"}
+              </p>
+            )}
+            {intakeFeedback.batchSizes.length > 1 && (
+              <details>
+                <summary>传输批次详情</summary>
+                <p>批次分布：{intakeFeedback.batchSizes.join(" + ")}</p>
+              </details>
+            )}
+          </details>
         </section>
       )}
 

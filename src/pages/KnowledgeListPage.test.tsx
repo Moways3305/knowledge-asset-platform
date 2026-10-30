@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "../api/http";
 import {
   fetchKnowledgeDetail,
   fetchKnowledgeDirectories,
@@ -352,7 +353,7 @@ describe("KnowledgeListPage reference implementation", () => {
     expect(screen.queryByRole("button", { name: /删除|预览|下载/ })).not.toBeInTheDocument();
   });
 
-  it("starts with folders and does not request a cross-directory asset page", async () => {
+  it("opens the search workspace directly without automatically retrieving across directories", async () => {
     renderPage("/knowledge");
 
     expect(await screen.findByRole("button", { name: /公司库/ })).toBeInTheDocument();
@@ -361,7 +362,121 @@ describe("KnowledgeListPage reference implementation", () => {
     expect(fetchKnowledgeDirectories).toHaveBeenCalled();
     expect(fetchKnowledgePage).not.toHaveBeenCalled();
     expect(screen.queryByRole("table", { name: "知识资产列表" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("正文关键词或内容描述")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "检索内容" })).toBeDisabled();
+    expect(searchKnowledge).not.toHaveBeenCalled();
   });
+
+  it("keeps scope and directory navigation beside the selected directory results", async () => {
+    renderPage();
+    await screen.findByText(restrictedAsset.title);
+    const scopeNavigation = screen.getByRole("navigation", { name: "资料范围" });
+    expect(within(scopeNavigation).getByRole("button", { name: "公司库" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(within(scopeNavigation).getByRole("button", { name: "个人库" })).toBeEnabled();
+    const directoryNavigation = screen.getByRole("navigation", { name: "知识目录" });
+    expect(
+      within(directoryNavigation).getByRole("button", { name: "01 公司方法论" }),
+    ).toHaveAttribute("aria-current", "page");
+
+    fireEvent.click(within(scopeNavigation).getByRole("button", { name: "全库搜索" }));
+    expect(await screen.findByLabelText("正文关键词或内容描述")).toBeInTheDocument();
+    expect(screen.queryByRole("table", { name: "知识资产列表" })).not.toBeInTheDocument();
+    expect(searchKnowledge).not.toHaveBeenCalled();
+    expect(screen.getByRole("navigation", { name: "资料范围" })).toBeInTheDocument();
+  });
+
+  it("shows a directory failure separately from an empty catalog and retries without broadening scope", async () => {
+    vi.mocked(fetchKnowledgeDirectories).mockRejectedValueOnce(new Error("upstream detail"));
+    renderPage("/knowledge?scope=company");
+
+    expect(await screen.findByText("目录暂时无法加载，请重试。")).toBeInTheDocument();
+    expect(screen.queryByText("当前范围暂无可进入的目录。")).not.toBeInTheDocument();
+    expect(screen.queryByText("upstream detail")).not.toBeInTheDocument();
+    expect(fetchKnowledgePage).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "重新加载目录" }));
+
+    expect(await screen.findByRole("button", { name: "01 公司方法论" })).toBeInTheDocument();
+    expect(fetchKnowledgeDirectories).toHaveBeenLastCalledWith({
+      scope: "company",
+      projectId: undefined,
+    });
+    expect(fetchKnowledgePage).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      entry: "/knowledge?scope=company&directory_key=company.methodology",
+      scope: "company",
+      projectId: undefined,
+      directoryKey: "company.methodology",
+    },
+    {
+      entry: `/knowledge?scope=project&project_id=${PROJECT_B}&directory_key=project.deliverables`,
+      scope: "project",
+      projectId: PROJECT_B,
+      directoryKey: "project.deliverables",
+    },
+  ])(
+    "retains the $scope directory deep link after a temporary failure and retries in place",
+    async ({ entry, scope, projectId, directoryKey }) => {
+      vi.mocked(fetchKnowledgeDirectories).mockRejectedValueOnce(
+        new ApiError(503, "upstream detail"),
+      );
+      render(
+        <MemoryRouter
+          initialEntries={[entry]}
+          future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+        >
+          <KnowledgeListPage />
+          <CatalogHistoryProbe />
+        </MemoryRouter>,
+      );
+
+      expect(await screen.findByText("目录暂时无法加载，请重试。")).toBeInTheDocument();
+      expect(screen.getByLabelText("catalog location")).toHaveTextContent(entry);
+      expect(fetchKnowledgePage).not.toHaveBeenCalled();
+      expect(searchKnowledge).not.toHaveBeenCalled();
+      expect(screen.queryByText("upstream detail")).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "重新加载目录" }));
+
+      expect(await screen.findByText(restrictedAsset.title)).toBeInTheDocument();
+      expect(screen.getByLabelText("catalog location")).toHaveTextContent(entry);
+      expect(fetchKnowledgeDirectories).toHaveBeenLastCalledWith({ scope, projectId });
+      expect(fetchKnowledgePage).toHaveBeenCalledTimes(1);
+      expect(fetchKnowledgePage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ scope, directoryKey, ...(projectId ? { projectId } : {}) }),
+      );
+      expect(screen.queryByText("目录暂时无法加载，请重试。")).not.toBeInTheDocument();
+    },
+  );
+
+  it.each([401, 403, 404])(
+    "leaves the directory deep link after a definitive %s response",
+    async (statusCode) => {
+      vi.mocked(fetchKnowledgeDirectories).mockRejectedValueOnce(
+        new ApiError(statusCode, "denied detail"),
+      );
+      render(
+        <MemoryRouter
+          initialEntries={["/knowledge?scope=company&directory_key=company.methodology"]}
+          future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+        >
+          <KnowledgeListPage />
+          <CatalogHistoryProbe />
+        </MemoryRouter>,
+      );
+
+      await waitFor(() =>
+        expect(screen.getByLabelText("catalog location")).toHaveTextContent(/^\/knowledge$/),
+      );
+      expect(fetchKnowledgePage).not.toHaveBeenCalled();
+      expect(searchKnowledge).not.toHaveBeenCalled();
+      expect(screen.queryByText("denied detail")).not.toBeInTheDocument();
+    },
+  );
 
   it("keeps the list query when switching search modes and does not retrieve until submitted", async () => {
     renderPage();
@@ -410,9 +525,9 @@ describe("KnowledgeListPage reference implementation", () => {
     expect(screen.getByRole("button", { name: "检索内容" })).toBeEnabled();
   });
 
-  it("only crosses directories after the user explicitly enters global search", async () => {
+  it("searches all visible scopes only after the user submits the home search", async () => {
     renderPage("/knowledge");
-    fireEvent.click(await screen.findByRole("button", { name: /全库搜索/ }));
+    await screen.findByLabelText("正文关键词或内容描述");
     expect(screen.getByRole("heading", { name: "全库搜索" })).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("正文关键词或内容描述"), {
@@ -487,6 +602,44 @@ describe("KnowledgeListPage reference implementation", () => {
     expect(screen.getByRole("navigation", { name: "知识资产目录路径" })).toHaveTextContent(
       "供应链优化项目",
     );
+  });
+
+  it("keeps advanced filters active when their mobile controls are collapsed", async () => {
+    renderPage();
+    await screen.findByText(restrictedAsset.title);
+    const toggle = screen.getByRole("button", { name: /^筛选$/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(toggle);
+    fireEvent.change(screen.getByLabelText("资产状态"), { target: { value: "needs_update" } });
+    fireEvent.change(screen.getByLabelText("保密等级"), { target: { value: "L3" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "包含归档" }));
+    fireEvent.click(screen.getByRole("button", { name: /^筛选 \(3\)$/ }));
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.change(screen.getByLabelText("关键词"), { target: { value: "供应链" } });
+    fireEvent.click(screen.getByRole("button", { name: /^搜索$/ }));
+    await waitFor(() =>
+      expect(fetchKnowledgePage).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          keyword: "供应链",
+          scope: "company",
+          directoryKey: "company.methodology",
+          assetStatus: "needs_update",
+          confidentialityLevel: "L3",
+          includeArchived: true,
+        }),
+      ),
+    );
+    expect(screen.getByLabelText("当前生效范围与筛选")).toHaveTextContent("包含归档");
+    fireEvent.click(toggle);
+    expect(screen.getByLabelText("资产状态")).toHaveValue("needs_update");
+    expect(screen.getByLabelText("保密等级")).toHaveValue("L3");
+    expect(screen.getByRole("checkbox", { name: "包含归档" })).toBeChecked();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^重置$/ }));
+    });
+    expect(toggle).toHaveTextContent("筛选");
+    expect(toggle).not.toHaveTextContent("(3)");
   });
 
   it("still loads cross-project summaries when the identity has no active project relationship", async () => {

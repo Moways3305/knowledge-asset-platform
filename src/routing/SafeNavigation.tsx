@@ -33,11 +33,15 @@ const staticRoutes: Array<[RegExp, (capabilities: Capabilities) => boolean]> = [
   [/^\/release-notes$/, can.viewReleaseNotes],
   [/^\/admin\/release-notes$/, can.manageReleaseNotes],
   [/^\/knowledge$/, can.viewKnowledge],
+  [/^\/knowledge-maintenance$/, can.viewKnowledge],
+  [/^\/company-governance$/, can.viewCompanyKnowledge],
   [/^\/my\/knowledge$/, can.viewMyKnowledge],
+  [/^\/my\/workbuddy$/, can.viewWorkbuddy],
   [/^\/upload$/, can.viewUpload],
   [/^\/review$/, can.viewReview],
   [/^\/review\/completed$/, can.viewReview],
   [/^\/original-access$/, can.viewOriginalAccess],
+  [/^\/original-access\/grants$/, can.viewOriginalAccess],
   [/^\/admin\/ingest$/, can.viewIngestAdmin],
   [/^\/admin\/wecom-scan$/, can.viewWecomScan],
   [/^\/admin\/weknora-models$/, can.viewModels],
@@ -46,6 +50,7 @@ const staticRoutes: Array<[RegExp, (capabilities: Capabilities) => boolean]> = [
   [/^\/admin\/alert-settings$/, can.viewAlerts],
   [/^\/admin\/people$/, can.viewPeople],
   [/^\/admin\/company-kb$/, can.viewCompanyKnowledge],
+  [/^\/admin\/naming-rules$/, can.viewNamingRules],
   [/^\/admin\/permissions$/, can.viewPermissions],
 ];
 

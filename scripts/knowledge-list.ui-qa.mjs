@@ -248,13 +248,31 @@ for (const scenario of scenarios) {
 
     if (scenario === "pure-admin") {
       await page.getByText("当前账号无此入口").waitFor();
-    } else if (scenario === "project") {
+    } else {
+      await page.getByLabel("正文关键词或内容描述", { exact: true }).waitFor();
+      assert.equal(
+        await page.getByRole("button", { name: "检索内容", exact: true }).isDisabled(),
+        true,
+      );
+      assert.equal(
+        knowledgeCalls,
+        0,
+        "Opening the workspace must not request an unscoped asset list",
+      );
+    }
+    if (scenario === "project") {
       await page.getByRole("button", { name: /项目库/ }).click();
+      if (viewport.width <= 700) {
+        await page.getByRole("button", { name: "选择项目与目录", exact: true }).click();
+      }
       await page.getByRole("button", { name: /华东交付项目/ }).click();
       await page.getByRole("button", { name: /03 交付成果/ }).click();
       await page.waitForFunction(() => document.body.innerText.includes("可查看摘要与原文"));
-    } else {
+    } else if (scenario !== "pure-admin") {
       await page.getByRole("button", { name: /公司库/ }).click();
+      if (viewport.width <= 700) {
+        await page.getByRole("button", { name: "选择目录", exact: true }).click();
+      }
       await page.getByRole("button", { name: /01 公司方法论/ }).click();
     }
 
@@ -287,7 +305,25 @@ for (const scenario of scenarios) {
       const tableActuallyOverflows = tableWrap
         ? tableWrap.scrollWidth > tableWrap.clientWidth + 2
         : false;
-      const scrollGuideVisible = Boolean(document.querySelector(".kbl-scroll-guide"));
+      const scrollGuide = document.querySelector(".kbl-scroll-guide");
+      const scrollGuideVisible = Boolean(
+        scrollGuide && scrollGuide.getBoundingClientRect().height > 0,
+      );
+      const mobile = innerWidth <= 700;
+      const assetRows = [...document.querySelectorAll(".kbl-table tbody tr")].filter(
+        (row) => !row.querySelector("td[colspan]"),
+      );
+      const mobileRowsReflowed =
+        !mobile ||
+        (!tableActuallyOverflows &&
+          assetRows.every(
+            (row) =>
+              getComputedStyle(row).display === "grid" &&
+              [...row.querySelectorAll(".kbl-mobile-label")].length === 4 &&
+              [...row.querySelectorAll(".kbl-mobile-label")].every(
+                (label) => getComputedStyle(label).display !== "none",
+              ),
+          ));
       const bodyText = document.body.innerText;
       const clippedActions = [...document.querySelectorAll("button, a.product-button")].filter(
         (element) => element.scrollWidth > element.clientWidth + 2,
@@ -300,6 +336,9 @@ for (const scenario of scenarios) {
         tableActuallyOverflows,
         scrollGuideVisible,
         scrollGuideMatchesOverflow: tableActuallyOverflows === scrollGuideVisible,
+        mobileRowsReflowed,
+        scopeNavigationVisible: Boolean(document.querySelector('nav[aria-label="资料范围"]')),
+        directoryNavigationVisible: Boolean(document.querySelector('nav[aria-label="知识目录"]')),
         clippedActions,
         moduleTitle: document.querySelector(".deck-title")?.textContent?.trim() ?? "",
         forbiddenFeatureVisible: /批量导入|导出|新建项目|运营洞察|全局搜索/.test(bodyText),
@@ -396,8 +435,13 @@ if (
       result.forbiddenFeatureVisible ||
       result.sensitiveTextVisible ||
       !result.scrollGuideMatchesOverflow ||
+      !result.mobileRowsReflowed ||
       (result.scenario !== "pure-admin" &&
-        (!["auto", "scroll"].includes(result.tableOverflowMode) ||
+        (!(Number(result.viewport) <= 700 ? ["visible"] : ["auto", "scroll"]).includes(
+          result.tableOverflowMode,
+        ) ||
+          !result.scopeNavigationVisible ||
+          !result.directoryNavigationVisible ||
           !result.tableVisible ||
           (result.scenario !== "empty" && !result.semanticTitleEntry))) ||
       (result.scenario === "pure-admin" && (result.knowledgeCalls !== 0 || result.tableVisible)) ||

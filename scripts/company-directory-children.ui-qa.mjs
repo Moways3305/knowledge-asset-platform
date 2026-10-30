@@ -104,7 +104,14 @@ try {
     await page.getByRole("button", { name: "添加到草稿" }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(output, `create-${width}.png`), fullPage: true });
     await page.goto(`${base}/knowledge?scope=company&directory_key=company.methodology`);
+    if (width <= 700) {
+      await page.getByRole("button", { name: "选择目录", exact: true }).click();
+    }
     await page.getByRole("button", { name: /战略模板/ }).click();
+    await page.waitForURL(`**/knowledge?scope=company&directory_key=${child.directory_key}`);
+    if (width <= 700) {
+      await page.getByRole("button", { name: "选择目录", exact: true }).click();
+    }
     await page.getByRole("link", { name: "返回上级分类" }).waitFor();
     assert.equal(await page.getByRole("link", { name: "新建三级目录" }).count(), 0);
     assert.equal(

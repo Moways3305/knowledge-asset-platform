@@ -92,7 +92,13 @@ function page(items: KnowledgeCardVM[] = [], overrides: Partial<KnowledgePageVM>
 }
 
 function LocationProbe() {
-  return <output aria-label="当前路径">{useLocation().pathname}</output>;
+  const location = useLocation();
+  return (
+    <output aria-label="当前路径">
+      {location.pathname}
+      {location.search}
+    </output>
+  );
 }
 
 function AuthRefreshHarness() {
@@ -127,6 +133,7 @@ function renderPage(path = `/project/${PROJECT_A}/knowledge`, withAuthRefresh = 
           element={withAuthRefresh ? <AuthRefreshHarness /> : <ProjectKnowledgePage />}
         />
         <Route path="/knowledge/:id" element={<div>知识详情</div>} />
+        <Route path="/project/:id" element={<div>统一项目工作区</div>} />
       </Routes>
     </MemoryRouter>,
   );
@@ -269,19 +276,17 @@ describe("ProjectKnowledgePage reference workspace", () => {
     expect(document.querySelector(".pk-qa-section")).toBeNull();
   });
 
-  it("keeps project QA in the workspace navigation and lazy-loads models only after opening", async () => {
+  it("opens the same project QA workspace instead of a second dialog", async () => {
     renderPage();
     await screen.findByRole("table", { name: "项目知识列表" });
 
-    const qaToggle = screen.getByRole("button", { name: /项目问答/ });
-    expect(qaToggle).toHaveAttribute("aria-expanded", "false");
+    const qaLink = screen.getByRole("link", { name: "项目问答" });
+    expect(qaLink).toHaveAttribute("href", `/project/${PROJECT_A}?view=qa`);
     expect(fetchProjectQaModelOptions).not.toHaveBeenCalled();
-    expectDocumentOrder(".project-workspace-nav", ".pk-list-section");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-
-    fireEvent.click(qaToggle);
-    await waitFor(() => expect(fetchProjectQaModelOptions).toHaveBeenCalledTimes(1));
-    expect(qaToggle).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(qaLink);
+    expect(screen.getByLabelText("当前路径")).toHaveTextContent(`/project/${PROJECT_A}?view=qa`);
+    expect(screen.getByText("统一项目工作区")).toBeInTheDocument();
   });
 
   it("sends real search, filter, date, sort and pagination parameters to the server", async () => {
@@ -573,85 +578,7 @@ describe("ProjectKnowledgePage reference workspace", () => {
     expect(screen.getByLabelText("选择项目知识 成功资料")).toBeChecked();
   });
 
-  it("uses the default model and renders only safe QA fields", async () => {
-    vi.mocked(projectQa).mockResolvedValue({
-      call_id: "secret-call-id",
-      trace_id: "secret-trace-id",
-      model_key: "secret-model-key",
-      decision_status: "internal-allowed",
-      response_text: "访谈材料显示客户关注交付节奏。",
-      citations: [
-        {
-          asset_id: "secret-asset-id",
-          asset_title: "客户访谈纪要",
-          scope: "project",
-          cited_zone: "material",
-          used_access_layer: "secret-access-layer",
-          is_pending_review: true,
-          is_asset_zone: false,
-          citation_order: 1,
-        },
-      ],
-      created_at: "2026-07-15T00:00:00Z",
-    });
-    renderPage();
-    await screen.findByText("客户访谈纪要");
-    fireEvent.click(screen.getByText("项目问答"));
-    expect(await screen.findByRole("option", { name: "项目默认问答模型" })).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "问答模型" })).toHaveValue("1");
-    fireEvent.change(screen.getByPlaceholderText("向当前项目知识提问…"), {
-      target: { value: "项目风险是什么？" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "提问" }));
-
-    expect(await screen.findByText("访谈材料显示客户关注交付节奏。")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "[1] 客户访谈纪要" })).toHaveAttribute(
-      "href",
-      "/knowledge/secret-asset-id",
-    );
-    expect(projectQa).toHaveBeenCalledWith(PROJECT_A, {
-      query: "项目风险是什么？",
-      modelRef: "default-private-ref",
-    });
-    expect(screen.getByText("内容待审核，请谨慎参考")).toBeInTheDocument();
-    const visibleText = document.body.textContent ?? "";
-    for (const secret of [
-      "secret-call-id",
-      "secret-trace-id",
-      "secret-model-key",
-      "internal-allowed",
-      "secret-asset-id",
-      "secret-access-layer",
-      "default-private-ref",
-    ]) {
-      expect(visibleText).not.toContain(secret);
-    }
-  });
-
-  it("shows insufficient evidence without unrelated citation links", async () => {
-    vi.mocked(projectQa).mockResolvedValue({
-      call_id: "test-call",
-      model_key: "system_default",
-      decision_status: "allowed",
-      trace_id: null,
-      created_at: "2026-10-22T00:00:00Z",
-      answer_status: "insufficient_evidence",
-      response_text: "当前可访问资料不足以回答这个问题。",
-      citations: [],
-    });
-    renderPage();
-    await screen.findByText("客户访谈纪要");
-    fireEvent.click(screen.getByText("项目问答"));
-    await screen.findByRole("option", { name: "项目默认问答模型" });
-    fireEvent.change(screen.getByPlaceholderText("向当前项目知识提问…"), {
-      target: { value: "未知事实？" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "提问" }));
-    expect(await screen.findByText("依据不足")).toBeInTheDocument();
-    expect(document.querySelector(".pk-citations")).toBeNull();
-  });
-
-  it("keeps list, models, QA and upgrade failures generic and recoverable", async () => {
+  it("keeps list failures generic and recoverable", async () => {
     vi.mocked(fetchKnowledgePage)
       .mockRejectedValueOnce(new Error("storage_ref=s3://secret"))
       .mockResolvedValueOnce(page([]));
@@ -660,35 +587,17 @@ describe("ProjectKnowledgePage reference workspace", () => {
     expect(document.body.textContent).not.toContain("storage_ref");
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
     expect(await screen.findByText("该项目暂无知识")).toBeInTheDocument();
-
-    vi.mocked(fetchProjectQaModelOptions)
-      .mockRejectedValueOnce(new Error("provider-secret"))
-      .mockResolvedValueOnce({ items: [], total: 0 });
-    fireEvent.click(screen.getByText("项目问答"));
-    expect(await screen.findByText("问答模型暂时无法加载。")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "重试" }));
-    expect(await screen.findByText("当前项目暂无可用问答模型。")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "提问" })).toBeDisabled();
-    expect(document.body.textContent).not.toContain("provider-secret");
   });
 
-  it("clears old project data and ignores late list and QA responses after switching", async () => {
+  it("clears old project data and ignores a late list response after switching", async () => {
     const lateList = deferred<KnowledgePageVM>();
-    const lateQa = deferred<Awaited<ReturnType<typeof projectQa>>>();
     vi.mocked(fetchKnowledgePage).mockImplementation((params) =>
       params?.projectId === PROJECT_A
         ? lateList.promise
         : Promise.resolve(page([card({ id: "b-asset", title: "乙项目知识" })])),
     );
-    vi.mocked(projectQa).mockReturnValueOnce(lateQa.promise);
     renderPage();
 
-    fireEvent.click(screen.getByText("项目问答"));
-    await screen.findByRole("option", { name: "项目默认问答模型" });
-    fireEvent.change(screen.getByPlaceholderText("向当前项目知识提问…"), {
-      target: { value: "甲项目问题" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "提问" }));
     fireEvent.change(screen.getByRole("combobox", { name: "切换项目" }), {
       target: { value: PROJECT_B },
     });
@@ -697,15 +606,6 @@ describe("ProjectKnowledgePage reference workspace", () => {
     expect(screen.queryByText("甲项目问题")).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText("向当前项目知识提问…")).not.toBeInTheDocument();
     lateList.resolve(page([card({ title: "甲项目迟到知识" })]));
-    lateQa.resolve({
-      call_id: "late-call",
-      trace_id: null,
-      model_key: "late-model",
-      decision_status: "allowed",
-      response_text: "甲项目迟到回答",
-      citations: [],
-      created_at: "2026-07-15T00:00:00Z",
-    });
     await Promise.resolve();
     expect(screen.queryByText("甲项目迟到知识")).not.toBeInTheDocument();
     expect(screen.queryByText("甲项目迟到回答")).not.toBeInTheDocument();

@@ -457,7 +457,7 @@ try {
       const metrics = await page.evaluate(
         ({ scenarioName, viewportWidth }) => {
           const root = document.documentElement;
-          const shell = document.querySelector(".workbench-scene-shell")?.getBoundingClientRect();
+          const shell = document.querySelector(".workbench-workspace")?.getBoundingClientRect();
           const heading = document.querySelector(".workbench-heading")?.getBoundingClientRect();
           const stage = document.querySelector(".workbench-layout")?.getBoundingClientRect();
           const primary = document.querySelector(".workbench-primary")?.getBoundingClientRect();
@@ -468,24 +468,18 @@ try {
           const tabButtons = [...document.querySelectorAll(".workbench-tabs button")];
           return {
             overflow: root.scrollWidth - root.clientWidth,
-            sceneConnected: Boolean(
+            workspaceContained: Boolean(
               shell &&
               heading &&
               stage &&
-              Math.abs(stage.top - heading.bottom) <= 2 &&
+              stage.top >= heading.bottom &&
+              stage.top - heading.bottom <= 32 &&
               shell.top <= heading.top &&
               shell.bottom >= stage.bottom,
             ),
-            stageStable:
-              viewportWidth < 900 ||
-              Boolean(
-                stage &&
-                primary &&
-                recent &&
-                stage.height >= 600 &&
-                primary.height >= 350 &&
-                recent.height >= 170,
-              ),
+            readableTaskText: [...document.querySelectorAll(".workbench-task-title strong")].every(
+              (element) => Number.parseFloat(getComputedStyle(element).fontSize) >= 14,
+            ),
             unifiedContextSurface: Boolean(
               projects &&
               (!workbuddy ||
@@ -508,7 +502,7 @@ try {
               document.querySelectorAll('.workbench-tabs [role="tab"][aria-selected="true"]')
                 .length === 1,
             desktopColumns:
-              viewportWidth < 1024 ||
+              viewportWidth <= 1100 ||
               Boolean(
                 primary &&
                 aside &&
@@ -516,9 +510,9 @@ try {
                 aside.left > primary.left,
               ),
             compactStack:
-              viewportWidth >= 1024 || Boolean(primary && aside && aside.top > primary.bottom),
+              viewportWidth > 1100 || Boolean(primary && aside && aside.top > primary.bottom),
             mobileOrder:
-              viewportWidth >= 1024 ||
+              viewportWidth > 1100 ||
               (scenarioName === "pure-admin"
                 ? Boolean(
                     primary &&
@@ -583,8 +577,8 @@ try {
       const populated = !["empty", "pure-admin"].includes(scenario);
       const passed =
         metrics.overflow <= 2 &&
-        metrics.sceneConnected &&
-        metrics.stageStable &&
+        metrics.workspaceContained &&
+        metrics.readableTaskText &&
         metrics.unifiedContextSurface &&
         metrics.drawerClosed &&
         metrics.taskListFirstScreen &&

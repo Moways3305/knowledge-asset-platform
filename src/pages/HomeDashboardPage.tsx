@@ -7,7 +7,7 @@ import CreateProjectModal from "../components/CreateProjectModal";
 import TaskCenterDrawer, { type TaskCenterGroup } from "../components/TaskCenterDrawer";
 import { taskStatusLabel, taskTypeLabel } from "../components/taskCenterLabels";
 import WorkbuddyStatusPanel from "../components/WorkbuddyStatusPanel";
-import { ProductPage } from "../components/ProductLayout";
+import { PageHeader, ProductPage } from "../components/ProductLayout";
 import type { WorkbenchSectionStatus, WorkbenchTaskItemDTO } from "../types/workbench";
 import { formatBeijingTime } from "../utils/time";
 import { scopeLabels } from "../utils/knowledgeLabels";
@@ -160,7 +160,6 @@ export default function HomeDashboardPage() {
   const [drawerGroup, setDrawerGroup] = useState<TaskCenterGroup>("my_tasks");
   const [drawerTaskRef, setDrawerTaskRef] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const [refractVersion, setRefractVersion] = useState(0);
   const [taskPage, setTaskPage] = useState(0);
 
   const taskCenterStatus: UiSectionStatus =
@@ -206,7 +205,6 @@ export default function HomeDashboardPage() {
   }, [taskPageCount]);
 
   const handleRefresh = () => {
-    setRefractVersion((version) => version + 1);
     void refresh();
   };
 
@@ -262,13 +260,13 @@ export default function HomeDashboardPage() {
 
   return (
     <ProductPage className="task-first-workbench">
-      <div className="workbench-scene-shell">
-        <span key={refractVersion} className="workbench-light-sweep" aria-hidden="true" />
-        <header className="workbench-heading">
-          <div className="workbench-heading-copy">
-            <span>{todayLabel()}</span>
-            <h1>我的工作</h1>
-            <p aria-live="polite">
+      <div className="workbench-workspace">
+        <PageHeader
+          className="workbench-heading"
+          eyebrow={todayLabel()}
+          title="我的工作"
+          description={
+            <span aria-live="polite">
               {state === "loading"
                 ? "正在同步需要你处理的事项"
                 : state === "error"
@@ -276,29 +274,25 @@ export default function HomeDashboardPage() {
                   : needsActionCount > 0
                     ? `${needsActionCount} 项需要你处理`
                     : "当前没有需要你处理的事项"}
-            </p>
-          </div>
-          <button
-            type="button"
-            className="workbench-refresh"
-            disabled={state === "loading"}
-            onClick={handleRefresh}
-          >
-            <RefreshCw size={15} aria-hidden="true" />
-            刷新
-          </button>
-        </header>
+            </span>
+          }
+          actions={
+            <button
+              type="button"
+              className="workbench-refresh"
+              disabled={state === "loading"}
+              onClick={handleRefresh}
+            >
+              <RefreshCw size={15} aria-hidden="true" />
+              刷新
+            </button>
+          }
+        />
 
         <div className="workbench-layout">
-          <div className="workbench-environment" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-          </div>
           <main className="workbench-primary" aria-labelledby="workbench-list-title">
             <div className="workbench-section-heading">
               <div>
-                <span>今日任务</span>
                 <h2 id="workbench-list-title">按下一步行动排列</h2>
               </div>
             </div>
@@ -309,11 +303,6 @@ export default function HomeDashboardPage() {
                 aria-label="打开今日焦点任务"
                 onClick={() => openTask("my_tasks", focusItem.task_ref)}
               >
-                <span className="workbench-focus-prism" aria-hidden="true">
-                  <i />
-                  <i />
-                  <i />
-                </span>
                 <span className="workbench-focus-copy">
                   <small>优先处理</small>
                   <strong>{`今日焦点 · ${focusItem.object_name}`}</strong>
@@ -331,11 +320,6 @@ export default function HomeDashboardPage() {
               <div
                 className={`workbench-focus ${taskCenterStatus === "available" ? "is-empty" : `is-${taskCenterStatus}`}`}
               >
-                <span className="workbench-focus-prism" aria-hidden="true">
-                  <i />
-                  <i />
-                  <i />
-                </span>
                 <span className="workbench-focus-copy">
                   <small>今日焦点</small>
                   <strong>
@@ -490,7 +474,6 @@ export default function HomeDashboardPage() {
           <section className="workbench-recent" aria-labelledby="workbench-recent-title">
             <div className="workbench-section-heading">
               <div>
-                <span>近期变化</span>
                 <h2 id="workbench-recent-title">最近动态</h2>
               </div>
             </div>

@@ -88,6 +88,30 @@ describe("SafeNavigationProvider", () => {
     await waitFor(() => expect(screen.getByText("/review/completed")).toBeInTheDocument());
   });
 
+  it.each([
+    "/knowledge-maintenance",
+    "/company-governance",
+    "/original-access/grants",
+    "/admin/naming-rules",
+    "/my/workbuddy",
+  ])("returns to the originating workspace %s with its filters", async (pathname) => {
+    renderHistory([{ pathname: "/help" }, { pathname, search: "?page=2" }]);
+    fireEvent.click(screen.getByRole("button", { name: "返回" }));
+    await waitFor(() => expect(screen.getByText(`${pathname}?page=2`)).toBeInTheDocument());
+  });
+
+  it("does not return to directory governance after governance access is removed", async () => {
+    auth.capabilities = {
+      ...auth.capabilities,
+      isBoss: false,
+      isConsultingDirector: false,
+      isGovernance: false,
+    };
+    renderHistory([{ pathname: "/help" }, { pathname: "/admin/naming-rules" }]);
+    fireEvent.click(screen.getByRole("button", { name: "返回" }));
+    await waitFor(() => expect(screen.getByText("/help")).toBeInTheDocument());
+  });
+
   it("skips a deleted dynamic page and continues to an older valid page", async () => {
     api.fetchKnowledgeDetail.mockRejectedValueOnce(new Error("not found"));
     renderHistory([{ pathname: "/help" }, { pathname: "/knowledge/deleted-asset" }]);

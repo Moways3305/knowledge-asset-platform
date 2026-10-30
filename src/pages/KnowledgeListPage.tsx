@@ -5,13 +5,12 @@ import {
   ChevronRight,
   FileText,
   Folder,
-  FolderTree,
   Search,
-  Sparkles,
   Upload,
   UserRound,
 } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { ApiError } from "../api/http";
 import {
   fetchKnowledgeDetail,
   fetchKnowledgeDirectories,
@@ -107,6 +106,10 @@ export default function KnowledgeListPage() {
   const [projectCatalog, setProjectCatalog] = useState<KnowledgeLibraryProjectDTO[]>([]);
   const [projectCatalogLoaded, setProjectCatalogLoaded] = useState(false);
   const [directoryLoading, setDirectoryLoading] = useState(false);
+  const [directoryError, setDirectoryError] = useState(false);
+  const [directoryRetryKey, setDirectoryRetryKey] = useState(0);
+  const [mobileDirectoryOpen, setMobileDirectoryOpen] = useState(false);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [page, setPage] = useState(Math.max(1, Number(searchParams.get("page")) || 1));
   const [result, setResult] = useState<KnowledgePageVM>(emptyPage);
   const [hasLoaded, setHasLoaded] = useState(false);
@@ -163,6 +166,42 @@ export default function KnowledgeListPage() {
       !item.parent_key &&
       (scope !== "project" || !validProjectId || item.project_id === validProjectId),
   );
+  const childDirectoryItems = directoryItems.filter(
+    (item) =>
+      Boolean(directory) &&
+      item.parent_key === (directory?.parent_key ?? directory?.directory_key) &&
+      item.project_id === directory?.project_id,
+  );
+  const showGlobalSearch = globalSearchMode || !scope;
+  const selectedProject = availableProjects.find((item) => item.projectId === validProjectId);
+
+  const selectScope = (nextScope: KnowledgeScope | "") => {
+    setMobileDirectoryOpen(false);
+    setScope(nextScope);
+    setProjectId("");
+    setDirectory(null);
+    setGlobalSearchMode(!nextScope);
+    setPage(1);
+    navigate(nextScope ? `/knowledge?scope=${nextScope}` : "/knowledge?search=global");
+  };
+  const selectProject = (nextProjectId: string) => {
+    setProjectId(nextProjectId);
+    setDirectory(null);
+    setPage(1);
+    navigate(
+      nextProjectId
+        ? `/knowledge?scope=project&project_id=${encodeURIComponent(nextProjectId)}`
+        : "/knowledge?scope=project",
+    );
+  };
+  const selectDirectory = (item: KnowledgeDirectoryDTO) => {
+    setMobileDirectoryOpen(false);
+    setDirectory(item);
+    setPage(1);
+    const next = new URLSearchParams({ scope: item.scope, directory_key: item.directory_key });
+    if (item.project_id) next.set("project_id", item.project_id);
+    navigate(`/knowledge?${next}`);
+  };
 
   const returnQuery = new URLSearchParams();
   if (scope) returnQuery.set("scope", scope);
@@ -458,6 +497,7 @@ export default function KnowledgeListPage() {
     }
     let active = true;
     setDirectoryLoading(true);
+    setDirectoryError(false);
     void fetchKnowledgeDirectories(scope ? { scope, projectId: projectId || undefined } : {})
       .then((items) => {
         if (!active || directoryRequestId !== directoryRequestRef.current) return;
@@ -484,11 +524,17 @@ export default function KnowledgeListPage() {
           restoredDirectoryRef.current = true;
         }
       })
-      .catch(() => {
+      .catch((cause: unknown) => {
         if (!active || directoryRequestId !== directoryRequestRef.current) return;
-        if (directoryKeyFromUrl) {
-          setDirectoryItems([]);
-          setDirectory(null);
+        setDirectoryItems([]);
+        setDirectory(null);
+        restoredDirectoryRef.current = false;
+        setDirectoryError(true);
+        if (
+          directoryKeyFromUrl &&
+          cause instanceof ApiError &&
+          [401, 403, 404].includes(cause.status)
+        ) {
           setScope("");
           setProjectId("");
           restoredDirectoryRef.current = true;
@@ -506,6 +552,7 @@ export default function KnowledgeListPage() {
   }, [
     canLoadBusinessKnowledge,
     directoryKeyFromUrl,
+    directoryRetryKey,
     initialScope,
     navigate,
     projectId,
@@ -537,6 +584,8 @@ export default function KnowledgeListPage() {
   const hasActiveFilters = Boolean(
     keyword || assetStatus || confidentialityLevel || includeArchived || false,
   );
+  const advancedFilterCount =
+    Number(Boolean(assetStatus)) + Number(Boolean(confidentialityLevel)) + Number(includeArchived);
 
   const columns = useMemo<Column<KnowledgeCardVM>[]>(
     () => [
@@ -601,6 +650,7 @@ export default function KnowledgeListPage() {
         className: "kbl-source-cell",
         render: (asset) => (
           <div>
+            <span className="kbl-mobile-label">来源</span>
             <strong>
               {asset.scope === "project"
                 ? asset.projectName || "项目知识"
@@ -614,26 +664,37 @@ export default function KnowledgeListPage() {
         key: "status",
         header: "状态",
         render: (asset) => (
-          <StatusBadge
-            label={assetStatusLabel[asset.assetStatus] ?? asset.assetStatus}
-            tone={statusTones[asset.assetStatus] ?? "neutral"}
-          />
+          <>
+            <span className="kbl-mobile-label">状态</span>
+            <StatusBadge
+              label={assetStatusLabel[asset.assetStatus] ?? asset.assetStatus}
+              tone={statusTones[asset.assetStatus] ?? "neutral"}
+            />
+          </>
         ),
       },
       {
         key: "confidentiality",
         header: "保密等级",
         render: (asset) => (
-          <span className={`kbl-confidentiality is-${asset.confidentialityLevel}`}>
-            {confidentialityLabels[asset.confidentialityLevel] ?? asset.confidentialityLevel}
-          </span>
+          <>
+            <span className="kbl-mobile-label">保密等级</span>
+            <span className={`kbl-confidentiality is-${asset.confidentialityLevel}`}>
+              {confidentialityLabels[asset.confidentialityLevel] ?? asset.confidentialityLevel}
+            </span>
+          </>
         ),
       },
       {
         key: "updated",
         header: "更新时间",
         className: "kbl-date-cell",
-        render: (asset) => <time dateTime={asset.updatedAt}>{asset.updatedAt || "未提供"}</time>,
+        render: (asset) => (
+          <>
+            <span className="kbl-mobile-label">更新时间</span>
+            <time dateTime={asset.updatedAt}>{asset.updatedAt || "未提供"}</time>
+          </>
+        ),
       },
       {
         key: "actions",
@@ -757,592 +818,554 @@ export default function KnowledgeListPage() {
         </PageSection>
       ) : (
         <>
-          <nav className="kbl-breadcrumbs" aria-label="知识资产目录路径">
-            <button
-              type="button"
-              onClick={() => {
-                setScope("");
-                setProjectId("");
-                setDirectory(null);
-                setGlobalSearchMode(false);
-                setPage(1);
-                navigate("/knowledge");
-              }}
-              aria-current={!scope && !globalSearchMode ? "page" : undefined}
-            >
-              知识资产库
-            </button>
-            {scope && (
-              <>
-                <ChevronRight size={14} aria-hidden="true" />
+          <div className="kbl-workspace">
+            <aside className="kbl-navigation" aria-label="资料范围与目录">
+              <nav className="kbl-library-nav" aria-label="资料范围">
                 <button
                   type="button"
-                  aria-current={
-                    !directory && !(scope === "project" && validProjectId) ? "page" : undefined
-                  }
-                  onClick={() => {
-                    setProjectId("");
-                    setDirectory(null);
-                    setGlobalSearchMode(false);
-                    setPage(1);
-                    navigate(`/knowledge?scope=${scope}`);
-                  }}
+                  aria-current={showGlobalSearch ? "page" : undefined}
+                  onClick={() => selectScope("")}
                 >
-                  {scope === "company" ? "公司库" : scope === "project" ? "项目库" : "个人库"}
+                  <Search size={17} aria-hidden="true" /> 全库搜索
                 </button>
-              </>
-            )}
-            {scope === "project" && validProjectId && (
-              <>
-                <ChevronRight size={14} aria-hidden="true" />
                 <button
                   type="button"
-                  aria-current={!directory ? "page" : undefined}
-                  onClick={() => {
-                    setDirectory(null);
-                    setPage(1);
-                    navigate(`/knowledge?scope=project&project_id=${validProjectId}`);
-                  }}
+                  aria-current={scope === "company" ? "page" : undefined}
+                  onClick={() => selectScope("company")}
                 >
-                  {availableProjects.find((item) => item.projectId === validProjectId)?.projectName}
+                  <Building2 size={17} aria-hidden="true" /> 公司库
                 </button>
-              </>
-            )}
-            {directory && (
-              <>
-                <ChevronRight size={14} aria-hidden="true" />
-                <span aria-current="page">{directory.name}</span>
-              </>
-            )}
-            {globalSearchMode && (
-              <>
-                <ChevronRight size={14} aria-hidden="true" />
-                <span aria-current="page">全库搜索</span>
-              </>
-            )}
-          </nav>
-
-          {!directory && !globalSearchMode && (
-            <PageSection className="kbl-folder-section">
-              <div className="kbl-folder-heading">
-                <div>
-                  <span>{scope ? "选择下一级" : "从资料库开始"}</span>
-                  <h2>
-                    {!scope
-                      ? "浏览知识目录"
-                      : scope === "project" && !validProjectId
-                        ? "选择项目"
-                        : "选择标准目录"}
-                  </h2>
-                </div>
-                <FolderTree size={24} aria-hidden="true" />
-              </div>
-              {directoryLoading ? (
-                <p className="kbl-folder-loading" role="status">
-                  正在读取可进入的目录…
-                </p>
-              ) : (
-                <div className="kbl-folder-grid">
-                  {!scope && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setScope("company");
-                          navigate("/knowledge?scope=company");
-                        }}
+                {availableProjects.length > 0 && (
+                  <button
+                    type="button"
+                    aria-current={scope === "project" ? "page" : undefined}
+                    onClick={() => selectScope("project")}
+                  >
+                    <BriefcaseBusiness size={17} aria-hidden="true" /> 项目库
+                  </button>
+                )}
+                <button
+                  type="button"
+                  aria-current={scope === "personal" ? "page" : undefined}
+                  onClick={() => selectScope("personal")}
+                >
+                  <UserRound size={17} aria-hidden="true" /> 个人库
+                </button>
+              </nav>
+              {scope && (
+                <button
+                  type="button"
+                  className="kbl-mobile-directory-toggle"
+                  aria-expanded={mobileDirectoryOpen}
+                  aria-controls="knowledge-directory-navigation"
+                  onClick={() => setMobileDirectoryOpen((value) => !value)}
+                >
+                  <Folder size={16} aria-hidden="true" />
+                  <span>
+                    {mobileDirectoryOpen
+                      ? "收起目录"
+                      : scope === "project"
+                        ? "选择项目与目录"
+                        : "选择目录"}
+                  </span>
+                  {directoryError && <small>加载失败，请重试</small>}
+                  <ChevronRight size={16} aria-hidden="true" />
+                </button>
+              )}
+              {scope ? (
+                <div
+                  id="knowledge-directory-navigation"
+                  className={`kbl-directory-navigation${mobileDirectoryOpen ? " is-mobile-open" : ""}`}
+                >
+                  {scope === "project" && (
+                    <label className="kbl-project-picker">
+                      <span>当前项目</span>
+                      <select
+                        aria-label="项目"
+                        value={validProjectId}
+                        onChange={(event) => selectProject(event.target.value)}
                       >
-                        <Building2 aria-hidden="true" />
-                        <strong>公司库</strong>
-                        <span>公司级方法、案例与标准资产</span>
-                      </button>
-                      {availableProjects.length > 0 && (
+                        <option value="">请选择项目</option>
+                        {availableProjects.map((project) => (
+                          <option key={project.projectId} value={project.projectId}>
+                            {project.projectName} · {project.accessLabel}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  <div className="kbl-directory-heading">
+                    <h3>{scope === "project" && !validProjectId ? "可见项目" : "目录"}</h3>
+                    {directory?.parent_key && (
+                      <Link
+                        to={`/knowledge?scope=${directory.scope}&directory_key=${encodeURIComponent(directory.parent_key)}${directory.project_id ? `&project_id=${encodeURIComponent(directory.project_id)}` : ""}`}
+                      >
+                        返回上级分类
+                      </Link>
+                    )}
+                  </div>
+                  {directoryLoading ? (
+                    <p className="kbl-navigation-note" role="status">
+                      正在读取可进入的目录…
+                    </p>
+                  ) : directoryError ? (
+                    <div className="kbl-navigation-note" role="alert">
+                      <p>目录暂时无法加载，请重试。</p>
+                      <Button
+                        size="small"
+                        onClick={() => setDirectoryRetryKey((value) => value + 1)}
+                      >
+                        重新加载目录
+                      </Button>
+                    </div>
+                  ) : scope === "project" && !validProjectId ? (
+                    <div className="kbl-project-list">
+                      {availableProjects.map((project) => (
                         <button
                           type="button"
-                          onClick={() => {
-                            setScope("project");
-                            navigate("/knowledge?scope=project");
-                          }}
+                          key={project.projectId}
+                          onClick={() => selectProject(project.projectId)}
                         >
-                          <BriefcaseBusiness aria-hidden="true" />
-                          <strong>项目库</strong>
-                          <span>按所属项目进入交付资料目录</span>
+                          <strong>{project.projectName}</strong>
+                          <span>{project.accessLabel}</span>
                         </button>
+                      ))}
+                      {projectCatalogLoaded && availableProjects.length === 0 && (
+                        <p className="kbl-navigation-note">暂无可进入的项目。</p>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setScope("personal");
-                          navigate("/knowledge?scope=personal");
-                        }}
-                      >
-                        <UserRound aria-hidden="true" />
-                        <strong>个人库</strong>
-                        <span>个人学习、项目资料与待处理内容</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setScope("");
-                          setProjectId("");
-                          setGlobalSearchMode(true);
-                          navigate("/knowledge?search=global");
-                        }}
-                      >
-                        <Search aria-hidden="true" />
-                        <strong>全库搜索</strong>
-                        <span>主动跨目录检索当前身份可见内容</span>
-                      </button>
-                    </>
+                    </div>
+                  ) : (
+                    <nav className="kbl-directory-tree" aria-label="知识目录">
+                      {visibleDirectoryItems.map((item) => (
+                        <div key={`${item.directory_key}-${item.project_id ?? "global"}`}>
+                          <button
+                            type="button"
+                            aria-current={
+                              directory?.directory_key === item.directory_key ? "page" : undefined
+                            }
+                            onClick={() => selectDirectory(item)}
+                            title={item.display_path}
+                          >
+                            <Folder size={16} aria-hidden="true" />
+                            <span>{item.name}</span>
+                          </button>
+                          {(directory?.directory_key === item.directory_key ||
+                            directory?.parent_key === item.directory_key) &&
+                            childDirectoryItems.length > 0 && (
+                              <div className="kbl-child-directories">
+                                {childDirectoryItems.map((child) => (
+                                  <button
+                                    type="button"
+                                    key={child.directory_key}
+                                    aria-current={
+                                      directory?.directory_key === child.directory_key
+                                        ? "page"
+                                        : undefined
+                                    }
+                                    onClick={() => selectDirectory(child)}
+                                    title={child.display_path}
+                                  >
+                                    <Folder size={15} aria-hidden="true" />
+                                    <span>{child.name}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                        </div>
+                      ))}
+                      {visibleDirectoryItems.length === 0 && (
+                        <p className="kbl-navigation-note">当前范围暂无可进入的目录。</p>
+                      )}
+                    </nav>
                   )}
-                  {scope === "project" &&
-                    !validProjectId &&
-                    availableProjects.map((project) => (
-                      <button
-                        type="button"
-                        key={project.projectId}
-                        onClick={() => {
-                          setProjectId(project.projectId);
-                          setDirectory(null);
-                          setPage(1);
-                          navigate(
-                            `/knowledge?scope=project&project_id=${encodeURIComponent(project.projectId)}`,
-                          );
-                        }}
-                      >
-                        <Folder aria-hidden="true" />
-                        <strong>{project.projectName}</strong>
-                        <span>{project.accessLabel}</span>
-                      </button>
-                    ))}
-                  {scope &&
-                    (scope !== "project" || validProjectId) &&
-                    visibleDirectoryItems.map((item) => (
-                      <button
-                        type="button"
-                        key={`${item.directory_key}-${item.project_id ?? "global"}`}
-                        onClick={() => {
-                          setDirectory(item);
-                          setPage(1);
-                          const next = new URLSearchParams({
-                            scope: item.scope,
-                            directory_key: item.directory_key,
-                          });
-                          if (item.project_id) next.set("project_id", item.project_id);
-                          navigate(`/knowledge?${next}`);
-                        }}
-                      >
-                        <Folder aria-hidden="true" />
-                        <strong>{item.name}</strong>
-                        <span>{item.description || "进入此目录查看资料"}</span>
-                      </button>
-                    ))}
                 </div>
+              ) : (
+                <p className="kbl-navigation-note">
+                  选择资料库可按目录浏览。全库搜索只返回当前身份有权发现的资料。
+                </p>
               )}
-            </PageSection>
-          )}
-
-          {directory &&
-            (directory.scope === "company" || directory.scope === "project") &&
-            (directory.parent_key ||
-              directoryItems.some(
-                (item) =>
-                  item.parent_key === directory.directory_key &&
-                  item.project_id === directory.project_id,
-              )) && (
-              <PageSection>
-                {directory.parent_key && (
-                  <Link
-                    to={`/knowledge?scope=${directory.scope}&directory_key=${encodeURIComponent(directory.parent_key)}${directory.project_id ? `&project_id=${encodeURIComponent(directory.project_id)}` : ""}`}
-                  >
-                    返回上级分类
-                  </Link>
+            </aside>
+            <div className="kbl-results-workspace">
+              <nav className="kbl-breadcrumbs" aria-label="知识资产目录路径">
+                <button type="button" onClick={() => selectScope("")}>
+                  知识资产库
+                </button>
+                <ChevronRight size={14} aria-hidden="true" />
+                {scope ? (
+                  <span>
+                    {scope === "company" ? "公司库" : scope === "project" ? "项目库" : "个人库"}
+                  </span>
+                ) : (
+                  <span aria-current="page">全库搜索</span>
                 )}
-                <div className="kbl-folder-grid">
-                  {directoryItems
-                    .filter(
-                      (item) =>
-                        item.parent_key === directory.directory_key &&
-                        item.project_id === directory.project_id,
-                    )
-                    .map((item) => (
-                      <button
-                        type="button"
-                        key={item.directory_key}
-                        onClick={() => {
-                          setDirectory(item);
-                          setPage(1);
-                          navigate(
-                            `/knowledge?scope=${directory.scope}&directory_key=${encodeURIComponent(item.directory_key)}${directory.project_id ? `&project_id=${encodeURIComponent(directory.project_id)}` : ""}`,
-                          );
-                        }}
-                      >
-                        <Folder aria-hidden="true" />
-                        <strong>{item.name}</strong>
-                        <span>{item.description || "进入三级目录查看资料"}</span>
-                      </button>
-                    ))}
-                </div>
-              </PageSection>
-            )}
-
-          {directory && (
-            <div className="kbl-search-mode" role="group" aria-label="检索方式">
-              <button
-                type="button"
-                aria-pressed={!contentSearch}
-                onClick={() => setContentSearch(false)}
-              >
-                标题与标签
-              </button>
-              <button
-                type="button"
-                aria-pressed={contentSearch}
-                onClick={() => setContentSearch(true)}
-              >
-                正文与摘要
-              </button>
-              <span>当前目录：{directory.name}</span>
-            </div>
-          )}
-          {((directory && contentSearch) || globalSearchMode) && (
-            <PageSection className="kbl-semantic-section">
-              <div className="kbl-semantic-heading">
-                <div>
-                  <span>{globalSearchMode ? "跨目录任务" : "当前目录内"}</span>
-                  <h2>{globalSearchMode ? "全库搜索" : "在当前目录检索"}</h2>
-                  <p>
-                    {globalSearchMode
-                      ? "仅检索当前身份有权发现的资料；返回目录浏览时不会保留跨目录范围。"
-                      : "仅检索当前目录内可访问的正文与摘要；内容检索使用目录范围和归档选项，不应用列表的其他筛选。"}
-                  </p>
-                </div>
-                <Sparkles aria-hidden="true" />
-              </div>
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void runSemanticSearch();
-                }}
-                className="kbl-semantic-form"
-              >
-                <label className="kbl-archive-toggle">
-                  <input
-                    type="checkbox"
-                    checked={includeArchived}
-                    onChange={(event) => setIncludeArchived(event.target.checked)}
-                  />
-                  <span>包含归档</span>
-                </label>
-                <label htmlFor="semantic-query">正文关键词或内容描述</label>
-                <div>
-                  <input
-                    id="semantic-query"
-                    value={semanticQuery}
-                    onChange={(event) => setSemanticQuery(event.target.value)}
-                    placeholder="输入正文编号、关键词或内容描述"
-                  />
-                  <Button
-                    variant="primary"
-                    type="submit"
-                    disabled={semanticBusy || !semanticQuery.trim()}
+                {selectedProject && (
+                  <>
+                    <ChevronRight size={14} aria-hidden="true" />
+                    <span>{selectedProject.projectName}</span>
+                  </>
+                )}
+                {directory && (
+                  <>
+                    <ChevronRight size={14} aria-hidden="true" />
+                    <span aria-current="page">{directory.name}</span>
+                  </>
+                )}
+              </nav>
+              {scope && !directory && !globalSearchMode && (
+                <EmptyState
+                  title={
+                    scope === "project" && !validProjectId ? "选择一个项目" : "选择目录查看资料"
+                  }
+                  description={
+                    scope === "project" && !validProjectId
+                      ? "选择可见项目，再进入资料目录；其他项目仍仅展示有权查看的内容。"
+                      : "目录和资料列表会在同一工作区展示，选择后可按标题、正文或状态检索。"
+                  }
+                />
+              )}
+              {directory && (
+                <div className="kbl-search-mode" role="group" aria-label="检索方式">
+                  <button
+                    type="button"
+                    aria-pressed={!contentSearch}
+                    onClick={() => setContentSearch(false)}
                   >
-                    {semanticBusy ? "检索中…" : "检索内容"}
-                  </Button>
-                </div>
-              </form>
-              {semanticError && (
-                <div role="alert" className="kbl-drawer-message is-error">
-                  {semanticError}{" "}
-                  <button type="button" onClick={() => void runSemanticSearch()}>
-                    重试
+                    标题与标签
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={contentSearch}
+                    onClick={() => setContentSearch(true)}
+                  >
+                    正文与摘要
                   </button>
                 </div>
               )}
-              {semanticResult &&
-                (semanticResult.cards.length || semanticResult.answer ? (
-                  <div className="kbl-semantic-results">
-                    {semanticResult.answer && (
-                      <article className="kbl-semantic-answer">
-                        <span>安全回答</span>
-                        <p>{semanticResult.answer}</p>
-                      </article>
-                    )}
-                    {semanticResult.cards.map((card) => (
-                      <article key={card.asset_id}>
-                        <h3>
-                          <Link
-                            to={`/knowledge/${encodeURIComponent(card.asset_id)}`}
-                            state={detailState}
-                          >
-                            {card.title}
-                          </Link>
-                        </h3>
-                        <p>{card.one_liner || card.detailed || "暂无可展示的安全摘要"}</p>
-                        <span>相关度 {Math.round(card.relevance_score * 100)}%</span>
-                      </article>
-                    ))}
-                    {semanticResult.citations.length > 0 && (
-                      <section className="kbl-semantic-citations" aria-label="安全引用">
-                        <h3>引用</h3>
-                        <ol>
-                          {semanticResult.citations.map((citation) => (
-                            <li key={`${citation.asset_id}-${citation.citation_order}`}>
-                              <strong>{citation.asset_title}</strong>
-                              {citation.snippet && <p>{citation.snippet}</p>}
-                              <small>
-                                {citation.used_access_layer === "original"
-                                  ? "授权原文证据"
-                                  : "安全摘要证据"}
-                              </small>
-                            </li>
-                          ))}
-                        </ol>
-                      </section>
-                    )}
+              {((directory && contentSearch) || showGlobalSearch) && (
+                <PageSection className="kbl-semantic-section">
+                  <div className="kbl-semantic-heading">
+                    <div>
+                      <h2>{showGlobalSearch ? "全库搜索" : "正文与摘要检索"}</h2>
+                      <p>
+                        {showGlobalSearch
+                          ? "搜索当前身份可见的正文与摘要；跨项目原文仍需逐项申请。"
+                          : "仅检索当前目录内可访问的正文与摘要；内容检索使用目录范围和归档选项，不应用列表的其他筛选。"}
+                      </p>
+                    </div>
                   </div>
-                ) : (
-                  <EmptyState
-                    title="当前检索没有匹配结果"
-                    description="这只表示当前身份和检索范围内没有可返回结果，不代表系统中不存在相关资料。"
-                  />
-                ))}
-            </PageSection>
-          )}
-          {directory && !contentSearch && (
-            <form className="kbl-filter-form" onSubmit={submitKeyword}>
-              <FilterBar
-                ariaLabel="知识资产筛选"
-                actions={
-                  <>
-                    <button className="product-button is-primary is-small" type="submit">
-                      搜索
-                    </button>
-                    {(keywordInput || keyword) && (
-                      <button
-                        className="product-button is-secondary is-small"
-                        type="button"
-                        onClick={clearKeyword}
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void runSemanticSearch();
+                    }}
+                    className="kbl-semantic-form"
+                  >
+                    <label htmlFor="semantic-query">正文关键词或内容描述</label>
+                    <div>
+                      <input
+                        id="semantic-query"
+                        value={semanticQuery}
+                        onChange={(event) => setSemanticQuery(event.target.value)}
+                        placeholder="输入正文编号、关键词或内容描述"
+                      />
+                      <Button
+                        variant="primary"
+                        type="submit"
+                        disabled={semanticBusy || !semanticQuery.trim()}
                       >
-                        清除
+                        {semanticBusy ? "检索中…" : "检索内容"}
+                      </Button>
+                    </div>
+                    <label className="kbl-archive-toggle">
+                      <input
+                        type="checkbox"
+                        checked={includeArchived}
+                        onChange={(event) => setIncludeArchived(event.target.checked)}
+                      />
+                      <span>包含归档</span>
+                    </label>
+                  </form>
+                  {semanticError && (
+                    <div role="alert" className="kbl-drawer-message is-error">
+                      {semanticError}{" "}
+                      <button type="button" onClick={() => void runSemanticSearch()}>
+                        重试
                       </button>
-                    )}
-                    <button
-                      className="product-button is-ghost is-small"
-                      type="button"
-                      disabled={!hasActiveFilters}
-                      onClick={resetFilters}
-                    >
-                      重置
-                    </button>
-                  </>
-                }
-              >
-                <div className="kbl-keyword-field">
-                  <Search size={16} aria-hidden="true" />
-                  <label className="sr-only" htmlFor="knowledge-keyword">
-                    关键词
-                  </label>
-                  <input
-                    id="knowledge-keyword"
-                    value={keywordInput}
-                    onChange={(event) => setKeywordInput(event.target.value)}
-                    placeholder="按标题或标签搜索"
-                  />
-                </div>
-
-                {scope === "project" && availableProjects.length > 0 && (
-                  <label className="kbl-select-field is-project">
-                    <span className="sr-only">项目</span>
-                    <select
-                      aria-label="项目"
-                      value={validProjectId}
-                      onChange={(event) => {
-                        setProjectId(event.target.value);
-                        setDirectory(null);
-                        setPage(1);
-                        navigate(
-                          event.target.value
-                            ? `/knowledge?scope=project&project_id=${encodeURIComponent(event.target.value)}`
-                            : "/knowledge?scope=project",
-                        );
-                      }}
-                    >
-                      <option value="">项目：全部可见项目</option>
-                      {availableProjects.map((project) => (
-                        <option key={project.projectId} value={project.projectId}>
-                          {project.projectName}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-
-                <label className="kbl-select-field">
-                  <span className="sr-only">资产状态</span>
-                  <select
-                    aria-label="资产状态"
-                    value={assetStatus}
-                    onChange={(event) => {
-                      setAssetStatus(event.target.value as AssetStatus | "");
-                      setPage(1);
-                    }}
-                  >
-                    <option value="">状态：全部</option>
-                    {ASSET_STATUSES.map((value) => (
-                      <option key={value} value={value}>
-                        状态：{assetStatusLabel[value]}
-                      </option>
+                    </div>
+                  )}
+                  {semanticResult &&
+                    (semanticResult.cards.length || semanticResult.answer ? (
+                      <div className="kbl-semantic-results">
+                        {semanticResult.answer && (
+                          <article className="kbl-semantic-answer">
+                            <span>安全回答</span>
+                            <p>{semanticResult.answer}</p>
+                          </article>
+                        )}
+                        {semanticResult.cards.map((card) => (
+                          <article key={card.asset_id}>
+                            <h3>
+                              <Link
+                                to={`/knowledge/${encodeURIComponent(card.asset_id)}`}
+                                state={detailState}
+                              >
+                                {card.title}
+                              </Link>
+                            </h3>
+                            <p>{card.one_liner || card.detailed || "暂无可展示的安全摘要"}</p>
+                            <span>相关度 {Math.round(card.relevance_score * 100)}%</span>
+                          </article>
+                        ))}
+                        {semanticResult.citations.length > 0 && (
+                          <section className="kbl-semantic-citations" aria-label="安全引用">
+                            <h3>引用</h3>
+                            <ol>
+                              {semanticResult.citations.map((citation) => (
+                                <li key={`${citation.asset_id}-${citation.citation_order}`}>
+                                  <strong>{citation.asset_title}</strong>
+                                  {citation.snippet && <p>{citation.snippet}</p>}
+                                  <small>
+                                    {citation.used_access_layer === "original"
+                                      ? "授权原文证据"
+                                      : "安全摘要证据"}
+                                  </small>
+                                </li>
+                              ))}
+                            </ol>
+                          </section>
+                        )}
+                      </div>
+                    ) : (
+                      <EmptyState
+                        title="当前检索没有匹配结果"
+                        description="这只表示当前身份和检索范围内没有可返回结果，不代表系统中不存在相关资料。"
+                      />
                     ))}
-                  </select>
-                </label>
-
-                <label className="kbl-select-field">
-                  <span className="sr-only">保密等级</span>
-                  <select
-                    aria-label="保密等级"
-                    value={confidentialityLevel}
-                    onChange={(event) => {
-                      setConfidentialityLevel(event.target.value as ConfidentialityLevel | "");
-                      setPage(1);
-                    }}
-                  >
-                    <option value="">保密：全部</option>
-                    {CONFIDENTIALITY_LEVELS.map((value) => (
-                      <option key={value} value={value}>
-                        保密：{value}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="kbl-archive-toggle">
-                  <input
-                    type="checkbox"
-                    checked={includeArchived}
-                    onChange={(event) => {
-                      setIncludeArchived(event.target.checked);
-                      setPage(1);
-                    }}
-                  />
-                  <span>包含归档</span>
-                </label>
-              </FilterBar>
-            </form>
-          )}
-
-          {requestNote && (
-            <div className="kbl-request-feedback" role="status">
-              <span>{requestNote}</span>
-              <Link to="/original-access?box=mine">查看申请进度</Link>
-            </div>
-          )}
-
-          {directory && !contentSearch && (
-            <PageSection className="kbl-list-section">
-              <div className="kbl-scope-summary" aria-label="当前生效范围与筛选">
-                <strong>当前浏览范围</strong>
-                <span>{scope ? scopeLabels[scope] : "全部可见范围"}</span>
-                {validProjectId && (
-                  <span>
-                    {
-                      availableProjects.find((item) => item.projectId === validProjectId)
-                        ?.projectName
-                    }
-                  </span>
-                )}
-                {keyword && <span>关键词：{keyword}</span>}
-                {assetStatus && <span>状态：{assetStatusLabel[assetStatus]}</span>}
-                {confidentialityLevel && <span>保密：{confidentialityLevel}</span>}
-                {includeArchived && <span>包含归档</span>}
-                {!hasActiveFilters && <small>未添加额外筛选</small>}
-              </div>
-              {error ? (
-                <LoadingError
-                  error={error}
-                  errorTitle="知识资产加载失败"
-                  onRetry={() => setRetryKey((value) => value + 1)}
-                />
-              ) : (
-                <>
-                  <div className="kbl-table-status" role="status" aria-live="polite">
-                    {loading && hasLoaded ? "正在更新列表…" : ""}
-                  </div>
-                  <div
-                    className={`kbl-table-shell ${tableOverflow && !tableAtEnd ? "has-more" : ""}`}
-                    ref={tableShellRef}
-                  >
-                    {tableOverflow && (
-                      <div className="kbl-scroll-guide">
-                        <span>向右滚动查看更多列</span>
-                        <div
-                          className="kbl-top-scroll"
-                          ref={topScrollerRef}
-                          aria-label="知识资产表横向滚动"
-                          tabIndex={0}
-                          onScroll={(event) => {
-                            const tableWrap =
-                              tableShellRef.current?.querySelector<HTMLElement>(".kbl-table-wrap");
-                            if (tableWrap) tableWrap.scrollLeft = event.currentTarget.scrollLeft;
+                </PageSection>
+              )}
+              {directory && !contentSearch && (
+                <form className="kbl-filter-form" onSubmit={submitKeyword}>
+                  <FilterBar ariaLabel="知识资产筛选">
+                    <div className="kbl-filter-search-row">
+                      <div className="kbl-keyword-field">
+                        <Search size={16} aria-hidden="true" />
+                        <label className="sr-only" htmlFor="knowledge-keyword">
+                          关键词
+                        </label>
+                        <input
+                          id="knowledge-keyword"
+                          value={keywordInput}
+                          onChange={(event) => setKeywordInput(event.target.value)}
+                          placeholder="按标题或标签搜索"
+                        />
+                      </div>
+                      <button className="product-button is-primary is-small" type="submit">
+                        搜索
+                      </button>
+                      {(keywordInput || keyword) && (
+                        <button
+                          className="product-button is-secondary is-small"
+                          type="button"
+                          onClick={clearKeyword}
+                        >
+                          清除
+                        </button>
+                      )}
+                      <button
+                        className="product-button is-secondary is-small kbl-mobile-filter-toggle"
+                        type="button"
+                        aria-expanded={mobileFiltersOpen}
+                        aria-controls="knowledge-advanced-filters"
+                        onClick={() => setMobileFiltersOpen((value) => !value)}
+                      >
+                        筛选{advancedFilterCount ? ` (${advancedFilterCount})` : ""}
+                      </button>
+                    </div>
+                    <div
+                      id="knowledge-advanced-filters"
+                      className={`kbl-advanced-filters${mobileFiltersOpen ? " is-mobile-open" : ""}`}
+                    >
+                      <label className="kbl-select-field">
+                        <span className="sr-only">资产状态</span>
+                        <select
+                          aria-label="资产状态"
+                          value={assetStatus}
+                          onChange={(event) => {
+                            setAssetStatus(event.target.value as AssetStatus | "");
+                            setPage(1);
                           }}
                         >
-                          <div style={{ width: tableScrollWidth }} />
-                        </div>
-                      </div>
+                          <option value="">状态：全部</option>
+                          {ASSET_STATUSES.map((value) => (
+                            <option key={value} value={value}>
+                              状态：{assetStatusLabel[value]}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label className="kbl-select-field">
+                        <span className="sr-only">保密等级</span>
+                        <select
+                          aria-label="保密等级"
+                          value={confidentialityLevel}
+                          onChange={(event) => {
+                            setConfidentialityLevel(
+                              event.target.value as ConfidentialityLevel | "",
+                            );
+                            setPage(1);
+                          }}
+                        >
+                          <option value="">保密：全部</option>
+                          {CONFIDENTIALITY_LEVELS.map((value) => (
+                            <option key={value} value={value}>
+                              保密：{value}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label className="kbl-archive-toggle">
+                        <input
+                          type="checkbox"
+                          checked={includeArchived}
+                          onChange={(event) => {
+                            setIncludeArchived(event.target.checked);
+                            setPage(1);
+                          }}
+                        />
+                        <span>包含归档</span>
+                      </label>
+                      <button
+                        className="product-button is-ghost is-small"
+                        type="button"
+                        disabled={!hasActiveFilters}
+                        onClick={resetFilters}
+                      >
+                        重置
+                      </button>
+                    </div>
+                  </FilterBar>
+                </form>
+              )}
+
+              {requestNote && (
+                <div className="kbl-request-feedback" role="status">
+                  <span>{requestNote}</span>
+                  <Link to="/original-access?box=mine">查看申请进度</Link>
+                </div>
+              )}
+
+              {directory && !contentSearch && (
+                <PageSection className="kbl-list-section">
+                  <div className="kbl-scope-summary" aria-label="当前生效范围与筛选">
+                    <strong>当前浏览范围</strong>
+                    <span>{scope ? scopeLabels[scope] : "全部可见范围"}</span>
+                    {validProjectId && (
+                      <span>
+                        {
+                          availableProjects.find((item) => item.projectId === validProjectId)
+                            ?.projectName
+                        }
+                      </span>
                     )}
-                    <DataTable
-                      columns={columns}
-                      rows={result.items}
-                      rowKey={(asset) => asset.id}
-                      loading={initialLoading}
-                      loadingText="正在加载知识资产…"
-                      emptyText={
-                        <EmptyState
-                          title={hasActiveFilters ? "当前条件没有匹配资料" : "暂无可复用资料"}
-                          description={
-                            hasActiveFilters
-                              ? "仅表示当前可见范围内没有匹配项；不会确认不可见资料是否存在。"
-                              : "部分资料可能因项目或保密权限不在当前可见范围内。"
+                    {keyword && <span>关键词：{keyword}</span>}
+                    {assetStatus && <span>状态：{assetStatusLabel[assetStatus]}</span>}
+                    {confidentialityLevel && <span>保密：{confidentialityLevel}</span>}
+                    {includeArchived && <span>包含归档</span>}
+                    {!hasActiveFilters && <small>未添加额外筛选</small>}
+                  </div>
+                  {error ? (
+                    <LoadingError
+                      error={error}
+                      errorTitle="知识资产加载失败"
+                      onRetry={() => setRetryKey((value) => value + 1)}
+                    />
+                  ) : (
+                    <>
+                      <div className="kbl-table-status" role="status" aria-live="polite">
+                        {loading && hasLoaded ? "正在更新列表…" : ""}
+                      </div>
+                      <div
+                        className={`kbl-table-shell ${tableOverflow && !tableAtEnd ? "has-more" : ""}`}
+                        ref={tableShellRef}
+                      >
+                        {tableOverflow && (
+                          <div className="kbl-scroll-guide">
+                            <span>向右滚动查看更多列</span>
+                            <div
+                              className="kbl-top-scroll"
+                              ref={topScrollerRef}
+                              aria-label="知识资产表横向滚动"
+                              tabIndex={0}
+                              onScroll={(event) => {
+                                const tableWrap =
+                                  tableShellRef.current?.querySelector<HTMLElement>(
+                                    ".kbl-table-wrap",
+                                  );
+                                if (tableWrap)
+                                  tableWrap.scrollLeft = event.currentTarget.scrollLeft;
+                              }}
+                            >
+                              <div style={{ width: tableScrollWidth }} />
+                            </div>
+                          </div>
+                        )}
+                        <DataTable
+                          columns={columns}
+                          rows={result.items}
+                          rowKey={(asset) => asset.id}
+                          loading={initialLoading}
+                          loadingText="正在加载知识资产…"
+                          emptyText={
+                            <EmptyState
+                              title={hasActiveFilters ? "当前条件没有匹配资料" : "暂无可复用资料"}
+                              description={
+                                hasActiveFilters
+                                  ? "仅表示当前可见范围内没有匹配项；不会确认不可见资料是否存在。"
+                                  : "部分资料可能因项目或保密权限不在当前可见范围内。"
+                              }
+                              action={
+                                hasActiveFilters ? (
+                                  <button
+                                    className="product-button is-secondary is-small"
+                                    type="button"
+                                    onClick={resetFilters}
+                                  >
+                                    清除筛选
+                                  </button>
+                                ) : undefined
+                              }
+                            />
                           }
-                          action={
-                            hasActiveFilters ? (
-                              <button
-                                className="product-button is-secondary is-small"
-                                type="button"
-                                onClick={resetFilters}
-                              >
-                                清除筛选
-                              </button>
-                            ) : undefined
+                          wrapClassName={`product-table-wrap kbl-table-wrap ${loading ? "is-updating" : ""}`}
+                          tableClassName="product-data-table kbl-table"
+                          ariaLabel="知识资产列表"
+                        />
+                      </div>
+
+                      {hasLoaded && result.total > 0 && (
+                        <PagePagination
+                          className="kbl-pagination"
+                          ariaLabel="知识资产分页"
+                          page={result.page}
+                          totalPages={totalPages}
+                          hasNext={result.hasNext}
+                          disabled={loading}
+                          onPageChange={setPage}
+                          summary={
+                            <>
+                              显示 {firstItem}-{lastItem} 条，共 {result.total} 条
+                            </>
                           }
                         />
-                      }
-                      wrapClassName={`product-table-wrap kbl-table-wrap ${loading ? "is-updating" : ""}`}
-                      tableClassName="product-data-table kbl-table"
-                      ariaLabel="知识资产列表"
-                    />
-                  </div>
-
-                  {hasLoaded && result.total > 0 && (
-                    <PagePagination
-                      className="kbl-pagination"
-                      ariaLabel="知识资产分页"
-                      page={result.page}
-                      totalPages={totalPages}
-                      hasNext={result.hasNext}
-                      disabled={loading}
-                      onPageChange={setPage}
-                      summary={
-                        <>
-                          显示 {firstItem}-{lastItem} 条，共 {result.total} 条
-                        </>
-                      }
-                    />
+                      )}
+                    </>
                   )}
-                </>
+                </PageSection>
               )}
-            </PageSection>
-          )}
+            </div>
+          </div>
         </>
       )}
 

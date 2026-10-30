@@ -58,7 +58,7 @@ const routes: RouteContract[] = [
     component: "KnowledgeListPage",
     guard: "viewKnowledge",
     owners: ["pages/KnowledgeListPage.tsx"],
-    apiModules: ["knowledge"],
+    apiModules: ["http", "knowledge"],
   },
   {
     route: "/knowledge/:id",
@@ -227,7 +227,7 @@ const routes: RouteContract[] = [
     component: "ProjectKnowledgePage",
     guard: "viewProject",
     owners: ["pages/ProjectKnowledgePage.tsx"],
-    apiModules: ["bulk", "knowledge", "project", "review"],
+    apiModules: ["bulk", "knowledge", "review"],
   },
   {
     route: "/project/:id/settings",
@@ -265,8 +265,8 @@ const businessOptions: BusinessOptionContract[] = [
     source: { kind: "runtime", symbol: "useAuth" },
   },
   {
-    route: "/project/:id/knowledge",
-    owner: "pages/ProjectKnowledgePage.tsx",
+    route: "/project/:id",
+    owner: "pages/ProjectOverviewPage.tsx",
     option: "model",
     source: { kind: "runtime", symbol: "fetchProjectQaModelOptions" },
   },
@@ -305,7 +305,7 @@ const businessOptions: BusinessOptionContract[] = [
 const repairedBusinessOptionDefects = [
   {
     id: "PBC-62-project-qa-demo-models",
-    owner: "pages/ProjectKnowledgePage.tsx",
+    owner: "pages/ProjectOverviewPage.tsx",
     forbiddenValues: ["deepseek-r1", "qwen-enterprise", "DeepSeek-R1 内网版", "通义千问企业版"],
   },
 ];
