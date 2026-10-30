@@ -93,6 +93,11 @@ function renderLayout(path = "/") {
 
 describe("AppLayout shell contract", () => {
   beforeEach(() => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      writable: true,
+      value: 1024,
+    });
     auth.reload.mockReset();
     vi.mocked(logout).mockReset();
     vi.mocked(fetchNotificationUnreadCount).mockResolvedValue({ unread_count: 0 });
@@ -237,6 +242,37 @@ describe("AppLayout shell contract", () => {
     );
     expect(screen.getByRole("button", { name: "展开主导航" })).toHaveClass("rail-collapse");
     expect(screen.getByRole("link", { name: "今日工作台" })).toHaveAttribute("title", "今日工作台");
+  });
+
+  it("clears desktop collapse when crossing into tablet and mobile navigation", () => {
+    const { container } = renderLayout();
+    const shell = container.querySelector(".app-layout");
+    fireEvent.click(screen.getByRole("button", { name: "折叠主导航" }));
+    expect(shell).toHaveClass("is-rail-collapsed");
+
+    window.innerWidth = 800;
+    fireEvent.resize(window);
+    expect(shell).not.toHaveClass("is-rail-collapsed");
+    expect(screen.getByRole("link", { name: "今日工作台" })).not.toHaveAttribute("title");
+
+    window.innerWidth = 929;
+    fireEvent.resize(window);
+    expect(shell).not.toHaveClass("is-rail-collapsed");
+    fireEvent.click(screen.getByRole("button", { name: "折叠主导航" }));
+    window.innerWidth = 390;
+    fireEvent.resize(window);
+    fireEvent.click(screen.getByRole("button", { name: "打开导航" }));
+    expect(shell).toHaveClass("is-mobile-nav-open");
+    expect(shell).not.toHaveClass("is-rail-collapsed");
+    expect(screen.getByRole("button", { name: "关闭导航" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+
+    window.innerWidth = 701;
+    fireEvent.resize(window);
+    expect(shell).not.toHaveClass("is-mobile-nav-open");
+    expect(document.body.style.overflow).not.toBe("hidden");
   });
 
   it("keeps the slim header with the shared task status and notification actions", () => {

@@ -53,6 +53,20 @@ describe("WorkbuddyAccessCard remote-first", () => {
     api.revokeWorkbuddyToken.mockReset().mockResolvedValue(undefined);
   });
 
+  it("手动凭证撤销需明确确认，取消不写入", async () => {
+    api.fetchWorkbuddyToken.mockResolvedValue({ ...disabledStatus, enabled: true });
+    const user = userEvent.setup();
+    render(<WorkbuddyAccessCard />);
+    await user.click(await screen.findByRole("button", { name: "撤销手动凭证" }));
+    expect(api.revokeWorkbuddyToken).not.toHaveBeenCalled();
+    expect(screen.getByText(/OAuth 授权不受影响/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "取消" }));
+    expect(api.revokeWorkbuddyToken).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "撤销手动凭证" }));
+    await user.click(screen.getByRole("button", { name: "确认撤销手动凭证" }));
+    await waitFor(() => expect(api.revokeWorkbuddyToken).toHaveBeenCalledTimes(1));
+  });
+
   it("非业务用户不显示入口或请求接口", () => {
     authState.authMe = { isBusinessUser: false };
     const { container } = render(<WorkbuddyAccessCard />);

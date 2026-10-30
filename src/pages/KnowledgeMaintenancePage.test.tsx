@@ -31,8 +31,10 @@ it("shows actionable maintenance records and bounded pagination", async () => {
     </MemoryRouter>,
   );
   await screen.findByText("公司制度");
-  expect(screen.getByText("处理纠错")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "查看并处理" })).toHaveAttribute("href", "/knowledge/a");
+  expect(screen.getByRole("link", { name: "处理纠错" })).toHaveAttribute(
+    "href",
+    "/knowledge/a?maintenance=corrections",
+  );
   expect(screen.getByRole("button", { name: "下一页" })).toBeDisabled();
 });
 

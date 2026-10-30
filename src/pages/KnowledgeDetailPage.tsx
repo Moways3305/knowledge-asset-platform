@@ -17,6 +17,7 @@ import AccessExplanationDrawer, { accessLabel } from "../components/AccessExplan
 import ProjectCompanyPublicationDialog, {
   getProjectCompanyPublicationEligibility,
 } from "../components/ProjectCompanyPublicationDialog";
+import { ActionGroup } from "../components/ActionLayout";
 import TaskModal from "../components/TaskModal";
 import KnowledgeMetadataEditor from "../components/KnowledgeMetadataEditor";
 import KnowledgeTrustPanel from "../components/KnowledgeTrustPanel";
@@ -505,64 +506,53 @@ export default function KnowledgeDetailPage() {
           )}
         </div>
 
-        <div className="kdetail-primary-action">
-          {asset.scope === "project" && (
-            <div className="kdetail-publication-action">
-              {publicationEligibility.eligible ? (
+        <ActionGroup
+          className="kdetail-primary-action"
+          label="资料阅读与编辑"
+          primary={
+            <>
+              {canOriginal ? (
                 <button
                   type="button"
                   className="btn-primary"
-                  onClick={() => {
-                    setPublicationNote(null);
-                    setPublicationOpen(true);
-                  }}
+                  onClick={() => void handlePreviewOriginal()}
+                  disabled={previewLoading}
                 >
-                  发布到公司知识库
+                  <Eye size={16} aria-hidden="true" />
+                  {previewLoading ? "打开中…" : "预览原文"}
                 </button>
-              ) : (
-                <span className="kdetail-action-reason">{publicationEligibility.reason}</span>
-              )}
-            </div>
-          )}
-          {canOriginal ? (
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => void handlePreviewOriginal()}
-              disabled={previewLoading}
-            >
-              <Eye size={16} aria-hidden="true" />
-              {previewLoading ? "打开中…" : "预览原文"}
-            </button>
-          ) : pendingOriginal ? (
-            <Link className="btn-secondary" to="/original-access?box=mine">
-              查看申请进度
-            </Link>
-          ) : asset.access.canRequestOriginal ? (
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => setRequestOpen(true)}
-              disabled={oaBusy}
-            >
-              <FileText size={16} aria-hidden="true" />
-              {oaBusy ? "提交中…" : "申请原文访问"}
-            </button>
-          ) : null}
-          <KnowledgeVersionPanel
-            key={`${asset.id}:${asset.metadataUpdatedAt ?? ""}`}
-            assetId={asset.id}
-            onReplaced={() => setNotFound(true)}
-          />
-          <KnowledgeTrustPanel
-            assetId={asset.id}
-            revision={asset.metadataUpdatedAt ?? undefined}
-            onChanged={(result) => {
-              if (result.freshness === "archived") setNotFound(true);
-              else void reloadAsset();
-            }}
-          />
-        </div>
+              ) : pendingOriginal ? (
+                <Link className="btn-secondary" to="/original-access?box=mine">
+                  查看申请进度
+                </Link>
+              ) : asset.access.canRequestOriginal ? (
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => setRequestOpen(true)}
+                  disabled={oaBusy}
+                >
+                  <FileText size={16} aria-hidden="true" />
+                  {oaBusy ? "提交中…" : "申请原文访问"}
+                </button>
+              ) : null}
+            </>
+          }
+          secondary={
+            <>
+              {" "}
+              <KnowledgeMetadataEditor
+                key={asset.id}
+                asset={asset}
+                onSaved={() => {
+                  setPreviewOpen(false);
+                  setPreviewEntry(null);
+                  setLoadAttempt((value) => value + 1);
+                }}
+              />
+            </>
+          }
+        />
       </header>
 
       {(previewError || oaError || oaNote || publicationNote) && (
@@ -640,6 +630,13 @@ export default function KnowledgeDetailPage() {
               </div>
             )}
           </section>
+          <div className="kdetail-version-area">
+            <KnowledgeVersionPanel
+              key={`${asset.id}:${asset.metadataUpdatedAt ?? ""}`}
+              assetId={asset.id}
+              onReplaced={() => setNotFound(true)}
+            />
+          </div>
         </div>
 
         <aside className="kdetail-side-column" aria-label="访问与治理">
@@ -687,6 +684,44 @@ export default function KnowledgeDetailPage() {
             >
               为什么是这个状态？
             </button>
+          </section>
+
+          <section
+            className="kdetail-panel kdetail-governance-panel"
+            aria-labelledby="governance-title"
+          >
+            <div className="kdetail-panel-heading">
+              <ShieldCheck size={17} aria-hidden="true" />
+              <h2 id="governance-title">维护与发布</h2>
+            </div>
+            <ActionGroup label="资料治理操作">
+              <KnowledgeTrustPanel
+                assetId={asset.id}
+                revision={asset.metadataUpdatedAt ?? undefined}
+                onChanged={(result) => {
+                  if (result.freshness === "archived") setNotFound(true);
+                  else void reloadAsset();
+                }}
+              />
+              {asset.scope === "project" && (
+                <div className="kdetail-publication-action">
+                  {publicationEligibility.eligible ? (
+                    <button
+                      type="button"
+                      className="product-button is-secondary"
+                      onClick={() => {
+                        setPublicationNote(null);
+                        setPublicationOpen(true);
+                      }}
+                    >
+                      发布到公司知识库
+                    </button>
+                  ) : (
+                    <span className="kdetail-action-reason">{publicationEligibility.reason}</span>
+                  )}
+                </div>
+              )}
+            </ActionGroup>
           </section>
 
           {!crossProjectSummary && (
@@ -737,15 +772,6 @@ export default function KnowledgeDetailPage() {
             </details>
           )}
 
-          <KnowledgeMetadataEditor
-            key={asset.id}
-            asset={asset}
-            onSaved={() => {
-              setPreviewOpen(false);
-              setPreviewEntry(null);
-              setLoadAttempt((value) => value + 1);
-            }}
-          />
           {hasOpsActions && (
             <details className="kdetail-panel kdetail-disclosure kdetail-ops">
               <summary>

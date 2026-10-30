@@ -70,7 +70,7 @@
   justify-content: space-around;
   gap: 14px;
 }
-.cg-meters button {
+.cg-meters .cg-meter {
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -82,7 +82,7 @@
   cursor: pointer;
   color: var(--cg-ink);
 }
-.cg-meters button[aria-pressed="true"] {
+.cg-meters .cg-meter[aria-pressed="true"] {
   border-color: var(--cg-purple);
 }
 .cg-meters strong {

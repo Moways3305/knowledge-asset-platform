@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import Button from "../components/Button";
+import { FormActions } from "../components/ActionLayout";
 import { apiGet, apiPost } from "../api/http";
 import { ProductPage, PageHeader, PageSection } from "../components/ProductLayout";
 import "../components/McpOAuth.css";
@@ -78,19 +80,18 @@ export default function McpAuthorizePage() {
               </label>
             )}
             <p>授权最长有效 30 天，可在「MCP 接入」中撤销。请勿授权不认识的应用。</p>
-            <div className="mcp-oauth-actions">
-              <button
-                type="button"
-                className="mcp-oauth-primary"
+            <FormActions>
+              <Button disabled={busy} onClick={() => void decide(false)}>
+                拒绝授权
+              </Button>
+              <Button
+                variant="primary"
                 disabled={busy || (view.operations_requested && !operations)}
                 onClick={() => void decide(true)}
               >
                 同意并连接
-              </button>
-              <button type="button" disabled={busy} onClick={() => void decide(false)}>
-                拒绝授权
-              </button>
-            </div>
+              </Button>
+            </FormActions>
           </>
         )}
       </PageSection>

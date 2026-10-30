@@ -204,7 +204,7 @@ describe("ProjectOverviewPage project assistant workspace", () => {
     expect(await screen.findByText("周项目经理")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "处理待审核（2）" })).toHaveAttribute(
       "href",
-      `/project/${PROJECT_B}/settings`,
+      `/review?project_id=${PROJECT_B}`,
     );
     expect(screen.getByRole("link", { name: "项目设置" })).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent("member-hidden-id");

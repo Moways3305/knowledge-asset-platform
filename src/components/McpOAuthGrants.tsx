@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { ApiError, apiDelete, apiGet } from "../api/http";
 import { PageSection } from "./ProductLayout";
 import "./McpOAuth.css";
+import Button from "./Button";
+import ConfirmDialog from "./ConfirmDialog";
 
 interface Grant {
   id: string;
@@ -14,6 +16,7 @@ export default function McpOAuthGrants() {
   const [items, setItems] = useState<Grant[]>([]);
   const [error, setError] = useState("");
   const [available, setAvailable] = useState(false);
+  const [revokeTarget, setRevokeTarget] = useState<Grant | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     let active = true;
@@ -35,11 +38,13 @@ export default function McpOAuthGrants() {
     };
   }, []);
   async function revoke(id: string) {
-    if (!window.confirm("撤销后，这个应用将不能再使用此授权访问 KAP。确认撤销？")) return;
+    if (busy) return;
+    setError("");
     setBusy(true);
     try {
       await apiDelete(`/api/v1/auth/mcp-oauth/grants/${encodeURIComponent(id)}`);
       setItems((current) => current.filter((item) => item.id !== id));
+      setRevokeTarget(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "撤销失败");
     } finally {
@@ -61,11 +66,31 @@ export default function McpOAuthGrants() {
             {item.name} · {item.operations_enabled ? "查询及操作" : "只读查询"} · 到期：
             {new Date(item.expires_at).toLocaleString()}
           </p>
-          <button type="button" disabled={busy} onClick={() => void revoke(item.id)}>
-            撤销授权
-          </button>
+          <Button
+            variant="danger"
+            size="small"
+            disabled={busy}
+            onClick={() => {
+              setError("");
+              setRevokeTarget(item);
+            }}
+          >
+            撤销此应用授权
+          </Button>
         </div>
       ))}
+      <ConfirmDialog
+        open={!!revokeTarget}
+        title={`撤销“${revokeTarget?.name ?? ""}”的应用授权？`}
+        description="此应用将不能再通过该授权访问 KAP，手动配置凭证和其他应用授权不受影响。"
+        confirmText="确认撤销应用授权"
+        danger
+        busy={busy}
+        error={error}
+        errorDescription={error}
+        onCancel={() => setRevokeTarget(null)}
+        onConfirm={() => revokeTarget && void revoke(revokeTarget.id)}
+      />
     </PageSection>
   );
 }

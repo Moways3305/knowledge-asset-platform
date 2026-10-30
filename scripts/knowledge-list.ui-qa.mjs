@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import assert from "node:assert/strict";
 import { chromium } from "playwright";
 
 const base = process.env.UI_QA_BASE || "http://localhost:5179";
@@ -203,6 +204,24 @@ for (const scenario of scenarios) {
         });
       }
 
+      if (requestUrl.pathname === "/api/v1/knowledge/search") {
+        const payload = route.request().postDataJSON();
+        assert.equal(payload.intent, "search");
+        assert.equal(
+          payload.filters.directory_key,
+          scenario === "project" ? projectDirectoryKey : companyDirectoryKey,
+        );
+        assert.equal(payload.filters.project_id, scenario === "project" ? projectId : null);
+        return fulfill({
+          intent: "search",
+          cards: [],
+          answer: null,
+          citations: [],
+          original: null,
+          trace_id: null,
+        });
+      }
+
       if (requestUrl.pathname === `/api/v1/knowledge/${assetId}`) {
         return fulfill({
           ...asset(),
@@ -302,7 +321,7 @@ for (const scenario of scenarios) {
 
     if (scenario === "company" || scenario === "project") {
       const originalUrl = page.url();
-      await page.getByRole("button", { name: `查看《${asset().title}》详情` }).click();
+      await page.getByRole("button", { name: `快速查看《${asset().title}》` }).click();
       const drawer = page.getByRole("dialog", { name: asset().title });
       await drawer.waitFor();
       await drawer.getByRole("heading", { name: "核心信息" }).waitFor();
@@ -312,6 +331,24 @@ for (const scenario of scenarios) {
       });
       await drawer.getByRole("button", { name: "关闭详情" }).click();
       if (page.url() !== originalUrl) throw new Error("Drawer changed list location");
+      await page.getByRole("button", { name: "正文与摘要", exact: true }).click();
+      assert.equal(await page.getByRole("table", { name: "知识资产列表" }).count(), 0);
+      await page.getByLabel("正文关键词或内容描述", { exact: true }).fill("BODY-MARKER-20261030");
+      await page.getByRole("button", { name: "检索内容", exact: true }).click();
+      await page.getByText("当前检索没有匹配结果", { exact: true }).waitFor();
+      const contentMetrics = await page.evaluate(() => ({
+        overflow: document.documentElement.scrollWidth - innerWidth,
+        clipped: [...document.querySelectorAll(".kbl-semantic-form button")].some(
+          (b) => b.scrollWidth > b.clientWidth + 2,
+        ),
+      }));
+      assert(contentMetrics.overflow <= 2 && !contentMetrics.clipped);
+      await page.screenshot({
+        path: path.join(outDir, `${scenario}-${viewport.name}-content.png`),
+        animations: "disabled",
+      });
+      await page.getByRole("button", { name: "标题与标签", exact: true }).click();
+      await page.getByRole("table", { name: "知识资产列表" }).waitFor();
     }
     let collapsedMetrics = {};
     if (scenario === "company" && viewport.width > 700) {

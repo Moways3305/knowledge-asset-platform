@@ -65,7 +65,7 @@ async function prepareContext(viewport) {
 }
 
 async function openCreateForm(page) {
-  const drawer = page.getByRole("dialog", { name: "管理外部 LLM" });
+  const drawer = page.getByRole("region", { name: "管理外部 LLM" });
   if (!(await drawer.isVisible())) {
     await page.getByRole("button", { name: "管理外部 LLM", exact: true }).click();
     await drawer.waitFor();

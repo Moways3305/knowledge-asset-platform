@@ -709,3 +709,35 @@
     grid-template-columns: 1fr;
   }
 }
+
+.naming-directory-row {
+  border: 1px solid var(--color-border, #dbe2e8);
+  border-radius: 12px;
+  padding: 16px;
+}
+.naming-directory-row > div:first-child {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.naming-directory-summary {
+  flex: 1;
+  color: var(--color-text-secondary);
+}
+.naming-directory-row .naming-project-settings {
+  margin-top: 16px;
+}
+.naming-draft-hint {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+.naming-create-panel {
+  margin-bottom: 20px;
+}
+.naming-create-panel > summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 10px 0;
+}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   Building2,
   BriefcaseBusiness,
@@ -22,6 +22,8 @@ import {
 } from "../api/knowledge";
 import { useAuth } from "../auth/AuthContext";
 import { can } from "../auth/permissions";
+import { ActionGroup } from "../components/ActionLayout";
+import Button from "../components/Button";
 import DataTable, { type Column } from "../components/DataTable";
 import DetailDrawer from "../components/DetailDrawer";
 import KnowledgeMetadataEditor from "../components/KnowledgeMetadataEditor";
@@ -152,6 +154,8 @@ export default function KnowledgeListPage() {
   const [semanticBusy, setSemanticBusy] = useState(false);
   const [semanticError, setSemanticError] = useState<string | null>(null);
   const [globalSearchMode, setGlobalSearchMode] = useState(searchParams.get("search") === "global");
+  const [contentSearch, setContentSearch] = useState(searchParams.get("query_mode") === "content");
+  const semanticRequestRef = useRef(0);
   const directoryKeyFromUrl = searchParams.get("directory_key");
   const visibleDirectoryItems = directoryItems.filter(
     (item) =>
@@ -170,6 +174,7 @@ export default function KnowledgeListPage() {
   if (includeArchived) returnQuery.set("archived", "1");
   if (page > 1) returnQuery.set("page", String(page));
   if (globalSearchMode) returnQuery.set("search", "global");
+  if (contentSearch) returnQuery.set("query_mode", "content");
   const knowledgeReturnPath = `/knowledge${returnQuery.size ? `?${returnQuery}` : ""}`;
   const detailState = knowledgeDetailSource(
     knowledgeReturnPath,
@@ -257,27 +262,47 @@ export default function KnowledgeListPage() {
     }
   };
 
+  // A scope change invalidates in-flight results as well as the displayed result.
+  const invalidateSemanticSearch = useCallback(() => {
+    ++semanticRequestRef.current;
+  }, []);
+  useEffect(() => {
+    invalidateSemanticSearch();
+    setSemanticResult(null);
+    setSemanticError(null);
+    setSemanticBusy(false);
+    return invalidateSemanticSearch;
+  }, [
+    scope,
+    directory?.directory_key,
+    directory?.project_id,
+    globalSearchMode,
+    includeArchived,
+    invalidateSemanticSearch,
+  ]);
+
   const runSemanticSearch = async () => {
     if (!semanticQuery.trim()) return;
+    const requestId = ++semanticRequestRef.current;
     setSemanticBusy(true);
     setSemanticError(null);
     try {
-      setSemanticResult(
-        await searchKnowledge({
-          query: semanticQuery.trim(),
-          scope: scope || "all",
-          intent: "search",
-          filters: {
-            include_archived: includeArchived,
-            directory_key: globalSearchMode ? undefined : directory?.directory_key,
-            project_id: globalSearchMode ? undefined : directory?.project_id,
-          },
-        }),
-      );
+      const response = await searchKnowledge({
+        query: semanticQuery.trim(),
+        scope: scope || "all",
+        intent: "search",
+        filters: {
+          include_archived: includeArchived,
+          directory_key: globalSearchMode ? undefined : directory?.directory_key,
+          project_id: globalSearchMode ? undefined : directory?.project_id,
+        },
+      });
+      if (requestId === semanticRequestRef.current) setSemanticResult(response);
     } catch {
-      setSemanticError("语义检索暂时无法完成，请重试。");
+      if (requestId === semanticRequestRef.current)
+        setSemanticError("内容检索暂时无法完成，请重试。");
     } finally {
-      setSemanticBusy(false);
+      if (requestId === semanticRequestRef.current) setSemanticBusy(false);
     }
   };
 
@@ -358,6 +383,7 @@ export default function KnowledgeListPage() {
     setScope(nextScope);
     setProjectId(nextProjectId);
     setGlobalSearchMode(searchParams.get("search") === "global");
+    setContentSearch(searchParams.get("query_mode") === "content");
     setDirectory((currentDirectory) => {
       const matchesUrl =
         Boolean(nextDirectoryKey) &&
@@ -537,7 +563,7 @@ export default function KnowledgeListPage() {
                   className="kbl-title-link"
                   type="button"
                   title={asset.title}
-                  aria-label={`查看《${asset.title}》详情`}
+                  aria-label={`快速查看《${asset.title}》`}
                   onClick={() => openDetail(asset.id)}
                 >
                   {asset.title}
@@ -622,13 +648,21 @@ export default function KnowledgeListPage() {
             >
               查看摘要
             </button>
+          ) : asset.access.original ? (
+            <Link
+              className="product-button is-secondary is-small"
+              to={`/knowledge/${encodeURIComponent(asset.id)}`}
+              state={detailState}
+            >
+              打开详情
+            </Link>
           ) : (
             <button
               className="product-button is-secondary is-small"
               type="button"
               onClick={() => openDetail(asset.id)}
             >
-              查看详情
+              查看摘要
             </button>
           ),
       },
@@ -669,7 +703,7 @@ export default function KnowledgeListPage() {
       observer?.disconnect();
       window.removeEventListener("resize", update);
     };
-  }, [initialLoading, result.items]);
+  }, [initialLoading, result.items, contentSearch]);
 
   return (
     <ProductPage className="kbl-page">
@@ -677,7 +711,7 @@ export default function KnowledgeListPage() {
         title="知识资产库"
         description="浏览本项目知识与其他项目可共享摘要；跨项目原文仍需逐项申请。"
         actions={
-          <div className="knowledge-directory-create-actions">
+          <ActionGroup label="知识库操作" className="knowledge-directory-create-actions">
             {scope === "company" && capabilities.isGovernance && (
               <CreateKnowledgeDirectoryButton
                 scope="company"
@@ -697,12 +731,19 @@ export default function KnowledgeListPage() {
                 />
               )}
             {can.viewUpload(capabilities) ? (
-              <Link className="product-button is-primary" to="/upload">
+              <Link
+                className="product-button is-primary"
+                to={
+                  validProjectId
+                    ? `/upload?project_id=${encodeURIComponent(validProjectId)}`
+                    : "/upload"
+                }
+              >
                 <Upload size={16} aria-hidden="true" />
                 上传资产
               </Link>
             ) : null}
-          </div>
+          </ActionGroup>
         }
       />
 
@@ -901,44 +942,174 @@ export default function KnowledgeListPage() {
             </PageSection>
           )}
 
-          {directory && (directory.scope === "company" || directory.scope === "project") && (
-            <PageSection>
-              {directory.parent_key && (
-                <Link
-                  to={`/knowledge?scope=${directory.scope}&directory_key=${encodeURIComponent(directory.parent_key)}${directory.project_id ? `&project_id=${encodeURIComponent(directory.project_id)}` : ""}`}
-                >
-                  返回上级分类
-                </Link>
-              )}
-              <div className="kbl-folder-grid">
-                {directoryItems
-                  .filter(
-                    (item) =>
-                      item.parent_key === directory.directory_key &&
-                      item.project_id === directory.project_id,
-                  )
-                  .map((item) => (
-                    <button
-                      type="button"
-                      key={item.directory_key}
-                      onClick={() => {
-                        setDirectory(item);
-                        setPage(1);
-                        navigate(
-                          `/knowledge?scope=${directory.scope}&directory_key=${encodeURIComponent(item.directory_key)}${directory.project_id ? `&project_id=${encodeURIComponent(directory.project_id)}` : ""}`,
-                        );
-                      }}
-                    >
-                      <Folder aria-hidden="true" />
-                      <strong>{item.name}</strong>
-                      <span>{item.description || "进入三级目录查看资料"}</span>
-                    </button>
-                  ))}
-              </div>
-            </PageSection>
-          )}
+          {directory &&
+            (directory.scope === "company" || directory.scope === "project") &&
+            (directory.parent_key ||
+              directoryItems.some(
+                (item) =>
+                  item.parent_key === directory.directory_key &&
+                  item.project_id === directory.project_id,
+              )) && (
+              <PageSection>
+                {directory.parent_key && (
+                  <Link
+                    to={`/knowledge?scope=${directory.scope}&directory_key=${encodeURIComponent(directory.parent_key)}${directory.project_id ? `&project_id=${encodeURIComponent(directory.project_id)}` : ""}`}
+                  >
+                    返回上级分类
+                  </Link>
+                )}
+                <div className="kbl-folder-grid">
+                  {directoryItems
+                    .filter(
+                      (item) =>
+                        item.parent_key === directory.directory_key &&
+                        item.project_id === directory.project_id,
+                    )
+                    .map((item) => (
+                      <button
+                        type="button"
+                        key={item.directory_key}
+                        onClick={() => {
+                          setDirectory(item);
+                          setPage(1);
+                          navigate(
+                            `/knowledge?scope=${directory.scope}&directory_key=${encodeURIComponent(item.directory_key)}${directory.project_id ? `&project_id=${encodeURIComponent(directory.project_id)}` : ""}`,
+                          );
+                        }}
+                      >
+                        <Folder aria-hidden="true" />
+                        <strong>{item.name}</strong>
+                        <span>{item.description || "进入三级目录查看资料"}</span>
+                      </button>
+                    ))}
+                </div>
+              </PageSection>
+            )}
 
           {directory && (
+            <div className="kbl-search-mode" role="group" aria-label="检索方式">
+              <button
+                type="button"
+                aria-pressed={!contentSearch}
+                onClick={() => setContentSearch(false)}
+              >
+                标题与标签
+              </button>
+              <button
+                type="button"
+                aria-pressed={contentSearch}
+                onClick={() => setContentSearch(true)}
+              >
+                正文与摘要
+              </button>
+              <span>当前目录：{directory.name}</span>
+            </div>
+          )}
+          {((directory && contentSearch) || globalSearchMode) && (
+            <PageSection className="kbl-semantic-section">
+              <div className="kbl-semantic-heading">
+                <div>
+                  <span>{globalSearchMode ? "跨目录任务" : "当前目录内"}</span>
+                  <h2>{globalSearchMode ? "全库搜索" : "在当前目录检索"}</h2>
+                  <p>
+                    {globalSearchMode
+                      ? "仅检索当前身份有权发现的资料；返回目录浏览时不会保留跨目录范围。"
+                      : "仅检索当前目录内可访问的正文与摘要；内容检索使用目录范围和归档选项，不应用列表的其他筛选。"}
+                  </p>
+                </div>
+                <Sparkles aria-hidden="true" />
+              </div>
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void runSemanticSearch();
+                }}
+                className="kbl-semantic-form"
+              >
+                <label className="kbl-archive-toggle">
+                  <input
+                    type="checkbox"
+                    checked={includeArchived}
+                    onChange={(event) => setIncludeArchived(event.target.checked)}
+                  />
+                  <span>包含归档</span>
+                </label>
+                <label htmlFor="semantic-query">正文关键词或内容描述</label>
+                <div>
+                  <input
+                    id="semantic-query"
+                    value={semanticQuery}
+                    onChange={(event) => setSemanticQuery(event.target.value)}
+                    placeholder="输入正文编号、关键词或内容描述"
+                  />
+                  <Button
+                    variant="primary"
+                    type="submit"
+                    disabled={semanticBusy || !semanticQuery.trim()}
+                  >
+                    {semanticBusy ? "检索中…" : "检索内容"}
+                  </Button>
+                </div>
+              </form>
+              {semanticError && (
+                <div role="alert" className="kbl-drawer-message is-error">
+                  {semanticError}{" "}
+                  <button type="button" onClick={() => void runSemanticSearch()}>
+                    重试
+                  </button>
+                </div>
+              )}
+              {semanticResult &&
+                (semanticResult.cards.length || semanticResult.answer ? (
+                  <div className="kbl-semantic-results">
+                    {semanticResult.answer && (
+                      <article className="kbl-semantic-answer">
+                        <span>安全回答</span>
+                        <p>{semanticResult.answer}</p>
+                      </article>
+                    )}
+                    {semanticResult.cards.map((card) => (
+                      <article key={card.asset_id}>
+                        <h3>
+                          <Link
+                            to={`/knowledge/${encodeURIComponent(card.asset_id)}`}
+                            state={detailState}
+                          >
+                            {card.title}
+                          </Link>
+                        </h3>
+                        <p>{card.one_liner || card.detailed || "暂无可展示的安全摘要"}</p>
+                        <span>相关度 {Math.round(card.relevance_score * 100)}%</span>
+                      </article>
+                    ))}
+                    {semanticResult.citations.length > 0 && (
+                      <section className="kbl-semantic-citations" aria-label="安全引用">
+                        <h3>引用</h3>
+                        <ol>
+                          {semanticResult.citations.map((citation) => (
+                            <li key={`${citation.asset_id}-${citation.citation_order}`}>
+                              <strong>{citation.asset_title}</strong>
+                              {citation.snippet && <p>{citation.snippet}</p>}
+                              <small>
+                                {citation.used_access_layer === "original"
+                                  ? "授权原文证据"
+                                  : "安全摘要证据"}
+                              </small>
+                            </li>
+                          ))}
+                        </ol>
+                      </section>
+                    )}
+                  </div>
+                ) : (
+                  <EmptyState
+                    title="当前检索没有匹配结果"
+                    description="这只表示当前身份和检索范围内没有可返回结果，不代表系统中不存在相关资料。"
+                  />
+                ))}
+            </PageSection>
+          )}
+          {directory && !contentSearch && (
             <form className="kbl-filter-form" onSubmit={submitKeyword}>
               <FilterBar
                 ariaLabel="知识资产筛选"
@@ -1067,7 +1238,7 @@ export default function KnowledgeListPage() {
             </div>
           )}
 
-          {directory && (
+          {directory && !contentSearch && (
             <PageSection className="kbl-list-section">
               <div className="kbl-scope-summary" aria-label="当前生效范围与筛选">
                 <strong>当前浏览范围</strong>
@@ -1170,98 +1341,6 @@ export default function KnowledgeListPage() {
                   )}
                 </>
               )}
-            </PageSection>
-          )}
-          {(directory || globalSearchMode) && (
-            <PageSection className="kbl-semantic-section">
-              <div className="kbl-semantic-heading">
-                <div>
-                  <span>{globalSearchMode ? "跨目录任务" : "当前目录内"}</span>
-                  <h2>{globalSearchMode ? "全库搜索" : "在当前目录检索"}</h2>
-                  <p>
-                    {globalSearchMode
-                      ? "仅检索当前身份有权发现的资料；返回目录浏览时不会保留跨目录范围。"
-                      : "携带当前目录和项目范围调用安全检索 API，不会越过当前文件夹。"}
-                  </p>
-                </div>
-                <Sparkles aria-hidden="true" />
-              </div>
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void runSemanticSearch();
-                }}
-                className="kbl-semantic-form"
-              >
-                <label htmlFor="semantic-query">用自然语言描述要找的内容</label>
-                <div>
-                  <input
-                    id="semantic-query"
-                    value={semanticQuery}
-                    onChange={(event) => setSemanticQuery(event.target.value)}
-                    placeholder="例如：如何组织项目复盘访谈？"
-                  />
-                  <button type="submit" disabled={semanticBusy || !semanticQuery.trim()}>
-                    {semanticBusy ? "检索中…" : "语义检索"}
-                  </button>
-                </div>
-              </form>
-              {semanticError && (
-                <div role="alert" className="kbl-drawer-message is-error">
-                  {semanticError}{" "}
-                  <button type="button" onClick={() => void runSemanticSearch()}>
-                    重试
-                  </button>
-                </div>
-              )}
-              {semanticResult &&
-                (semanticResult.cards.length || semanticResult.answer ? (
-                  <div className="kbl-semantic-results">
-                    {semanticResult.answer && (
-                      <article className="kbl-semantic-answer">
-                        <span>安全回答</span>
-                        <p>{semanticResult.answer}</p>
-                      </article>
-                    )}
-                    {semanticResult.cards.map((card) => (
-                      <article key={card.asset_id}>
-                        <h3>
-                          <Link
-                            to={`/knowledge/${encodeURIComponent(card.asset_id)}`}
-                            state={detailState}
-                          >
-                            {card.title}
-                          </Link>
-                        </h3>
-                        <p>{card.one_liner || card.detailed || "暂无可展示的安全摘要"}</p>
-                        <span>相关度 {Math.round(card.relevance_score * 100)}%</span>
-                      </article>
-                    ))}
-                    {semanticResult.citations.length > 0 && (
-                      <section className="kbl-semantic-citations" aria-label="安全引用">
-                        <h3>引用</h3>
-                        <ol>
-                          {semanticResult.citations.map((citation) => (
-                            <li key={`${citation.asset_id}-${citation.citation_order}`}>
-                              <strong>{citation.asset_title}</strong>
-                              {citation.snippet && <p>{citation.snippet}</p>}
-                              <small>
-                                {citation.used_access_layer === "original"
-                                  ? "授权原文证据"
-                                  : "安全摘要证据"}
-                              </small>
-                            </li>
-                          ))}
-                        </ol>
-                      </section>
-                    )}
-                  </div>
-                ) : (
-                  <EmptyState
-                    title="当前检索没有匹配结果"
-                    description="这只表示当前身份和检索范围内没有可返回结果，不代表系统中不存在相关资料。"
-                  />
-                ))}
             </PageSection>
           )}
         </>

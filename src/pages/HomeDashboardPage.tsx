@@ -428,31 +428,6 @@ export default function HomeDashboardPage() {
                 <ArrowRight size={14} aria-hidden="true" />
               </button>
             )}
-            <div className="workbench-rhythm" aria-label="今日工作节奏">
-              {WORK_TABS.map((tab) => {
-                const count =
-                  tab.key === "my_tasks" ? actionableItems.length : groups[tab.key].length;
-                return (
-                  <button
-                    key={tab.key}
-                    type="button"
-                    className={`${activeTab === tab.key ? "is-active " : ""}is-${tab.key}`}
-                    aria-pressed={activeTab === tab.key}
-                    onClick={() => selectTab(tab.key)}
-                  >
-                    <span>
-                      <small>{tab.label}</small>
-                      <strong>{count}</strong>
-                    </span>
-                    <i className="workbench-rhythm-meter" aria-hidden="true">
-                      {Array.from({ length: 6 }, (_, index) => (
-                        <b key={index} className={index < Math.min(count, 6) ? "is-filled" : ""} />
-                      ))}
-                    </i>
-                  </button>
-                );
-              })}
-            </div>
           </main>
 
           <aside className="workbench-context" aria-label="工作上下文">

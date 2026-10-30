@@ -1,3 +1,6 @@
+import ProjectWorkspaceNav from "../components/ProjectWorkspaceNav";
+import TaskModal from "../components/TaskModal";
+import { ActionMenu } from "../components/ActionLayout";
 import {
   useCallback,
   useEffect,
@@ -6,7 +9,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
-import { Bot, FileText, MoreHorizontal, Search } from "lucide-react";
+import { FileText, Search } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   bulkDeleteKnowledgeAssets,
@@ -652,35 +655,31 @@ function ProjectKnowledgeWorkspace({
           asset.assetStatus !== "archived";
         return (
           <div className="pk-row-actions">
-            {publication.eligible ? (
-              <button
-                className="pk-publish-action"
-                type="button"
-                onClick={() => openUpgrade(asset)}
-              >
-                发布到公司知识库
-              </button>
-            ) : (
-              <span className="pk-publication-reason">{publication.reason}</span>
-            )}
-            {canDelete && (
-              <details className="pk-more-actions">
-                <summary aria-label={`更多操作：${asset.title}`} title="更多操作">
-                  <MoreHorizontal size={16} aria-hidden="true" />
-                </summary>
-                <div className="pk-more-actions-menu" role="menu">
+            <Link to={`/knowledge/${encodeURIComponent(asset.id)}`}>查看详情</Link>
+            {
+              <ActionMenu label="更多操作" ariaLabel={`更多操作：${asset.title}`}>
+                {!publication.eligible && <p>{publication.reason}</p>}
+                {publication.eligible && (
+                  <button
+                    type="button"
+                    className="pk-publish-action"
+                    onClick={() => openUpgrade(asset)}
+                  >
+                    发布到公司知识库
+                  </button>
+                )}
+                {canDelete && (
                   <button
                     type="button"
                     className="is-danger"
-                    role="menuitem"
                     disabled={deleteBusyId === asset.id}
                     onClick={() => setConfirmDeleteId(asset.id)}
                   >
                     {deleteBusyId === asset.id ? "删除中…" : "删除"}
                   </button>
-                </div>
-              </details>
-            )}
+                )}
+              </ActionMenu>
+            }
           </div>
         );
       },
@@ -724,6 +723,14 @@ function ProjectKnowledgeWorkspace({
             </label>
           </div>
         }
+      />
+
+      <ProjectWorkspaceNav
+        projectId={project.projectId}
+        current="knowledge"
+        canManage={project.projectRole === "project_manager"}
+        onAsk={() => setQaOpen(true)}
+        askOpen={qaOpen}
       />
 
       <form className="pk-filter-form" onSubmit={submitKeyword}>
@@ -1170,125 +1177,118 @@ function ProjectKnowledgeWorkspace({
         )}
       </PageSection>
 
-      <section className="pk-qa-section">
-        <div className="pk-qa-disclosure">
-          <button
-            className="pk-qa-toggle"
-            type="button"
-            aria-expanded={qaOpen}
-            onClick={() => setQaOpen((value) => !value)}
-          >
-            <span>
-              <Bot size={17} aria-hidden="true" />
-              项目问答
-            </span>
-            <small>基于当前项目知识提问</small>
-          </button>
-          {qaOpen && (
-            <div className="pk-qa-body">
-              {modelsState === "error" ? (
-                <div className="pk-qa-state" role="status">
-                  <span>问答模型暂时无法加载。</span>
+      <TaskModal
+        open={qaOpen}
+        onClose={() => setQaOpen(false)}
+        title="项目问答"
+        description={`基于${project.projectName}的当前可访问资料提问。`}
+        portal
+        size="large"
+      >
+        {qaOpen && (
+          <div className="pk-qa-body">
+            {modelsState === "error" ? (
+              <div className="pk-qa-state" role="status">
+                <span>问答模型暂时无法加载。</span>
+                <button
+                  className="product-button is-secondary is-small"
+                  type="button"
+                  onClick={() => {
+                    setModelsRetryKey((value) => value + 1);
+                  }}
+                >
+                  重试
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="pk-qa-controls">
+                  <label htmlFor="pk-qa-model">
+                    <span>问答模型</span>
+                    <select
+                      id="pk-qa-model"
+                      value={selectedModelIndex}
+                      onChange={(event) => setSelectedModelIndex(event.target.value)}
+                      disabled={modelsState === "loading" || models.length === 0}
+                    >
+                      {modelsState === "loading" && <option value="">正在加载…</option>}
+                      {modelsState === "ready" && models.length === 0 && (
+                        <option value="">暂无可用模型</option>
+                      )}
+                      {models.map((model, index) => (
+                        <option key={index} value={String(index)}>
+                          {model.display_name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {modelsState === "ready" && models.length === 0 && (
+                    <span className="pk-qa-state">当前项目暂无可用问答模型。</span>
+                  )}
+                </div>
+                <textarea
+                  value={qaInput}
+                  onChange={(event) => setQaInput(event.target.value)}
+                  onKeyDown={handleQaKeyDown}
+                  placeholder="向当前项目知识提问…"
+                  disabled={modelsState !== "ready" || models.length === 0}
+                  rows={3}
+                />
+                <div className="pk-qa-submit-row">
+                  <span>Ctrl / Command + Enter 发送</span>
                   <button
-                    className="product-button is-secondary is-small"
+                    className="product-button is-primary is-small"
                     type="button"
-                    onClick={() => {
-                      setModelsRetryKey((value) => value + 1);
-                    }}
+                    disabled={!qaInput.trim() || !selectedModel || qaState === "loading"}
+                    onClick={() => void askQuestion()}
                   >
-                    重试
+                    {qaState === "loading" ? "正在回答…" : "提问"}
                   </button>
                 </div>
-              ) : (
-                <>
-                  <div className="pk-qa-controls">
-                    <label htmlFor="pk-qa-model">
-                      <span>问答模型</span>
-                      <select
-                        id="pk-qa-model"
-                        value={selectedModelIndex}
-                        onChange={(event) => setSelectedModelIndex(event.target.value)}
-                        disabled={modelsState === "loading" || models.length === 0}
-                      >
-                        {modelsState === "loading" && <option value="">正在加载…</option>}
-                        {modelsState === "ready" && models.length === 0 && (
-                          <option value="">暂无可用模型</option>
+                {qaState === "error" && (
+                  <div className="pk-qa-error" role="alert">
+                    问答暂时未完成，请稍后重试。
+                  </div>
+                )}
+                {qaQuestion && (qaResult || qaState === "loading") && (
+                  <div className="pk-conversation">
+                    <div className="pk-question">
+                      <span>你的问题</span>
+                      <p>{qaQuestion}</p>
+                    </div>
+                    {qaResult && (
+                      <div className="pk-answer">
+                        <span>
+                          {qaResult.answer_status === "insufficient_evidence"
+                            ? "依据不足"
+                            : "项目问答"}
+                        </span>
+                        <p>{qaResult.response_text}</p>
+                        {qaResult.citations.length > 0 && (
+                          <div className="pk-citations">
+                            <strong>引用</strong>
+                            {qaResult.citations.map((citation, index) => (
+                              <div
+                                key={`${citation.asset_title}-${citation.citation_order}-${index}`}
+                              >
+                                <Link to={`/knowledge/${encodeURIComponent(citation.asset_id)}`}>
+                                  [{citation.citation_order}] {citation.asset_title}
+                                </Link>
+                                <small>{safeZone(citation.cited_zone)}</small>
+                                {citation.is_pending_review && <em>内容待审核，请谨慎参考</em>}
+                              </div>
+                            ))}
+                          </div>
                         )}
-                        {models.map((model, index) => (
-                          <option key={index} value={String(index)}>
-                            {model.display_name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    {modelsState === "ready" && models.length === 0 && (
-                      <span className="pk-qa-state">当前项目暂无可用问答模型。</span>
+                      </div>
                     )}
                   </div>
-                  <textarea
-                    value={qaInput}
-                    onChange={(event) => setQaInput(event.target.value)}
-                    onKeyDown={handleQaKeyDown}
-                    placeholder="向当前项目知识提问…"
-                    disabled={modelsState !== "ready" || models.length === 0}
-                    rows={3}
-                  />
-                  <div className="pk-qa-submit-row">
-                    <span>Ctrl / Command + Enter 发送</span>
-                    <button
-                      className="product-button is-primary is-small"
-                      type="button"
-                      disabled={!qaInput.trim() || !selectedModel || qaState === "loading"}
-                      onClick={() => void askQuestion()}
-                    >
-                      {qaState === "loading" ? "正在回答…" : "提问"}
-                    </button>
-                  </div>
-                  {qaState === "error" && (
-                    <div className="pk-qa-error" role="alert">
-                      问答暂时未完成，请稍后重试。
-                    </div>
-                  )}
-                  {qaQuestion && (qaResult || qaState === "loading") && (
-                    <div className="pk-conversation">
-                      <div className="pk-question">
-                        <span>你的问题</span>
-                        <p>{qaQuestion}</p>
-                      </div>
-                      {qaResult && (
-                        <div className="pk-answer">
-                          <span>
-                            {qaResult.answer_status === "insufficient_evidence"
-                              ? "依据不足"
-                              : "项目问答"}
-                          </span>
-                          <p>{qaResult.response_text}</p>
-                          {qaResult.citations.length > 0 && (
-                            <div className="pk-citations">
-                              <strong>引用</strong>
-                              {qaResult.citations.map((citation, index) => (
-                                <div
-                                  key={`${citation.asset_title}-${citation.citation_order}-${index}`}
-                                >
-                                  <Link to={`/knowledge/${encodeURIComponent(citation.asset_id)}`}>
-                                    [{citation.citation_order}] {citation.asset_title}
-                                  </Link>
-                                  <small>{safeZone(citation.cited_zone)}</small>
-                                  {citation.is_pending_review && <em>内容待审核，请谨慎参考</em>}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-        </div>
-      </section>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </TaskModal>
     </ProductPage>
   );
 }

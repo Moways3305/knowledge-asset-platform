@@ -17,6 +17,7 @@ import {
   type GovernancePage,
   type ReasonCode,
 } from "../api/governance";
+import { ActionGroup } from "../components/ActionLayout";
 import DetailDrawer from "../components/DetailDrawer";
 import TaskModal from "../components/TaskModal";
 import "./CompanyGovernancePage.css";
@@ -184,15 +185,15 @@ export default function CompanyGovernancePage() {
             ["candidates", "待核验候选"],
             ["archived", "已归档"],
           ].map(([key, label]) => (
-            <button key={key} onClick={() => changeView(key)} aria-pressed={view === key}>
+            <div className="cg-meter" key={key}>
               <strong>{data ? (data.counts[key]?.toLocaleString() ?? 0) : "—"}</strong>
               <span>{label}</span>
-            </button>
+            </div>
           ))}
         </div>
       </section>
       <section className="cg-workspace" aria-label="文件治理工作台">
-        <div className="cg-tabs">
+        <div className="cg-tabs" role="group" aria-label="公司库治理视图">
           {[
             ["candidates", "待核验"],
             ["all", "全部在库"],
@@ -358,19 +359,23 @@ export default function CompanyGovernancePage() {
           </div>
         )}
         <footer className="cg-bottom">
-          <span>已选 {selected.length} 项（本页）</span>
-          <button
-            className="cg-primary"
-            disabled={!selected.length || loading}
-            onClick={() => {
-              setConfirm(true);
-              setActionError("");
-              setCode(archived ? "other" : "historical");
-            }}
-          >
-            {archived ? <RotateCcw size={16} /> : <Archive size={16} />}{" "}
-            {archived ? "预览恢复" : "预览归档"}
-          </button>
+          {selected.length > 0 && (
+            <ActionGroup label="所选资料操作">
+              <span>已选 {selected.length} 项（本页）</span>
+              <button
+                className="cg-primary"
+                disabled={!selected.length || loading}
+                onClick={() => {
+                  setConfirm(true);
+                  setActionError("");
+                  setCode(archived ? "other" : "historical");
+                }}
+              >
+                {archived ? <RotateCcw size={16} /> : <Archive size={16} />}{" "}
+                {archived ? "预览恢复" : "预览归档"}
+              </button>
+            </ActionGroup>
+          )}
           <div className="cg-pagination">
             <button disabled={page === 1 || loading} onClick={() => setPage((p) => p - 1)}>
               上一页
@@ -387,7 +392,38 @@ export default function CompanyGovernancePage() {
           </div>
         </footer>
       </section>
-      <DetailDrawer open={!!detail} title={detail?.title} onClose={() => setDetail(null)}>
+      <DetailDrawer
+        open={!!detail}
+        title={detail?.title}
+        onClose={() => setDetail(null)}
+        footer={
+          detail && (
+            <ActionGroup
+              label="当前资料治理操作"
+              primary={
+                <button
+                  className="cg-primary"
+                  disabled={loading || busy}
+                  onClick={() => {
+                    setSelected([detail]);
+                    setDetail(null);
+                    setConfirm(true);
+                    setActionError("");
+                    setCode(archived ? "other" : "historical");
+                  }}
+                >
+                  {archived ? "预览恢复" : "预览归档"}
+                </button>
+              }
+              secondary={
+                <button className="btn-small" onClick={() => setDetail(null)}>
+                  返回列表
+                </button>
+              }
+            />
+          )
+        }
+      >
         {detail && (
           <div className="cg-detail">
             <span className="cg-tag">{statuses[detail.asset_status]}</span>

@@ -1,0 +1,122 @@
+.action-group,
+.action-group-secondary,
+.action-group-primary,
+.form-actions-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
+  gap: 8px;
+}
+
+.action-group > *,
+.action-group-secondary > *,
+.action-group-primary > *,
+.form-actions-controls > * {
+  max-width: 100%;
+}
+
+.action-group > :is(button, a),
+.action-group-secondary > :is(button, a),
+.action-group-primary > :is(button, a),
+.form-actions-controls > :is(button, a) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  width: 100%;
+  min-width: 0;
+  gap: 12px 20px;
+  padding: 14px 0;
+  border-top: 1px solid var(--color-border-light);
+}
+
+.form-actions-description {
+  flex: 1 1 240px;
+  min-width: 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.form-actions-controls {
+  margin-left: auto;
+}
+
+.form-actions.is-sticky {
+  position: sticky;
+  bottom: 0;
+  z-index: var(--z-sticky);
+  padding: 14px 16px;
+  background: var(--color-bg-surface);
+}
+
+.task-modal-footer > .form-actions,
+.detail-drawer-footer > .form-actions {
+  padding: 0;
+  border-top: 0;
+}
+
+.action-menu-trigger svg {
+  flex: 0 0 auto;
+}
+
+.action-menu-panel {
+  position: fixed;
+  z-index: calc(var(--z-modal, 80) + 1);
+  box-sizing: border-box;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 5px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-md);
+}
+
+.action-menu-panel .action-menu-content :is(button, a) {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-height: var(--control-height);
+  padding: 9px 11px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-body);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  text-decoration: none;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.action-menu-panel .action-menu-content :is(button, a):hover:not(:disabled) {
+  background: var(--color-bg-hover);
+}
+
+.action-menu-panel .action-menu-content :is(button, a):focus-visible {
+  outline: 2px solid var(--color-accent-1);
+  outline-offset: -2px;
+}
+
+.action-menu-panel .action-menu-content :is(.is-danger, .btn-small-danger) {
+  color: var(--color-danger);
+}
+
+.action-menu-panel .action-menu-content :disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}

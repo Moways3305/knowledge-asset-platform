@@ -430,18 +430,18 @@ try {
             memberSectionCount: document.querySelectorAll(".project78-members").length,
             memberVisible: bodyText.includes("周项目经理"),
             settingsVisible: Boolean(
-              [...document.querySelectorAll(".project78-context-actions a")].find((link) =>
+              [...document.querySelectorAll(".project-workspace-nav a")].find((link) =>
                 link.textContent?.includes("项目设置"),
               ),
             ),
             reviewActionVisible: Boolean(reviewLink),
             reviewLinkCorrect:
-              reviewLink?.getAttribute("href") === `/project/${projectAId}/settings`,
+              reviewLink?.getAttribute("href") === `/review?project_id=${projectAId}`,
             pendingConfirmationStat: [...document.querySelectorAll(".project78-facts div")].some(
               (item) => item.textContent?.includes("待确认") && item.textContent?.includes("3"),
             ),
             knowledgeLinkCorrect:
-              document.querySelector(".project78-context-actions a")?.getAttribute("href") ===
+              document.querySelector(".project-workspace-nav a")?.getAttribute("href") ===
               `/project/${projectAId}/knowledge`,
             defaultModelSelected:
               model instanceof HTMLSelectElement && model.value === defaultModelRef,
@@ -508,6 +508,19 @@ try {
         path: path.join(outDir, `${scenario}-${viewport.name}.png`),
         fullPage: true,
       });
+      const composer = page.locator(".project78-composer");
+      if (await composer.count()) {
+        await composer.scrollIntoViewIfNeeded();
+        result.composerReachable = await composer.evaluate((element) => {
+          const rect = element.getBoundingClientRect();
+          return (
+            rect.left >= 0 &&
+            rect.right <= window.innerWidth &&
+            rect.top >= 0 &&
+            rect.bottom <= window.innerHeight
+          );
+        });
+      }
       results.push({ viewport: viewport.name, ...result, passed: accepted(result) });
       if (scenario === "qa-sending") releasePendingQa();
       await context.close();

@@ -265,18 +265,19 @@ describe("ProjectKnowledgePage reference workspace", () => {
       includeArchived: false,
     });
     expectDocumentOrder(".pk-filter-form", ".pk-list-section");
-    expectDocumentOrder(".pk-pagination", ".pk-qa-section");
-    expect(document.querySelectorAll(".pk-qa-section")).toHaveLength(1);
+    expectDocumentOrder(".project-workspace-nav", ".pk-list-section");
+    expect(document.querySelector(".pk-qa-section")).toBeNull();
   });
 
-  it("keeps project QA last, collapsed and lazy-loads models only after disclosure", async () => {
+  it("keeps project QA in the workspace navigation and lazy-loads models only after opening", async () => {
     renderPage();
     await screen.findByRole("table", { name: "项目知识列表" });
 
     const qaToggle = screen.getByRole("button", { name: /项目问答/ });
     expect(qaToggle).toHaveAttribute("aria-expanded", "false");
     expect(fetchProjectQaModelOptions).not.toHaveBeenCalled();
-    expectDocumentOrder(".pk-list-section", ".pk-qa-section");
+    expectDocumentOrder(".project-workspace-nav", ".pk-list-section");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
     fireEvent.click(qaToggle);
     await waitFor(() => expect(fetchProjectQaModelOptions).toHaveBeenCalledTimes(1));
@@ -349,8 +350,10 @@ describe("ProjectKnowledgePage reference workspace", () => {
     await screen.findByText("客户访谈纪要");
 
     expect(screen.queryByRole("button", { name: "发布到公司知识库" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "更多操作：客户访谈纪要" }));
     expect(screen.getByText("仅项目经理可提交公司发布申请")).toBeInTheDocument();
-    expect(screen.queryByLabelText(/更多操作/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "发布到公司知识库" })).not.toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
     fireEvent.click(screen.getByRole("link", { name: "客户访谈纪要" }));
     expect(await screen.findByText("知识详情")).toBeInTheDocument();
   });
@@ -388,11 +391,12 @@ describe("ProjectKnowledgePage reference workspace", () => {
     renderPage(`/project/${PROJECT_B}/knowledge`);
     await screen.findByText("项目资产");
 
+    fireEvent.click(screen.getByRole("button", { name: "更多操作：项目资料" }));
     expect(screen.getByText("资料需先完成资产化审核")).toBeInTheDocument();
-    expect(screen.queryByLabelText("更多操作：项目资料")).not.toBeInTheDocument();
-    const assetDetails = screen.getByLabelText("更多操作：项目资产").closest("details")!;
-    fireEvent.click(screen.getByLabelText("更多操作：项目资产"));
-    expect(within(assetDetails).getByRole("menuitem", { name: "删除" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "发布到公司知识库" })).not.toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "更多操作：项目资产" }));
+    expect(screen.getByRole("button", { name: "删除" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "发布到公司知识库" }));
     expect(screen.getByLabelText("当前路径")).toHaveTextContent(`/project/${PROJECT_B}/knowledge`);
     const dialog = await screen.findByRole("dialog", { name: "发布到公司知识库" });
@@ -419,7 +423,8 @@ describe("ProjectKnowledgePage reference workspace", () => {
       ),
     );
     expect(await screen.findByText("已提交公司发布申请。")).toBeInTheDocument();
-    expectDocumentOrder(".pk-upgrade-notice", ".pk-qa-section");
+    expect(screen.getByRole("navigation", { name: "项目空间导航" })).toBeInTheDocument();
+    expect(document.querySelector(".pk-qa-section")).toBeNull();
   });
 
   it("keeps a publish-only asset out of batch selection and makes its title keyboard reachable", async () => {
@@ -441,6 +446,7 @@ describe("ProjectKnowledgePage reference workspace", () => {
     expect(titleLink).toHaveFocus();
     expect(screen.queryByLabelText("选择项目知识 仅单项发布资产")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("全选当前页项目知识")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "更多操作：仅单项发布资产" }));
     expect(screen.getByRole("button", { name: "发布到公司知识库" })).toBeInTheDocument();
   });
 
@@ -525,6 +531,7 @@ describe("ProjectKnowledgePage reference workspace", () => {
     expect(screen.queryByRole("button", { name: /批量升级为公司资产/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /发起资产化审核/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "批量删除（1）" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "更多操作：纯资产区知识" }));
     expect(screen.getByRole("button", { name: "发布到公司知识库" })).toBeInTheDocument();
   });
 

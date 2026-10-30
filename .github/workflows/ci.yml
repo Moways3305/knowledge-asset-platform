@@ -231,6 +231,8 @@ jobs:
         run: npm run test:ui:people-permissions
       - name: UI QA (help and global experience)
         run: npm run test:ui:help-global
+      - name: UI QA (navigation breakpoints and shared actions)
+        run: npm run test:ui:action-layout
       - name: UI QA (global frontend acceptance)
         run: npm run test:ui:global-acceptance
       - name: Upload screenshots

@@ -494,10 +494,12 @@ describe("ProjectSettingsPage reference implementation", () => {
     expect(screen.queryByLabelText("调整项目负责人的项目内角色")).not.toBeInTheDocument();
   });
 
-  it("opens the add-member form and cancel restores the centered entry", async () => {
+  it("opens the add-member form and cancel restores the section header entry", async () => {
     const { container } = renderPage();
     const entry = await screen.findByRole("button", { name: "添加成员" });
-    expect(container.querySelector(".ps74-member-action-row")).toContainElement(entry);
+    expect(
+      container.querySelector("[aria-labelledby=project-members-heading] .ps74-section-header"),
+    ).toContainElement(entry);
 
     fireEvent.click(entry);
     expect(await screen.findByLabelText("搜索用户")).toBeInTheDocument();

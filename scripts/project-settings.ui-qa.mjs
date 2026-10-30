@@ -324,14 +324,19 @@ for (const scenario of scenarios) {
         deleteButtonVisible: Boolean(deleteButton),
         deleteBlockerVisible: Boolean(document.querySelector(".ps74-delete-blocker")),
         dangerZoneVisible: Boolean(document.querySelector(".ps74-danger-zone")),
-        memberEntryCenterDelta:
-          memberSection && addMemberEntry
-            ? Math.abs(
-                addMemberEntry.left +
-                  addMemberEntry.width / 2 -
-                  (memberSection.left + memberSection.width / 2),
-              )
-            : null,
+        memberEntryInSectionHeader:
+          Boolean(
+            document.querySelector(
+              '[aria-labelledby="project-members-heading"] > .ps74-section-header button',
+            ),
+          ) &&
+          Boolean(
+            memberSection &&
+            addMemberEntry &&
+            addMemberEntry.left >= memberSection.left &&
+            addMemberEntry.right <= memberSection.right,
+          ),
+        memberImmediateSaveExplained: bodyText.includes("成员操作单独提交并立即生效，不需要点击"),
         memberActionRowCentered:
           memberSection && memberActionRow
             ? Math.abs(
@@ -510,8 +515,8 @@ for (const result of results) {
     result.lifecycleGateCount !== 0 ||
     (result.scenario === "delete-ready" && !result.deleteButtonVisible) ||
     (result.scenario === "manager-pending" &&
-      (result.memberEntryCenterDelta === null ||
-        result.memberEntryCenterDelta > 2 ||
+      (!result.memberEntryInSectionHeader ||
+        !result.memberImmediateSaveExplained ||
         !result.memberActionRowCentered ||
         !result.memberDividerVisible ||
         result.memberActionColumnWaste === null ||

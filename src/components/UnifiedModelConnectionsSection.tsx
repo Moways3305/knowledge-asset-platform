@@ -78,10 +78,12 @@ function formatTestTime(connection: ModelConnectionDTO): string | null {
 export default function UnifiedModelConnectionsSection({
   canEdit,
   refreshSignal = 0,
+  onChanged,
   showUsageControls = true,
 }: {
   canEdit: boolean;
   refreshSignal?: number;
+  onChanged?: () => void | Promise<void>;
   showUsageControls?: boolean;
 }) {
   const [connections, setConnections] = useState<ModelConnectionDTO[]>([]);
@@ -227,8 +229,8 @@ export default function UnifiedModelConnectionsSection({
         await createModelConnection(payload);
       }
       setNote(editingRef ? "外部 LLM 连接已更新。" : "外部 LLM 连接已创建。");
+      await Promise.all([load(), onChanged?.()]);
       setFormOpen(false);
-      await load();
     } catch (caught) {
       setError(safeActionError(caught, "外部 LLM 连接保存失败，请检查连接信息后重试。"));
     } finally {
@@ -248,7 +250,7 @@ export default function UnifiedModelConnectionsSection({
         model_name: connection.model_name,
         enabled: !connection.enabled,
       });
-      await load();
+      await Promise.all([load(), onChanged?.()]);
     } catch (caught) {
       setError(safeActionError(caught, "外部 LLM 状态更新失败，请先处理默认用途依赖后重试。"));
     } finally {
@@ -263,7 +265,7 @@ export default function UnifiedModelConnectionsSection({
     try {
       await deleteModelConnection(connection.model_ref);
       setNote("连接已删除。");
-      await load();
+      await Promise.all([load(), onChanged?.()]);
     } catch (caught) {
       if (caught instanceof ApiError && caught.status === 409) {
         setError("该模型正承担默认用途，请先更换默认模型后再删除。");
@@ -291,6 +293,7 @@ export default function UnifiedModelConnectionsSection({
           message: `${result.message} ${result.remediation_hint} · ${result.duration_ms} ms`,
         },
       }));
+      await Promise.all([load(), onChanged?.()]);
     } catch (caught) {
       setTests((old) => ({
         ...old,

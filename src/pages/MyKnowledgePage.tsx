@@ -500,83 +500,6 @@ export default function MyKnowledgePage() {
         description="管理个人资料，并将成熟内容提交到项目。"
         actions={
           <>
-            <div className="mk83-filter-anchor" onClick={(event) => event.stopPropagation()}>
-              <button
-                type="button"
-                className={`btn-small mk83-header-action ${filtered ? "is-active" : ""}`}
-                aria-expanded={filterOpen}
-                onClick={() => setFilterOpen((value) => !value)}
-              >
-                <SlidersHorizontal size={16} aria-hidden="true" />
-                筛选
-              </button>
-              {filterOpen && (
-                <div className="mk83-filter-panel" role="dialog" aria-label="筛选个人资料">
-                  <div className="mk83-filter-head">
-                    <strong>筛选与排序</strong>
-                    {filtered && (
-                      <button type="button" onClick={clearFilters}>
-                        清除筛选
-                      </button>
-                    )}
-                  </div>
-                  <label htmlFor="mk83-filter-asset-type">
-                    <span>资料类型</span>
-                    <select
-                      id="mk83-filter-asset-type"
-                      value={assetType}
-                      onChange={(event) => {
-                        setAssetType(event.target.value);
-                        setPage(1);
-                      }}
-                    >
-                      <option value="">全部类型</option>
-                      {Object.entries(typeConfig).map(([key, value]) => (
-                        <option key={key} value={key}>
-                          {value.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label htmlFor="mk83-filter-personal-state">
-                    <span>个人状态</span>
-                    <select
-                      id="mk83-filter-personal-state"
-                      value={personalState}
-                      onChange={(event) => {
-                        setPersonalState(event.target.value as PersonalKnowledgeState | "");
-                        setPage(1);
-                      }}
-                    >
-                      <option value="">全部状态</option>
-                      {Object.entries(stateConfig).map(([key, value]) => (
-                        <option key={key} value={key}>
-                          {value.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label htmlFor="mk83-filter-sort">
-                    <span>排序方式</span>
-                    <select
-                      id="mk83-filter-sort"
-                      value={`${sortBy}:${sortDirection}`}
-                      onChange={(event) => {
-                        const [field, direction] = event.target.value.split(":");
-                        setSortBy(field as typeof sortBy);
-                        setSortDirection(direction as typeof sortDirection);
-                        setPage(1);
-                      }}
-                    >
-                      <option value="updated_at:desc">最近更新</option>
-                      <option value="updated_at:asc">较早更新</option>
-                      <option value="created_at:desc">最近创建</option>
-                      <option value="title:asc">标题升序</option>
-                    </select>
-                  </label>
-                </div>
-              )}
-            </div>
             <Link className="btn-small-primary mk83-header-action" to="/upload">
               <Upload size={16} aria-hidden="true" />
               上传资料
@@ -676,6 +599,84 @@ export default function MyKnowledgePage() {
       >
         {!forbidden && (
           <div className="mk83-toolbar">
+            <div className="mk83-filter-anchor" onClick={(event) => event.stopPropagation()}>
+              <button
+                type="button"
+                className={`btn-small mk83-header-action ${filtered ? "is-active" : ""}`}
+                aria-expanded={filterOpen}
+                onClick={() => setFilterOpen((value) => !value)}
+              >
+                <SlidersHorizontal size={16} aria-hidden="true" />
+                筛选
+              </button>
+              {filterOpen && (
+                <div className="mk83-filter-panel" role="dialog" aria-label="筛选个人资料">
+                  <div className="mk83-filter-head">
+                    <strong>筛选与排序</strong>
+                    {filtered && (
+                      <button type="button" onClick={clearFilters}>
+                        清除筛选
+                      </button>
+                    )}
+                  </div>
+                  <label htmlFor="mk83-filter-asset-type">
+                    <span>资料类型</span>
+                    <select
+                      id="mk83-filter-asset-type"
+                      value={assetType}
+                      onChange={(event) => {
+                        setAssetType(event.target.value);
+                        setPage(1);
+                      }}
+                    >
+                      <option value="">全部类型</option>
+                      {Object.entries(typeConfig).map(([key, value]) => (
+                        <option key={key} value={key}>
+                          {value.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label htmlFor="mk83-filter-personal-state">
+                    <span>个人状态</span>
+                    <select
+                      id="mk83-filter-personal-state"
+                      value={personalState}
+                      onChange={(event) => {
+                        setPersonalState(event.target.value as PersonalKnowledgeState | "");
+                        setPage(1);
+                      }}
+                    >
+                      <option value="">全部状态</option>
+                      {Object.entries(stateConfig).map(([key, value]) => (
+                        <option key={key} value={key}>
+                          {value.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label htmlFor="mk83-filter-sort">
+                    <span>排序方式</span>
+                    <select
+                      id="mk83-filter-sort"
+                      value={`${sortBy}:${sortDirection}`}
+                      onChange={(event) => {
+                        const [field, direction] = event.target.value.split(":");
+                        setSortBy(field as typeof sortBy);
+                        setSortDirection(direction as typeof sortDirection);
+                        setPage(1);
+                      }}
+                    >
+                      <option value="updated_at:desc">最近更新</option>
+                      <option value="updated_at:asc">较早更新</option>
+                      <option value="created_at:desc">最近创建</option>
+                      <option value="title:asc">标题升序</option>
+                    </select>
+                  </label>
+                </div>
+              )}
+            </div>
+
             <form role="search" onSubmit={submitSearch}>
               <Search size={17} aria-hidden="true" />
               <input
@@ -941,18 +942,20 @@ export default function MyKnowledgePage() {
                           </button>
                           {menuId === item.id && (
                             <div className="mk83-more-menu" role="menu">
-                              <Link
-                                role="menuitem"
-                                to={`/knowledge/${encodeURIComponent(item.id)}`}
-                                state={{
-                                  backTo: "/my/knowledge",
-                                  backLabel: "返回个人知识",
-                                  source: "personal",
-                                }}
-                              >
-                                <Eye size={15} />
-                                查看详情
-                              </Link>
+                              {primary && (
+                                <Link
+                                  role="menuitem"
+                                  to={`/knowledge/${encodeURIComponent(item.id)}`}
+                                  state={{
+                                    backTo: "/my/knowledge",
+                                    backLabel: "返回个人知识",
+                                    source: "personal",
+                                  }}
+                                >
+                                  <Eye size={15} />
+                                  查看详情
+                                </Link>
+                              )}
                               {hasProjects && (
                                 <button
                                   type="button"

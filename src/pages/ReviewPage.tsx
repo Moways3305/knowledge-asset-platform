@@ -1,5 +1,5 @@
-import { CheckCircle2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { ControlledBulkRequestError } from "../api/bulk";
 import { ApiError } from "../api/http";
 import {
@@ -87,7 +87,15 @@ function isForbidden(error: unknown) {
 export default function ReviewPage() {
   const [statusToken, setStatusToken] = useState("0");
   const [reviewTypeToken, setReviewTypeToken] = useState("0");
-  const [items, setItems] = useState<ReviewItemDTO[]>([]);
+  const [params, setParams] = useSearchParams();
+  const focusReviewId = params.get("review_id");
+  const focusProjectId = params.get("project_id");
+  const [availableItems, setItems] = useState<ReviewItemDTO[]>([]);
+  const items = availableItems.filter(
+    (item) =>
+      (!focusReviewId || item.id === focusReviewId) &&
+      (!focusProjectId || item.target_project_id === focusProjectId),
+  );
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -97,6 +105,7 @@ export default function ReviewPage() {
   const [rejectReason, setRejectReason] = useState("");
   const [rejectError, setRejectError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  useEffect(() => setSelectedIds([]), [focusReviewId, focusProjectId]);
   const [bulkAction, setBulkAction] = useState<"approve" | "reject" | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [evidenceTarget, setEvidenceTarget] = useState<ReviewItemDTO | null>(null);
@@ -442,6 +451,24 @@ export default function ReviewPage() {
   return (
     <GovernanceWorkspace active="review" loading={loading} onRefresh={() => void load()}>
       <h2>审核待办</h2>
+      {(focusReviewId || focusProjectId) && (
+        <div className="gw-feedback is-info" role="status">
+          {!loading && !forbidden && !loadFailed && items.length === 0
+            ? "当前可见审核记录中未找到该事项，可能已处理或不在当前身份的可见范围。"
+            : "正在查看从项目定位的审核事项。"}
+          <button
+            className="btn-small"
+            onClick={() => {
+              const next = new URLSearchParams(params);
+              next.delete("review_id");
+              next.delete("project_id");
+              setParams(next);
+            }}
+          >
+            查看全部待办
+          </button>
+        </div>
+      )}
       <div className="gw-toolbar" role="search" aria-label="审核筛选">
         <div className="gw-toolbar-fields">
           <label className="gw-filter-label">
@@ -470,23 +497,6 @@ export default function ReviewPage() {
         </div>
         <div className="gw-toolbar-actions">
           <span className="gw-total">共 {items.length} 条</span>
-          <button
-            className="gw-action is-primary gw-bulk-quick"
-            disabled={eligibleItems.length === 0 || bulkBusy}
-            onClick={() => {
-              setSelectedIds(eligibleItems.map((item) => item.id));
-              setBulkAction("approve");
-            }}
-            title={
-              eligibleItems.length === 0
-                ? "当前没有可一键通过的待审核项"
-                : `一键全选 ${eligibleItems.length} 项并进入确认`
-            }
-            type="button"
-          >
-            <CheckCircle2 size={13} aria-hidden="true" />
-            一键全选确认
-          </button>
           {eligibleItems.length === 0 && <span className="gw-muted">当前没有可确认的待审核项</span>}
         </div>
       </div>
@@ -498,63 +508,65 @@ export default function ReviewPage() {
       )}
 
       <BulkSelectionRail
-        selectedCount={selectedEligible.length}
-        pageSelectedCount={selectedEligible.length}
-        matchingCount={eligibleItems.length}
-        allMatchingSelected={pageAllSelected}
-        busy={bulkBusy}
+        selectedCount={selectedEligible.length + selectedEvidence.length}
+        pageSelectedCount={selectedEligible.length + selectedEvidence.length}
+        matchingCount={
+          eligibleItems.length + items.filter((item) => item.status === "pending_evidence").length
+        }
+        allMatchingSelected={
+          selectedEligible.length + selectedEvidence.length ===
+          eligibleItems.length + items.filter((item) => item.status === "pending_evidence").length
+        }
+        busy={bulkBusy || evidenceBusy}
         onClear={() => setSelectedIds([])}
       >
-        <button
-          className="gw-action is-primary"
-          disabled={bulkBusy}
-          onClick={() => setBulkAction("approve")}
-          type="button"
-        >
-          批量通过（{selectedEligible.length}）
-        </button>
-        <button
-          className="gw-action is-danger"
-          disabled={bulkBusy}
-          onClick={() => {
-            setRejectReason("");
-            setRejectError(null);
-            setBulkAction("reject");
-          }}
-          type="button"
-        >
-          批量驳回（{selectedEligible.length}）
-        </button>
-      </BulkSelectionRail>
-      <BulkSelectionRail
-        selectedCount={selectedEvidence.length}
-        pageSelectedCount={selectedEvidence.length}
-        matchingCount={items.filter((item) => item.status === "pending_evidence").length}
-        allMatchingSelected={false}
-        busy={evidenceBusy}
-        onClear={() =>
-          setSelectedIds((current) =>
-            current.filter((id) => !selectedEvidence.some((item) => item.id === id)),
-          )
-        }
-      >
-        <button
-          className="gw-action is-primary"
-          type="button"
-          disabled={evidenceBusy || selectedEvidence.length === 0}
-          onClick={() => {
-            const projects = new Set(selectedEvidence.map((item) => item.target_project_id));
-            if (projects.size !== 1) {
-              setFeedback({ tone: "error", text: "批量补证据只能选择同一项目的任务。" });
-              return;
-            }
-            setEvidenceTarget(selectedEvidence[0]);
-            setEvidenceReviewIds(selectedEvidence.map((item) => item.id));
-            setEvidenceDescription("");
-          }}
-        >
-          批量补充证据（{selectedEvidence.length}）
-        </button>
+        {selectedEligible.length > 0 && (
+          <>
+            {" "}
+            <button
+              className="gw-action is-primary"
+              disabled={bulkBusy}
+              onClick={() => setBulkAction("approve")}
+              type="button"
+            >
+              批量通过（{selectedEligible.length}）
+            </button>
+            <button
+              className="gw-action is-danger"
+              disabled={bulkBusy}
+              onClick={() => {
+                setRejectReason("");
+                setRejectError(null);
+                setBulkAction("reject");
+              }}
+              type="button"
+            >
+              批量驳回（{selectedEligible.length}）
+            </button>
+          </>
+        )}
+        {selectedEvidence.length > 0 && (
+          <>
+            {" "}
+            <button
+              className="gw-action is-primary"
+              type="button"
+              disabled={evidenceBusy || selectedEvidence.length === 0}
+              onClick={() => {
+                const projects = new Set(selectedEvidence.map((item) => item.target_project_id));
+                if (projects.size !== 1) {
+                  setFeedback({ tone: "error", text: "批量补证据只能选择同一项目的任务。" });
+                  return;
+                }
+                setEvidenceTarget(selectedEvidence[0]);
+                setEvidenceReviewIds(selectedEvidence.map((item) => item.id));
+                setEvidenceDescription("");
+              }}
+            >
+              批量补充证据（{selectedEvidence.length}）
+            </button>
+          </>
+        )}
       </BulkSelectionRail>
 
       <DataTable

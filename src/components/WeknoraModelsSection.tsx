@@ -56,9 +56,11 @@ function safeActionError(err: unknown, fallback: string): string {
 export default function WeknoraModelsSection({
   canEdit,
   refreshSignal = 0,
+  onChanged,
 }: {
   canEdit: boolean;
   refreshSignal?: number;
+  onChanged?: () => void | Promise<void>;
 }) {
   const [models, setModels] = useState<ModelDTO[]>([]);
   const [providers, setProviders] = useState<WeknoraProviderDTO[]>([]);
@@ -221,8 +223,8 @@ export default function WeknoraModelsSection({
           ? "凭据已确认保存，请继续执行连通性测试。"
           : "模型配置已保存，请继续执行连通性测试。",
       );
+      await Promise.all([load(), onChanged?.()]);
       setFormOpen(false);
-      await load();
       setCardStackOpen(true);
     } catch (caught) {
       setError(safeActionError(caught, "WeKnora 模型保存失败，请检查模型信息后重试。"));
@@ -278,7 +280,7 @@ export default function WeknoraModelsSection({
     try {
       await deleteWeknoraModel(model.model_ref);
       setNote("模型已删除。");
-      await load();
+      await Promise.all([load(), onChanged?.()]);
     } catch (caught) {
       if (caught instanceof ApiError && caught.status === 409) {
         setError("该模型正被知识库使用，请先更换默认模型后再删除。");
@@ -308,6 +310,7 @@ export default function WeknoraModelsSection({
           message: result.message,
         },
       }));
+      await Promise.all([load(), onChanged?.()]);
     } catch (caught) {
       setTests((old) => ({
         ...old,

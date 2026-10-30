@@ -817,3 +817,38 @@
   line-height: 1.6;
   color: var(--color-text-secondary);
 }
+
+.mf-workspace-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.mf-workspace-tabs [aria-pressed="true"] {
+  background: var(--color-primary, #243e55);
+  color: #fff;
+}
+.mf-inline-workspace {
+  padding: 20px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border, #dbe2e8);
+  border-radius: 12px;
+  margin: 16px 0;
+}
+
+.mf-inline-workspace .mf-drawer-filters {
+  position: static;
+}
+.mf-drawer-filters :where(input, select) {
+  min-height: 36px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--mf-line);
+  border-radius: 8px;
+  background: var(--color-bg-surface, #fff);
+  color: var(--color-text-primary, #182536);
+  font: inherit;
+}
+.mf-drawer-filters :where(input, select):focus-visible {
+  outline: 2px solid var(--color-primary, #334e72);
+  outline-offset: 2px;
+}

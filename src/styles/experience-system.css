@@ -569,9 +569,9 @@
     width: 100%;
   }
 
-  .task-modal-footer > .product-button,
-  .detail-drawer-footer > .product-button {
-    flex: 1 1 132px;
+  .task-modal-footer > *,
+  .detail-drawer-footer > * {
+    max-width: 100%;
   }
 
   .action-feedback {

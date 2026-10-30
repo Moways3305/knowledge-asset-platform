@@ -244,13 +244,13 @@ try {
 
       if (scenario === "external-drawer") {
         await page.getByRole("button", { name: "管理外部 LLM" }).click();
-        await page.getByRole("dialog", { name: "管理外部 LLM" }).waitFor();
+        await page.getByRole("region", { name: "管理外部 LLM" }).waitFor();
       } else if (scenario === "weknora-drawer") {
         await page.getByRole("button", { name: "管理 WeKnora 模型" }).click();
-        await page.getByRole("dialog", { name: "管理 WeKnora 模型" }).waitFor();
+        await page.getByRole("region", { name: "管理 WeKnora 模型" }).waitFor();
       } else if (["kb-drawer", "kb-modal", "migration-result"].includes(scenario)) {
         await page.getByRole("button", { name: "管理知识库配置" }).click();
-        const drawer = page.getByRole("dialog", { name: "管理知识库配置" });
+        const drawer = page.getByRole("region", { name: "管理知识库配置" });
         await drawer.waitFor();
         if (scenario === "kb-modal") {
           await drawer.getByRole("button", { name: "配置" }).first().click();
@@ -263,7 +263,7 @@ try {
         await page.getByRole("button", { name: "管理知识库配置" }).click();
         await page.getByText("没有匹配的知识库").waitFor();
       } else if (scenario === "forbidden") {
-        await page.getByRole("alert").waitFor();
+        await page.getByText("当前身份仅可查看允许的配置摘要。", { exact: true }).waitFor();
       }
 
       const screenshot = path.join(outDir, `${scenario}-${viewport.name}.png`);
@@ -284,34 +284,25 @@ try {
           overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
           safe: secrets.every((secret) => !text.includes(secret)),
           dialogCount: document.querySelectorAll('[role="dialog"]').length,
-          mainHasGrowingRows:
-            !document.querySelector('[role="dialog"]') &&
-            (Boolean(document.querySelector(".mf-connection-card")) ||
-              Boolean(document.querySelector(".mf-kb-drawer-row"))),
-          connectionRows: document.querySelectorAll(".mf-connection-row").length,
+          workspaceCount: document.querySelectorAll(".mf-inline-workspace").length,
+          workspaceTabs: document.querySelectorAll(".mf-workspace-tabs button[aria-pressed]")
+            .length,
+          selectedTabs: document.querySelectorAll('.mf-workspace-tabs [aria-pressed="true"]')
+            .length,
           noMetricMatrix: !document.querySelector(
             ".admin-status-band, .mf-overview-strip, .mf-overview-metric",
           ),
           noInstructionCopy: !text.includes("先处理不可用连接，再维护模型与知识库底座。"),
-          actionableFirst: (() => {
-            const rows = [...document.querySelectorAll(".mf-connection-row")];
-            const actionable = rows.filter((row) => row.classList.contains("is-actionable"));
-            if (actionable.length === 0) return true;
-            const firstVisualTop = Math.min(...rows.map((row) => row.getBoundingClientRect().top));
-            return actionable.some(
-              (row) => Math.abs(row.getBoundingClientRect().top - firstVisualTop) <= 2,
-            );
-          })(),
           hasInternalError: text.includes("UI QA route not configured"),
         };
       }, scenario);
-      const expectedDialogs = scenario === "normal" || scenario === "forbidden" ? 0 : 1;
+      const expectedDialogs = ["kb-modal", "migration-result"].includes(scenario) ? 1 : 0;
       const scenarioPass =
-        metrics.connectionRows === 3 &&
+        metrics.workspaceTabs === 3 &&
+        metrics.selectedTabs === 1 &&
         metrics.noMetricMatrix &&
         metrics.noInstructionCopy &&
-        metrics.actionableFirst &&
-        !metrics.mainHasGrowingRows &&
+        metrics.workspaceCount === (scenario === "migration-result" ? 0 : 1) &&
         metrics.dialogCount === expectedDialogs;
       results.push({
         viewport: viewport.name,

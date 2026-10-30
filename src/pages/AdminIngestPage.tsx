@@ -248,7 +248,7 @@ export default function AdminIngestPage() {
   const [timeoutRecoveryBusy, setTimeoutRecoveryBusy] = useState(false);
   const [timeoutRecoveryError, setTimeoutRecoveryError] = useState<string | null>(null);
   const [recoveryListBusy, setRecoveryListBusy] = useState(false);
-  const runtimeDetailsRef = useRef<HTMLDetailsElement>(null);
+  const [workspace, setWorkspace] = useState<"recovery" | "jobs" | "runtime">("recovery");
   const showAllRecoveryItemsRef = useRef(false);
   const ingestRequestRef = useRef(0);
   const opsRequestRef = useRef(0);
@@ -751,12 +751,7 @@ export default function AdminIngestPage() {
     ? formatBeijingTime(opsIndex.last_reconcile.observed_at)
     : "—";
 
-  const showRuntimeDetails = () => {
-    if (runtimeDetailsRef.current) {
-      runtimeDetailsRef.current.open = true;
-      runtimeDetailsRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  };
+  const showRuntimeDetails = () => setWorkspace("runtime");
 
   const inspectProcessingTimeouts = async () => {
     setTimeoutRecoveryBusy(true);
@@ -800,7 +795,7 @@ export default function AdminIngestPage() {
         description="让未完成索引恢复为可检索资料"
         actions={
           <div className="ao84-refresh-actions">
-            <button className="btn-small" type="button" onClick={showRuntimeDetails}>
+            <button className="btn-small" type="button" onClick={() => setWorkspace("jobs")}>
               <Clock3 size={15} aria-hidden="true" />
               查看作业
             </button>
@@ -814,7 +809,7 @@ export default function AdminIngestPage() {
               识别中断索引
             </button>
             <button
-              className="btn-icon"
+              className="btn-small"
               aria-label="刷新"
               title="刷新"
               onClick={() => void refreshAll(false)}
@@ -827,365 +822,188 @@ export default function AdminIngestPage() {
       />
 
       <div className="ao84-console">
-        <section className="irc-recovery-overview" aria-label="索引恢复概览">
-          {opsState === "loading" ? (
-            <div className="ao84-panel-state" role="status">
-              正在读取索引运行状态…
-            </div>
-          ) : opsState === "error" || !opsIndex ? (
-            <div className="ao84-panel-state is-error" role="alert">
-              <AlertTriangle size={20} aria-hidden="true" />
-              <strong>索引状态暂时无法加载</strong>
-              <span>入库运行概览仍可独立查看。</span>
-            </div>
-          ) : (
-            <>
-              <section
-                className={`irc-risk${displayedNeedsRecovery ? " is-warning" : " is-clear"}`}
-                aria-label={displayedNeedsRecovery ? "索引恢复风险" : "索引恢复状态"}
-              >
-                {displayedNeedsRecovery ? (
-                  <AlertTriangle size={18} aria-hidden="true" />
-                ) : (
-                  <CheckCircle2 size={18} aria-hidden="true" />
-                )}
-                <div>
-                  <strong>
-                    {recoverySummary.interrupted
-                      ? submissionInterrupted
-                        ? `${submissionInterrupted} 项索引提交中断${parseInterrupted ? `，另有 ${parseInterrupted} 项解析中断` : ""}，等待恢复`
-                        : `${parseInterrupted || recoverySummary.interrupted} 项解析中断，等待恢复`
-                      : displayedNeedsRecovery
-                        ? `${displayedNeedsRecovery} 项索引未完成，可安全恢复`
-                        : "当前没有待恢复索引"}
-                  </strong>
-                  <span>
-                    {opsIndex.last_reconcile?.failed
-                      ? "底座对账仍有异常；恢复前会再次校验连接与嵌入模型。"
-                      : opsIndex.counts.parse_failed
-                        ? "解析异常已降到运行详情处理，不影响索引恢复候选判断。"
-                        : "知识底座最近对账正常，可以发起恢复。"}
-                  </span>
-                </div>
-                {displayedNeedsRecovery > 0 && (
-                  <button
-                    type="button"
-                    className="btn-small-primary"
-                    aria-label={
-                      activeOperation
-                        ? `正在执行：${safeJobOperation(activeOperation)}`
-                        : `恢复索引（${retryActionableCount} 项）`
-                    }
-                    onClick={() => void handleBatchRetry()}
-                    disabled={actionLocked || retryActionableCount === 0}
-                  >
-                    <RotateCw size={15} aria-hidden="true" />
-                    {activeOperation
-                      ? `正在执行：${safeJobOperation(activeOperation)}`
-                      : `恢复索引（${retryActionableCount} 项）`}
-                  </button>
-                )}
-              </section>
-              <div className="irc-progress-grid">
-                <section className="irc-progress-card" aria-labelledby="irc-progress-title">
-                  <header>
-                    <div>
-                      <span>恢复进度</span>
-                      <h2 id="irc-progress-title">从已入库到可检索</h2>
-                    </div>
-                    <Database size={19} aria-hidden="true" />
-                  </header>
-                  <ol className="irc-track" aria-label="索引处理轨道">
-                    <li className="is-complete">
-                      <CheckCircle2 size={17} aria-hidden="true" />
-                      <div>
-                        <span>已入库</span>
-                        <strong title="现有接口未返回去重后的入库总数">—</strong>
-                      </div>
-                    </li>
-                    <li className={submissionProcessing ? "is-active" : ""}>
-                      <RotateCw size={17} aria-hidden="true" />
-                      <div>
-                        <span>索引提交</span>
-                        <strong>{submissionProcessing}</strong>
-                      </div>
-                    </li>
-                    <li className={submissionInterrupted ? "is-interrupted" : ""}>
-                      <AlertTriangle size={17} aria-hidden="true" />
-                      <div>
-                        <span>索引提交中断</span>
-                        <strong>{submissionInterrupted || "—"}</strong>
-                      </div>
-                    </li>
-                    <li className={parseInProgress ? "is-active" : ""}>
-                      <FileSearch size={17} aria-hidden="true" />
-                      <div>
-                        <span>解析中</span>
-                        <strong>{parseInProgress || "—"}</strong>
-                      </div>
-                    </li>
-                    <li className="is-complete">
-                      <CheckCircle2 size={17} aria-hidden="true" />
-                      <div>
-                        <span>可检索</span>
-                        <strong>{recoverySummary.searchable}</strong>
-                      </div>
-                    </li>
-                  </ol>
-                </section>
-                <aside className="irc-current-state" aria-label="索引当前状态">
-                  <header>
-                    <span>当前状态</span>
-                    <strong>实时投影</strong>
-                  </header>
-                  <p>
-                    <AlertTriangle size={16} aria-hidden="true" />
-                    <span>索引提交中断</span>
-                    <strong>{submissionInterrupted}</strong>
-                  </p>
-                  <p>
-                    <FileSearch size={16} aria-hidden="true" />
-                    <span>解析中断</span>
-                    <strong>{parseInterrupted}</strong>
-                  </p>
-                  <p>
-                    <CheckCircle2 size={16} aria-hidden="true" />
-                    <span>已可检索</span>
-                    <strong>{recoverySummary.searchable}</strong>
-                  </p>
-                  <footer>
-                    <span>{foundationStatus}</span>
-                    <time>更新于 {foundationUpdatedAt}</time>
-                  </footer>
-                </aside>
+        <div className="irc-workspace-tabs" role="group" aria-label="索引恢复工作区">
+          {(
+            [
+              ["recovery", "待恢复任务"],
+              ["jobs", "作业记录"],
+              ["runtime", "运行诊断"],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              className="btn-small"
+              type="button"
+              aria-pressed={workspace === key}
+              key={key}
+              onClick={() => setWorkspace(key)}
+            >
+              {label}
+              {key === "runtime" && runtimeAttentionCount > 0 ? `（${runtimeAttentionCount}）` : ""}
+            </button>
+          ))}
+        </div>
+        {opsNote && (
+          <ActionFeedback
+            state={opsFeedbackState}
+            title={
+              opsFeedbackState === "error"
+                ? "操作未发起"
+                : opsFeedbackState === "partial"
+                  ? "部分完成"
+                  : opsFeedbackState === "success"
+                    ? "作业已完成"
+                    : opsFeedbackState === "submitted"
+                      ? "请求已提交"
+                      : "操作提示"
+            }
+            description={opsNote}
+          />
+        )}
+        {workspace === "recovery" && (
+          <section className="irc-recovery-overview" aria-label="索引恢复概览">
+            {opsState === "loading" ? (
+              <div className="ao84-panel-state" role="status">
+                正在读取索引运行状态…
               </div>
-            </>
-          )}
-        </section>
-
-        <details ref={runtimeDetailsRef} className="irc-runtime-details">
-          <summary>
-            <span>运行详情</span>
-            {runtimeAttentionCount > 0 && <strong>{runtimeAttentionCount} 项运行异常</strong>}
-          </summary>
-          <div className="ao84-ingest-overview" aria-label="入库运行概览">
-            <div className="ao84-subhead">
-              <FileSearch size={16} aria-hidden="true" />
-              <strong>入库运行概览</strong>
-              {ingestState === "ready" && <span>共 {ingestItems.length} 项</span>}
-            </div>
-            {ingestState === "loading" ? (
-              <p>正在读取入库队列…</p>
-            ) : ingestState === "error" ? (
-              <p className="is-error">入库概览暂时无法加载。</p>
-            ) : (
-              <div className="ao84-ingest-counts">
-                {Object.entries(ingestStatusLabel).map(([status, label]) => (
-                  <span key={status}>
-                    <strong>{ingestCounts.get(status) ?? 0}</strong>
-                    {label}
-                  </span>
-                ))}
+            ) : opsState === "error" || !opsIndex ? (
+              <div className="ao84-panel-state is-error" role="alert">
+                <AlertTriangle size={20} aria-hidden="true" />
+                <strong>索引状态暂时无法加载</strong>
+                <span>入库运行概览仍可独立查看。</span>
               </div>
-            )}
-            {ingestState === "ready" && failedIngestItems.length > 0 && (
-              <div className="ao84-ingest-failures" aria-label="入库失败恢复建议">
-                {failedIngestItems.slice(0, 10).map((item) => (
-                  <div key={item.id}>
-                    <span>失败入库项</span>
-                    <strong>{ingestFailureLabel(item.error_type)}</strong>
-                    <span>{item.error_message ?? "文件内容无法完成处理"}</span>
-                    <span>恢复建议：由创建人在上传队列中重试或移除失败项。</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="ao84-subhead">
-              <Clock3 size={16} aria-hidden="true" />
-              <strong>历史处理超时恢复</strong>
-              <span>默认仅预检；每批最多 3 条，批次间隔至少 15 秒</span>
-            </div>
-            <div className="ao84-ingest-counts" aria-live="polite">
-              <span>
-                <strong>{timeoutRecovery?.candidates ?? "—"}</strong>源文件完整候选
-              </span>
-              <span>
-                <strong>{timeoutRecovery?.source_unavailable ?? "—"}</strong>需重新上传
-              </span>
-              <span>
-                <strong>{timeoutRecovery?.preflight.ready ? "通过" : "—"}</strong>运行预检
-              </span>
-            </div>
-            {timeoutRecoveryError && <p className="is-error">{timeoutRecoveryError}</p>}
-            {timeoutRecovery?.stopped && (
-              <p className="is-error">
-                恢复已停止：{timeoutRecoveryStopLabel(timeoutRecovery.stop_reason)}
-              </p>
-            )}
-            <div className="ao84-refresh-actions">
-              <button
-                className="btn-small"
-                type="button"
-                onClick={() => void inspectProcessingTimeouts()}
-                disabled={timeoutRecoveryBusy}
-              >
-                {timeoutRecoveryBusy ? "检查中…" : "检查超时任务"}
-              </button>
-              <button
-                className="btn-small-primary"
-                type="button"
-                onClick={() => void confirmProcessingTimeoutRecovery()}
-                disabled={
-                  timeoutRecoveryBusy ||
-                  !timeoutRecovery?.dry_run ||
-                  !timeoutRecovery.preflight.ready ||
-                  timeoutRecovery.candidates === 0
-                }
-              >
-                二次确认并恢复最多 3 条
-              </button>
-            </div>
-          </div>
-
-          <div className="ao84-ingest-overview" aria-label="近 14 天模型用量">
-            <div className="ao84-subhead">
-              <BarChart3 size={16} aria-hidden="true" />
-              <strong>模型用量</strong>
-              <span>近 14 天安全聚合</span>
-            </div>
-            {llmUsageState === "loading" ? (
-              <p>正在读取模型用量…</p>
-            ) : llmUsageState === "error" ? (
-              <p className="is-error">模型用量暂时无法加载。</p>
             ) : (
               <>
-                <div className="ao84-ingest-counts">
-                  <span>
-                    <strong>{llmUsageTotals.requests}</strong>外部请求数
-                  </span>
-                  <span>
-                    <strong>{llmUsageTotals.tokens}</strong>总 token
-                  </span>
-                  <span>
+                <section
+                  className={`irc-risk${displayedNeedsRecovery ? " is-warning" : " is-clear"}`}
+                  aria-label={displayedNeedsRecovery ? "索引恢复风险" : "索引恢复状态"}
+                >
+                  {displayedNeedsRecovery ? (
+                    <AlertTriangle size={18} aria-hidden="true" />
+                  ) : (
+                    <CheckCircle2 size={18} aria-hidden="true" />
+                  )}
+                  <div>
                     <strong>
-                      {llmUsageTotals.hits + llmUsageTotals.misses
-                        ? `${Math.round((llmUsageTotals.hits / (llmUsageTotals.hits + llmUsageTotals.misses)) * 100)}%`
-                        : "0%"}
+                      {recoverySummary.interrupted
+                        ? submissionInterrupted
+                          ? `${submissionInterrupted} 项索引提交中断${parseInterrupted ? `，另有 ${parseInterrupted} 项解析中断` : ""}，等待恢复`
+                          : `${parseInterrupted || recoverySummary.interrupted} 项解析中断，等待恢复`
+                        : displayedNeedsRecovery
+                          ? `${displayedNeedsRecovery} 项索引未完成，可安全恢复`
+                          : "当前没有待恢复索引"}
                     </strong>
-                    缓存命中率
-                  </span>
-                </div>
-                {llmUsage.length > 0 && (
-                  <div className="ao84-ingest-failures" aria-label="按日和调用场景的模型用量">
-                    {llmUsage.map((item) => (
-                      <div key={`${item.day}:${item.scenario}`}>
-                        <span>{item.day}</span>
-                        <strong>
-                          {item.scenario === "content_generation" ? "内容生成" : "目录分类"}
-                        </strong>
-                        <span>
-                          {item.request_count} 次外部请求 · {item.total_tokens} token
-                        </span>
-                        <span>缓存命中率 {Math.round(item.cache_hit_rate * 100)}%</span>
-                      </div>
-                    ))}
+                    <span>
+                      {opsIndex.last_reconcile?.failed
+                        ? "底座对账仍有异常；恢复前会再次校验连接与嵌入模型。"
+                        : opsIndex.counts.parse_failed
+                          ? "解析异常已降到运行详情处理，不影响索引恢复候选判断。"
+                          : "知识底座最近对账正常，可以发起恢复。"}
+                    </span>
                   </div>
-                )}
+                  {displayedNeedsRecovery > 0 && (
+                    <button
+                      type="button"
+                      className="btn-small-primary"
+                      aria-label={
+                        activeOperation
+                          ? `正在执行：${safeJobOperation(activeOperation)}`
+                          : `恢复索引（${retryActionableCount} 项）`
+                      }
+                      onClick={() => void handleBatchRetry()}
+                      disabled={actionLocked || retryActionableCount === 0}
+                    >
+                      <RotateCw size={15} aria-hidden="true" />
+                      {activeOperation
+                        ? `正在执行：${safeJobOperation(activeOperation)}`
+                        : `恢复索引（${retryActionableCount} 项）`}
+                    </button>
+                  )}
+                </section>
+                <div className="irc-progress-grid">
+                  <section className="irc-progress-card" aria-labelledby="irc-progress-title">
+                    <header>
+                      <div>
+                        <span>恢复进度</span>
+                        <h2 id="irc-progress-title">从已入库到可检索</h2>
+                      </div>
+                      <Database size={19} aria-hidden="true" />
+                    </header>
+                    <ol className="irc-track" aria-label="索引处理轨道">
+                      <li className="is-complete">
+                        <CheckCircle2 size={17} aria-hidden="true" />
+                        <div>
+                          <span>已入库</span>
+                          <strong title="现有接口未返回去重后的入库总数">—</strong>
+                        </div>
+                      </li>
+                      <li className={submissionProcessing ? "is-active" : ""}>
+                        <RotateCw size={17} aria-hidden="true" />
+                        <div>
+                          <span>索引提交</span>
+                          <strong>{submissionProcessing}</strong>
+                        </div>
+                      </li>
+                      <li className={submissionInterrupted ? "is-interrupted" : ""}>
+                        <AlertTriangle size={17} aria-hidden="true" />
+                        <div>
+                          <span>索引提交中断</span>
+                          <strong>{submissionInterrupted || "—"}</strong>
+                        </div>
+                      </li>
+                      <li className={parseInProgress ? "is-active" : ""}>
+                        <FileSearch size={17} aria-hidden="true" />
+                        <div>
+                          <span>解析中</span>
+                          <strong>{parseInProgress || "—"}</strong>
+                        </div>
+                      </li>
+                      <li className="is-complete">
+                        <CheckCircle2 size={17} aria-hidden="true" />
+                        <div>
+                          <span>可检索</span>
+                          <strong>{recoverySummary.searchable}</strong>
+                        </div>
+                      </li>
+                    </ol>
+                  </section>
+                  <aside className="irc-current-state" aria-label="索引当前状态">
+                    <header>
+                      <span>当前状态</span>
+                      <strong>实时投影</strong>
+                    </header>
+                    <p>
+                      <AlertTriangle size={16} aria-hidden="true" />
+                      <span>索引提交中断</span>
+                      <strong>{submissionInterrupted}</strong>
+                    </p>
+                    <p>
+                      <FileSearch size={16} aria-hidden="true" />
+                      <span>解析中断</span>
+                      <strong>{parseInterrupted}</strong>
+                    </p>
+                    <p>
+                      <CheckCircle2 size={16} aria-hidden="true" />
+                      <span>已可检索</span>
+                      <strong>{recoverySummary.searchable}</strong>
+                    </p>
+                    <footer>
+                      <span>{foundationStatus}</span>
+                      <time>更新于 {foundationUpdatedAt}</time>
+                    </footer>
+                  </aside>
+                </div>
               </>
             )}
-          </div>
+          </section>
+        )}
 
-          <div className="ao84-actions" aria-label="索引恢复操作">
-            <div className="ao84-action-explanation">
-              <strong>恢复索引</strong>
-              <span>
-                处理索引提交中断或索引失败，可选未索引或已跳过；当前最多 {retryActionableCount} 项。
-              </span>
-              <strong>重新解析</strong>
-              <span>
-                仅处理已索引、已有底座文档且解析失败或待解析的资产；当前最多{" "}
-                {reparseActionableCount} 项。
-              </span>
-            </div>
-            <div className="ao84-action-options">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={retryIncludeSkipped}
-                  onChange={(event) => setRetryIncludeSkipped(event.target.checked)}
-                />
-                包含已跳过
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={retryIncludeNotIndexed}
-                  onChange={(event) => setRetryIncludeNotIndexed(event.target.checked)}
-                />
-                包含未索引
-              </label>
-              <label className="ao84-limit">
-                处理上限
-                <select
-                  value={opsLimit}
-                  onChange={(event) => setOpsLimit(Number(event.target.value))}
-                >
-                  {[20, 50, 100, 200].map((value) => (
-                    <option key={value} value={value}>
-                      {value}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <div className="ao84-action-buttons">
-              <button
-                className="btn-small"
-                disabled={actionLocked}
-                onClick={() => void handleBatchRetry()}
-              >
-                <RotateCw size={15} aria-hidden="true" />
-                {activeOperation
-                  ? `正在执行：${safeJobOperation(activeOperation)}`
-                  : `再次恢复索引（${retryActionableCount} 项）`}
-              </button>
-              <button
-                className="btn-small"
-                disabled={actionLocked}
-                onClick={() => void handleReparse()}
-              >
-                <FileSearch size={15} aria-hidden="true" />
-                {activeOperation
-                  ? `正在执行：${safeJobOperation(activeOperation)}`
-                  : `重新解析（${reparseActionableCount} 项）`}
-              </button>
-            </div>
-          </div>
-
-          {opsNote && (
-            <ActionFeedback
-              state={opsFeedbackState}
-              title={
-                opsFeedbackState === "error"
-                  ? "操作未发起"
-                  : opsFeedbackState === "partial"
-                    ? "部分完成"
-                    : opsFeedbackState === "success"
-                      ? "作业已完成"
-                      : opsFeedbackState === "submitted"
-                        ? "请求已提交"
-                        : "操作提示"
-              }
-              description={opsNote}
-            />
-          )}
-
-          <details className="ao84-jobs">
-            <summary>
+        {workspace === "jobs" && (
+          <section className="ao84-jobs" aria-label="作业记录">
+            <h2 className="ao84-subhead">
               <Clock3 size={16} aria-hidden="true" />
               最近作业
               <span>{opsJobs.length} 项</span>
-            </summary>
+            </h2>
             {jobsState === "loading" ? (
               <p>正在读取作业状态…</p>
             ) : jobsState === "error" ? (
@@ -1221,251 +1039,445 @@ export default function AdminIngestPage() {
                 ))}
               </ul>
             )}
-          </details>
+          </section>
+        )}
 
-          <details className="ao85-runtime-details">
-            <summary>
-              <span>运行健康与近 24 小时趋势</span>
-              <small>次级诊断</small>
-            </summary>
-            <section className="ao85-runtime" aria-labelledby="ao85-runtime-title">
-              <div className="ao85-runtime-head">
-                <div>
-                  <HeartPulse size={17} aria-hidden="true" />
-                  <h3 id="ao85-runtime-title">运行健康</h3>
-                </div>
-                <span>最近 24 小时</span>
+        {workspace === "runtime" && (
+          <section className="irc-runtime-details" aria-label="运行诊断">
+            <h2>运行诊断</h2>
+            <div className="ao84-ingest-overview" aria-label="入库运行概览">
+              <div className="ao84-subhead">
+                <FileSearch size={16} aria-hidden="true" />
+                <strong>入库运行概览</strong>
+                {ingestState === "ready" && <span>共 {ingestItems.length} 项</span>}
               </div>
-              {healthState === "loading" ? (
-                <div className="ao85-runtime-state" role="status">
-                  正在读取运行健康…
+              {ingestState === "loading" ? (
+                <p>正在读取入库队列…</p>
+              ) : ingestState === "error" ? (
+                <p className="is-error">入库概览暂时无法加载。</p>
+              ) : (
+                <div className="ao84-ingest-counts">
+                  {Object.entries(ingestStatusLabel).map(([status, label]) => (
+                    <span key={status}>
+                      <strong>{ingestCounts.get(status) ?? 0}</strong>
+                      {label}
+                    </span>
+                  ))}
                 </div>
-              ) : healthState === "error" || !health ? (
-                <div className="ao85-runtime-state is-error" role="alert">
-                  运行健康暂时无法加载。
+              )}
+              {ingestState === "ready" && failedIngestItems.length > 0 && (
+                <div className="ao84-ingest-failures" aria-label="入库失败恢复建议">
+                  {failedIngestItems.slice(0, 10).map((item) => (
+                    <div key={item.id}>
+                      <span>失败入库项</span>
+                      <strong>{ingestFailureLabel(item.error_type)}</strong>
+                      <span>{item.error_message ?? "文件内容无法完成处理"}</span>
+                      <span>恢复建议：由创建人在上传队列中重试或移除失败项。</span>
+                    </div>
+                  ))}
                 </div>
+              )}
+              <div className="ao84-subhead">
+                <Clock3 size={16} aria-hidden="true" />
+                <strong>历史处理超时恢复</strong>
+                <span>默认仅预检；每批最多 3 条，批次间隔至少 15 秒</span>
+              </div>
+              <div className="ao84-ingest-counts" aria-live="polite">
+                <span>
+                  <strong>{timeoutRecovery?.candidates ?? "—"}</strong>源文件完整候选
+                </span>
+                <span>
+                  <strong>{timeoutRecovery?.source_unavailable ?? "—"}</strong>需重新上传
+                </span>
+                <span>
+                  <strong>{timeoutRecovery?.preflight.ready ? "通过" : "—"}</strong>运行预检
+                </span>
+              </div>
+              {timeoutRecoveryError && <p className="is-error">{timeoutRecoveryError}</p>}
+              {timeoutRecovery?.stopped && (
+                <p className="is-error">
+                  恢复已停止：{timeoutRecoveryStopLabel(timeoutRecovery.stop_reason)}
+                </p>
+              )}
+              <div className="ao84-refresh-actions">
+                <button
+                  className="btn-small"
+                  type="button"
+                  onClick={() => void inspectProcessingTimeouts()}
+                  disabled={timeoutRecoveryBusy}
+                >
+                  {timeoutRecoveryBusy ? "检查中…" : "检查超时任务"}
+                </button>
+                <button
+                  className="btn-small-primary"
+                  type="button"
+                  onClick={() => void confirmProcessingTimeoutRecovery()}
+                  disabled={
+                    timeoutRecoveryBusy ||
+                    !timeoutRecovery?.dry_run ||
+                    !timeoutRecovery.preflight.ready ||
+                    timeoutRecovery.candidates === 0
+                  }
+                >
+                  二次确认并恢复最多 3 条
+                </button>
+              </div>
+            </div>
+
+            <div className="ao84-ingest-overview" aria-label="近 14 天模型用量">
+              <div className="ao84-subhead">
+                <BarChart3 size={16} aria-hidden="true" />
+                <strong>模型用量</strong>
+                <span>近 14 天安全聚合</span>
+              </div>
+              {llmUsageState === "loading" ? (
+                <p>正在读取模型用量…</p>
+              ) : llmUsageState === "error" ? (
+                <p className="is-error">模型用量暂时无法加载。</p>
               ) : (
                 <>
-                  <div className="ao85-runtime-statuses">
-                    {healthCards.map((card) => (
-                      <div key={card.label}>
-                        <span>{card.label}</span>
-                        <strong className={`is-${card.status}`}>{healthLabels[card.status]}</strong>
-                        {card.lastHeartbeat && <time>{formatBeijingTime(card.lastHeartbeat)}</time>}
-                        {card.detail && <small>{card.detail}</small>}
-                      </div>
-                    ))}
+                  <div className="ao84-ingest-counts">
+                    <span>
+                      <strong>{llmUsageTotals.requests}</strong>外部请求数
+                    </span>
+                    <span>
+                      <strong>{llmUsageTotals.tokens}</strong>总 token
+                    </span>
+                    <span>
+                      <strong>
+                        {llmUsageTotals.hits + llmUsageTotals.misses
+                          ? `${Math.round((llmUsageTotals.hits / (llmUsageTotals.hits + llmUsageTotals.misses)) * 100)}%`
+                          : "0%"}
+                      </strong>
+                      缓存命中率
+                    </span>
                   </div>
-                  {health.insufficient_data ? (
-                    <div className="ao85-trend-empty">
-                      <BarChart3 size={18} aria-hidden="true" />
-                      <strong>正在积累运维数据</strong>
-                      <span>形成至少两个真实小时快照后展示趋势。</span>
-                    </div>
-                  ) : (
-                    <div className="ao85-trend-block">
-                      <div className="ao85-trend-heading">
-                        <strong>近 24 小时索引运维趋势</strong>
-                        <div className="ao85-trend-legend" aria-label="趋势图例">
+                  {llmUsage.length > 0 && (
+                    <div className="ao84-ingest-failures" aria-label="按日和调用场景的模型用量">
+                      {llmUsage.map((item) => (
+                        <div key={`${item.day}:${item.scenario}`}>
+                          <span>{item.day}</span>
+                          <strong>
+                            {item.scenario === "content_generation" ? "内容生成" : "目录分类"}
+                          </strong>
                           <span>
-                            <i className="is-completed" aria-hidden="true" />
-                            深蓝：已完成索引运维作业数
+                            {item.request_count} 次外部请求 · {item.total_tokens} token
                           </span>
-                          <span>
-                            <i className="is-failed" aria-hidden="true" />
-                            红色：失败或部分失败的索引运维作业数
-                          </span>
+                          <span>缓存命中率 {Math.round(item.cache_hit_rate * 100)}%</span>
                         </div>
-                      </div>
-                      <div className="ao85-trend" aria-label="近 24 小时索引运维趋势">
-                        {health.trend_points.map((point, index) => {
-                          const label = trendPointLabel(point);
-                          const tooltipId = `ao85-trend-tooltip-${index}`;
-                          return (
-                            <div
-                              key={point.observed_at}
-                              className={`ao85-trend-point${index < 3 ? " is-near-start" : ""}${index >= health.trend_points.length - 3 ? " is-near-end" : ""}`}
-                              role="img"
-                              tabIndex={0}
-                              aria-label={label}
-                              aria-describedby={tooltipId}
-                            >
-                              <div className="ao85-trend-bars" aria-hidden="true">
-                                <span
-                                  className="is-completed"
-                                  style={{
-                                    height:
-                                      point.completed_jobs === 0
-                                        ? "0%"
-                                        : `${Math.max(2, (point.completed_jobs / trendMax) * 100)}%`,
-                                  }}
-                                />
-                                <span
-                                  className="is-failed"
-                                  style={{
-                                    height:
-                                      point.failed_jobs === 0
-                                        ? "0%"
-                                        : `${Math.max(2, (point.failed_jobs / trendMax) * 100)}%`,
-                                  }}
-                                />
-                              </div>
-                              <time
-                                className={`ao85-trend-tick${visibleTrendTicks.has(index) ? "" : " is-hidden"}`}
-                                aria-hidden="true"
-                              >
-                                {trendTickLabel(health.trend_points, index)}
-                              </time>
-                              <div id={tooltipId} className="ao85-trend-tooltip" role="tooltip">
-                                <strong>{formatBeijingTime(point.observed_at)}</strong>
-                                <span>已完成作业 {point.completed_jobs}</span>
-                                <span>失败或部分失败作业 {point.failed_jobs}</span>
-                                <span>排队作业 {point.queued_jobs}</span>
-                                <span>索引失败存量 {point.index_failed}</span>
-                                <span>解析失败存量 {point.parse_failed}</span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
+                      ))}
                     </div>
                   )}
                 </>
               )}
-            </section>
-          </details>
-        </details>
-
-        <section className="ao84-panel ao84-failures" aria-labelledby="ao84-failures-title">
-          <header className="irc-task-head">
-            <div>
-              <span className="ao84-eyebrow">恢复候选</span>
-              <h2 id="ao84-failures-title">待恢复任务</h2>
             </div>
-            <div className="irc-task-controls">
-              <span className="irc-candidate-count">候选总数 {displayedNeedsRecovery}</span>
-              {displayedNeedsRecovery > DEFAULT_VISIBLE_RECOVERY_ITEMS && (
-                <button
-                  type="button"
-                  className="btn-small"
-                  onClick={() => void toggleAllRecoveryItems()}
-                  disabled={recoveryListBusy}
-                >
-                  {recoveryListBusy
-                    ? "正在读取全部候选…"
-                    : showAllRecoveryItems
-                      ? "收起为优先项"
-                      : `查看全部 ${displayedNeedsRecovery} 项`}
-                </button>
-              )}
-              <label className="ao84-failure-filter">
-                <ListFilter size={15} aria-hidden="true" />
-                <span className="sr-only">诊断类别筛选</span>
-                <select
-                  value={failureFilter}
-                  onChange={(event) => {
-                    setFailureFilter(event.target.value as FailureFilter);
-                    showAllRecoveryItemsRef.current = false;
-                    setShowAllRecoveryItems(false);
-                  }}
-                >
-                  <option value="all">全部类别</option>
-                  {Object.entries(diagnosticLabels).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          </header>
 
-          <div className="irc-task-list-wrap">
-            {opsState === "loading" && (
-              <div className="ao84-table-state" role="status">
-                正在读取恢复任务…
-              </div>
-            )}
-            {opsState === "error" && (
-              <div className="ao84-table-state is-error" role="alert">
-                <AlertTriangle size={21} aria-hidden="true" />
-                <strong>恢复任务暂时无法加载</strong>
-                <button
-                  type="button"
-                  className="btn-small"
-                  onClick={() => void refreshAll(false)}
-                  disabled={opsBusy}
-                >
-                  <RotateCw size={14} aria-hidden="true" />
-                  刷新
-                </button>
-              </div>
-            )}
-            {opsState === "ready" && filteredRecoveryItems.length === 0 && (
-              <div className="ao84-table-state irc-empty-state">
-                <CheckCircle2 size={22} aria-hidden="true" />
-                <strong>
-                  {failureFilter === "all" ? "当前没有待恢复索引" : "当前筛选下没有任务"}
-                </strong>
-                <span>可查看作业结果，或展开运行详情检查解析与队列状态。</span>
-                <button
-                  type="button"
-                  className="btn-small"
-                  onClick={() =>
-                    failureFilter === "all" ? showRuntimeDetails() : setFailureFilter("all")
-                  }
-                  disabled={opsBusy}
-                >
-                  {failureFilter === "all" ? (
-                    <Clock3 size={14} aria-hidden="true" />
-                  ) : (
-                    <ListFilter size={14} aria-hidden="true" />
-                  )}
-                  {failureFilter === "all" ? "查看运行详情" : "查看全部类别"}
-                </button>
-              </div>
-            )}
-            {opsState === "ready" && failedItems.length > 0 && (
-              <ul className="irc-task-list" aria-label="待恢复任务列表">
-                {failedItems.map((item) => (
-                  <li key={item.retry_target ?? `${item.scope}-${item.updated_at}`}>
-                    <div className="irc-task-object">
-                      <AlertTriangle size={17} aria-hidden="true" />
-                      <div>
-                        <strong>{item.title}</strong>
-                        <span>{safeFailureMessage(item)}</span>
+            <section className="ao85-runtime-details">
+              <h2>运行健康与近 24 小时趋势</h2>
+              <section className="ao85-runtime" aria-labelledby="ao85-runtime-title">
+                <div className="ao85-runtime-head">
+                  <div>
+                    <HeartPulse size={17} aria-hidden="true" />
+                    <h3 id="ao85-runtime-title">运行健康</h3>
+                  </div>
+                  <span>最近 24 小时</span>
+                </div>
+                {healthState === "loading" ? (
+                  <div className="ao85-runtime-state" role="status">
+                    正在读取运行健康…
+                  </div>
+                ) : healthState === "error" || !health ? (
+                  <div className="ao85-runtime-state is-error" role="alert">
+                    运行健康暂时无法加载。
+                  </div>
+                ) : (
+                  <>
+                    <div className="ao85-runtime-statuses">
+                      {healthCards.map((card) => (
+                        <div key={card.label}>
+                          <span>{card.label}</span>
+                          <strong className={`is-${card.status}`}>
+                            {healthLabels[card.status]}
+                          </strong>
+                          {card.lastHeartbeat && (
+                            <time>{formatBeijingTime(card.lastHeartbeat)}</time>
+                          )}
+                          {card.detail && <small>{card.detail}</small>}
+                        </div>
+                      ))}
+                    </div>
+                    {health.insufficient_data ? (
+                      <div className="ao85-trend-empty">
+                        <BarChart3 size={18} aria-hidden="true" />
+                        <strong>正在积累运维数据</strong>
+                        <span>形成至少两个真实小时快照后展示趋势。</span>
                       </div>
-                    </div>
-                    <div className="irc-task-fact">
-                      <span>当前状态</span>
-                      <strong className={`ao84-status is-${failureTone(item)}`}>
-                        {recoveryStateLabel(item)}
-                      </strong>
-                    </div>
-                    <div className="irc-task-fact">
-                      <span>等待时长</span>
-                      <strong>{recoveryWaitLabel(item.wait_seconds)}</strong>
-                    </div>
-                    <div className="irc-task-fact">
-                      <span>下一步</span>
-                      <strong>{item.retry_eligible ? "恢复索引" : "核查配置或内容"}</strong>
-                    </div>
+                    ) : (
+                      <div className="ao85-trend-block">
+                        <div className="ao85-trend-heading">
+                          <strong>近 24 小时索引运维趋势</strong>
+                          <div className="ao85-trend-legend" aria-label="趋势图例">
+                            <span>
+                              <i className="is-completed" aria-hidden="true" />
+                              深蓝：已完成索引运维作业数
+                            </span>
+                            <span>
+                              <i className="is-failed" aria-hidden="true" />
+                              红色：失败或部分失败的索引运维作业数
+                            </span>
+                          </div>
+                        </div>
+                        <div className="ao85-trend" aria-label="近 24 小时索引运维趋势">
+                          {health.trend_points.map((point, index) => {
+                            const label = trendPointLabel(point);
+                            const tooltipId = `ao85-trend-tooltip-${index}`;
+                            return (
+                              <div
+                                key={point.observed_at}
+                                className={`ao85-trend-point${index < 3 ? " is-near-start" : ""}${index >= health.trend_points.length - 3 ? " is-near-end" : ""}`}
+                                role="img"
+                                tabIndex={0}
+                                aria-label={label}
+                                aria-describedby={tooltipId}
+                              >
+                                <div className="ao85-trend-bars" aria-hidden="true">
+                                  <span
+                                    className="is-completed"
+                                    style={{
+                                      height:
+                                        point.completed_jobs === 0
+                                          ? "0%"
+                                          : `${Math.max(2, (point.completed_jobs / trendMax) * 100)}%`,
+                                    }}
+                                  />
+                                  <span
+                                    className="is-failed"
+                                    style={{
+                                      height:
+                                        point.failed_jobs === 0
+                                          ? "0%"
+                                          : `${Math.max(2, (point.failed_jobs / trendMax) * 100)}%`,
+                                    }}
+                                  />
+                                </div>
+                                <time
+                                  className={`ao85-trend-tick${visibleTrendTicks.has(index) ? "" : " is-hidden"}`}
+                                  aria-hidden="true"
+                                >
+                                  {trendTickLabel(health.trend_points, index)}
+                                </time>
+                                <div id={tooltipId} className="ao85-trend-tooltip" role="tooltip">
+                                  <strong>{formatBeijingTime(point.observed_at)}</strong>
+                                  <span>已完成作业 {point.completed_jobs}</span>
+                                  <span>失败或部分失败作业 {point.failed_jobs}</span>
+                                  <span>排队作业 {point.queued_jobs}</span>
+                                  <span>索引失败存量 {point.index_failed}</span>
+                                  <span>解析失败存量 {point.parse_failed}</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </section>
+            </section>
+          </section>
+        )}
+
+        {workspace === "recovery" && (
+          <>
+            <div className="ao84-actions" aria-label="索引恢复操作">
+              <div className="ao84-action-explanation">
+                <strong>恢复索引</strong>
+                <span>
+                  处理索引提交中断或索引失败，可选未索引或已跳过；当前最多 {retryActionableCount}{" "}
+                  项。
+                </span>
+                <strong>重新解析</strong>
+                <span>
+                  仅处理已索引、已有底座文档且解析失败或待解析的资产；当前最多{" "}
+                  {reparseActionableCount} 项。
+                </span>
+              </div>
+              <div className="ao84-action-options">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={retryIncludeSkipped}
+                    onChange={(event) => setRetryIncludeSkipped(event.target.checked)}
+                  />
+                  包含已跳过
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={retryIncludeNotIndexed}
+                    onChange={(event) => setRetryIncludeNotIndexed(event.target.checked)}
+                  />
+                  包含未索引
+                </label>
+                <label className="ao84-limit">
+                  处理上限
+                  <select
+                    value={opsLimit}
+                    onChange={(event) => setOpsLimit(Number(event.target.value))}
+                  >
+                    {[20, 50, 100, 200].map((value) => (
+                      <option key={value} value={value}>
+                        {value}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="ao84-action-buttons">
+                <button
+                  className="btn-small"
+                  disabled={actionLocked}
+                  onClick={() => void handleReparse()}
+                >
+                  <FileSearch size={15} aria-hidden="true" />
+                  {activeOperation
+                    ? `正在执行：${safeJobOperation(activeOperation)}`
+                    : `重新解析（${reparseActionableCount} 项）`}
+                </button>
+              </div>
+            </div>
+            <section className="ao84-panel ao84-failures" aria-labelledby="ao84-failures-title">
+              <header className="irc-task-head">
+                <div>
+                  <span className="ao84-eyebrow">恢复候选</span>
+                  <h2 id="ao84-failures-title">待恢复任务</h2>
+                </div>
+                <div className="irc-task-controls">
+                  <span className="irc-candidate-count">候选总数 {displayedNeedsRecovery}</span>
+                  {displayedNeedsRecovery > DEFAULT_VISIBLE_RECOVERY_ITEMS && (
                     <button
                       type="button"
-                      className="btn-small ao85-target-retry"
-                      onClick={() => {
-                        setTargetError(null);
-                        setRetryTarget(item);
+                      className="btn-small"
+                      onClick={() => void toggleAllRecoveryItems()}
+                      disabled={recoveryListBusy}
+                    >
+                      {recoveryListBusy
+                        ? "正在读取全部候选…"
+                        : showAllRecoveryItems
+                          ? "收起为优先项"
+                          : `查看全部 ${displayedNeedsRecovery} 项`}
+                    </button>
+                  )}
+                  <label className="ao84-failure-filter">
+                    <ListFilter size={15} aria-hidden="true" />
+                    <span className="sr-only">诊断类别筛选</span>
+                    <select
+                      value={failureFilter}
+                      onChange={(event) => {
+                        setFailureFilter(event.target.value as FailureFilter);
+                        showAllRecoveryItemsRef.current = false;
+                        setShowAllRecoveryItems(false);
                       }}
                     >
-                      查看详情
+                      <option value="all">全部类别</option>
+                      {Object.entries(diagnosticLabels).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              </header>
+
+              <div className="irc-task-list-wrap">
+                {opsState === "loading" && (
+                  <div className="ao84-table-state" role="status">
+                    正在读取恢复任务…
+                  </div>
+                )}
+                {opsState === "error" && (
+                  <div className="ao84-table-state is-error" role="alert">
+                    <AlertTriangle size={21} aria-hidden="true" />
+                    <strong>恢复任务暂时无法加载</strong>
+                    <button
+                      type="button"
+                      className="btn-small"
+                      onClick={() => void refreshAll(false)}
+                      disabled={opsBusy}
+                    >
+                      <RotateCw size={14} aria-hidden="true" />
+                      刷新
                     </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </section>
+                  </div>
+                )}
+                {opsState === "ready" && filteredRecoveryItems.length === 0 && (
+                  <div className="ao84-table-state irc-empty-state">
+                    <CheckCircle2 size={22} aria-hidden="true" />
+                    <strong>
+                      {failureFilter === "all" ? "当前没有待恢复索引" : "当前筛选下没有任务"}
+                    </strong>
+                    <span>可查看作业结果，或展开运行详情检查解析与队列状态。</span>
+                    <button
+                      type="button"
+                      className="btn-small"
+                      onClick={() =>
+                        failureFilter === "all" ? showRuntimeDetails() : setFailureFilter("all")
+                      }
+                      disabled={opsBusy}
+                    >
+                      {failureFilter === "all" ? (
+                        <Clock3 size={14} aria-hidden="true" />
+                      ) : (
+                        <ListFilter size={14} aria-hidden="true" />
+                      )}
+                      {failureFilter === "all" ? "查看运行详情" : "查看全部类别"}
+                    </button>
+                  </div>
+                )}
+                {opsState === "ready" && failedItems.length > 0 && (
+                  <ul className="irc-task-list" aria-label="待恢复任务列表">
+                    {failedItems.map((item) => (
+                      <li key={item.retry_target ?? `${item.scope}-${item.updated_at}`}>
+                        <div className="irc-task-object">
+                          <AlertTriangle size={17} aria-hidden="true" />
+                          <div>
+                            <strong>{item.title}</strong>
+                            <span>{safeFailureMessage(item)}</span>
+                          </div>
+                        </div>
+                        <div className="irc-task-fact">
+                          <span>当前状态</span>
+                          <strong className={`ao84-status is-${failureTone(item)}`}>
+                            {recoveryStateLabel(item)}
+                          </strong>
+                        </div>
+                        <div className="irc-task-fact">
+                          <span>等待时长</span>
+                          <strong>{recoveryWaitLabel(item.wait_seconds)}</strong>
+                        </div>
+                        <div className="irc-task-fact">
+                          <span>下一步</span>
+                          <strong>{item.retry_eligible ? "恢复索引" : "核查配置或内容"}</strong>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn-small ao85-target-retry"
+                          onClick={() => {
+                            setTargetError(null);
+                            setRetryTarget(item);
+                          }}
+                        >
+                          查看详情
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </section>
+          </>
+        )}
       </div>
 
       <DetailDrawer

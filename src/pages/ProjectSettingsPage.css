@@ -128,7 +128,7 @@
 .ps74-layout {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(300px, 0.92fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: 22px;
   margin-top: 20px;
@@ -577,8 +577,7 @@
 }
 
 .ps74-review-column {
-  position: sticky;
-  top: 0;
+  position: static;
 }
 
 .ps74-review-header {
@@ -759,7 +758,7 @@
   }
 
   .ps74-layout {
-    grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.85fr);
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .ps74-settings-grid,
@@ -823,4 +822,27 @@
   .ps74-wecom-controls {
     grid-template-columns: 1fr;
   }
+}
+
+.ps74-section-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 12px 0;
+}
+.ps74-section-nav a {
+  color: var(--color-primary);
+}
+.ps74-section h2,
+.ps74-review-header h2 {
+  scroll-margin-top: 24px;
+}
+.ps74-save-actions {
+  margin-top: 18px;
+}
+.ps74-section:has(.ps74-save-actions) {
+  overflow: visible;
+}
+.ps74-section-header > button {
+  flex-shrink: 0;
 }

@@ -1743,3 +1743,17 @@
     animation: none;
   }
 }
+
+.irc-workspace-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.irc-workspace-tabs [aria-pressed="true"] {
+  background: var(--color-primary, #243e55);
+  color: #fff;
+}
+.irc-runtime-details > h2 {
+  margin: 0 0 16px;
+}

@@ -344,7 +344,11 @@ describe("KnowledgeListPage reference implementation", () => {
     });
     expect(screen.getByRole("link", { name: "上传资产" })).toHaveAttribute("href", "/upload");
     expect(screen.queryByText(/运营洞察|新建项目知识库/)).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "在当前目录检索" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "标题与标签" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "正文与摘要" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /删除|预览|下载/ })).not.toBeInTheDocument();
   });
 
@@ -359,15 +363,62 @@ describe("KnowledgeListPage reference implementation", () => {
     expect(screen.queryByRole("table", { name: "知识资产列表" })).not.toBeInTheDocument();
   });
 
+  it("keeps the list query when switching search modes and does not retrieve until submitted", async () => {
+    renderPage();
+    await screen.findByText(restrictedAsset.title);
+    fireEvent.change(screen.getByLabelText("关键词"), { target: { value: "交付方法" } });
+    fireEvent.click(screen.getByRole("button", { name: "搜索" }));
+    fireEvent.click(screen.getByRole("button", { name: "正文与摘要" }));
+    expect(screen.getByLabelText("正文关键词或内容描述")).toBeInTheDocument();
+    expect(screen.queryByRole("table", { name: "知识资产列表" })).not.toBeInTheDocument();
+    expect(searchKnowledge).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "标题与标签" }));
+    expect(screen.getByLabelText("关键词")).toHaveValue("交付方法");
+    expect(await screen.findByRole("table", { name: "知识资产列表" })).toBeInTheDocument();
+  });
+
+  it("discards a content-search response after leaving its directory", async () => {
+    let resolveSearch!: (result: Awaited<ReturnType<typeof searchKnowledge>>) => void;
+    vi.mocked(searchKnowledge).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSearch = resolve;
+        }),
+    );
+    renderPage();
+    await screen.findByText(restrictedAsset.title);
+    fireEvent.click(screen.getByRole("button", { name: "正文与摘要" }));
+    fireEvent.change(screen.getByLabelText("正文关键词或内容描述"), {
+      target: { value: "唯一正文编号" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "检索内容" }));
+    fireEvent.click(screen.getByRole("button", { name: "知识资产库" }));
+    await act(async () =>
+      resolveSearch({
+        intent: "search",
+        cards: [],
+        answer: "旧目录检索结果",
+        citations: [],
+        original: null,
+        trace_id: null,
+      }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /公司库/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /01 公司方法论/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "正文与摘要" }));
+    expect(screen.queryByText("旧目录检索结果")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "检索内容" })).toBeEnabled();
+  });
+
   it("only crosses directories after the user explicitly enters global search", async () => {
     renderPage("/knowledge");
     fireEvent.click(await screen.findByRole("button", { name: /全库搜索/ }));
     expect(screen.getByRole("heading", { name: "全库搜索" })).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("用自然语言描述要找的内容"), {
+    fireEvent.change(screen.getByLabelText("正文关键词或内容描述"), {
       target: { value: "跨目录方法" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "语义检索" }));
+    fireEvent.click(screen.getByRole("button", { name: "检索内容" }));
     await waitFor(() =>
       expect(searchKnowledge).toHaveBeenCalledWith({
         query: "跨目录方法",
@@ -691,9 +742,13 @@ describe("KnowledgeListPage reference implementation", () => {
     expect(screen.getByText("可查看摘要，原文受限")).toBeInTheDocument();
     expect(screen.getByText(longProjectAsset.title)).toBeInTheDocument();
     expect(screen.getByText("可查看摘要与原文")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "查看详情" })).toHaveLength(2);
+    expect(screen.getByRole("link", { name: "打开详情" })).toHaveAttribute(
+      "href",
+      `/knowledge/${longProjectAsset.id}`,
+    );
+    expect(screen.getByRole("button", { name: "查看摘要" })).toBeInTheDocument();
     const titleLink = screen.getByRole("button", {
-      name: `查看《${restrictedAsset.title}》详情`,
+      name: `快速查看《${restrictedAsset.title}》`,
     });
     titleLink.focus();
     expect(titleLink).toHaveFocus();
@@ -715,7 +770,7 @@ describe("KnowledgeListPage reference implementation", () => {
       });
       const user = userEvent.setup();
       renderPage();
-      await user.click(await screen.findByRole("button", { name: `查看《${asset.title}》详情` }));
+      await user.click(await screen.findByRole("button", { name: `快速查看《${asset.title}》` }));
       const drawer = await screen.findByRole("dialog", { name: asset.title });
       expect(drawer).toHaveTextContent("安全摘要待处理");
       expect(drawer).toHaveTextContent(
@@ -726,7 +781,7 @@ describe("KnowledgeListPage reference implementation", () => {
       await user.click(within(drawer).getByRole("button", { name: "关闭详情" }));
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
       expect(
-        screen.getByRole("button", { name: `查看《${asset.title}》详情` }),
+        screen.getByRole("button", { name: `快速查看《${asset.title}》` }),
       ).toBeInTheDocument();
       expect(fetchKnowledgePage).toHaveBeenCalledTimes(1);
     },
@@ -745,10 +800,10 @@ describe("KnowledgeListPage reference implementation", () => {
     const user = userEvent.setup();
     renderPage();
     await user.click(
-      await screen.findByRole("button", { name: `查看《${restrictedAsset.title}》详情` }),
+      await screen.findByRole("button", { name: `快速查看《${restrictedAsset.title}》` }),
     );
     await user.click(screen.getByRole("button", { name: "关闭详情" }));
-    await user.click(screen.getByRole("button", { name: `查看《${longProjectAsset.title}》详情` }));
+    await user.click(screen.getByRole("button", { name: `快速查看《${longProjectAsset.title}》` }));
     const drawer = await screen.findByRole("dialog", { name: longProjectAsset.title });
     expect(within(drawer).getByRole("link", { name: "打开完整详情" })).toHaveAttribute(
       "href",
@@ -818,10 +873,12 @@ describe("KnowledgeListPage reference implementation", () => {
     fireEvent.click(screen.getByRole("button", { name: "取消" }));
     expect(requestOriginalAccess).not.toHaveBeenCalled();
 
-    fireEvent.change(screen.getByLabelText("用自然语言描述要找的内容"), {
+    fireEvent.click(screen.getByRole("button", { name: "正文与摘要" }));
+    expect(screen.queryByRole("table", { name: "知识资产列表" })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("正文关键词或内容描述"), {
       target: { value: "项目复盘方法" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "语义检索" }));
+    fireEvent.click(screen.getByRole("button", { name: "检索内容" }));
     await waitFor(() =>
       expect(searchKnowledge).toHaveBeenCalledWith({
         query: "项目复盘方法",

@@ -223,30 +223,33 @@ export default function AdminCompanyKbPage() {
               )}
 
               {canDelete && companyKb?.exists && (
-                <div className="ckb-delete-form">
-                  <label>
-                    <span>输入“{companyKb.display_name ?? "公司知识库"}”以确认删除</span>
-                    <input
-                      type="text"
-                      value={deleteConfirmName}
-                      disabled={actionBusy}
-                      onChange={(event) => setDeleteConfirmName(event.target.value)}
-                      placeholder={companyKb.display_name ?? "公司知识库"}
-                      autoComplete="off"
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    className="btn-small pp-remove-btn ckb-delete-btn"
-                    disabled={
-                      actionBusy ||
-                      deleteConfirmName.trim() !== (companyKb.display_name ?? "公司知识库")
-                    }
-                    onClick={() => void handleDelete()}
-                  >
-                    <Trash2 size={13} /> {actionBusy ? "删除中…" : "删除公司知识库"}
-                  </button>
-                </div>
+                <details className="ckb-danger-zone">
+                  <summary>危险操作</summary>
+                  <div className="ckb-delete-form">
+                    <label>
+                      <span>输入“{companyKb.display_name ?? "公司知识库"}”以确认删除</span>
+                      <input
+                        type="text"
+                        value={deleteConfirmName}
+                        disabled={actionBusy}
+                        onChange={(event) => setDeleteConfirmName(event.target.value)}
+                        placeholder={companyKb.display_name ?? "公司知识库"}
+                        autoComplete="off"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="btn-small pp-remove-btn ckb-delete-btn"
+                      disabled={
+                        actionBusy ||
+                        deleteConfirmName.trim() !== (companyKb.display_name ?? "公司知识库")
+                      }
+                      onClick={() => void handleDelete()}
+                    >
+                      <Trash2 size={13} /> {actionBusy ? "删除中…" : "删除公司知识库"}
+                    </button>
+                  </div>
+                </details>
               )}
             </div>
           )}

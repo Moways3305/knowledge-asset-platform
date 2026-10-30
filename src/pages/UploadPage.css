@@ -2197,8 +2197,97 @@
   flex-wrap: wrap;
   gap: 8px;
 }
+.upload-workspace-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 16px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.upload-workspace-tabs button {
+  padding: 10px 16px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+.upload-workspace-tabs [aria-current="page"] {
+  color: var(--color-primary);
+  border-bottom: 2px solid currentColor;
+  font-weight: 600;
+}
+.upload-batch-controls > summary {
+  cursor: pointer;
+  padding: 8px;
+}
+.upload-batch-controls[open] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.upload-selected-actions {
+  position: sticky;
+  top: 10px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 12px 0;
+  padding: 12px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+}
+.upload-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 12px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+.upload77-confirm .form-actions .upload77-submit,
+.upload77-page .form-actions .upload77-submit,
+.upload77-page .form-actions .upload77-reject,
+.upload77-page .form-actions .upload77-exit {
+  width: auto;
+  margin: 0;
+}
+.my-upload-final-status {
+  font-weight: 600;
+  color: var(--color-text-heading);
+}
+.my-uploads details > summary {
+  cursor: pointer;
+  color: var(--color-text-secondary);
+}
 @media (max-width: 600px) {
   .upload-unified-table {
-    min-width: 620px;
+    min-width: 0;
+  }
+  .upload-unified-table thead {
+    display: none;
+  }
+  .upload-unified-table tbody {
+    display: block;
+  }
+  .upload-unified-table tr {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr);
+    padding: 12px;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .upload-unified-table td {
+    width: auto;
+    padding: 6px;
+    border: 0;
+    min-width: 0;
+  }
+  .upload-unified-table td:first-child {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .upload-unified-table td:not(:first-child) {
+    grid-column: 2;
   }
 }

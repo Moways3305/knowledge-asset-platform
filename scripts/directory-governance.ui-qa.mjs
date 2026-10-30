@@ -189,9 +189,8 @@ try {
     await page.goto(`${base}/admin/naming-rules`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "目录治理" }).waitFor();
 
-    const companyCard = page
-      .locator(".naming-project-settings")
-      .filter({ hasText: "company.methodology" });
+    await page.getByRole("button", { name: "编辑02 方法论" }).click();
+    const companyCard = page.locator(".naming-directory-row:has(.naming-project-settings)");
     await companyCard.getByLabel("目录名称").fill("02 方法与工具");
     await companyCard.getByLabel("目录说明").fill("模型、工具与可复用方法");
     await companyCard.getByLabel("命名短码").fill("方法工具");
@@ -201,16 +200,19 @@ try {
     await page.getByRole("button", { name: /保存草稿/ }).click();
     await page.getByText("目录草稿已保存；发布前不会影响新入库资料。").waitFor();
 
-    await page.getByRole("tab", { name: "项目目录" }).click();
-    await page.locator('input[value="03 交付成果"]').waitFor();
-    const projectDirectoryVisible = await page.locator('input[value="05 项目复盘"]').isVisible();
+    await page.getByRole("button", { name: "项目目录" }).click();
+    await page.getByRole("button", { name: "编辑03 交付成果" }).waitFor();
+    const projectDirectoryVisible = await page
+      .getByRole("button", { name: "编辑05 项目复盘" })
+      .isVisible();
 
     await page.getByRole("button", { name: /历史待治理/ }).click();
-    await page.getByText(/总计 2 · 待人工 1 · 无明确候选 1/).waitFor();
+    await page.getByText(/资产总计 2 · 已归类 0 · 待治理 2 · 待人工 1 · 无明确候选 1/).waitFor();
     const migrationVisible =
       (await page.getByText("历史项目复盘材料").isVisible()) &&
       (await page.getByText("05 项目复盘", { exact: true }).last().isVisible());
 
+    await page.getByRole("button", { name: "目录草稿" }).click();
     await page.getByRole("button", { name: /发布正式目录/ }).click();
     await page.getByText("正式目录已发布，新上传和项目发布将立即使用本版本。").waitFor();
 

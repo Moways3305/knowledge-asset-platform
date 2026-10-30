@@ -261,7 +261,7 @@ for (const scenario of scenarios) {
       await page.goto(`${base}/knowledge`, { waitUntil: "networkidle" });
       await page.getByRole("button", { name: /公司库/ }).click();
       await page.getByRole("button", { name: /01 公司方法论/ }).click();
-      await page.getByRole("button", { name: "查看详情", exact: true }).click();
+      await page.getByRole("button", { name: /^快速查看《/ }).click();
       const drawer = page.getByRole("dialog", { name: "客户增长项目复盘方法论" });
       await drawer.getByRole("heading", { name: "核心信息" }).waitFor();
       await drawer.getByRole("link", { name: "打开完整详情" }).click();
@@ -301,12 +301,39 @@ for (const scenario of scenarios) {
       assert.equal(await page.getByLabel("处理说明或纠错问题").count(), 0);
       const trigger = page.getByRole("button", { name: "知识维护与复核", exact: true });
       const gaps = await page.locator(".kdetail-primary-action").evaluate((element) => {
-        const boxes = [...element.children].map((child) => child.getBoundingClientRect());
-        return boxes.slice(1).map((box, index) => box.top - boxes[index].bottom);
+        const boxes = [...element.querySelectorAll("button, a")]
+          .map((child) => child.getBoundingClientRect())
+          .filter((box) => box.width > 0 && box.height > 0);
+        return boxes.flatMap((box, index) =>
+          boxes
+            .slice(index + 1)
+            .map((other) =>
+              Math.max(
+                other.left - box.right,
+                box.left - other.right,
+                other.top - box.bottom,
+                box.top - other.bottom,
+              ),
+            ),
+        );
       });
       assert(
-        gaps.every((gap) => gap >= 10),
-        "详情操作按钮需要明确间距",
+        gaps.every((gap) => gap >= 6),
+        "阅读和编辑动作在水平或换行排列时都应保持间距",
+      );
+      assert.equal(
+        await page
+          .locator(".kdetail-primary-action")
+          .getByRole("button", { name: "发布到公司知识库" })
+          .count(),
+        0,
+      );
+      assert.equal(
+        await page
+          .locator(".kdetail-governance-panel")
+          .getByRole("button", { name: "知识维护与复核" })
+          .count(),
+        1,
       );
       await trigger.click();
       const dialog = page.getByRole("dialog", { name: "知识维护与复核", exact: true });
@@ -376,6 +403,9 @@ for (const scenario of scenarios) {
       };
     }, lifecycleCases);
     const screenshot = path.join(outDir, `${scenario}-${viewport.name}.png`);
+    await page
+      .locator(".kdetail-page")
+      .evaluate((element) => element.scrollIntoView({ block: "start" }));
     await page.screenshot({
       path: screenshot,
       fullPage: scenario === "governed",

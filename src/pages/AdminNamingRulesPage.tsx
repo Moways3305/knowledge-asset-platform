@@ -8,6 +8,7 @@ import {
   publishNamingRuleDraft,
   saveNamingRuleDraft,
 } from "../api/naming";
+import { FormActions } from "../components/ActionLayout";
 import Button from "../components/Button";
 import { PageHeader, ProductPage } from "../components/ProductLayout";
 import StatusBadge from "../components/StatusBadge";
@@ -25,9 +26,13 @@ export default function AdminNamingRulesPage() {
   const [center, setCenter] = useState<Awaited<ReturnType<typeof fetchNamingRuleCenter>> | null>(
     null,
   );
+  const [editingKey, setEditingKey] = useState<string | null>(null);
   const [scope, setScope] = useState<NamingScope>("company");
   const [newParent, setNewParent] = useState(
     () => new URLSearchParams(window.location.search).get("parent") ?? "",
+  );
+  const [createOpen, setCreateOpen] = useState(() =>
+    new URLSearchParams(window.location.search).has("parent"),
   );
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -289,26 +294,6 @@ export default function AdminNamingRulesPage() {
         eyebrow="组织与知识治理"
         title="目录治理"
         description="维护正式目录的显示、命名短码与默认密级；历史类别只保留用于审计，不再参与新资料归属。"
-        actions={
-          <>
-            <Button variant="secondary" onClick={() => void openMigration()}>
-              <ArchiveRestore size={16} /> 历史待治理
-            </Button>
-            <Button
-              variant="secondary"
-              disabled={busy || conflicted || loadingCenter}
-              onClick={() => void save()}
-            >
-              <Save size={16} /> 保存草稿
-            </Button>
-            <Button
-              disabled={busy || conflicted || loadingCenter || hasUnsavedChanges}
-              onClick={() => void publish()}
-            >
-              <Send size={16} /> 发布正式目录
-            </Button>
-          </>
-        }
       />
 
       {(error || notice) && (
@@ -349,161 +334,240 @@ export default function AdminNamingRulesPage() {
         </div>
       </section>
 
-      <div className="naming-scope-tabs" role="tablist" aria-label="目录范围">
-        {(["company", "project"] as const).map((value) => (
-          <button
-            aria-selected={scope === value}
-            className={scope === value ? "is-active" : ""}
-            key={value}
-            onClick={() => setScope(value)}
-            role="tab"
-            type="button"
-          >
-            {scopeLabel(value)}
-          </button>
-        ))}
+      <div className="naming-scope-tabs" role="group" aria-label="目录治理工作区">
+        <button
+          className={!migrationOpen ? "is-active" : ""}
+          aria-pressed={!migrationOpen}
+          onClick={() => setMigrationOpen(false)}
+        >
+          目录草稿
+        </button>
+        <button
+          className={migrationOpen ? "is-active" : ""}
+          aria-pressed={migrationOpen}
+          onClick={() => void openMigration()}
+        >
+          <ArchiveRestore size={16} /> 历史待治理
+        </button>
       </div>
-
-      <section className="naming-directory-governance" aria-label={scopeLabel(scope)}>
-        {scope === "company" && (
-          <form
-            className="naming-project-settings"
-            onSubmit={(event) => {
-              event.preventDefault();
-              addCompanyDirectory();
-            }}
-          >
-            <h2>新建三级目录</h2>
-            <p>公司库 / 标准分类 / 三级目录。发布后可用于上传、资料编辑和目录浏览。</p>
-            <label>
-              所属分类
-              <select
-                value={newParent}
-                onChange={(event) => setNewParent(event.target.value)}
-                disabled={busy || loadingCenter}
-                required
+      {!migrationOpen && (
+        <>
+          <div className="naming-scope-tabs" role="group" aria-label="目录范围">
+            {(["company", "project"] as const).map((value) => (
+              <button
+                aria-pressed={scope === value}
+                className={scope === value ? "is-active" : ""}
+                key={value}
+                onClick={() => {
+                  setScope(value);
+                  setEditingKey(null);
+                }}
+                type="button"
               >
-                <option value="">请选择分类</option>
-                {companyParents.map((item) => (
-                  <option key={item.directory_key} value={item.directory_key}>
-                    {item.display_name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              三级目录名称
-              <input
-                value={newName}
-                onChange={(event) => setNewName(event.target.value)}
-                maxLength={40}
-                disabled={busy || loadingCenter}
-                required
-              />
-            </label>
-            <Button type="submit" disabled={busy || loadingCenter}>
-              添加到草稿
-            </Button>
-          </form>
-        )}
-        <header>
-          <div>
-            <h2>{scopeLabel(scope)}</h2>
-            <p>稳定键不可修改；名称、说明、排序、命名短码和默认密级随目录版本发布。</p>
+                {scopeLabel(value)}
+              </button>
+            ))}
           </div>
-          <StatusBadge label={`${directories.length} 个目录`} tone="neutral" />
-        </header>
-        <div className="naming-directory-list">
-          {directories.map((directory) => (
-            <article className="naming-project-settings" key={directory.directory_key}>
-              <div>
-                <strong>{directory.display_name}</strong>
-                {directory.parent_key && (
-                  <span>
-                    所属分类：
-                    {companyParents.find((item) => item.directory_key === directory.parent_key)
-                      ?.display_name ?? directory.parent_key}
-                  </span>
-                )}
-                <code>{directory.directory_key}</code>
-              </div>
-              <label>
-                <span>目录名称</span>
-                <input
-                  disabled={publishing || loadingCenter}
-                  value={directory.display_name}
-                  onChange={(event) =>
-                    updateDirectory(directory.directory_key, { display_name: event.target.value })
-                  }
-                />
-              </label>
-              <label>
-                <span>目录说明</span>
-                <input
-                  disabled={publishing || loadingCenter}
-                  value={directory.description ?? ""}
-                  onChange={(event) =>
-                    updateDirectory(directory.directory_key, { description: event.target.value })
-                  }
-                />
-              </label>
-              <label>
-                <span>命名短码</span>
-                <input
-                  disabled={publishing || loadingCenter}
-                  value={directory.naming_code ?? ""}
-                  placeholder="例如 方法论"
-                  onChange={(event) =>
-                    updateDirectory(directory.directory_key, { naming_code: event.target.value })
-                  }
-                />
-              </label>
-              <label>
-                <span>默认密级</span>
-                <select
-                  disabled={publishing || loadingCenter}
-                  value={directory.default_confidentiality ?? "L2"}
-                  onChange={(event) =>
-                    updateDirectory(directory.directory_key, {
-                      default_confidentiality: event.target.value,
-                    })
-                  }
+
+          <section className="naming-directory-governance" aria-label={scopeLabel(scope)}>
+            {scope === "company" && (
+              <details
+                className="naming-create-panel"
+                open={createOpen}
+                onToggle={(event) => setCreateOpen(event.currentTarget.open)}
+              >
+                <summary>新建三级目录</summary>
+                <form
+                  className="naming-project-settings"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    addCompanyDirectory();
+                  }}
                 >
-                  {levels.map((level) => (
-                    <option key={level}>{level}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                <span>排序</span>
-                <input
-                  disabled={publishing || loadingCenter}
-                  type="number"
-                  min={0}
-                  max={10000}
-                  value={directory.sort_order}
-                  onChange={(event) =>
-                    updateDirectory(directory.directory_key, {
-                      sort_order: Number(event.target.value),
-                    })
-                  }
-                />
-              </label>
-              <label className="naming-category-toggle">
-                <input
-                  disabled={publishing || loadingCenter}
-                  type="checkbox"
-                  checked={directory.enabled}
-                  onChange={(event) =>
-                    updateDirectory(directory.directory_key, { enabled: event.target.checked })
-                  }
-                />
-                <span>启用目录</span>
-              </label>
-            </article>
-          ))}
-        </div>
-      </section>
+                  <h2>新建三级目录</h2>
+                  <p>公司库 / 标准分类 / 三级目录。发布后可用于上传、资料编辑和目录浏览。</p>
+                  <label>
+                    所属分类
+                    <select
+                      value={newParent}
+                      onChange={(event) => setNewParent(event.target.value)}
+                      disabled={busy || loadingCenter}
+                      required
+                    >
+                      <option value="">请选择分类</option>
+                      {companyParents.map((item) => (
+                        <option key={item.directory_key} value={item.directory_key}>
+                          {item.display_name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    三级目录名称
+                    <input
+                      value={newName}
+                      onChange={(event) => setNewName(event.target.value)}
+                      maxLength={40}
+                      disabled={busy || loadingCenter}
+                      required
+                    />
+                  </label>
+                  <Button type="submit" variant="primary" disabled={busy || loadingCenter}>
+                    添加到草稿
+                  </Button>
+                </form>
+              </details>
+            )}
+            <header>
+              <div>
+                <h2>{scopeLabel(scope)}</h2>
+                <p>稳定键不可修改；名称、说明、排序、命名短码和默认密级随目录版本发布。</p>
+              </div>
+              <StatusBadge label={`${directories.length} 个目录`} tone="neutral" />
+            </header>
+            <div className="naming-directory-list">
+              {directories.map((directory) => (
+                <article className="naming-directory-row" key={directory.directory_key}>
+                  <div>
+                    <strong>{directory.display_name}</strong>
+                    {directory.parent_key && (
+                      <span>
+                        所属分类：
+                        {companyParents.find((item) => item.directory_key === directory.parent_key)
+                          ?.display_name ?? directory.parent_key}
+                      </span>
+                    )}
+                    <span className="naming-directory-summary">
+                      {directory.description || "暂无目录说明"} ·{" "}
+                      {directory.default_confidentiality ?? "L2"} ·{" "}
+                      {directory.enabled ? "已启用" : "已停用"}
+                    </span>
+                    <Button
+                      size="small"
+                      aria-label={`${editingKey === directory.directory_key ? "完成编辑" : "编辑"}${directory.display_name}`}
+                      onClick={() =>
+                        setEditingKey(
+                          editingKey === directory.directory_key ? null : directory.directory_key,
+                        )
+                      }
+                    >
+                      {editingKey === directory.directory_key ? "完成编辑" : "编辑"}
+                    </Button>
+                  </div>
+                  {editingKey === directory.directory_key && (
+                    <div className="naming-project-settings">
+                      <label>
+                        <span>目录名称</span>
+                        <input
+                          disabled={publishing || loadingCenter}
+                          value={directory.display_name}
+                          onChange={(event) =>
+                            updateDirectory(directory.directory_key, {
+                              display_name: event.target.value,
+                            })
+                          }
+                        />
+                      </label>
+                      <label>
+                        <span>目录说明</span>
+                        <input
+                          disabled={publishing || loadingCenter}
+                          value={directory.description ?? ""}
+                          onChange={(event) =>
+                            updateDirectory(directory.directory_key, {
+                              description: event.target.value,
+                            })
+                          }
+                        />
+                      </label>
+                      <label>
+                        <span>命名短码</span>
+                        <input
+                          disabled={publishing || loadingCenter}
+                          value={directory.naming_code ?? ""}
+                          placeholder="例如 方法论"
+                          onChange={(event) =>
+                            updateDirectory(directory.directory_key, {
+                              naming_code: event.target.value,
+                            })
+                          }
+                        />
+                      </label>
+                      <label>
+                        <span>默认密级</span>
+                        <select
+                          disabled={publishing || loadingCenter}
+                          value={directory.default_confidentiality ?? "L2"}
+                          onChange={(event) =>
+                            updateDirectory(directory.directory_key, {
+                              default_confidentiality: event.target.value,
+                            })
+                          }
+                        >
+                          {levels.map((level) => (
+                            <option key={level}>{level}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>排序</span>
+                        <input
+                          disabled={publishing || loadingCenter}
+                          type="number"
+                          min={0}
+                          max={10000}
+                          value={directory.sort_order}
+                          onChange={(event) =>
+                            updateDirectory(directory.directory_key, {
+                              sort_order: Number(event.target.value),
+                            })
+                          }
+                        />
+                      </label>
+                      <label className="naming-category-toggle">
+                        <input
+                          disabled={publishing || loadingCenter}
+                          type="checkbox"
+                          checked={directory.enabled}
+                          onChange={(event) =>
+                            updateDirectory(directory.directory_key, {
+                              enabled: event.target.checked,
+                            })
+                          }
+                        />
+                        <span>启用目录</span>
+                      </label>
+                      <p className="naming-draft-hint">
+                        修改会保留在本页草稿中，请使用下方“保存草稿”。
+                      </p>
+                    </div>
+                  )}
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <FormActions
+            sticky
+            description={hasUnsavedChanges ? "当前有未保存的目录修改" : "发布只使用已保存的草稿"}
+          >
+            <Button
+              variant="primary"
+              disabled={busy || conflicted || loadingCenter}
+              onClick={() => void save()}
+            >
+              <Save size={16} /> 保存草稿
+            </Button>
+            <Button
+              variant="secondary"
+              disabled={busy || conflicted || loadingCenter || hasUnsavedChanges}
+              onClick={() => void publish()}
+            >
+              <Send size={16} /> 发布正式目录
+            </Button>
+          </FormActions>
+        </>
+      )}
 
       {migrationOpen && (
         <section className="naming-migration-panel" aria-label="历史待治理队列">
@@ -589,6 +653,7 @@ export default function AdminNamingRulesPage() {
                 </button>
               </div>
               <Button
+                variant="primary"
                 disabled={migrationBusy || migrationSelection.length === 0}
                 onClick={() => void migrateSelected()}
               >

@@ -24,6 +24,10 @@ export default function UploadPage() {
     handleReset,
     localPendingTasks,
     handleSelectPendingTask,
+    targetLocked,
+    targetLibrary,
+    setTargetLibrary,
+    setTargetProjectId,
   } = flow;
   const confirmationOpen = confirmReady || confirmSubmitted;
   const resumedTask = useRef<string | null>(null);
@@ -50,8 +54,45 @@ export default function UploadPage() {
     if (requested === "local" && activePath !== "b") switchPath("b");
   }, [activePath, searchParams, switchPath]);
 
+  const projectPrefill = useRef<string | null>(null);
+  const sourceProject = (flow.projects ?? []).find(
+    (project) => project.projectId === searchParams.get("project_id"),
+  );
+  useEffect(() => {
+    if (
+      !sourceProject ||
+      activePath !== "b" ||
+      !confirmReady ||
+      !taskId ||
+      targetLocked ||
+      projectPrefill.current === taskId
+    )
+      return;
+    projectPrefill.current = taskId;
+    if (!targetLibrary) {
+      setTargetLibrary("project");
+      setTargetProjectId(sourceProject.projectId);
+    }
+  }, [
+    sourceProject,
+    activePath,
+    confirmReady,
+    taskId,
+    targetLocked,
+    targetLibrary,
+    setTargetLibrary,
+    setTargetProjectId,
+  ]);
+
   const selectSource = (path: "a" | "b") => {
-    setSearchParams({ source: path === "a" ? "wecom" : "local" }, { replace: true });
+    setSearchParams(
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        next.set("source", path === "a" ? "wecom" : "local");
+        return next;
+      },
+      { replace: true },
+    );
     switchPath(path);
   };
 
@@ -89,25 +130,47 @@ export default function UploadPage() {
         }
       />
 
-      <div className="upload77-source-switch" aria-label="资料来源">
+      <nav className="upload-workspace-tabs" aria-label="上传工作区">
         <button
-          className={activePath === "b" ? "is-active" : ""}
-          onClick={() => selectSource("b")}
           type="button"
+          aria-current={!historyOpen ? "page" : undefined}
+          onClick={() => setHistoryOpen(false)}
         >
-          本地上传
+          上传
         </button>
         <button
-          className={activePath === "a" ? "is-active" : ""}
-          onClick={() => selectSource("a")}
           type="button"
+          aria-current={historyOpen ? "page" : undefined}
+          onClick={() => setHistoryOpen(true)}
         >
-          企微微盘待确认
+          上传记录
         </button>
-        <button type="button" onClick={() => setHistoryOpen(true)}>
-          我上传的资料
-        </button>
-      </div>
+      </nav>
+      {sourceProject && !historyOpen && (
+        <p className="upload-project-context">
+          当前项目：{sourceProject.projectName}。确认入库时仍可核对目标。
+        </p>
+      )}
+      {!historyOpen && !confirmationOpen && (
+        <div className="upload77-source-switch" aria-label="资料来源">
+          <button
+            className={activePath === "b" ? "is-active" : ""}
+            aria-pressed={activePath === "b"}
+            onClick={() => selectSource("b")}
+            type="button"
+          >
+            本地上传
+          </button>
+          <button
+            className={activePath === "a" ? "is-active" : ""}
+            aria-pressed={activePath === "a"}
+            onClick={() => selectSource("a")}
+            type="button"
+          >
+            企微微盘待确认
+          </button>
+        </div>
+      )}
 
       {historyOpen && (
         <MyUploadsPanel onClose={() => setHistoryOpen(false)} onReupload={handleReset} />
