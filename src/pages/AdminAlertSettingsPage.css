@@ -1,0 +1,113 @@
+.alert-settings-page .secops-table-wrap {
+  overflow-x: auto;
+}
+
+.alert-settings-page .secops-table {
+  min-width: 540px;
+}
+
+.alert-settings-page .alert-severity-column {
+  width: 72px;
+}
+
+.alert-settings-page .alert-threshold-column {
+  width: 184px;
+}
+
+.alert-settings-page .alert-status-column {
+  width: 88px;
+}
+
+.alert-settings-page .secops-threshold {
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
+  align-items: flex-start;
+}
+
+.alert-threshold-value,
+.alert-threshold-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.alert-threshold-value {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.alert-threshold-value input,
+.alert-threshold-value > span {
+  flex: 0 0 auto;
+}
+
+.alert-threshold-actions {
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.alert-threshold-actions button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+@media (max-width: 700px) {
+  .alert-settings-page .secops-table {
+    min-width: 0;
+  }
+
+  .alert-settings-page .secops-table thead {
+    display: none;
+  }
+
+  .alert-settings-page .secops-table tbody {
+    display: block;
+  }
+
+  .alert-settings-page .secops-table tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 12px;
+    padding: 12px;
+    border-top: 1px solid var(--color-border-light);
+  }
+
+  .alert-settings-page .secops-table td {
+    min-width: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .alert-settings-page .secops-table td:first-child {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .alert-settings-page .secops-table td:nth-child(2) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .alert-settings-page .secops-table td:nth-child(3) {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+
+  .alert-settings-page .secops-table td:nth-child(3)::before {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--color-text-secondary);
+    content: "阈值";
+  }
+
+  .alert-settings-page .secops-table td:last-child {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .alert-settings-page .secops-table td[colspan] {
+    grid-column: 1 / -1;
+  }
+}

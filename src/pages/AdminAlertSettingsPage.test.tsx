@@ -72,15 +72,32 @@ describe("AdminAlertSettingsPage", () => {
     expect(document.body.innerHTML).not.toContain("raw webhook credential");
   });
 
-  it("cancels a changed threshold without writing it", async () => {
-    render(<AdminAlertSettingsPage />);
-    fireEvent.click(await screen.findByRole("button", { name: "编辑连续登录失败阈值" }));
-    fireEvent.change(screen.getByLabelText("连续登录失败阈值"), { target: { value: "11" } });
-    fireEvent.click(screen.getByRole("button", { name: "取消" }));
-    expect(updateAlertRule).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "编辑连续登录失败阈值" }));
-    expect(screen.getByLabelText("连续登录失败阈值")).toHaveValue(5);
-  });
+  it.each([
+    { threshold: 5, unit: "versions" },
+    { threshold: 120, unit: "minutes" },
+    { threshold: 360, unit: "minutes" },
+  ])(
+    "cancels an edited $threshold $unit threshold without writing or toggling it",
+    async ({ threshold, unit }) => {
+      vi.mocked(fetchAlertRules).mockResolvedValue({
+        items: [{ ...rule, threshold, threshold_unit: unit }],
+      });
+      render(<AdminAlertSettingsPage />);
+      fireEvent.click(await screen.findByRole("button", { name: "编辑连续登录失败阈值" }));
+      const actions = screen.getByRole("group", { name: "连续登录失败阈值操作" });
+      const status = screen.getByRole("button", { name: "连续登录失败停用" });
+      expect(status).toBeDisabled();
+      expect(actions).not.toContainElement(status);
+      fireEvent.change(screen.getByLabelText("连续登录失败阈值"), { target: { value: "11" } });
+      fireEvent.click(within(actions).getByRole("button", { name: "取消" }));
+      expect(updateAlertRule).not.toHaveBeenCalled();
+      expect(screen.queryByLabelText("连续登录失败阈值")).not.toBeInTheDocument();
+      expect(status).toBeEnabled();
+      expect(screen.getByText(unit)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "编辑连续登录失败阈值" }));
+      expect(screen.getByLabelText("连续登录失败阈值")).toHaveValue(threshold);
+    },
+  );
 
   it("keeps another row's draft when an earlier save resolves", async () => {
     const other = { ...rule, id: "second-rule", rule_name: "上传失败", threshold: 3 };
