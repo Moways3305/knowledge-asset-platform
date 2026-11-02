@@ -491,7 +491,12 @@ export default function KnowledgeDetailPage() {
               <time>更新于 {formatBeijingTime(asset.metadataUpdatedAt || asset.updatedAt)}</time>
             )}
           </div>
-          <h1>{asset.title}</h1>
+          <div className="kdetail-object-title">
+            <span className="workspace-file-mark" aria-hidden="true">
+              <FileText size={23} />
+            </span>
+            <h1>{asset.title}</h1>
+          </div>
           {!crossProjectSummary && asset.canonicalName && (
             <p className="kd-canonical-name">{asset.canonicalName}</p>
           )}

@@ -1,6 +1,6 @@
 import ProjectWorkspaceNav from "../components/ProjectWorkspaceNav";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bot, CheckSquare, Plus, RefreshCw, Send, Upload } from "lucide-react";
+import { Bot, CheckSquare, FolderKanban, Plus, RefreshCw, Send, Upload } from "lucide-react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   fetchProjectOverview,
@@ -228,7 +228,14 @@ function ProjectWorkspace({
   return (
     <ProductPage className="project78-page">
       <PageHeader
-        title={overview.project.name}
+        title={
+          <span className="project78-object-title">
+            <span className="workspace-project-mark" aria-hidden="true">
+              <FolderKanban size={24} />
+            </span>
+            {overview.project.name}
+          </span>
+        }
         description={
           <>
             {overview.project.client_name && <span>{overview.project.client_name} · </span>}

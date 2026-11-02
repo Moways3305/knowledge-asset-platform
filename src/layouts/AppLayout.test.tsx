@@ -131,10 +131,9 @@ describe("AppLayout shell contract", () => {
 
   it("keeps the product brand and real identity menu in the shell", () => {
     const { container } = renderLayout();
-    expect(screen.getByRole("img", { name: "MOWAYS 博维咨询" })).toHaveAttribute(
-      "src",
-      "/moways-logo.png",
-    );
+    const logos = screen.getAllByRole("img", { name: "MOWAYS 博维咨询" });
+    expect(logos).toHaveLength(2);
+    logos.forEach((logo) => expect(logo).toHaveAttribute("src", "/moways-logo.png"));
     expect(screen.queryByText("KAP")).not.toBeInTheDocument();
     expect(container.querySelector(".rail-sub")).toHaveTextContent("博维知识资产平台");
     expect(container.querySelector(".deck-title")).toHaveTextContent("今日工作台");
@@ -203,6 +202,20 @@ describe("AppLayout shell contract", () => {
     );
   });
 
+  it("uses the same permitted project and full menu in mobile navigation", () => {
+    renderLayout("/project/project-real-64/knowledge");
+    expect(screen.getByRole("link", { name: "底部项目空间" })).toHaveAttribute(
+      "href",
+      "/project/project-real-64",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "打开全部功能导航" }));
+    expect(screen.getByRole("button", { name: "关闭导航" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByRole("link", { name: "原文访问审批" })).toBeInTheDocument();
+  });
+
   it("hides project business entries for admin even when project membership remains assigned", () => {
     auth.capabilities.isBoss = false;
     auth.capabilities.isBusinessUser = false;
@@ -212,6 +225,7 @@ describe("AppLayout shell contract", () => {
     expect(screen.queryByRole("link", { name: "项目空间" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "项目知识库" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "项目设置" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "底部项目空间" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "入库管理" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "登录风控" })).toBeInTheDocument();
   });

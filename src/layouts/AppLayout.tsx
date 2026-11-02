@@ -45,6 +45,7 @@ import "../styles/people-permissions-governance.css";
 import "../styles/help-global-experience.css";
 import "../styles/experience-system.css";
 import "../styles/admin-console.css";
+import "../styles/refined-workspaces.css";
 
 // 每个导航项带一个能力谓词 `cap`，与页面级守卫（RouteGuard）共用 `can` 判定，
 // 保证「看得到的入口 = 进得去的页面」。无权入口直接不渲染，而非渲染后再报错。
@@ -310,7 +311,7 @@ function AppShell() {
   };
   return (
     <div
-      className={`app-layout ${railCollapsed ? "is-rail-collapsed" : ""} ${
+      className={`app-layout refined-shell ${/^\/(knowledge(?:\/|$)|project\/|review(?:\/|$)|original-access(?:\/|$))/.test(location.pathname) ? "is-refined-workspace" : ""} ${railCollapsed ? "is-rail-collapsed" : ""} ${
         mobileNavOpen ? "is-mobile-nav-open" : ""
       }`}
     >
@@ -395,6 +396,13 @@ function AppShell() {
               <Menu size={18} aria-hidden="true" />
             )}
           </button>
+          <img
+            className="deck-brand-logo"
+            src="/moways-logo.png"
+            alt="MOWAYS 博维咨询"
+            width={984}
+            height={327}
+          />
           <div className="deck-context">
             <span className="deck-eyebrow">博维知识资产平台</span>
             <strong className="deck-title">{currentModuleTitle(location.pathname)}</strong>
@@ -415,6 +423,36 @@ function AppShell() {
             </Suspense>
           </ErrorBoundary>
         </main>
+        <nav className="mobile-workspace-nav" aria-label="手机快捷导航">
+          {can.viewHome(capabilities) && (
+            <NavLink to="/" end aria-label="底部今日工作台">
+              <LayoutDashboard size={20} aria-hidden="true" />
+              <span>工作台</span>
+            </NavLink>
+          )}
+          {can.viewKnowledge(capabilities) && (
+            <NavLink to="/knowledge" aria-label="底部知识资产库">
+              <LibraryBig size={20} aria-hidden="true" />
+              <span>知识</span>
+            </NavLink>
+          )}
+          {can.viewProject(capabilities) && projectId && (
+            <NavLink to={`/project/${projectId}`} aria-label="底部项目空间">
+              <FolderKanban size={20} aria-hidden="true" />
+              <span>项目</span>
+            </NavLink>
+          )}
+          <button
+            type="button"
+            aria-label="打开全部功能导航"
+            aria-expanded={mobileNavOpen}
+            aria-controls="primary-navigation"
+            onClick={() => setMobileNavOpen((value) => !value)}
+          >
+            <Menu size={20} aria-hidden="true" />
+            <span>全部</span>
+          </button>
+        </nav>
       </div>
     </div>
   );

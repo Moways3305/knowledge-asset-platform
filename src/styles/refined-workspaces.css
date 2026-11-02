@@ -1,0 +1,835 @@
+/* Approved desktop/mobile direction. Presentation only: retain existing routes,
+   capability predicates, data sources and event handlers. Home keeps its tokens. */
+.refined-shell {
+  --workspace-blue: #336df4;
+  --workspace-tint: #edf3ff;
+  --workspace-line: #e4e8ef;
+  --workspace-canvas: #f5f7fa;
+}
+
+.refined-shell.is-refined-workspace {
+  --color-primary: var(--workspace-blue);
+  --color-primary-deep: #2457ce;
+  --color-accent-1: var(--workspace-blue);
+  --color-accent-soft: var(--workspace-tint);
+  --color-bg-hover: #f0f4fc;
+  --color-border: var(--workspace-line);
+  --color-text-heading: #1f2329;
+  --color-text-secondary: #646d7b;
+  --color-text-tertiary: #737c8a;
+  --radius-md: 7px;
+  --radius-lg: 10px;
+  --paper: var(--workspace-canvas);
+}
+
+/* Keep the complete product navigation, including every permitted admin entry. */
+.refined-shell .rail {
+  background: #f0f3f8;
+  border-right-color: var(--workspace-line);
+  --rail-text: #465063;
+  --rail-text-dim: #69758a;
+  --rail-hover: #e7edf7;
+  --rail-active: var(--workspace-tint);
+  --rail-divider: var(--workspace-line);
+}
+.refined-shell .rail::before {
+  display: none;
+}
+.refined-shell .rail-brand {
+  padding: 20px 16px 16px;
+}
+.refined-shell .rail-mark {
+  background: white;
+  border-radius: 7px;
+}
+.refined-shell .rail-sub {
+  letter-spacing: 0.03em;
+  color: #646d7b;
+}
+.refined-shell .rail-collapse {
+  border-color: #d5dce8;
+}
+.refined-shell .rail-collapse:hover {
+  color: var(--workspace-blue);
+  border-color: #b6c9f2;
+}
+.refined-shell .rail-nav {
+  padding-inline: 10px;
+  scrollbar-color: #c4cfdf transparent;
+}
+.refined-shell .rail-group-label {
+  padding: 0 12px 7px;
+  letter-spacing: 0.04em;
+  font-size: 11px;
+}
+.refined-shell .rail-nav li a {
+  margin-bottom: 3px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 7px;
+  font-size: 13px;
+}
+.refined-shell .rail-nav li a:is(:hover, .active) {
+  color: var(--workspace-blue);
+}
+.refined-shell .rail-nav li a:is(:hover, .active) .rail-icon {
+  color: var(--workspace-blue);
+}
+.refined-shell .rail-foot-link:hover {
+  color: var(--workspace-blue);
+}
+.refined-shell .rail-identity .idm-trigger {
+  background: #fff;
+  border-color: var(--workspace-line);
+}
+.refined-shell .rail-identity .idm-trigger:is(:hover, .is-open) {
+  border-color: #b6c9f2;
+  background: #fff;
+}
+.refined-shell .rail-identity .idm-trigger-name {
+  color: #263047;
+}
+.refined-shell .rail-foot-error {
+  color: #b3322f;
+}
+.refined-shell .deck-eyebrow {
+  color: #737c8a;
+  font-family: var(--font-sans);
+  letter-spacing: 0.02em;
+}
+.refined-shell .deck-title {
+  letter-spacing: 0;
+}
+.deck-brand-logo,
+.mobile-workspace-nav {
+  display: none;
+}
+.refined-shell .rail-foot .release-unread-dot {
+  background: var(--workspace-blue);
+  box-shadow: 0 0 0 3px #336df418;
+}
+
+/* Shared visual objects are decorative; their adjacent real titles remain accessible. */
+.workspace-file-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 42px;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  color: var(--workspace-blue, #336df4);
+  background: var(--workspace-tint, #edf3ff);
+}
+.workspace-project-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
+  border-radius: 11px;
+  color: #fff;
+  background: var(--workspace-blue, #336df4);
+}
+.refined-shell .product-page-header {
+  padding-bottom: 16px;
+}
+.refined-shell .product-page-title-line h2 {
+  font-weight: 650;
+}
+.refined-shell.is-refined-workspace .product-page-heading > p {
+  line-height: 1.7;
+}
+.refined-shell.is-refined-workspace :is(.product-button, .gw-action, .btn-primary, .btn-secondary) {
+  border-radius: 7px;
+}
+
+/* Library: scope/directory navigation and the result surface stay distinct. */
+.refined-shell .kbl-workspace {
+  grid-template-columns: 206px minmax(0, 1fr);
+  gap: 20px;
+}
+.refined-shell .kbl-navigation {
+  border-color: var(--workspace-line);
+  border-radius: 10px;
+  padding: 12px;
+}
+.refined-shell .kbl-library-nav button {
+  min-height: 42px;
+  border-radius: 7px;
+}
+.refined-shell .kbl-navigation button[aria-current="page"] {
+  background: var(--workspace-tint);
+  box-shadow: none;
+}
+.refined-shell .kbl-directory-tree button {
+  border-radius: 6px;
+  font-size: 13px;
+}
+.refined-shell .kbl-filter-form .product-filter-bar {
+  border-radius: 9px;
+  background: #fff;
+  border-color: var(--workspace-line);
+}
+.refined-shell .kbl-list-section {
+  border-radius: 10px;
+  border-color: var(--workspace-line);
+}
+.refined-shell .kbl-asset {
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 12px;
+}
+.refined-shell .kbl-title-link {
+  color: var(--color-text-heading);
+  font-weight: 600;
+  line-height: 1.6;
+}
+.refined-shell .kbl-title-link:hover {
+  color: var(--workspace-blue);
+}
+.refined-shell .kbl-table td {
+  padding-block: 18px;
+}
+.refined-shell .kbl-table th {
+  background: #f7f9fc;
+}
+.refined-shell .kbl-access {
+  border-radius: 5px;
+}
+.refined-shell .kbl-page .product-section-header {
+  background: #fff;
+}
+
+/* Object detail: a readable document surface with nearby permission and version facts. */
+.refined-shell .kdetail-header {
+  border: 1px solid var(--workspace-line);
+  border-radius: 10px;
+  box-shadow: none;
+  padding: 24px;
+}
+.kdetail-object-title {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  margin: 14px 0 12px;
+  min-width: 0;
+}
+.refined-shell .kdetail-object-title h1 {
+  margin: 0;
+  font-size: 26px;
+  line-height: 1.45;
+  min-width: 0;
+}
+.refined-shell .kdetail-layout {
+  gap: 20px;
+  margin-top: 0;
+}
+.refined-shell .kdetail-panel {
+  border-color: var(--workspace-line);
+  border-radius: 10px;
+  box-shadow: none;
+}
+.refined-shell section.kdetail-panel {
+  padding: 24px;
+}
+.refined-shell .kdetail-panel-heading {
+  color: var(--color-text-heading);
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--workspace-line);
+}
+.refined-shell .kdetail-panel :is(p, li) {
+  line-height: 1.85;
+}
+.refined-shell .kdetail-timeline-dot {
+  background: var(--workspace-blue);
+}
+.refined-shell .kdetail-back {
+  margin-bottom: 0;
+  font-weight: 500;
+}
+.refined-shell .kdetail-side-column {
+  gap: 14px;
+}
+
+/* Approval pages use their existing queue and decision dialogs, not a second flow. */
+.refined-shell .gw-page {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.refined-shell .gw-page > .product-page-header {
+  grid-column: 1 / -1;
+  margin: 0;
+  border-color: var(--workspace-line);
+}
+.refined-shell .gw-route-tabs {
+  flex-direction: column;
+  gap: 5px;
+  border: 1px solid var(--workspace-line);
+  background: #fff;
+  padding: 12px;
+  border-radius: 10px;
+  margin: 0;
+}
+.refined-shell .gw-route-tabs a {
+  min-height: 42px;
+  padding: 10px 9px;
+  gap: 9px;
+  border-radius: 7px;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+.refined-shell .gw-route-tabs a::after {
+  display: none;
+}
+.refined-shell .gw-route-tabs a:is(:hover, .is-active) {
+  color: var(--workspace-blue);
+  background: var(--workspace-tint);
+}
+.refined-shell .gw-workspace > h2 {
+  margin: 0 0 16px;
+  font-size: 18px;
+}
+.refined-shell .gw-toolbar {
+  border-color: var(--workspace-line);
+  border-radius: 9px 9px 0 0;
+  padding: 14px 16px;
+}
+.refined-shell .gw-filter-label select {
+  background: #fff;
+  border-radius: 6px;
+}
+.refined-shell .gw-table-wrap {
+  border-color: var(--workspace-line);
+  border-radius: 0 0 9px 9px;
+}
+.refined-shell .gw-table th {
+  background: #f7f9fc;
+  color: var(--color-text-secondary);
+}
+.refined-shell .gw-table td {
+  padding-block: 16px;
+  line-height: 1.65;
+}
+.refined-shell .gw-title-cell {
+  color: var(--color-text-heading);
+}
+.refined-shell .gw-type-tag {
+  background: var(--workspace-tint);
+  color: var(--workspace-blue);
+  border-color: #dbe6ff;
+}
+.refined-shell .gw-action.is-primary {
+  background: var(--workspace-blue);
+  border-color: var(--workspace-blue);
+}
+.refined-shell .gw-box-switch button.is-active {
+  color: var(--workspace-blue);
+}
+.refined-shell .gw-evidence-drawer {
+  gap: 20px;
+}
+.refined-shell .gw-evidence-requirement {
+  padding: 14px 16px;
+  border-radius: 8px;
+  background: var(--workspace-tint);
+}
+
+/* Project: distinct summary, work and document regions; conversation keeps sources. */
+.project78-object-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  overflow-wrap: anywhere;
+}
+.refined-shell .project-workspace-nav {
+  padding: 0;
+  gap: 24px;
+}
+.refined-shell .project-workspace-nav a {
+  display: inline-flex;
+  align-items: center;
+  padding: 11px 1px;
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+}
+.refined-shell .project-workspace-nav [aria-current="page"] {
+  color: var(--workspace-blue);
+  background: transparent;
+  border-bottom-color: var(--workspace-blue);
+}
+.refined-shell .project78-overview {
+  gap: 20px;
+}
+.refined-shell .project78-facts {
+  padding: 18px 24px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 10px;
+  background: #fff;
+}
+.refined-shell .project78-facts > div + div {
+  border-left: 1px solid var(--workspace-line);
+  padding-left: 20px;
+}
+.refined-shell .project78-overview .product-section {
+  border-radius: 10px;
+  border-color: var(--workspace-line);
+}
+.refined-shell .project78-work-summary {
+  padding: 16px;
+  background: var(--workspace-canvas);
+  border-radius: 8px;
+}
+.refined-shell .project78-recent-list a {
+  color: var(--color-text-heading);
+}
+.refined-shell .project78-recent-list a:hover {
+  color: var(--workspace-blue);
+}
+.refined-shell .project78-members {
+  border-radius: 10px;
+  border-color: var(--workspace-line);
+}
+.refined-shell .project78-assistant {
+  border-radius: 12px;
+  border-color: var(--workspace-line);
+  background: #f8fafd;
+}
+.refined-shell .project78-assistant-header {
+  background: #fff;
+  border-radius: 12px 12px 0 0;
+}
+.refined-shell :is(.project78-bot-mark, .project78-message-avatar) {
+  background: var(--workspace-blue);
+  color: #fff;
+  border-radius: 9px;
+}
+.refined-shell .project78-conversation {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.refined-shell .project78-message {
+  width: 100%;
+  margin: 0;
+  gap: 12px;
+}
+.refined-shell .project78-message.is-user {
+  width: fit-content;
+  max-width: 86%;
+  align-self: flex-end;
+  background: var(--workspace-tint);
+  border-radius: 12px 12px 3px 12px;
+}
+.refined-shell .project78-message.is-assistant > div {
+  background: #fff;
+  border: 1px solid var(--workspace-line);
+  border-radius: 10px;
+  padding: 18px;
+}
+.refined-shell .project78-message.is-error > div {
+  background: transparent;
+  border: 0;
+}
+.refined-shell .project78-citation {
+  padding: 12px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 7px;
+  background: var(--workspace-canvas);
+}
+.refined-shell .project78-composer {
+  border-color: #c7d5ef;
+  border-radius: 10px;
+  box-shadow: 0 3px 12px #20447709;
+}
+.refined-shell .project78-send {
+  border-radius: 7px;
+}
+
+@media (min-width: 861px) {
+  .refined-shell.is-rail-collapsed .deck-brand-logo {
+    display: block;
+    width: 110px;
+    height: auto;
+  }
+}
+@media (min-width: 701px) {
+  .refined-shell .gw-table td[data-column="actions"],
+  .refined-shell .gw-table th:is(.gw-col-review-actions, .gw-col-access-actions) {
+    position: sticky;
+    right: 0;
+    z-index: 1;
+    background: #fff;
+    box-shadow: -1px 0 var(--workspace-line);
+  }
+  .refined-shell .gw-table th:is(.gw-col-review-actions, .gw-col-access-actions) {
+    background: #f7f9fc;
+  }
+}
+@media (min-width: 1101px) {
+  .refined-shell .project78-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .refined-shell .project78-overview > :is(.project78-facts, .project78-members) {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 1100px) {
+  .refined-shell .kbl-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .refined-shell .gw-page {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .refined-shell .gw-route-tabs {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 5px;
+    padding: 5px;
+    width: fit-content;
+    max-width: 100%;
+  }
+}
+@media (max-width: 860px) {
+  .refined-shell .deck {
+    gap: 10px;
+    padding-inline: 14px;
+  }
+  .refined-shell .deck-brand-logo {
+    display: block;
+    width: 84px;
+    height: auto;
+    flex: 0 0 auto;
+  }
+  .refined-shell .deck-eyebrow {
+    display: none;
+  }
+  .refined-shell .deck-title {
+    font-size: 13px;
+  }
+  .refined-shell .deck-actions {
+    gap: 6px;
+  }
+  .refined-shell .app-content {
+    padding-bottom: 24px;
+  }
+  .refined-shell .mobile-workspace-nav {
+    display: flex;
+    flex: 0 0 auto;
+    justify-content: space-around;
+    gap: 4px;
+    padding: 7px 8px calc(7px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--workspace-line);
+    background: #fff;
+  }
+  .mobile-workspace-nav a,
+  .mobile-workspace-nav button {
+    min-width: 0;
+    flex: 1;
+    min-height: 48px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    color: #646d7b;
+    font: inherit;
+    font-size: 11px;
+    background: transparent;
+    border: 0;
+    border-radius: 7px;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .mobile-workspace-nav a.active {
+    color: var(--workspace-blue);
+    background: var(--workspace-tint);
+  }
+  .mobile-workspace-nav :focus-visible {
+    outline: 2px solid var(--workspace-blue);
+    outline-offset: -2px;
+  }
+}
+@media (max-width: 700px) {
+  .refined-shell .gw-page > .product-page-header {
+    align-items: stretch;
+  }
+  .refined-shell .product-page-header {
+    padding-bottom: 4px;
+  }
+  .refined-shell .kbl-navigation {
+    padding: 7px 10px;
+    border-radius: 9px;
+  }
+  .refined-shell .kbl-library-nav button {
+    border-radius: 0;
+    border-bottom: 2px solid transparent;
+    min-height: 44px;
+  }
+  .refined-shell .kbl-library-nav button[aria-current="page"] {
+    border-bottom-color: var(--workspace-blue);
+    background: transparent;
+  }
+  .refined-shell .kbl-mobile-directory-toggle {
+    min-height: 44px;
+  }
+  .refined-shell .kbl-list-section {
+    border: 0;
+    background: transparent;
+  }
+  .refined-shell .kbl-table tbody {
+    gap: 12px;
+  }
+  .refined-shell .kbl-table tbody tr {
+    padding: 16px;
+    gap: 14px;
+    border: 1px solid var(--workspace-line);
+    border-radius: 10px;
+    background: #fff;
+  }
+  .refined-shell .kbl-table tbody td {
+    padding: 0;
+  }
+  .refined-shell .kbl-table tbody tr:last-child {
+    border-bottom: 1px solid var(--workspace-line);
+  }
+  .refined-shell .kbl-title-link {
+    font-size: 15px;
+  }
+  .refined-shell .kdetail-header {
+    padding: 18px 16px;
+    gap: 16px;
+  }
+  .refined-shell .kdetail-object-title h1 {
+    font-size: 22px;
+  }
+  .refined-shell .kdetail-primary-action {
+    width: 100%;
+    border-top: 1px solid var(--workspace-line);
+    padding-top: 14px;
+  }
+  .refined-shell .kdetail-primary-action .action-group-primary {
+    flex: 1;
+  }
+  .refined-shell .kdetail-primary-action .btn-primary {
+    width: 100%;
+    min-height: 44px;
+  }
+  .refined-shell section.kdetail-panel {
+    padding: 18px 16px;
+  }
+  .refined-shell .kdetail-panel :is(p, li) {
+    font-size: 15px;
+  }
+  .refined-shell .gw-page {
+    gap: 12px;
+  }
+  .refined-shell .gw-route-tabs {
+    width: 100%;
+    gap: 3px;
+  }
+  .refined-shell .gw-route-tabs a {
+    flex: 1 1 calc(50% - 3px);
+    font-size: 13px;
+  }
+  .refined-shell .gw-toolbar {
+    flex-wrap: wrap;
+    gap: 12px;
+    border: 1px solid var(--workspace-line);
+    border-radius: 9px;
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+  .refined-shell .gw-toolbar-fields {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+  .refined-shell .gw-filter-label {
+    flex: 1 1 120px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .refined-shell .gw-filter-label select {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+  }
+  .refined-shell .gw-toolbar-actions {
+    flex-wrap: wrap;
+  }
+  .refined-shell .gw-page .product-table-scroll-hint {
+    display: none;
+  }
+  .refined-shell .gw-table-wrap {
+    min-height: 0;
+    overflow: visible;
+    background: transparent;
+    border: 0;
+  }
+  .refined-shell .gw-table {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+  .refined-shell .gw-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .refined-shell .gw-table tbody {
+    display: grid;
+    gap: 12px;
+  }
+  .refined-shell .gw-table tbody tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    padding: 16px;
+    background: #fff;
+    border: 1px solid var(--workspace-line);
+    border-radius: 10px;
+  }
+  .refined-shell .gw-table tbody td {
+    display: block;
+    height: auto;
+    min-height: 0;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    font-size: 13px;
+    overflow-wrap: anywhere;
+  }
+  .refined-shell .gw-table td[data-label]::before {
+    display: block;
+    content: attr(data-label);
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    font-weight: 400;
+    margin-bottom: 5px;
+  }
+  .refined-shell
+    .gw-table
+    td:is(
+      [data-column="title"],
+      [data-column="asset"],
+      [data-column="reason"],
+      [data-column="actions"],
+      [data-column="evidence"],
+      .product-table-state
+    ) {
+    grid-column: 1 / -1;
+  }
+  .refined-shell .gw-table td[data-column="select"] {
+    grid-column: 1 / -1;
+  }
+  .refined-shell .gw-table td[data-column="actions"] {
+    padding-top: 12px;
+    border-top: 1px solid var(--workspace-line);
+  }
+  .refined-shell .gw-table td[data-column="actions"]::before {
+    display: none;
+  }
+  .refined-shell .gw-actions {
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+  .refined-shell .gw-action {
+    min-height: 44px;
+    padding: 9px 12px;
+  }
+  .refined-shell .gw-table .product-table-state {
+    min-height: 130px;
+  }
+  .refined-shell .project-workspace-nav {
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .refined-shell .project-workspace-nav a {
+    min-height: 44px;
+    padding-inline: 3px;
+    font-size: 13px;
+  }
+  .refined-shell .project78-facts {
+    padding: 16px 12px;
+    gap: 10px;
+  }
+  .refined-shell .project78-facts > div + div {
+    padding-left: 10px;
+  }
+  .refined-shell .project78-facts dd {
+    font-size: 20px;
+  }
+  .refined-shell .project78-overview .product-section {
+    padding: 16px;
+  }
+  .refined-shell .project78-work-summary {
+    padding: 12px;
+    gap: 10px;
+  }
+  .refined-shell .project78-conversation {
+    padding: 16px 12px;
+    gap: 18px;
+  }
+  .refined-shell .project78-message {
+    gap: 8px;
+  }
+  .refined-shell .project78-message.is-assistant > div {
+    padding: 14px 12px;
+  }
+  .refined-shell .project78-message p {
+    font-size: 15px;
+    line-height: 1.85;
+  }
+  .refined-shell .project78-citation {
+    padding: 10px;
+  }
+  .refined-shell .project78-composer {
+    margin: 0 12px 16px;
+    padding: 12px;
+  }
+  .refined-shell .project78-send {
+    min-height: 44px;
+    padding: 9px 18px;
+  }
+  .refined-shell.is-refined-workspace
+    :is(input:not([type="checkbox"]):not([type="radio"]), textarea, select) {
+    font-size: 16px;
+  }
+}
+@media (max-width: 420px) {
+  .refined-shell .kbl-library-nav {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    overflow: visible;
+  }
+  .refined-shell .kbl-library-nav button {
+    width: 100%;
+    padding-inline: 3px;
+    font-size: 12px;
+  }
+  .refined-shell .kbl-library-nav button > svg {
+    display: none;
+  }
+  .refined-shell .deck {
+    padding-inline: 10px;
+    gap: 8px;
+  }
+  .refined-shell .deck-brand-logo {
+    width: 72px;
+  }
+  .refined-shell .deck-context {
+    flex: 1;
+  }
+  .refined-shell .deck-title {
+    font-size: 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .refined-shell :is(.rail, .rail-nav a, .rail-icon) {
+    transition: none;
+  }
+}

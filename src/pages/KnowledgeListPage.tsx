@@ -595,7 +595,9 @@ export default function KnowledgeListPage() {
         className: "kbl-asset-cell",
         render: (asset) => (
           <div className="kbl-asset">
-            <FileText size={17} aria-hidden="true" />
+            <span className="workspace-file-mark" aria-hidden="true">
+              <FileText size={20} />
+            </span>
             <div>
               {asset.access.crossProjectSummary ? (
                 <button

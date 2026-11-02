@@ -55,7 +55,7 @@ export default function DataTable<T>({
           <thead>
             <tr>
               {columns.map((c) => (
-                <th key={c.key} className={c.headerClassName}>
+                <th key={c.key} className={c.headerClassName} scope="col">
                   {c.header}
                 </th>
               ))}
@@ -75,7 +75,12 @@ export default function DataTable<T>({
               rows.map((row) => (
                 <tr key={rowKey(row)} className={rowClassName?.(row)}>
                   {columns.map((c) => (
-                    <td key={c.key} className={c.className}>
+                    <td
+                      key={c.key}
+                      className={c.className}
+                      data-column={c.key}
+                      data-label={typeof c.header === "string" ? c.header : undefined}
+                    >
                       {c.render(row)}
                     </td>
                   ))}

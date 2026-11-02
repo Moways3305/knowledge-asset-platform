@@ -348,6 +348,16 @@ for (const scenario of scenarios) {
             bodyText,
           ),
         tableVisible: Boolean(document.querySelector(".kbl-table")),
+        brandVisible: [...document.querySelectorAll('img[alt="MOWAYS 博维咨询"]')].some((img) => {
+          const rect = img.getBoundingClientRect();
+          return (
+            img.naturalWidth > 0 && rect.width > 0 && rect.left >= 0 && rect.right <= innerWidth
+          );
+        }),
+        mobileNavDoesNotCoverContent:
+          innerWidth > 860 ||
+          document.querySelector(".app-content").getBoundingClientRect().bottom <=
+            document.querySelector(".mobile-workspace-nav").getBoundingClientRect().top + 1,
         semanticTitleEntry: Boolean(document.querySelector("button.kbl-title-link")),
       };
     });
@@ -436,6 +446,8 @@ if (
       result.sensitiveTextVisible ||
       !result.scrollGuideMatchesOverflow ||
       !result.mobileRowsReflowed ||
+      !result.brandVisible ||
+      !result.mobileNavDoesNotCoverContent ||
       (result.scenario !== "pure-admin" &&
         (!(Number(result.viewport) <= 700 ? ["visible"] : ["auto", "scroll"]).includes(
           result.tableOverflowMode,

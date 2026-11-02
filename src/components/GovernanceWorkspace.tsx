@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Inbox, CircleCheck, KeyRound, History } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { PageHeader, ProductPage } from "./ProductLayout";
 import "./GovernanceWorkspace.css";
@@ -36,21 +36,25 @@ export default function GovernanceWorkspace({
 
       <nav className="gw-route-tabs" aria-label="治理工作区">
         <NavLink end className={active === "review" ? "is-active" : ""} to="/review">
+          <Inbox size={17} aria-hidden="true" />
           审核待办
         </NavLink>
         <NavLink
           className={active === "review-completed" ? "is-active" : ""}
           to="/review/completed"
         >
+          <CircleCheck size={17} aria-hidden="true" />
           已完成任务
         </NavLink>
         <NavLink className={active === "original-access" ? "is-active" : ""} to="/original-access">
+          <KeyRound size={17} aria-hidden="true" />
           原文访问
         </NavLink>
         <NavLink
           className={active === "original-grants" ? "is-active" : ""}
           to="/original-access/grants"
         >
+          <History size={17} aria-hidden="true" />
           授权记录
         </NavLink>
       </nav>

@@ -139,7 +139,8 @@ function accepted(result) {
     result.workspaceCount === 1 &&
     result.routeTabCount === 4 &&
     result.tableVisible &&
-    result.maxRowHeight <= 72 &&
+    result.cellContentFits &&
+    result.mobileFieldsLabelled &&
     !result.oldSurfaceVisible &&
     !result.sensitiveVisible &&
     !result.internalVisible &&
@@ -689,6 +690,22 @@ try {
             routeTabCount: document.querySelectorAll(".gw-route-tabs a").length,
             tableVisible: Boolean(document.querySelector(".gw-table")),
             maxRowHeight: Math.max(0, ...rows.map((row) => row.getBoundingClientRect().height)),
+            cellContentFits: rows.every((row) =>
+              [...row.querySelectorAll("td")].every(
+                (cell) => cell.scrollHeight <= cell.clientHeight + 2,
+              ),
+            ),
+            mobileFieldsLabelled:
+              innerWidth > 700 ||
+              rows.every((row) =>
+                [...row.querySelectorAll("td[data-label]")].every((cell) => {
+                  const style = getComputedStyle(cell, "::before");
+                  return (
+                    cell.dataset.column === "actions" ||
+                    (style.display !== "none" && style.content !== "none")
+                  );
+                }),
+              ),
             oldSurfaceVisible: Boolean(
               document.querySelector(".kl-kpis, .role-context-hint, .page-help-line, .asset-card"),
             ),
