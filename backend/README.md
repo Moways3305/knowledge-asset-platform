@@ -2,7 +2,7 @@
 
 知识资产平台的后端服务：FastAPI + SQLAlchemy（async）+ PostgreSQL + Redis + Celery。负责身份与权限、知识资产数据模型、入库流水线、两阶段检索与问答、审核与生命周期治理、原文访问授权、运维与审计，以及对 WeKnora / 外部 LLM / 企业微信 / ONLYOFFICE 的集成。
 
-外部集成均经环境变量启用；未配置时安全降级（fail-closed），不伪装成功。真实密钥经部署注入，不入仓库。
+服务连接经环境变量启用，业务默认模型及生成模型连接由管理页面维护并安全存储；未配置时按能力边界降级或拒绝，不伪装成功。真实密钥经部署注入，不入仓库。
 
 ---
 
@@ -25,8 +25,8 @@
 - **身份与项目**：`users`、`user_company_roles`、`projects`、`project_members`、`user_sessions`。公司角色与项目内角色分离；同一人可在不同项目担任不同项目角色。
 - **审核与生命周期**：`review_tasks`、`validation_evidences`、`personal_knowledge_submissions`、`asset_lifecycle_events`、`alert_rules`、`notification_records`。
 - **原文访问**：`original_access_requests` + `access_grants`，承载申请 / 审批 / 授权 / 撤销与运行时放行。
-- **权限规则**：`permission_rules` 为治理配置中心（阈值 / 开关 / 固定路径）；部分项（如原文申请超时自动通过、L1/L2 默认放行开关、授权有效期）已接入运行时判定。
-- **三层访问模型**：发现层（标题/类型/标签/脱敏简述）、摘要层（安全摘要）、原文层（原文 / 客户数据 / 预览）。管控集中在原文层；L3/L4 对外摘要必须脱敏；L5 仅 Boss / 咨询总监可发现；管理员（`admin`）为系统身份，不获得业务知识可见性。
+- **权限规则**：`permission_rules` 为治理配置中心（阈值 / 开关 / 固定路径）；生效项包括原文申请超时规则和授权有效期；已退役的跨项目 L1/L2 默认原文放行开关不再生效。
+- **三层访问模型**：发现层（标题/类型/标签/脱敏简述）、摘要层（安全摘要）、原文层（原文 / 客户数据 / 预览）。管控集中在原文层；L3/L4 对外摘要必须脱敏；个人库仅本人可见；项目 active 成员可读本项目原文，跨项目 L1–L4 仅安全摘要、L5 不可发现；公司 L5 仅总经理 / 咨询总监可发现。纯管理员（`admin`）不获得业务知识可见性。
 
 ## 3. 主要 API 模块（`app/api/`）
 
@@ -45,20 +45,20 @@
 
 ## 4. 异步任务与索引运维
 
-- **Celery**（`app/worker/`）：入库处理、解析对账、归档扫描、复用推荐、通知下发、索引批量运维。`CELERY_TASK_ALWAYS_EAGER=true` 时内联同步执行（无需 worker）；接入 worker 时设为 `false` 启用真正异步。生产必须运行 worker 与 beat。
+- **Celery**（`app/worker/`）：入库处理、解析对账、归档扫描、复用推荐、通知下发、索引批量运维。`CELERY_TASK_ALWAYS_EAGER=true` 时内联同步执行（无需 worker）；接入 worker 时设为 `false` 启用真正异步。生产必须运行轻量 worker、独立 OCR/重型 worker 与 beat。
 - **两阶段入库**：人工确认即落库（阶段 1）；推进 WeKnora 索引为阶段 2，建库 / 初始化 / 上传失败不回滚资产，而是标记索引失败并可重试。
 - **索引与解析状态**：`index_status` 的 `indexed` 只表示底座文档已建立；正文解析可读性另由 `weknora_parse_status` 表达。解析失败保持真实 `indexed + failed` 口径并引导重新解析，不伪装成普通索引成功；0 命中维护作业标为 `no_action`。响应 / 审计绝不含 WeKnora kb·doc id / 存储引用 / 原文。
 - **检索可见性**：检索只映射并使用活动版本 `index_status=indexed` 的底座文档；失败 / 跳过的资产不被召回。
 
 ## 5. 外部集成
 
-均经环境变量启用，未配置则降级（不阻断启动），真实密钥不入仓库。项名见 `.env.example`。
+连接与开关经环境变量注入，平台模型配置另由管理接口维护。未配置的可选服务按接口返回降级状态；已启用服务缺关键配置可能阻断生产就绪或启动。真实密钥不入仓库，项名见 `.env.example`。
 
 - **WeKnora**（向量检索 / 索引底座）：`base_url + api_key` 配齐启用；建库随模型配置初始化。模型选择（PBC-38）：优先级为「请求显式 `model_ref` > 平台默认模型（DB `weknora_default_models`，模型配置中心维护）> fail-closed」——已不再用 `WEKNORA_EMBEDDING_MODEL_ID` 等 `.env` 项作为生产建库兜底（保留仅 legacy / 测试隔离，见 `.env.example`）；启用 WeKnora 但未配置平台默认 embedding 时，`/health/config` 阻断项列出 `WEKNORA_DEFAULT_EMBEDDING_MODEL`，入库 fail-closed（资产保留、可补配置后重试索引）。每个 KB 建库时绑定其 embedding 模型；显式传入不一致的 `embedding_model_ref` 会按当前底座契约**自动切换** KB 的 embedding 配置并回写绑定（存量文档需在切换后重新解析以重新向量化，避免新旧向量空间混用）。`model_id` / `api_key` / `base_url` / kb_id / doc_id 视同内部标识，绝不进任何响应 / 审计 / 日志。
-- **外部 LLM**（内容处理）：选一个 provider + api_key 即启用；用于分类 / 三层摘要 / 标签 / 关键知识点；缺失则回退确定性草稿，上传不失败。入库建议由该受信外部 API 处理，**不再前置脱敏**（保留客户/金额等上下文以提升命名与摘要质量）；规则脱敏引擎保留为备用，待本地大模型资源到位后可重新接入。**对外输出仍按权限与脱敏策略收口**：检索原文 chunk / Agent 引用在权限放行后做输出脱敏。
+- **外部 LLM**（内容处理）：优先由模型管理页维护加密的 KAP 内容生成模型及平台默认模型；产品配置存在后不回退旧环境默认值。仅未建立产品配置时兼容 `LLM_*` 环境配置；用于分类 / 三层摘要 / 标签 / 关键知识点；缺失则回退确定性草稿，上传不失败。入库建议由该受信外部 API 处理，**不再前置脱敏**（保留客户/金额等上下文以提升命名与摘要质量）；规则脱敏引擎保留为备用，待本地大模型资源到位后可重新接入。**对外输出仍按权限与脱敏策略收口**：检索原文 chunk / Agent 引用在权限放行后做输出脱敏。
 - **企业微信**：OAuth 登录（按 `users.wecom_user_id` 解析，不自动建用户）、微盘扫描（平台后端下载字节落受控存储 → 建入库任务）、通知下发（受总开关控制，默认仅站内）、成员身份生命周期同步。
 - **ONLYOFFICE**：只读预览，返回受控取件 URL（Document Server 凭短时 token 经平台回取字节），不暴露存储地址 / 完整 token / JWT 密钥。
-- **文件存储**：受控服务端存储，存储引用为 server-only、绝不进响应；本地后端用于 dev/test，生产可经可插拔 `StorageBackend` 平替为对象存储（S3/OSS/MinIO）。
+- **文件存储**：当前 `services/storage.py` 使用 `LocalFileStorage`，生产通过共享持久卷保存字节，backend / worker / ocr_worker 必须读取同一存储。S3/OSS/MinIO 适配尚未实现，不能仅填云存储环境变量完成切换；存储引用保持 server-only。
 
 ## 6. 认证、安全与审计
 
@@ -71,11 +71,11 @@
 
 ## 7. 部署 / migration / smoke
 
-- **编排**：`docker-compose.yml`（postgres / redis / migrate / backend / worker / beat / frontend）。`migrate` 服务一次性执行 `alembic upgrade head`，backend/worker/beat 依赖其成功后启动。
-- **本地启动**：`docker compose build && docker compose up -d`；可选 `docker compose exec backend python -m app.seed.dev_seed`。后端调试端口 `8001`，前端入口 `18080`。
-- **本地 Python**（可选）：创建虚拟环境、`pip install -r requirements.txt`、`alembic upgrade head`、`uvicorn app.main:app --reload`。
+- **编排**：`docker-compose.yml`（postgres / redis / migrate / backend / worker / ocr_worker / beat / frontend）。`migrate` 服务一次性执行 `alembic upgrade head`，backend/worker/ocr_worker/beat 依赖其成功后启动。
+- **本地启动**：从仓库根 README 准备根 `.env` 和 `backend/.env`，根配置使用开发模式并设置数据库及 Redis 密码，再运行 `docker compose build` 与 `docker compose up -d --wait`；可选 `docker compose exec backend python -m app.seed.dev_seed`。后端调试端口 `8001`，前端入口 `18080`。
+- **本地 Python**（可选）：推荐 Python 3.12，与 CI/镜像一致。在 `backend/` 创建虚拟环境，执行 `python -m pip install -e ".[dev]"`，配置本机数据库/Redis 后运行 `alembic upgrade head` 和 `uvicorn app.main:app --reload --port 8001`。Linux 可用 `python -m pip install --require-hashes -r requirements-dev.lock` 复现 CI 依赖。OCR/旧版 Office 还依赖系统解析组件，本地完整流程优先用 Docker。
 - **依赖锁定**：生产镜像按带哈希的 `requirements.lock` 安装（再生成命令见该文件头注释）。CI 的 lint / 测试 job 用 `requirements-dev.lock`——以 `-c requirements.lock` 约束、在运行时依赖之上增加 pytest / pytest-asyncio / aiosqlite / ruff，故共享依赖版本与镜像逐一相同。再生成：`uv pip compile pyproject.toml build-requirements.in --extra dev -o requirements-dev.lock --python-version 3.12 --python-platform linux --generate-hashes -c requirements.lock`（也写在文件头注释）。升级运行时依赖时先重生成 `requirements.lock`，再重生成 `requirements-dev.lock`。
-- **生产前提**：真实域名、HTTPS/TLS 与反向代理、企业微信可信回调域名、外部系统密钥注入、对象存储与监控接入需运维实际执行。仓库内提供部署 runbook 与无密钥 smoke 脚本（见根 README 与 `docs/deployment/`）。
+- **生产前提**：真实域名、HTTPS/TLS 与反向代理、企业微信可信回调域名、外部系统密钥注入、持久卷备份与监控接入需运维实际执行。仓库内提供部署 runbook 与无密钥 smoke 脚本（见根 README 与 `docs/deployment/`）。
 - **安全验证**：不要运行或粘贴完整 `docker compose config`（会展开 `env_file` 密钥）；用 `docker compose config --services` / `--volumes` 或对 `docker-compose.yml` 定向检索验证编排结构。
 
 ## 8. 测试

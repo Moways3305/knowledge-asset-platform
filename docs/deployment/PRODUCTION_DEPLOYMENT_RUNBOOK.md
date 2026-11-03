@@ -25,31 +25,32 @@
 ### 1.1 版本一致性
 
 - [ ] 确认要部署的 **git commit**：`git rev-parse HEAD`（记录到发布单）。
-- [ ] 确认镜像 **tag** 与该 commit 对应；`backend` / `worker` / `beat` / `migrate` / `frontend` 五个角色**必须来自同一代码版本**。
-  - 本仓库 `backend` / `worker` / `beat` / `migrate` 共用 `./backend` 镜像（compose 中同一 `build: ./backend`，仅 `command` 不同）；`frontend` 用 `Dockerfile.frontend` 多阶段构建。
+- [ ] 确认镜像 **tag** 与该 commit 对应；`backend` / `worker` / `ocr_worker` / `beat` / `migrate` / `frontend` 六个角色**必须来自同一代码版本**。
+  - 本仓库 `backend` / `worker` / `ocr_worker` / `beat` / `migrate` 共用 `./backend` 镜像（compose 中同一 `build: ./backend`，仅 `command` 不同）；`frontend` 用 `Dockerfile.frontend` 多阶段构建。
   - 因此「同版本」= 用同一次 `docker compose build`（或同一 commit 的 CI 构建）产出的镜像，不要混用旧镜像。
-- [ ] 确认 **migration head** 与该 commit 一致：迁移文件在 `backend/alembic/versions/`，最新 head 应是该 commit 的最后一个迁移（部署时由 `migrate` 服务执行 `alembic upgrade head`）。
+- [ ] 确认 **migration head** 与该 commit 一致：迁移文件在 `backend/alembic/versions/`，使用 `alembic heads` 核对该提交的迁移图 head，不按文件名或修改时间猜测（部署时由 `migrate` 服务执行 `alembic upgrade head`）。
 
 ### 1.2 运行模式
 
 - [ ] `CELERY_TASK_ALWAYS_EAGER=false`（生产必须接真实 worker；eager 会让长作业阻塞请求、丢异步语义）。`APP_ENV=prod` 下若仍为 `true`，`/health/config.production_blockers` 会报 `CELERY_TASK_ALWAYS_EAGER`。
-- [ ] **worker 与 beat 必须真实运行**（不是只起 backend）：
+- [ ] **worker、ocr_worker 与 beat 必须真实运行**（不是只起 backend）：
   - `worker`：入库处理 / 解析对账 / 归档扫描 / 升格推荐 / 通知下发；
+  - `ocr_worker`：消费独立 `ocr` 队列，执行 Office/PDF/图片等重型解析与 OCR；
   - `beat`：上述作业的定时调度。
 - [ ] `APP_ENV=prod`（启用 prod 守卫：cookie 强制 Secure、blockers 仅在 prod 评估）。
 
 ### 1.3 共享存储
 
-- [ ] 确认 backend 与 worker 共享同一份上传字节存储。本仓库 compose 用命名卷 `upload_storage:/data/uploads` 同时挂到 backend 与 worker，并经 `&backend-env` 锚点统一 `STORAGE_ROOT=/data/uploads`。
+- [ ] 确认 backend、worker 与 ocr_worker 共享同一份上传字节存储。本仓库 compose 用命名卷 `upload_storage:/data/uploads` 同时挂到 backend、worker 与 ocr_worker，并经 `&backend-env` 锚点统一 `STORAGE_ROOT=/data/uploads`。
   - 安全验证（不展开 env）：
     ```powershell
-    Select-String -Path docker-compose.yml -Pattern 'upload_storage:/data/uploads'   # 应命中 backend + worker 两行
+    Select-String -Path docker-compose.yml -Pattern 'upload_storage:/data/uploads'   # 应覆盖 backend、worker、ocr_worker 三个服务
     Select-String -Path docker-compose.yml -Pattern 'STORAGE_ROOT:\s*/data/uploads'
     ```
-- [ ] 生产可把存储平替为对象存储 / 共享持久卷（S3 / OSS / MinIO），但 `StorageBackend` 边界保持 server-only（存储引用 / 路径绝不进 API 响应）。
+- [ ] 当前实现为 `LocalFileStorage` 与共享持久卷。须备份上传卷并验证恢复；仓库尚无 S3 / OSS / MinIO 存储适配，不能仅配置凭证直接切换。存储引用与路径保持 server-only。
 - [ ] WorkBuddy Connector 生产制品使用
   [`docker-compose.prod.yml`](../../docker-compose.prod.yml) 将宿主机
-  `/data/kap/workbuddy-connectors` 只读挂载到 `backend`；`worker`、`beat`、`frontend`、
+  `/data/kap/workbuddy-connectors` 只读挂载到 `backend`；`worker`、`ocr_worker`、`beat`、`frontend`、
   `postgres`、`redis` 不得访问。下载、校验、原子切换、回滚和双身份烟测见
   [`WORKBUDDY_CONNECTOR_RELEASE.md`](./WORKBUDDY_CONNECTOR_RELEASE.md)。
 - [ ] WorkBuddy 远程 MCP 默认入口为生产 HTTPS 精确路径 `/mcp`；检查短期凭证、代理限制、
@@ -81,15 +82,16 @@
 管理员人工确认公告、业务 live smoke 和宿主机代理配置仍须完成；以下步骤保留作运行说明与故障诊断，不应另起一套并行部署。
 
 1. **拉取 / 构建镜像**
-   - CI 推送：`docker pull <registry>/<image>:<image-tag>`（五角色同 tag）。
+   - 本仓库 CI 验证镜像构建，不自动发布生产镜像。若使用另行维护的 registry 流程，按部署清单拉取固定镜像并核对六角色同一代码版本。
    - 单机自建：`docker compose build`。
 2. **备份数据库**（迁移前必做）
    - 执行你环境的 PG 备份（如 `pg_dump`）。**备份产物含业务数据，按密级存放，不入仓库 / 不贴日志。**
    - 记录备份位置与时间到发布单。
 3. **运行 migration**
-   - 本仓库由一次性 `migrate` 服务执行 `python -m alembic upgrade head`；`backend` / `worker` / `beat` 依赖其 `service_completed_successfully` 才启动。
+   - 本仓库由一次性 `migrate` 服务执行 `python -m alembic upgrade head`；`backend` / `worker` / `ocr_worker` / `beat` 依赖其 `service_completed_successfully` 才启动。
    - 不要手动在多个副本各自 `alembic upgrade`。
-4. **本版本首次上线时回填 L3/L4 完整授权摘要**
+4. **从缺少完整授权摘要的历史版本升级时，按需回填 L3/L4 摘要**
+   - 这是历史迁移修复，不是每次发布必做步骤；已完成的部署先 dry-run 核对，不反复无条件写入。
    - 先 dry-run；输出只有计数与前后长度，不含资产 ID、普通摘要或脱敏摘要正文：
      ```powershell
      docker compose run --rm backend python -m app.commands.backfill_authorized_summaries
@@ -101,15 +103,15 @@
    - 再执行一次 `--apply` 验证幂等；`regenerated`、`created_rows`、`updated_rows`、
      `cleared_pending_markers` 应全部为 `0`。`pending` 可非零，需后续补齐源摘要再重跑。
    - 本回填只更新当前版本摘要行/安全待处理标记，不删除资产，不触发重索引、重新入库或
-     WeKnora 调用。异常时停止放流量并从 §2.2 数据库备份恢复相关摘要数据。
-5. **启动服务**：`backend` → `worker` → `beat` → `frontend`（compose `depends_on` 已编排：postgres/redis healthy → migrate 完成 → backend/worker/beat → frontend）。
+     WeKnora 调用。异常时停止放流量并从本节第 2 步数据库备份恢复相关摘要数据。
+5. **启动服务**：`backend` → `worker` / `ocr_worker` → `beat` → `frontend`（compose `depends_on` 已编排：postgres/redis healthy → migrate 完成 → backend/worker/ocr_worker/beat → frontend）。
    ```powershell
    docker compose up -d
    ```
 6. **执行 health / ready / config**（见 §4.1）。
 7. **执行 live smoke**（见 [`LIVE_SMOKE_CHECKLIST.md`](./LIVE_SMOKE_CHECKLIST.md)）。
 8. **观察日志与关键审计事件**：
-   - worker / beat 是否在消费任务（无堆积、无反复重启）；
+   - worker / ocr_worker 是否消费各自队列、beat 是否正常调度（无堆积、无反复重启）；
    - 关键审计 action 是否正常落库：`login.success` / `login.failed`、`ingest.ai_extracted` / `ingest.failed`、`access.original_*`、`auth.*`（系统安全事件）；
    - 审计与日志**不应**出现 raw email / password / token / cookie / 原始 IP / WeKnora id / 原文。
 
@@ -185,9 +187,9 @@ python scripts/production_smoke.py --base-url <prod-url> --expect-prod-ready --j
 
 | 症状 | 首查 | 处置 / 回滚 |
 |---|---|---|
-| **migration 失败** | `migrate` 服务日志（不贴含连接串的整段，截关键错误行）；确认 DB 可达、目标 head 正确 | 修复后重跑 `migrate`；若已部分应用且不可逆，从 §2.2 备份恢复后再上新版本；backend/worker/beat 因依赖 migrate 不会带半迁移库启动 |
+| **migration 失败** | `migrate` 服务日志（不贴含连接串的整段，截关键错误行）；确认 DB 可达、目标 head 正确 | 修复后重跑 `migrate`；若已部分应用且不可逆，从部署步骤第 2 步的备份恢复后再上新版本；backend/worker/ocr_worker/beat 因依赖 migrate 不会带半迁移库启动 |
 | **backend 起不来** | backend 日志、`/health` 是否 200、`depends_on`（postgres/redis healthy、migrate 完成） | 修依赖或配置；确认 `DATABASE_URL` / `REDIS_URL` 项已注入（**不打印值**）；必要时回退镜像 tag |
-| **worker / beat 不处理任务** | worker/beat 是否运行、是否连到 broker、`CELERY_TASK_ALWAYS_EAGER` 是否误为 true、`/admin/ops/indexing` 是否堆积 | 确保 `false` 且 worker+beat 在跑；确认与 backend 同一 Redis、同一共享存储卷；重启 worker/beat |
+| **worker / ocr_worker / beat 不处理任务** | worker/ocr_worker/beat 是否运行、是否连到 broker、`CELERY_TASK_ALWAYS_EAGER` 是否误为 true、`/admin/ops/indexing` 是否堆积 | 确保 `false` 且 worker+ocr_worker+beat 在跑；确认与 backend 同一 Redis、同一共享存储卷；按故障范围重启对应 worker/beat |
 | **`/health/config` 有 blocker** | 读 `production_blockers` 项名 | 按 [`PRODUCTION_SECRET_CHECKLIST.md`](./PRODUCTION_SECRET_CHECKLIST.md) 补对应项（只注入值、不打印值）后重启相关服务 |
 | **CSRF 403** | 是否 cookie 会话下的 unsafe 请求缺 `X-CSRF-Token`；前端是否先取 `GET /api/v1/auth/csrf`；prod 是否配 `CSRF_TOKEN_SECRET` | 确认前端自动取/附带 token；确认反代未吞掉 `X-CSRF-Token` 头；补 `CSRF_TOKEN_SECRET` |
 | **Secure cookie 在 HTTP 环境无法登录** | 入口是否真 HTTPS、`X-Forwarded-Proto` 是否透传 | 走真实 HTTPS 入口；prod 下不要试图关 Secure（运行时强制）；修反代转发头 |
@@ -205,8 +207,8 @@ python scripts/production_smoke.py --base-url <prod-url> --expect-prod-ready --j
 - 真实公网域名、DNS 记录；
 - TLS 证书申请 / 续期、HTTPS 终止层；
 - 云密钥注入（WeKnora / LLM / 企微 / ONLYOFFICE / DB / Redis）；
-- 对象存储开通与 `StorageBackend` 平替；
+- 上传持久卷备份、恢复演练和容量监控；对象存储替换需另行实现适配；
 - 镜像推送到生产 registry；
 - 云监控 / 告警 / 日志后端接入。
 
-**明确不在本任务范围**：K8s / Helm / Terraform / 云密钥平台接入、OCR、MFA / OTP / 短信、找回密码 / 邮件重置、密码轮换、完整多设备会话管理 UI、结构保持式文件重写、Ollama/LLM 脱敏、历史资产全量重索引。
+**当前交付边界**：OCR/重型解析、管理员会话查询与撤销、人员密码设置、历史正文回填已实现，分别按对应运行手册执行。K8s / Helm / Terraform、用户自助 MFA / 找回密码、个人多设备管理、结构保持式文件重写、本地 LLM 脱敏、对象存储适配及历史资产自动全量重索引不属于本手册提供的能力。

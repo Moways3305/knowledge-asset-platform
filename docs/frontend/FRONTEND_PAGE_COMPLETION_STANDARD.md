@@ -17,7 +17,9 @@ item below is satisfied in the same change.
    takeover gate.
 5. **Old implementation removal**: after takeover, remove the replaced page, modal, hook, API
    wrapper, type, and exclusive styles only after repository-wide route/import/test/build evidence
-   proves they are unused. Uncertain candidates stay registered in the matrix.
+   proves they are unused. Record unresolved candidates in the change review; do not rely on a
+   private takeover matrix that is absent from the repository. The maintained route/API contracts
+   are `src/test/frontendTakeoverGate.test.ts` and `docs/api/FRONTEND_API_COVERAGE.md`.
 6. **Desktop browser smoke**: exercise the actual route and expected network requests against an
    available non-production environment. Unexpected 4xx/5xx responses are failures, not UI polish
    issues. If the environment is unavailable, report the missing topology explicitly.

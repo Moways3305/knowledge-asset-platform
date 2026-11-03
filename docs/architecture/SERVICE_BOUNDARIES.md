@@ -24,8 +24,8 @@ The former cycles were replaced as follows:
 `upload_sessions.py` delegates state aggregation to `upload_session_state`, safe
 response projection to `upload_session_projection`, task creation to
 `upload_ingest_tasks`, and atomic retry claiming to `upload_session_commands`.
-Knowledge read projections remain in `knowledge.py`; soft-delete lifecycle changes
-are owned by `knowledge_lifecycle.py`.
+The current facade and owning modules are listed under “Core workflow decomposition” below;
+`knowledge.py` exposes the application API while reads and state changes live in focused services.
 
 On the client, `PendingBatchActions.tsx` only composes the action bar, review
 surfaces, dialogs, and `usePendingBatchReviewController`. The controller owns the
@@ -67,7 +67,8 @@ operations diagnostics.
 
 ## Deployment and migration order
 
-Deploy database migration `0067` first, then producers/API, then start workers, and
+Deploy migrations to the target commit’s Alembic head (including the outbox migration `0067`)
+first, then producers/API, then start workers, and
 only then switch traffic. A temporarily absent worker merely accumulates committed
 events. Rollback the application and worker before downgrading the migration.
 

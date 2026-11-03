@@ -33,7 +33,7 @@ client_secret_post／client_secret_basic，SDK 处理客户端认证。
 
 ## 生产部署
 
-默认关闭新 OAuth，保留凭证接入。备份数据库并迁移至 0078_mcp_oauth，
+默认关闭新 OAuth，保留凭证接入。备份数据库并迁移到目标提交的 Alembic head（包含 `0078_mcp_oauth`，不要把历史迁移号当作当前 head），
 在受保护的 backend/.env 配置：
 
     MCP_OAUTH_ENABLED=true

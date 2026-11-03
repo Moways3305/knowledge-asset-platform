@@ -4,6 +4,12 @@ Provider-neutral MCP bridge to the KAP knowledge platform. WorkBuddy calls these
 tools; the MCP server forwards each call to KAP's `/api/v1/agent-gateway/*` over HTTP.
 It holds no authority and never touches the database.
 
+This package is the compatibility bridge/local Connector. The primary hosted entry is KAP’s
+`/mcp`, with optional OAuth and explicitly authorized operations; see
+[remote deployment](../../docs/deployment/WORKBUDDY_REMOTE_MCP.md),
+[OAuth](../../docs/api/mcp-oauth.md), and [operations](../../docs/mcp-operations.md).
+The bridge’s read-only tool surface is not the full hosted MCP surface.
+
 ## Identity model (read this first)
 
 Each employee gets their **own** per-user `KAP_AGENT_TOKEN`. The token is bound to one
@@ -12,18 +18,20 @@ The MCP server never sends a user id. Anyone's token = that one user's permissio
 
 ## Config
 
-Exactly two env vars (see `.env.example`):
+For the default local stdio transport, two variables are required (see `.env.example`):
 
 - `KAP_BASE_URL` — KAP backend base URL
 - `KAP_AGENT_TOKEN` — the per-user WorkBuddy token
 
-Missing either → the server refuses to start (fail closed). There is intentionally
+Missing either in stdio mode → the server refuses to start (fail closed). Remote bridge mode
+requires the base URL and authenticates each request with its own Bearer, as described below. There is intentionally
 **no** caller / user-id config: identity comes from the token binding on the backend.
 
 ## Employee installation
 
-Business users install the versioned KAP WorkBuddy Connector from the guided card on KAP's
-home dashboard. Windows x64, macOS Apple Silicon and macOS Intel packages bundle the Python
+Business users open “MCP 接入” (`/my/workbuddy`) from the workbench or account navigation.
+Hosted MCP is the primary connection; the versioned local KAP WorkBuddy Connector remains available
+for managed-device compatibility. Windows x64, macOS Apple Silicon and macOS Intel packages bundle the Python
 runtime and this package; employees do not install Python or pip.
 
 The card generates platform-specific `mcp.json` only after the user explicitly requests it.
@@ -62,7 +70,7 @@ Binding rejects pure-admin / inactive / non-business users.
 
 ## Tools
 
-All tools are **read-only**. There are no write tools (no upload / approve / reject / grant /
+All tools in this compatibility package are **read-only**. There are no write tools (no upload / approve / reject / grant /
 revoke / config). Every tool maps 1:1 to a `/api/v1/agent-gateway/*` endpoint, carries the
 **per-request bearer**, and the `KapClient` projects each response to an explicit field allowlist —
 the backend may return more, but the MCP only surfaces the whitelisted fields.
@@ -89,9 +97,14 @@ Workbench (PBC-37):
 - `kap_list_pending_reviews(limit?)` → review items I can act on / see.
 - `kap_list_original_access_requests(box="mine"|"inbox", limit?)` → original-access requests.
 
-10 tools total. All permission, desensitization, and audit happen server-side. **No original-file
-download, no preview URL, no write tools.** Even when a summary reports `can_view_original=true`,
-the original content is never returned over MCP. Backend errors surface as a single safe message
+The bridge also exposes `kap_list_my_personal_knowledge`,
+`kap_list_accessible_knowledge`, `kap_get_knowledge_detail`, `kap_get_knowledge_content`, and
+`kap_list_tags`. The registered tool definitions in `src/workbuddy_mcp/server.py` are authoritative.
+
+All permission, desensitization, and audit happen server-side. **No original-file download, no
+preview URL, no write tools in this compatibility package.** `kap_get_knowledge_content` returns
+paginated current-version text only after a fresh original-access permission check;
+`can_view_original=true` in a prior summary never substitutes for that check. Backend errors surface as a single safe message
 (no internal ids / denied_reason / trace / token / URL). Dify stays as a separate legacy adapter
 and is unaffected.
 
@@ -102,7 +115,9 @@ pip install -e .
 KAP_BASE_URL=... KAP_AGENT_TOKEN=... workbuddy-mcp
 ```
 
-## Run (remote streamable-http)
+## Run the compatibility bridge (remote streamable-http)
+
+This starts a separate development bridge; it does not configure the production KAP `/mcp` endpoint.
 
 ```powershell
 $env:KAP_BASE_URL="https://kap.example.com"

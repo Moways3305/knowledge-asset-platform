@@ -2,10 +2,11 @@
 # 凭证为 LOCAL DEV ONLY，**绝非生产凭证**；生产请用部署密钥注入（见 backend/README §部署）。
 #
 # 一键启动顺序（PowerShell）：
-#   cp .env.example .env            # 至少设置 REDIS_PASSWORD（compose 变量插值从 ./.env 读取）
+#   cp .env.example .env            # 本地 APP_ENV=dev；设置 POSTGRES_PASSWORD 和 REDIS_PASSWORD
+#   cp backend/.env.example backend/.env # 已有配置不要覆盖；集成配置由此注入
 #   docker compose build
-#   docker compose up -d            # postgres/redis 起后，migrate 一次性跑迁移，backend/worker/beat 随后启动
-#   # 迁移已由 migrate 服务自动执行（backend/worker/beat 依赖其成功完成），无需手动 alembic
+#   docker compose up -d            # postgres/redis 起后，migrate 一次性跑迁移，backend/worker/ocr_worker/beat 随后启动
+#   # 迁移已由 migrate 服务自动执行（backend/worker/ocr_worker/beat 依赖其成功完成），无需手动 alembic
 #   # 可选 seed（仅 dev/test）：docker compose exec backend python -m app.seed.dev_seed
 #   # 冒烟：GET http://localhost:8001/health 与 /health/ready
 #
@@ -16,7 +17,7 @@
 # 不宜过保守；首次上线后按 `docker stats` 实测调整（直接改本文件，或用 prod overlay
 # `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d` 覆盖）。
 
-# 共享运行时环境（避免各服务重复 env 块）。worker/beat 与 backend 用同一份环境，
+# 共享运行时环境（避免各服务重复 env 块）。worker/ocr_worker/beat 与 backend 用同一份环境，
 # 确保 WeKnora / LLM / WeCom / ONLYOFFICE 等外部集成开关一致。
 x-backend-build: &backend-build
   context: ./backend
@@ -54,8 +55,8 @@ x-backend-env: &backend-env
   OCR_MAX_RENDERED_PIXELS: ${OCR_MAX_RENDERED_PIXELS:-20000000}
   OCR_MAX_TOTAL_PIXELS: ${OCR_MAX_TOTAL_PIXELS:-100000000}
   # 受控上传存储根（绝对路径）。backend 写入、worker 异步读取**同一份**字节——靠
-  # 下方共享命名 volume `upload_storage` 挂到此路径。生产可平替为 S3/OSS/MinIO 或共享
-  # 持久卷，但 StorageBackend 边界保持 server-only（ref/路径绝不外泄）。
+  # 下方共享命名 volume `upload_storage` 挂到此路径。当前为 LocalFileStorage 与共享
+  # 持久卷；S3/OSS/MinIO 适配尚未实现。ref/路径保持 server-only。
   STORAGE_ROOT: /data/uploads
   # 真实外部集成在此按需注入（默认空=降级/桩）；切勿把真实密钥提交进仓库：
   # WEKNORA_BASE_URL / WEKNORA_API_KEY / LLM_PROVIDER / LLM_API_KEY /
@@ -115,7 +116,7 @@ services:
           cpus: "0.5"
           memory: 512M
 
-  # 一次性迁移服务。只此一处跑 alembic upgrade head，backend/worker/beat 依赖其成功完成，
+  # 一次性迁移服务。只此一处跑 alembic upgrade head，backend/worker/ocr_worker/beat 依赖其成功完成，
   # 避免每个副本并发迁移；它退出即完成（restart=no）。
   migrate:
     build: *backend-build

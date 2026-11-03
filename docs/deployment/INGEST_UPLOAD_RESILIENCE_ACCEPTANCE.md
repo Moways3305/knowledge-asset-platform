@@ -4,20 +4,20 @@
 
 ## 部署顺序
 
-1. 备份数据库，并确认当前 Alembic head。
-2. 构建后端、worker、beat 和前端镜像。
-3. 先执行数据库迁移，再滚动重启 backend、worker、beat；不得只重启 API。
-4. 确认 worker 注册 `ingest.process_upload` 和 `ingest.recover_stale_uploads`，beat 每 60 秒调度回收任务。
+1. 备份数据库和上传卷，使用 [版本化部署入口](../../deploy/RELEASE_NOTES.md)。
+2. 由一次性 migrate 服务升级到目标提交的 Alembic head，再更新 backend、worker、ocr_worker、beat 和 frontend；不在旧 API 容器执行新代码的迁移，不只重启 API。
+3. 确认 worker 注册 `ingest.process_upload` 和 `ingest.recover_stale_uploads`，beat 每 60 秒调度回收任务；重型解析由独立 OCR worker 消费。
 
 ```bash
-docker compose exec backend sh -lc 'cd /app/backend && alembic current && alembic upgrade head && alembic current'
-docker compose up -d --build backend worker beat frontend
-docker compose exec worker celery -A app.worker.celery_app.celery_app inspect registered
-docker compose exec worker celery -A app.worker.celery_app.celery_app inspect ping
-docker compose logs --since=10m beat worker | grep -E 'ingest.recover_stale_uploads|ingest.process_upload'
+cd /data/kap/repo
+dc() { docker compose -p kap -f docker-compose.yml -f docker-compose.prod.yml "$@"; }
+dc exec -T backend python -m alembic current
+dc exec -T backend python -m alembic heads
+dc exec -T worker celery -A app.worker.celery_app.celery_app inspect registered
+dc exec -T worker celery -A app.worker.celery_app.celery_app inspect ping
 ```
 
-预期 Alembic head 为 `0069_ingest_processing_heartbeat`，worker ping 成功且两个任务均已注册。
+`current` 应与目标提交的 `heads` 一致；`0069_ingest_processing_heartbeat` 只是该能力最初引入的历史迁移，不是当前发布目标。worker ping 成功且任务已注册；日志只摘录安全任务名/状态，不粘贴参数和业务内容。
 
 ## 协议与文件级断言
 
