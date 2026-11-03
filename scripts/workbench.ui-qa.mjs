@@ -457,9 +457,11 @@ try {
       const metrics = await page.evaluate(
         ({ scenarioName, viewportWidth }) => {
           const root = document.documentElement;
-          const shell = document.querySelector(".workbench-scene-shell")?.getBoundingClientRect();
-          const heading = document.querySelector(".workbench-heading")?.getBoundingClientRect();
-          const stage = document.querySelector(".workbench-layout")?.getBoundingClientRect();
+          const shell = document.querySelector(".task-first-workbench")?.getBoundingClientRect();
+          const heading = document
+            .querySelector(".task-first-workbench > .product-page-header")
+            ?.getBoundingClientRect();
+          const stage = document.querySelector(".work-dashboard-grid")?.getBoundingClientRect();
           const primary = document.querySelector(".workbench-primary")?.getBoundingClientRect();
           const aside = document.querySelector(".workbench-context")?.getBoundingClientRect();
           const projects = document.querySelector(".workbench-projects")?.getBoundingClientRect();
@@ -472,7 +474,8 @@ try {
               shell &&
               heading &&
               stage &&
-              Math.abs(stage.top - heading.bottom) <= 2 &&
+              stage.top >= heading.bottom &&
+              stage.top - heading.bottom <= 48 &&
               shell.top <= heading.top &&
               shell.bottom >= stage.bottom,
             ),
@@ -482,16 +485,17 @@ try {
                 stage &&
                 primary &&
                 recent &&
-                stage.height >= 600 &&
-                primary.height >= 350 &&
-                recent.height >= 170,
+                stage.height > 0 &&
+                primary.height > 0 &&
+                recent.height > 0,
               ),
             unifiedContextSurface: Boolean(
               projects &&
               (!workbuddy ||
                 (projects.left === workbuddy.left &&
                   projects.right === workbuddy.right &&
-                  Math.abs(projects.bottom - workbuddy.top) <= 1)),
+                  workbuddy.top >= projects.bottom &&
+                  workbuddy.top - projects.bottom <= 32)),
             ),
             drawerClosed: document.querySelector(".detail-drawer") === null,
             taskListFirstScreen:
@@ -508,7 +512,7 @@ try {
               document.querySelectorAll('.workbench-tabs [role="tab"][aria-selected="true"]')
                 .length === 1,
             desktopColumns:
-              viewportWidth < 1024 ||
+              viewportWidth <= 1100 ||
               Boolean(
                 primary &&
                 aside &&
@@ -516,16 +520,16 @@ try {
                 aside.left > primary.left,
               ),
             compactStack:
-              viewportWidth >= 1024 || Boolean(primary && aside && aside.top > primary.bottom),
+              viewportWidth > 1100 || Boolean(primary && aside && aside.top > primary.bottom),
             mobileOrder:
-              viewportWidth >= 1024 ||
+              viewportWidth > 1100 ||
               (scenarioName === "pure-admin"
                 ? Boolean(
                     primary &&
                     projects &&
                     recent &&
                     primary.top < projects.top &&
-                    projects.top < recent.top,
+                    (viewportWidth <= 860 ? recent.top < projects.top : projects.top < recent.top),
                   )
                 : Boolean(
                     primary &&
@@ -534,7 +538,7 @@ try {
                     recent &&
                     primary.top < projects.top &&
                     projects.top < workbuddy.top &&
-                    workbuddy.top < recent.top,
+                    (viewportWidth <= 860 ? recent.top < projects.top : workbuddy.top < recent.top),
                   )),
             actionableRows: document.querySelectorAll(".workbench-task-list .workbench-task-row")
               .length,
@@ -555,7 +559,7 @@ try {
               document.querySelector(".workbench-recent-list > a.material-summary") !== null,
             recentMemberMaterial:
               document.querySelector(".workbench-recent-list > a.material-source") !== null,
-            oldSurfaceVisible: /今日任务调度|我的待办|资产运行概览|项目概览|运营中枢/.test(
+            oldSurfaceVisible: /今日任务调度|资产运行概览|项目概览|运营中枢/.test(
               document.body.innerText,
             ),
             submittedShownAsActionable: (

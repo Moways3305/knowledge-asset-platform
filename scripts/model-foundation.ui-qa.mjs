@@ -261,7 +261,7 @@ try {
         }
       } else if (scenario === "empty") {
         await page.getByRole("button", { name: "管理知识库配置" }).click();
-        await page.getByText("没有匹配的知识库").waitFor();
+        await page.getByText("暂无可管理的知识库").waitFor();
       } else if (scenario === "forbidden") {
         await page.getByText("当前身份仅可查看允许的配置摘要。", { exact: true }).waitFor();
       }

@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -135,8 +136,8 @@ function accepted(result) {
     result.clippedControls === 0 &&
     result.moduleTitle ===
       (["no-model", "qa-success", "qa-failure"].includes(result.scenario)
-        ? "项目空间"
-        : "项目知识库") &&
+        ? "项目问答"
+        : "项目资料") &&
     !result.sensitiveVisible &&
     !result.internalVisible &&
     !result.oldImplementationVisible &&
@@ -492,10 +493,14 @@ try {
             const pagination = document.querySelector(".pk-pagination");
             const qa = document.querySelector(".project-workspace-nav a[href$='?view=qa']");
             const follows = (first, second) =>
-              Boolean(first?.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
+              Boolean(
+                first &&
+                second &&
+                first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING,
+              );
             return {
               domOrderCorrect:
-                follows(qa, toolbar) && follows(toolbar, list) && follows(list, pagination),
+                follows(qa, toolbar) && follows(toolbar, list) && pagination === null,
               qaEntryCount: document.querySelectorAll(".project-workspace-nav a[href$='?view=qa']")
                 .length,
               qaAbsentFromList:
@@ -514,7 +519,8 @@ try {
           topQaVisible = await page
             .getByRole("link", { name: "项目问答", exact: true })
             .isVisible();
-          await page.locator(".pk-pagination").scrollIntoViewIfNeeded();
+          assert.equal(await page.locator(".pk-pagination").count(), 0);
+          await page.locator(".pk-list-section").scrollIntoViewIfNeeded();
           await page.screenshot({
             path: path.join(outDir, `${scenario}-${viewport.name}-page-bottom.png`),
             fullPage: false,
@@ -533,6 +539,7 @@ try {
           await page.getByLabel("更新结束").fill("2026-07-16");
           await page.getByLabel("排序字段").selectOption("title");
           await page.getByLabel("排序方向").selectOption("asc");
+          await page.getByText("更多筛选").click();
           await page.getByRole("button", { name: "搜索" }).click();
           await page.waitForFunction(() => document.body.innerText.includes("共 42 条"));
           await page.getByRole("button", { name: "下一页" }).click();
@@ -564,9 +571,22 @@ try {
             await page.getByRole("button", { name: "提问", exact: true }).click();
             if (scenario === "qa-success") {
               await page.getByText(qaResponse.response_text).waitFor();
+              const references = page.getByRole("button", { name: "查看回答依据与引用" });
+              if (await references.isVisible()) {
+                await references.click();
+                await page.getByRole("dialog", { name: "回答依据" }).waitFor();
+              }
               safeAnswerVisible =
-                (await page.getByText("客户访谈纪要").isVisible()) &&
-                (await page.getByText("内容待审核，请谨慎参考").isVisible());
+                (await page.getByText("客户访谈纪要").filter({ visible: true }).isVisible()) &&
+                (await page
+                  .getByText("内容待审核，请谨慎参考")
+                  .filter({ visible: true })
+                  .isVisible());
+              const citationDrawer = page.getByRole("dialog", { name: "回答依据" });
+              if (await citationDrawer.isVisible()) {
+                await citationDrawer.getByRole("button", { name: "关闭详情" }).click();
+                await citationDrawer.waitFor({ state: "hidden" });
+              }
             } else {
               await page.getByText("暂时无法完成回答，请稍后重试。").waitFor();
               qaFailureVisible = true;

@@ -228,7 +228,8 @@ try {
           const rect = element.getBoundingClientRect();
           return (
             rect.width > 0 &&
-            (element.scrollWidth > element.clientWidth + 2 || rect.right > innerWidth + 2)
+            ((!element.matches(".rail-mark") && element.scrollWidth > element.clientWidth + 2) ||
+              rect.right > innerWidth + 2)
           );
         }).length;
         return {

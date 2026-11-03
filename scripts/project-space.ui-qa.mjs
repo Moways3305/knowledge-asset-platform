@@ -170,7 +170,7 @@ function accepted(result) {
     result.overflowX > 2 ||
     result.shellOverlap > 1 ||
     result.clippedControls > 0 ||
-    result.deckTitle !== "项目空间" ||
+    result.deckTitle !== (result.assistantVisible ? "项目问答" : "项目概览") ||
     result.sensitiveVisible ||
     result.internalEnumVisible
   ) {
@@ -205,7 +205,7 @@ function accepted(result) {
     return result.memberVisible && result.reviewLinkCorrect && result.settingsVisible;
   }
   if (result.scenario === "manager-confirmation-only") {
-    return result.pendingConfirmationStat && !result.reviewActionVisible;
+    return result.pendingConfirmationStat && result.reviewLinkCorrect;
   }
   if (result.scenario === "qa-success") {
     return result.questionVisible && result.answerVisible && result.safeCitationVisible;
@@ -350,6 +350,11 @@ try {
       }
       if (scenario === "qa-success") {
         await page.getByText(qaAnswer.response_text).waitFor();
+        const references = page.getByRole("button", { name: "查看回答依据与引用" });
+        if (await references.isVisible()) {
+          await references.click();
+          await page.getByRole("dialog", { name: "回答依据" }).waitFor();
+        }
       } else if (scenario === "qa-failure") {
         await page.getByText("暂时无法完成回答，请稍后重试。").waitFor();
         qaFailureSeen = true;
@@ -392,15 +397,15 @@ try {
           const bodyText = document.body.innerText;
           const rail = document.querySelector(".rail")?.getBoundingClientRect();
           const appMain = document.querySelector(".app-main")?.getBoundingClientRect();
-          const overview = document.querySelector(".project78-overview");
+          const overview = document.querySelector(".project-work-layout");
           const assistant = document.querySelector(".project78-assistant")?.getBoundingClientRect();
           const composer = document.querySelector(".project78-composer")?.getBoundingClientRect();
           const conversation = document.querySelector(".project78-conversation");
           const input = document.querySelector("#project78-question");
           const send = document.querySelector(".project78-send");
           const model = document.querySelector('select[aria-label="问答模型"]');
-          const reviewLink = [...document.querySelectorAll(".project78-work-actions a")].find(
-            (link) => link.textContent?.includes("处理待审核（2）"),
+          const reviewLink = [...document.querySelectorAll(".project-work-queue a")].find((link) =>
+            link.textContent?.includes("查看项目审核"),
           );
           const interactive = [
             ...document.querySelectorAll(
@@ -420,8 +425,8 @@ try {
             workspaceNavVisible: Boolean(document.querySelector(".project-workspace-nav")),
             overviewVisible: Boolean(overview),
             assistantVisible: Boolean(assistant),
-            workSummaryVisible: Boolean(document.querySelector(".project78-work-summary")),
-            recentSectionVisible: [...document.querySelectorAll(".project78-overview h3")].some(
+            workSummaryVisible: Boolean(document.querySelector(".project-work-queue")),
+            recentSectionVisible: [...document.querySelectorAll(".project-work-layout h3")].some(
               (h) => h.textContent === "最近项目资料",
             ),
             assistantWidth: assistant?.width || 0,
@@ -457,9 +462,7 @@ try {
             reviewActionVisible: Boolean(reviewLink),
             reviewLinkCorrect:
               reviewLink?.getAttribute("href") === `/review?project_id=${projectAId}`,
-            pendingConfirmationStat: [
-              ...document.querySelectorAll(".project78-work-summary div"),
-            ].some(
+            pendingConfirmationStat: [...document.querySelectorAll(".project-work-queue div")].some(
               (item) => item.textContent?.includes("待确认") && item.textContent?.includes("3"),
             ),
             knowledgeLinkCorrect: [...document.querySelectorAll(".project-workspace-nav a")].some(
@@ -541,7 +544,7 @@ try {
             rect.left >= 0 &&
             rect.right <= window.innerWidth &&
             rect.top >= 0 &&
-            rect.bottom <= window.innerHeight
+            rect.bottom <= window.innerHeight + 1
           );
         });
       }

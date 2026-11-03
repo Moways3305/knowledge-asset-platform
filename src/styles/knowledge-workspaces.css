@@ -382,25 +382,28 @@
 /* Keep every field and action visible when the result surface is narrow,
    including a desktop window alongside the directory and product navigation. */
 @container (max-width: 760px) {
-  .kbl-page .kbl-scroll-guide {
+  .workspace-shell .kbl-page .kbl-scroll-guide {
     display: none;
   }
-  .kbl-page .kbl-table-wrap {
+  .workspace-shell .kbl-page .kbl-table-wrap {
     overflow: visible;
     border: 0;
   }
-  .kbl-page .kbl-table-shell::after {
+  .workspace-shell .kbl-page .kbl-table-shell::after {
     display: none;
   }
-  .kbl-page .kbl-table,
-  .kbl-page .kbl-table tbody {
+  .workspace-shell .kbl-page .kbl-table,
+  .workspace-shell .kbl-page .kbl-table tbody {
     display: block;
+    min-width: 0;
+    width: 100%;
   }
-  .kbl-page .kbl-table thead {
+  .workspace-shell .kbl-page .kbl-table thead {
     display: none;
   }
-  .kbl-page .kbl-table tbody tr {
+  .workspace-shell .kbl-page .kbl-table tbody tr {
     display: grid;
+    height: auto;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 10px 16px;
     padding: 20px 0;
@@ -409,7 +412,7 @@
     border-radius: 0;
     background: #fff;
   }
-  .kbl-page .kbl-table tbody td {
+  .workspace-shell .kbl-page .kbl-table tbody td {
     display: block;
     padding: 0;
     border: 0;
@@ -417,36 +420,36 @@
     min-width: 0;
     min-height: 0;
   }
-  .kbl-page .kbl-table td[data-column="asset"] {
+  .workspace-shell .kbl-page .kbl-table td[data-column="asset"] {
     grid-column: 1 / -1;
   }
-  .kbl-page .kbl-table td[data-column="source"] {
+  .workspace-shell .kbl-page .kbl-table td[data-column="source"] {
     grid-column: 1;
   }
-  .kbl-page .kbl-table td[data-column="updated"] {
+  .workspace-shell .kbl-page .kbl-table td[data-column="updated"] {
     grid-column: 2;
     grid-row: 2;
   }
-  .kbl-page .kbl-table td[data-column="actions"] {
+  .workspace-shell .kbl-page .kbl-table td[data-column="actions"] {
     grid-column: 1 / -1;
     text-align: right;
     padding-top: 2px;
   }
-  .kbl-page .kbl-mobile-label {
+  .workspace-shell .kbl-page .kbl-mobile-label {
     display: inline;
     margin-right: 8px;
     color: var(--knowledge-muted);
     font-size: 11px;
   }
-  .kbl-page .kbl-source-cell > div {
+  .workspace-shell .kbl-page .kbl-source-cell > div {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
   }
-  .kbl-page .kbl-source-cell strong {
+  .workspace-shell .kbl-page .kbl-source-cell strong {
     font-size: 12px;
   }
-  .kbl-page .kbl-source-cell > div > span:last-child:not(.kbl-mobile-label) {
+  .workspace-shell .kbl-page .kbl-source-cell > div > span:last-child:not(.kbl-mobile-label) {
     margin-left: 8px;
   }
   .kbl-content-heading {

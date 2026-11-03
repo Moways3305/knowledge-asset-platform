@@ -305,11 +305,16 @@ for (const scenario of scenarios) {
       const tableActuallyOverflows = tableWrap
         ? tableWrap.scrollWidth > tableWrap.clientWidth + 2
         : false;
-      const scrollGuide = document.querySelector(".kbl-scroll-guide");
+      const scrollGuide = [
+        ...document.querySelectorAll(".kbl-scroll-guide, .product-table-scroll-hint"),
+      ].find((node) => node.getBoundingClientRect().height > 0);
       const scrollGuideVisible = Boolean(
         scrollGuide && scrollGuide.getBoundingClientRect().height > 0,
       );
-      const mobile = innerWidth <= 700;
+      const mobile =
+        innerWidth <= 700 ||
+        getComputedStyle(document.querySelector(".kbl-table tbody tr") ?? document.body).display ===
+          "grid";
       const assetRows = [...document.querySelectorAll(".kbl-table tbody tr")].filter(
         (row) => !row.querySelector("td[colspan]"),
       );
@@ -331,6 +336,7 @@ for (const scenario of scenarios) {
       return {
         overflowX: root.scrollWidth - root.clientWidth,
         shellOverlap: rail && deck ? Math.max(0, rail.right - deck.left) : 1,
+        compactRows: mobile,
         tableOverflowMode: tableWrap ? getComputedStyle(tableWrap).overflowX : "missing",
         filterFieldsHeight: filterFields?.height ?? 999,
         tableActuallyOverflows,
@@ -349,7 +355,7 @@ for (const scenario of scenarios) {
           ),
         tableVisible: Boolean(document.querySelector(".kbl-table")),
         brandVisible: [...document.querySelectorAll('img[alt="MOWAYS 博维咨询"]')].some((img) => {
-          const rect = img.getBoundingClientRect();
+          const rect = (img.closest(".rail-mark") ?? img).getBoundingClientRect();
           return (
             img.naturalWidth > 0 && rect.width > 0 && rect.left >= 0 && rect.right <= innerWidth
           );
@@ -409,7 +415,7 @@ for (const scenario of scenarios) {
         collapsedButtonName:
           document.querySelector(".rail-collapse")?.getAttribute("aria-label") ?? "",
         collapsedKnowledgeTooltip:
-          document.querySelector('a[aria-label="知识资产库"]')?.getAttribute("title") ?? "",
+          document.querySelector('.rail a[aria-label="知识库"]')?.getAttribute("title") ?? "",
       }));
       await page.screenshot({
         path: path.join(outDir, `company-${viewport.name}-collapsed.png`),
@@ -449,7 +455,7 @@ if (
       !result.brandVisible ||
       !result.mobileNavDoesNotCoverContent ||
       (result.scenario !== "pure-admin" &&
-        (!(Number(result.viewport) <= 700 ? ["visible"] : ["auto", "scroll"]).includes(
+        (!(result.compactRows ? ["visible"] : ["auto", "scroll"]).includes(
           result.tableOverflowMode,
         ) ||
           !result.scopeNavigationVisible ||
@@ -465,7 +471,7 @@ if (
       (typeof result.collapsedOverflowX === "number" &&
         (result.collapsedOverflowX > 2 ||
           result.collapsedButtonName !== "展开主导航" ||
-          result.collapsedKnowledgeTooltip !== "知识资产库")),
+          result.collapsedKnowledgeTooltip !== "知识库")),
   )
 ) {
   process.exit(1);

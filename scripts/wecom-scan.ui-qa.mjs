@@ -218,16 +218,13 @@ try {
               Boolean(console && main) &&
               console.children.length === 1 &&
               Math.abs(console.getBoundingClientRect().width - main.width) <= 2,
-            recordBelow:
-              scenario === "empty" || scenario === "forbidden"
-                ? !records
-                : Boolean(
-                    config &&
-                    records &&
-                    records.y >= config.bottom + 8 &&
-                    Math.abs(records.x - config.x) <= 2 &&
-                    Math.abs(records.width - config.width) <= 2,
-                  ),
+            recordBelow: Boolean(
+              config &&
+              records &&
+              records.y >= config.bottom + 8 &&
+              Math.abs(records.x - config.x) <= 2 &&
+              Math.abs(records.width - config.width) <= 2,
+            ),
             recordsAreTable:
               scenario === "empty" || scenario === "records-empty" || scenario === "forbidden"
                 ? true
@@ -237,8 +234,9 @@ try {
             noScrollInstruction: !text.includes("左右滑动可查看状态与操作"),
             honestSummary:
               !document.querySelector(".admin-status-band") &&
-              (document.querySelectorAll(".ws87-table tr.is-actionable").length === 0 ||
-                text.includes("异常已置顶")) &&
+              [...document.querySelectorAll(".ws87-table tr.is-actionable")].every(
+                (row) => row.querySelector(".ws87-disposition")?.textContent === "需处置",
+              ) &&
               fictionalLabels.every((label) => !text.includes(label)),
             readOnly:
               scenario !== "forbidden" ||

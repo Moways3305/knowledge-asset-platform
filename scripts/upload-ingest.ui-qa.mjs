@@ -161,7 +161,7 @@ function assertResult(result) {
     result.overflowX > 2 ||
     result.shellOverlap > 1 ||
     result.clippedActions > 0 ||
-    result.pageTitle !== "上传文件" ||
+    !["上传资料", "上传记录", "核对入库信息"].includes(result.pageTitle) ||
     result.fakeFeatureVisible ||
     result.sensitiveTextVisible ||
     !result.globalSrOnlyReady ||
@@ -1109,6 +1109,7 @@ try {
             clippedActions: [...document.querySelectorAll("button, a")].filter(
               (element) =>
                 !element.classList.contains("upload77-task-select") &&
+                !element.matches(".rail-mark") &&
                 element.scrollWidth > element.clientWidth + 2,
             ).length,
             pageTitle: document.querySelector(".product-page-header h2")?.textContent?.trim() ?? "",

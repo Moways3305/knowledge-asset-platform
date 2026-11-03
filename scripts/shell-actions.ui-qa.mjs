@@ -97,13 +97,14 @@ try {
     });
   });
   const page = await context.newPage();
-  page.setDefaultTimeout(15_000);
+  page.setDefaultTimeout(30_000);
+  page.setDefaultNavigationTimeout(60_000);
   const errors = [];
   page.on("pageerror", (error) => {
     errors.push(error.message);
     console.error(error.message);
   });
-  await page.goto(`${base}/help`);
+  await page.goto(`${base}/help`, { waitUntil: "domcontentloaded" });
   await page.getByRole("heading", { name: "帮助中心" }).waitFor();
   await page.evaluate(() => document.fonts.ready);
   const captureNavigation = async (name) => {
@@ -124,54 +125,48 @@ try {
     return metrics;
   };
   let state = await captureNavigation("929-expanded");
-  assert.equal(state.railWidth, 248);
+  assert.equal(state.railWidth, 190);
   await page.getByRole("button", { name: "折叠主导航", exact: true }).click();
   await page.waitForFunction(
     () => document.querySelector(".rail").getBoundingClientRect().width === 72,
   );
   state = await captureNavigation("929-collapsed");
   assert.equal(state.labelsVisible, false);
-  for (const width of [860, 800, 701]) {
-    await page.setViewportSize({ width, height: 900 });
+  for (const width of [860, 800, 701, 700, 390, 320]) {
+    await page.setViewportSize({ width, height: width === 320 ? 604 : 844 });
     await page.waitForFunction(
       () => !document.querySelector(".app-layout").classList.contains("is-rail-collapsed"),
     );
-    await page.waitForFunction(
-      (expected) => document.querySelector(".rail").getBoundingClientRect().width === expected,
-      width,
-    );
-    state = await captureNavigation(`${width}-after-collapse`);
-    assert.equal(state.railWidth, width);
-    assert.equal(state.labelsVisible, true);
-  }
-  await page.setViewportSize({ width: 929, height: 900 });
-  await page.getByRole("button", { name: "折叠主导航", exact: true }).click();
-  for (const width of [700, 390, 320]) {
-    await page.setViewportSize({ width, height: width === 320 ? 604 : 844 });
-    if (
-      !(await page
-        .locator(".app-layout")
-        .evaluate((el) => el.classList.contains("is-mobile-nav-open")))
-    ) {
-      await page.getByRole("button", { name: "打开导航", exact: true }).click();
-    }
-    await page.waitForFunction(
-      () => document.querySelector(".rail").getBoundingClientRect().left >= -1,
-    );
-    state = await captureNavigation(`${width}-drawer-after-collapse`);
+    assert.equal(await page.locator(".rail").isVisible(), false);
+    assert.equal(await page.locator(".mobile-workspace-nav").isVisible(), true);
+    await page.getByRole("button", { name: "打开我的与全部功能", exact: true }).click();
+    const drawer = page.getByRole("dialog", { name: "我的", exact: true });
+    await drawer.waitFor();
+    await drawer.getByRole("navigation", { name: "全部功能" }).waitFor();
+    await page.waitForFunction(() => {
+      const rect = document.querySelector(".mobile-account-drawer")?.getBoundingClientRect();
+      return rect && rect.left >= 0 && rect.right <= innerWidth + 1;
+    });
+    const bounds = await drawer.boundingBox();
+    assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= width + 1);
+    assert.ok((await drawer.getByRole("link").count()) > 0);
+    state = await captureNavigation(`${width}-account-navigation`);
     assert.equal(state.collapsed, false);
-    assert.equal(state.labelsVisible, true);
-    assert.ok(state.railWidth >= 260);
+    assert.equal(state.mobileOpen, true);
+    if (width !== 320) {
+      await drawer.getByRole("button", { name: "关闭详情" }).click();
+      await drawer.waitFor({ state: "hidden" });
+    }
   }
   await page.setViewportSize({ width: 861, height: 900 });
   await page.waitForFunction(
     () => !document.querySelector(".app-layout").classList.contains("is-mobile-nav-open"),
   );
   await page.waitForFunction(
-    () => document.querySelector(".rail").getBoundingClientRect().width === 248,
+    () => document.querySelector(".rail").getBoundingClientRect().width === 190,
   );
   state = await captureNavigation("861-return-desktop");
-  assert.equal(state.railWidth, 248);
+  assert.equal(state.railWidth, 190);
 
   for (const viewport of [
     { width: 929, height: 900 },

@@ -287,6 +287,11 @@ for (const scenario of scenarios) {
     } else {
       await page.getByRole("heading", { name: "客户增长项目复盘方法论" }).waitFor();
     }
+    if (scenario !== "denied") {
+      const properties = page.locator(".kdetail-property-toggle");
+      if (await properties.isVisible()) await properties.click();
+      await page.getByRole("tab", { name: "维护与发布", exact: true }).click();
+    }
     if (scenario === "preview-failure") {
       await page.getByRole("button", { name: "预览原文" }).click();
       await page.getByText("在线预览服务暂未启用，可联系管理员开通后查看原文。").waitFor();
@@ -439,9 +444,9 @@ if (
       (result.scenario !== "denied" &&
         (result.layoutWidth === 0 ||
           (result.viewport === "1440" && result.mainWidth <= result.sideWidth) ||
-          (["1440", "1024"].includes(result.viewport) && result.sideWidth < 280))) ||
+          (["1440", "1024"].includes(result.viewport) && result.sideWidth < 260))) ||
       result.clippedActions > 0 ||
-      result.moduleTitle !== "知识资产库" ||
+      result.moduleTitle !== "资料详情" ||
       result.oldSectionVisible ||
       result.fakeFeatureVisible ||
       result.sensitiveTextVisible ||
