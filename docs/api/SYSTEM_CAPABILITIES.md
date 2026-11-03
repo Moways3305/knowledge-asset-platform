@@ -48,27 +48,27 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
    （未配置则降级为确定性草稿，不伪装成功）→ 待确认任务 → 确认人确认入库。
 2. **索引与检索**：入库确认后经 WeKnora 建立索引（未配置则跳过、降级）→ 两阶段检索
    （发现/摘要层召回 + 原文层受权限网关约束）。
-3. **问答（QA）**：项目问答经外部 Agent 网关，**完全跟随调用人权限**取上下文。
+3. **问答（QA）**：网页项目问答使用第一方会话接口；外部 MCP 通过 Agent 网关接入。两者均按当前调用人权限取上下文，摘要可见不能代替项目成员问答权限。
 4. **资产化确认**：material → asset 按上表规则由对应确认人完成（项目资产需验证证据）。
 5. **公司库升格**：项目经理发起项目资产升格 → 一名总经理与一名咨询总监分别确认；任一方拒绝或撤回均不升格，任一角色缺失则保持待确认。
 6. **生命周期**：知识可归档 / 重启用（archive / reenable，带申请—确认）。
-7. **原文访问**：跨项目项目知识 L1-L4、公司知识 L3/L4 的原文经申请—审批生成逐资产授权后方可访问；全程审计。跨项目 L5 不可发现，授权也不得放大其可见性。
+7. **原文访问**：跨项目项目知识 L1-L4、公司知识 L1–L4 的原文经申请—审批生成逐资产授权后方可访问；全程审计。跨项目 L5 不可发现，授权也不得放大其可见性。
 
 ---
 
 ## 4. API 路由概览
 
-后端注册 **22 个业务 router**（共约 98 个 endpoint）。除健康探针与少数集成回调外，
+本节按业务概括路由，并非完整接口列表；完整方法、路径和 schema 以 `openapi.json` 为准，前端接入情况见 [FRONTEND_API_COVERAGE.md](./FRONTEND_API_COVERAGE.md)。除健康探针与少数集成回调外，
 默认需认证会话；写操作在 cookie 会话下受 CSRF 保护；管理类路由额外要求对应治理角色。
 
 > 认证标注：🔓 无需会话；🔐 需登录会话；🛡️ 需登录 + 治理/管理角色。
 > 写操作（POST/PUT/PATCH/DELETE）在会话下均需 `X-CSRF-Token`（先取 `GET /api/v1/auth/csrf`）。
 
 ### 4.1 健康与运维
-- 🔓 `GET /health`、`/health/ready`、`/health/config` — 活性 / 就绪 / 安全配置诊断（只回布尔/项名/provider 名，无值）。
+- 🔓 `GET /health`、`/health/ready`、`/health/config`、`/health/release` — 活性 / 就绪 / 安全配置诊断（只回布尔/项名/provider 名，无值）。
 - 🛡️ `GET /admin/ops/summary`、`/admin/ops/indexing`(+`/jobs`,`/reparse`,`/retry`) — 运维概览与索引运维。
-- 🛡️ `GET/POST /admin/ops/auth-security`(+`/unlock`) — 登录风控查看与解锁。
-- 🛡️ `GET/POST /admin/ops/sessions/users/{user_id}`(+`/revoke`) — 会话查看与撤销。
+- 🛡️ `GET /admin/ops/auth-security`、`POST /admin/ops/auth-security/unlock` — 登录风控查看与解锁。
+- 🛡️ `GET /admin/ops/sessions/users/{user_id}`、`POST /admin/ops/sessions/users/{user_id}/revoke` — 会话查看与撤销。
 - 🛡️ `POST /admin/ops/wecom-identity/reconcile` — 企微身份生命周期对账。
 
 ### 4.2 身份与会话（auth）
@@ -104,7 +104,7 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 
 ### 4.6 项目（projects）
 - 🔐 `GET/POST /api/v1/projects`、`GET/PATCH /api/v1/projects/{project_id}/settings`。
-- 🔐 `POST /api/v1/projects/{project_id}/qa` — 项目问答（经 Agent 网关 + 权限）。
+- 🔐 `POST /api/v1/projects/{project_id}/qa` — 第一方项目问答，要求有效项目成员身份并执行知识权限裁剪。
 - 🛡️ `GET/POST/PATCH /api/v1/projects/{project_id}/members/...` — 总经理/咨询总监任命项目经理，项目经理管理本项目辅导老师与顾问。
 - 🛡️ `POST /api/v1/projects/{project_id}/knowledge/{asset_id}/{confirm-asset|evidence}` — 项目资产确认（项目经理）。
 
@@ -113,7 +113,7 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 - 授权由审批通过后生成；admin 不因系统身份获得业务原文授权权。
 
 ### 4.8 外部 Agent 网关：WorkBuddy MCP（主） / Dify（legacy）
-- 🔐 `POST /mcp` — WorkBuddy 5.4.5 的生产 Streamable HTTP MCP 主入口，支持 `initialize`、`tools/list`、`tools/call`。仅接受短期、可撤销、绑定当前业务用户的 Bearer；无匿名发现，生产强制 HTTPS，并有 Origin、请求大小、限流、并发和超时保护。
+- 🔐 `POST /mcp` — 标准 Streamable HTTP MCP 主入口，支持 `initialize`、`tools/list`、`tools/call`。支持绑定当前业务用户的自助 Bearer，以及可选的 OAuth 授权码 + PKCE；匿名只能读取协议授权发现元信息，不能查询知识或发现业务工具。生产使用 HTTPS，并有 Origin、请求大小、限流、并发和超时保护。见 [MCP OAuth](./mcp-oauth.md)。
 - 🔐 `GET /api/v1/auth/workbuddy-connectors`、`GET .../{platform}/{architecture}/download` — 在职业务用户获取共享 Windows/macOS 连接器的版本、SHA-256、发布渠道与受鉴权安装包；安装包不含个人 token。正式版维持签名/公证链，未签名企业内部版仅在服务器默认关闭的管理员开关显式开启时分发。
 - 🔐 `GET /api/v1/auth/workbuddy-token`、`POST .../regenerate`、`DELETE ...` — 当前业务用户查看有效期与安全连接状态、生成一次性远程配置、撤销或轮换。服务端只存摘要；最近连接时间只由成功调用更新。本地 Connector 作为受管设备兼容模式保留。
 - 🔐 `GET /api/v1/agent-calls/{call_id}`(+`/decision-items`) — Agent 调用记录与候选项。
@@ -131,7 +131,7 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
   - `GET /api/v1/agent-gateway/reviews/pending` — 我可处理 / 可见的待审核事项。
   - `GET /api/v1/agent-gateway/original-access/requests?box=mine|inbox` — 原文访问申请（只读）。
   - 仅服务器标记为 `is_self_service` 的自助 WorkBuddy 规则完全跟随绑定用户的实时 `decide()` 权限，不叠加 L2/A2 ceiling；该来源标记不在管理员 CRUD schema 中。管理员创建的 WorkBuddy 规则及其他 provider 仍保留 registry ceiling。响应为安全白名单字段，绝不含文件名 / storage·source ref / 下载·预览 URL / WeKnora id / provider 内部标识 / token。
-  - **写操作暂不开放**（无 approve/reject/upload/grant/revoke 类工具）。
+- 🔐 **受控操作**：`/api/v1/agent-gateway/operations/*` 提供本人上传会话、入库预览与确认、审批决定等操作。仅显式启用 `qa_operations` 的自助凭证或 OAuth 授权可用；每次仍检查实时业务权限、用户明确同意声明和版本条件。旧只读凭证及受限注册凭证不因此获得写权限。文件字节通过 multipart 上传，不塞入 `/mcp` JSON。完整流程见 [MCP 操作接口](../mcp-operations.md)。
 - 🔐 `POST /api/v1/dify/external-knowledge/retrieval`、`POST /api/v1/dify/tools/knowledge-search` — **Dify 兼容适配器（legacy）**，保留可用、不强删；新接入用 agent-gateway。
 - 核心是 **provider 中立网关**；Agent **不**拥有独立权限，完全跟随调用人。
 
@@ -143,7 +143,7 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 - 🛡️ 权限规则：`/api/v1/admin/permissions/{rules|agent-whitelist}`。
 - 🛡️ 微盘扫描：`/api/v1/admin/wecom-scan/...`（配置、扫描、目录/空间、归属选项）。
 - 🛡️ WeKnora 管理：`/api/v1/admin/weknora/{models|kb-configs|providers}`（模型经不可逆 `model_ref` 对前端暴露，内部 model id 不外泄）。
-- 🛡️ 平台默认模型（PBC-38）：`GET|PUT /api/v1/admin/weknora/default-models`（读 admin / 治理角色，写仅 admin；只用 `model_ref`）。建库 / 入库选模型优先级：请求显式 `model_ref` > 平台默认（DB `weknora_default_models`）> fail-closed，不再用 `.env` 的 `WEKNORA_*_MODEL_ID` 兜底；同一 KB 的 embedding 模型建库即锁定，不一致选择返回 `weknora_kb_embedding_model_locked`。
+- 🛡️ 平台默认模型（PBC-38）：`GET|PUT /api/v1/admin/weknora/default-models`（读 admin / 治理角色，写仅 admin；只用 `model_ref`）。建库 / 入库选模型优先级：请求显式 `model_ref` > 平台默认（DB `weknora_default_models`）> fail-closed，不再用 `.env` 的 `WEKNORA_*_MODEL_ID` 兜底；默认模型变更不会自动迁移既有 KB；当前实现允许显式指定不同 embedding 模型时切换绑定，存量文档须随后重新解析以重新向量化，不能把切换配置当作重索引完成。
 - 🛡️ KAP 内容生成模型（PBC-46）：`/api/v1/admin/generation/models` 支持管理员新增、编辑、启停、删除与安全连接测试，`PUT /api/v1/admin/generation/default-model` 保存平台默认；API 地址与 API key 使用 Fernet 密文落库，所有响应和审计只暴露安全 `model_ref` 与展示字段。业务侧 `GET /api/v1/generation/model-options` 只读安全选项。
 - 🛡️ 外部 LLM 与 WeKnora 拆分（PBC-63）：`/api/v1/admin/model-connections` 是 KAP 外部 OpenAI-compatible Chat LLM 的兼容管理面，只读写加密的 KAP 连接，并设置内容生成/项目问答共用的业务默认模型；它不调用 WeKnora `/models`。WeKnora 的 embedding、rerank 和部署必需兼容 LLM 槽位继续由 `/api/v1/admin/weknora/default-models` 独立管理，既有知识库及索引绑定不迁移、不重建。
 - 👤 模型选项（PBC-38，业务用户只读）：`GET /api/v1/weknora/model-options`（顾问入库 / 建库时查看可选模型、按 `type` 过滤；只回安全展示字段 + `is_default` + `default_missing`，无 CRUD、无真实 model id）。
@@ -161,18 +161,18 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 关键规则：
 - 无项目身份用户**也可**查看公司知识库中允许发现的知识摘要（无项目身份 ≠ 只能看个人知识）。
 - 项目组人员对**所在项目**知识库拥有摘要与原文（含客户数据原文）权限，行为受审计、无需额外原文申请。
-- 非 active 项目成员不可发现对应项目知识，公司职务不能绕过此边界。
+- 非项目成员的在职业务用户可发现其他项目 L1–L4 并查看受控摘要，原文需要逐资产授权；跨项目 L5 不可发现。公司职务不能替代 active 项目成员关系，也不自动开放项目问答或设置。
 - 公司顾问可访问公司知识的发现层与安全摘要层；公司原文默认仅总经理 / 咨询总监可访问，并继续遵守保密级别与受控预览规则。
-- L5 仅总经理 / 咨询总监可发现；admin **不**自动发现 L5。
+- 公司 L5 仅总经理 / 咨询总监可发现；个人库所有者和本项目 active 成员按其所属范围访问。纯 admin **不**自动发现任何业务知识。
 - L3/L4 摘要必须是脱敏摘要，不得含客户敏感数据。L2 是内部一般资料，不强制脱敏，不比 L3/L4 更严格。
 - `preview_type` 由保密等级 + 访问场景 + 调用人授权**共同**决定，不固定对应某一保密级别。
-- Agent 跟随调用人权限：调用人能看摘要则 Agent 可用同范围摘要；调用人有原文授权则 Agent 同步具备该范围原文能力；调用人无权发现 L5，Agent 亦不能。Agent 只能推荐候选，不自动完成审核 / 验证 / 资产确认 / 公司库升格。
+- Agent 跟随调用人权限：调用人能看摘要则 Agent 可用同范围摘要；调用人有原文授权则 Agent 同步具备该范围原文能力；调用人无权发现 L5，Agent 亦不能。只读 Agent 只能查询和推荐候选；启用操作权限后可按用户明确指令执行已开放的确认/审批接口，不能绕过证据要求、双席确认或自动授予自己权限。
 
 ---
 
 ## 6. 外部集成点
 
-均为 **env 注入启用、未配置时 fail-closed 安全降级**（不伪装成功），密钥经部署注入、不入仓库：
+服务连接通过环境配置启用，平台默认模型和 KAP 生成模型在管理页面维护，敏感配置加密保存。未配置时按接口返回降级或不可用状态，不伪装成功；真实密钥不入仓库：
 
 | 集成 | 作用 | 未配置时 |
 |---|---|---|
@@ -180,17 +180,19 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 | **外部 LLM** | 入库内容处理（摘要/抽取/改写） | 降级为确定性草稿，上传不失败 |
 | **企业微信（WeCom）** | OAuth 身份、微盘扫描（Path A）、治理通知 | OAuth/扫描未启用，通知仅本地 in_app |
 | **ONLYOFFICE** | 受控只读原文预览 | 预览安全降级，不泄露原文 URL |
-| **对象存储 / 向量库** | 受控上传字节存储、向量检索 | 走本地共享卷 / 降级 |
+| **本地持久卷 / WeKnora** | 受控上传字节存储 / 向量索引 | 当前字节存储使用 `LocalFileStorage`；S3/OSS/MinIO 适配未实现，不能通过配置直接启用 |
 
 provider 内部标识（dataset/workflow/kb/model id、bucket、api_key 等）为 **server-only，绝不外泄前端**。
 
 ---
 
-## 7. 安全红线（不得出现在 API 响应 / 前端 / 日志 / 审计）
+## 7. 安全输出边界
 
-- 任何密钥 / 凭证：api_key、app_secret、jwt_secret、各类签名/HMAC 密钥。
+普通业务投影、日志、审计和报告不得包含以下内容。专用认证/配置接口按契约交付必要凭证；受控原文接口仅向当前获准调用人返回内容，不能把这些例外扩展到普通摘要或通知。
+
+- 服务端密钥：上游 api_key、app_secret、jwt_secret、各类签名/HMAC 密钥。
 - server-only 内部标识：WeKnora kb/doc/model id、Dify dataset/workflow/app id、对象存储 bucket / 受控存储引用、内部文件引用。
-- 凭证派生物：登录标识 / IP 的不可逆 hash、密码 hash、会话/CSRF/OAuth state token。
+- 凭证派生物与认证材料：登录标识 / IP 的不可逆 hash、密码 hash、会话/CSRF/OAuth state token（专用认证响应除外，禁止写入业务日志）。
 - 客户敏感数据：未脱敏原文 / chunk、原始业务文件名、原始 IP、原文下载 URL。
 - L3/L4 摘要中的客户敏感数据；他人个人知识的发现 / 摘要。
 

@@ -18,7 +18,7 @@ python scripts/production_smoke.py --base-url <prod-url> --expect-prod-ready --j
 - **exit code**：
   - `0` = health + ready 通过且无需阻断 / 无 blockers；
   - `1` = health 或 ready 不通过，或 `--expect-prod-ready`（= `--fail-on-production-blockers`）且 `/health/config` 存在 production blockers。
-- **为什么输出不含 secrets**：脚本纯标准库、只读探活；`/health/config` 仅摘取白名单字段（项名 / 布尔 / provider 名 / `production_ready` / `blockers` / `warnings` / `missing_config`），其余正文一律不回显；绝不打印响应正文 / `Authorization` / `Cookie` / api_key / 连接串。逻辑由 `backend/tests/test_pbc17_production_smoke.py` 单测锁定（含 redaction 断言）。
+- **为什么输出不含 secrets**：脚本纯标准库、只读探活；`/health/config` 仅摘取白名单字段（项名 / 布尔 / provider 名 / `production_ready` / `blockers` / `warnings` / `missing_config`），其余正文一律不回显；绝不打印响应正文 / `Authorization` / `Cookie` / api_key / 连接串。逻辑由 `backend/tests/test_production_smoke.py` 单测锁定（含 redaction 断言）。
 - **不应出现**：响应正文、cookie、`Authorization` 头、任何 `*_KEY` / `*_SECRET`、连接串。
 
 ---
@@ -51,11 +51,11 @@ python scripts/production_smoke.py --base-url <prod-url> --expect-prod-ready --j
 - 可观察审计：成功走完时 `login.success`（`login_method=wecom_oauth`）；成员失效时 fail-closed（不建会话）
 - 不应出现：`wecom_user_id`、通讯录档案字段、access_token、OAuth code/state、上游 errmsg
 
-### B4. admin ops 可达 / 业务用户不可达 admin ops
+### B4. 系统运维与业务人员管理的权限分别生效
 - 操作人：admin（系统管理） vs 普通业务用户
-- 步骤：分别以总经理 / 咨询总监调用 `GET /admin/people`；以 pure admin 调用该接口；普通业务用户访问 `/admin/ops/*`
-- 预期：admin / 治理角色 `200`；普通业务用户 `403`
-- 可观察：HTTP 状态；pure admin 返回 403，治理角色列表仅含安全人员/角色元数据
+- 步骤：总经理 / 咨询总监与纯 admin 分别调用 `GET /api/v1/admin/people`；纯 admin 与普通顾问分别调用 `GET /admin/ops/summary`。
+- 预期：人员清单仅总经理 / 咨询总监为 `200`，纯 admin 为 `403`；运维概况纯 admin 为 `200`，普通顾问为 `403`。其他管理接口逐项按后端权限验证，不把 `/admin/ops/*` 视为同一权限。
+- 可观察：HTTP 状态；治理人员清单仅返回获准的安全元数据
 - 不应出现：`token_hash` / session token / OAuth / 存储引用 / 业务原文；注意 **纯 admin `title_visible=false`**，admin 不应看到业务知识标题/原文
 
 ### B5. 上传 Path B：upload → AI result → confirm
@@ -71,7 +71,7 @@ python scripts/production_smoke.py --base-url <prod-url> --expect-prod-ready --j
 ### B6. confirm 后索引状态可见
 - 操作人：admin / 运维角色
 - 步骤：`GET /admin/ops/indexing`（或 `/admin/ingest` 运营面板）查看该资产 `index_status`
-- 预期：`indexed`（成功）或显式失败态（`index_failed` / `skipped`），失败可见且可发起 retry-index / reparse
+- 预期：区分文档已建索引 `indexed` 与解析状态 `weknora_parse_status`；`indexed + failed` 不视为正文已可检索。失败/跳过状态应如实显示，并只提供当前允许的 retry-index / reparse 操作
 - 可观察：安全索引状态聚合；后台作业 `indexing_operation_jobs` 安全统计
 - 不应出现：WeKnora kb/doc id、原始 upstream error.code、存储引用、原文
 
@@ -90,7 +90,7 @@ python scripts/production_smoke.py --base-url <prod-url> --expect-prod-ready --j
 - 不应出现：失败资产的原文 / chunk
 
 ### B9. 原文权限边界：无授权不可看，有授权可看
-- 操作人：跨项目范围业务用户（对项目 L1-L4 原文）/ 公司范围业务用户（对公司 L3/L4 原文）
+- 操作人：跨项目范围业务用户（对项目 L1-L4 原文）/ 公司顾问（对公司 L1–L4 原文；治理身份已有原文权，不作为拒绝样本）
 - 步骤：
   1. 无授权访问原文层（知识详情原文 / 预览 / 原文取件）→ 预期按「需申请」拒绝（`original_requires_request`）。
   2. 发起原文访问申请 → 审批通过生成 active `access_grant` → 再访问 → 预期放行。

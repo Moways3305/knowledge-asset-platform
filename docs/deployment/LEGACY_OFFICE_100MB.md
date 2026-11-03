@@ -25,9 +25,8 @@ Office 转换失败日志现在记录格式、退出码、是否生成输出和�
 ```bash
 cd /data/kap/repo
 dc() { docker compose -p kap -f docker-compose.yml -f docker-compose.prod.yml "$@"; }
-git pull --ff-only
-dc build backend worker ocr_worker beat frontend
-dc up -d --no-deps backend worker ocr_worker beat frontend
+# 先按 deploy/RELEASE_NOTES.md 完成版本化部署（含 migrate 与全部应用服务）。
+# 以下仅核对运行状态，不另行构建无发布清单的镜像。
 dc ps
 dc exec -T ocr_worker libreoffice --version
 dc exec -T backend python -c 'from app.services.storage import MAX_UPLOAD_BYTES; print(MAX_UPLOAD_BYTES)'

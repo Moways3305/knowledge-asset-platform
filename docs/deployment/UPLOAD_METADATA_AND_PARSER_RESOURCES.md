@@ -11,7 +11,7 @@
 
 ## 部署注意
 
-这次修改不增加数据库迁移。先按主部署手册备份、更新代码并完成现有迁移，再部署同版本 frontend/backend/worker。不要只更新前端。
+这次修改不增加数据库迁移。先按主部署手册备份、更新代码并完成现有迁移，使用 [版本化部署入口](../../deploy/RELEASE_NOTES.md) 更新同版本 frontend/backend/worker/ocr_worker/beat。不要只更新前端，也不要用局部构建替代发布清单校验。
 
 在 Ubuntu 新 SSH 会话中先定义：
 
@@ -23,15 +23,13 @@ dc() { docker compose -p kap -f docker-compose.yml -f docker-compose.prod.yml "$
 `INGEST_WORKER_CONCURRENCY` 和 `INGEST_WORKER_MEMORY_LIMIT` 是根目录 `.env` 的 Compose 插值参数，不是 `backend/.env`。未配置时分别为 `1` 和 `4G`；如有旧覆盖须核实。`docker update` 的临时设置不会替代 Compose 配置。
 
 ```bash
-dc build backend worker frontend
-dc up -d --no-deps --force-recreate backend worker frontend
 dc ps
 docker inspect kap-worker-1 --format 'memory={{.HostConfig.Memory}} command={{json .Config.Cmd}}'
 dc exec -T worker celery -A app.worker.celery_app.celery_app inspect ping
 docker stats --no-stream kap-worker-1
 ```
 
-默认 memory 应为 `4294967296`，启动命令包含 `--concurrency=1`。在低峰部署，保留 beat/ocr_worker 等现有服务，不清队列、不删除上传任务。
+默认 memory 应为 `4294967296`，启动命令包含 `--concurrency=1`。在低峰通过统一入口部署全部应用服务，不清队列、不删除上传任务。以上命令只核对状态与资源，不重新构建或覆盖版本身份。
 
 ## 生产验证
 

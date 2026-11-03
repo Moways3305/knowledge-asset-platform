@@ -6,7 +6,7 @@
 
 ## 如何安全使用本清单
 
-- 注入：在部署平台 / `backend/.env`（不入仓库）里**填值**，但**不要回显**到聊天 / 报告 / CI log / 截图。
+- 注入：Compose 插值项（如 `APP_ENV`、数据库/Redis 密码、worker 资源）放根 `.env`，服务集成项放 `backend/.env` 或部署平台；两者均不入仓库。Compose 显式 `environment` 优先于 `env_file`，只在后者改值不一定生效。配置时**填值**，但**不要回显**到聊天 / 报告 / CI log / 截图。
 - 验证：只用「项名 + 布尔/状态」核对，例如：
   ```powershell
   # /health/config 只回布尔 / provider 名 / 缺失项名 / production_ready/blockers/warnings —— 安全可贴
@@ -27,7 +27,7 @@
 
 | 配置项名 | 状态 | /health/config | 缺失 / 误配症状 |
 |---|---|---|---|
-| `APP_ENV` | required (prod) | 驱动 `app_env` + 是否评估 blockers | 非 `prod` 则不强制 Secure cookie、不评估 blockers，安全守卫不生效 |
+| `APP_ENV` | required (prod) | 驱动 `app_env` + 是否评估 blockers | Compose 从根配置取值；示例为 dev，仅供本地。生产必须设 prod，启用生产 Secure cookie 与配置阻断检查 |
 | `APP_NAME` | optional | — | 仅展示用 |
 | `LOG_LEVEL` | optional | — | 默认 INFO |
 | `SESSION_COOKIE_SECURE` | required (prod，建议留空) | blocker `SESSION_COOKIE_SECURE`（prod 下显式 `false` 时） | prod 运行时强制 Secure；显式置 `false` 会被诚实标记为 blocker（运行时仍安全），建议删除该项让其按环境推断 |
@@ -46,11 +46,12 @@
 |---|---|---|---|
 | `DATABASE_URL` | required | 经 `/health/ready` 的 `checks.database` 间接反映 | 缺失 / 不可达 → `/health/ready` 503、backend 起不来 |
 | `REDIS_URL` | required (async) | `/health/ready` 的 `checks.redis` | async 模式缺失 → 就绪失败、worker/beat 无 broker |
+| `POSTGRES_PASSWORD` | required (compose) | — | 根配置必填；创建 PostgreSQL 时使用，后端连接会正确编码。已有数据卷不能仅改变量而不同步数据库角色密码 |
 | `REDIS_PASSWORD` | required (compose) | — | compose 变量（根 `./.env`）：给 Redis 加 `--requirepass` 并拼进 `REDIS_URL`。**缺失即 compose fail-fast 拒绝启动**（`${REDIS_PASSWORD:?...}`），不会静默起无密码 Redis。上线务必改强随机值 |
 | `CELERY_BROKER_URL` | optional | — | 缺省回退 `REDIS_URL` |
 | `CELERY_RESULT_BACKEND` | optional | — | 缺省回退 `REDIS_URL` |
 | `CELERY_TASK_ALWAYS_EAGER` | required (prod = false) | blocker `CELERY_TASK_ALWAYS_EAGER`（prod 下为 true 时）；`integrations.celery_eager` | true 则作业内联同步、阻塞请求、丢异步语义；prod 报 blocker |
-| `STORAGE_ROOT` | required | — | backend/worker 须指向同一份共享存储；不一致 → 异步处理读不到上传字节、摘要为空 |
+| `STORAGE_ROOT` | required | — | backend/worker/ocr_worker 须指向同一份共享存储；不一致 → 异步处理读不到上传字节、摘要为空 |
 
 ## 3. WeKnora 知识底座
 
@@ -59,6 +60,7 @@
 | `WEKNORA_BASE_URL` | conditional | `integrations.weknora_enabled` | 与 api_key 任一缺失 → 未启用 → warning `WEKNORA_NOT_CONFIGURED`，检索/索引降级 |
 | `WEKNORA_API_KEY` | conditional | `integrations.weknora_enabled` | 同上；**绝不外泄** |
 | 平台默认 embedding 模型（DB，非 env） | conditional (启用则 required) | blocker + missing_config `WEKNORA_DEFAULT_EMBEDDING_MODEL` | PBC-38：启用 WeKnora 但未在「模型配置中心」配置平台默认 embedding → 建库 fail-closed |
+| `WEKNORA_DEFAULT_KNOWLEDGE_QA_MODEL` | required when WeKnora enabled (DB) | blocker + missing_config | 模型配置中心的底座兼容 LLM 默认槽位未设置；它不代替 KAP 内容生成/业务问答模型 |
 | `WEKNORA_MODEL_REF_SECRET` | conditional (启用则 required) | blocker + missing_config `WEKNORA_MODEL_REF_SECRET` | 启用但缺 → model_ref HMAC 回退常量、不稳定；prod 报 blocker |
 | `WEKNORA_EMBEDDING_MODEL_ID` | **DEPRECATED legacy** | — (不再作为 blocker) | PBC-38：仅历史兼容 / 测试隔离；生产改用模型配置中心，留空即可 |
 | `WEKNORA_CHAT_MODEL_ID` | DEPRECATED legacy | — | 同上，不再推荐生产配置 |
@@ -68,11 +70,14 @@
 | `WEKNORA_TENANT_ID` | optional | — | 按底座需要 |
 | `WEKNORA_TIMEOUT` | optional | — | 缺省 30s |
 
-## 4. External LLM
+## 4. KAP 内容生成与业务问答模型
+
+优先使用模型管理页面保存的产品配置，API 地址与 API key 加密落库。产品配置存在后不回退旧 `LLM_*` 环境默认；只有尚未建立产品配置的部署兼容环境方式。判断是否配置成功看 `integrations.external_llm_configured`（兼容别名 `kap_generation_model_configured`），不能只看旧 `llm_enabled`。
 
 | 配置项名 | 状态 | /health/config | 缺失 / 误配症状 |
 |---|---|---|---|
-| `LLM_PROVIDER` | conditional | `integrations.llm_provider`（provider 名安全，非密钥） | 与 api_key 任一缺失 → warning `LLM_NOT_CONFIGURED`，内容处理降级为确定性草稿 |
+| `GENERATION_MODEL_ENCRYPTION_KEY` | conditional (产品模型配置) | 产品配置存在但缺少时 blocker + missing_config | 保存/解密模型连接所需的独立稳定 Fernet 密钥，必须随配置备份，不能每次部署重新生成 |
+| `LLM_PROVIDER` | legacy fallback | `integrations.llm_provider`（provider 名安全，非密钥） | 仅无产品配置时使用；整体无可用生成模型时 warning `EXTERNAL_LLM_NOT_CONFIGURED` |
 | `LLM_API_KEY` | conditional | `integrations.llm_enabled` | 同上；**绝不外泄** |
 | `LLM_BASE_URL` | optional | — | 缺省走 provider 注册表默认 |
 | `LLM_MODEL` | optional | — | 缺省走默认 |
@@ -99,16 +104,17 @@
 | `ONLYOFFICE_ENABLED` | optional (默认 false) | `integrations.onlyoffice_enabled` | 关 → 预览安全降级，不泄露原文 URL |
 | `ONLYOFFICE_DOCUMENT_SERVER_URL` | conditional (启用则 required) | blocker + missing_config | 启用但缺 → 预览不可用 |
 | `ONLYOFFICE_JWT_SECRET` | conditional (启用则 required) | blocker | 启用但缺 → Document Server 通常强制 JWT，未签名 config 被拒；**绝不外泄** |
-| `ONLYOFFICE_INTERNAL_BASE_URL` | conditional | — | 用于拼受控取件 URL 供 Document Server 回取 |
+| `ONLYOFFICE_INTERNAL_BASE_URL` | conditional | 缺失/非法时 blocker | 用于 Document Server 回取字节；地址须有效且服务可达 |
+| `ONLYOFFICE_ORIGIN` | conditional (根配置) | 缺失、非法或与 Document Server origin 不一致时 blocker | 浏览器 CSP 允许的文档服务器 origin，由 Compose 同时注入前后端 |
 | `ONLYOFFICE_FETCH_TTL_MINUTES` | optional | — | 缺省 30 分钟 |
 
-## 7. Storage / Object Storage
+## 7. 上传字节存储
 
 | 配置项名 | 状态 | /health/config | 缺失 / 误配症状 |
 |---|---|---|---|
-| `STORAGE_ROOT` | required | — | 见 §2；生产平替对象存储时，存储引用 / 路径保持 server-only，不进 API 响应 |
+| `STORAGE_ROOT` | required | — | 见 §2；生产使用共享持久卷，存储引用 / 路径保持 server-only，不进 API 响应 |
 
-> 对象存储（S3/OSS/MinIO）平替经可插拔 `StorageBackend`；其凭证项名取决于所选后端，注入规则同上（不入仓库、不打印）。本仓库默认本地共享卷。
+> 当前仅实现 `LocalFileStorage`，没有可配置即用的 S3/OSS/MinIO 适配。须备份共享卷及数据库；替换存储需另行开发与验证。
 
 ## 8. Frontend / Reverse Proxy
 
@@ -121,8 +127,21 @@
 
 ---
 
-## 生产 blocker / warning 速查（与 `/health/config` 一致）
+## 9. MCP OAuth（可选）
 
-- **blockers（prod 必须清零）**：`CELERY_TASK_ALWAYS_EAGER`、`SESSION_COOKIE_SECURE`（显式 false 时）、`AUTH_ATTEMPT_HASH_SECRET`、`CSRF_TOKEN_SECRET`、`WEKNORA_DEFAULT_EMBEDDING_MODEL`、`WEKNORA_MODEL_REF_SECRET`（WeKnora 启用时）、`ONLYOFFICE_DOCUMENT_SERVER_URL`、`ONLYOFFICE_JWT_SECRET`（ONLYOFFICE 启用时）、`WECOM_CORP_ID/WECOM_APP_SECRET`（企微通知启用时）。PBC-38：`WEKNORA_EMBEDDING_MODEL_ID` 已不再是 blocker（deprecated legacy，建库 embedding 取平台默认模型配置）。
-- **warnings（不阻断，建议确认）**：`LLM_NOT_CONFIGURED`、`WEKNORA_NOT_CONFIGURED`。
-- **missing_config（启用但缺关键值的项名）**：`WEKNORA_DEFAULT_EMBEDDING_MODEL`、`WEKNORA_MODEL_REF_SECRET`、`ONLYOFFICE_DOCUMENT_SERVER_URL`、`WECOM_CORP_ID/WECOM_APP_SECRET`。
+`MCP_OAUTH_ENABLED` 默认关闭。开启时必须配置独立、稳定的
+`MCP_OAUTH_CLIENT_ENCRYPTION_KEY`，缺失或无效会在启动阶段拒绝启用，不能仅依赖
+`/health/config` 的 blockers 判断。公开 origin、代理路径和密钥备份见
+[MCP OAuth 部署](../api/mcp-oauth.md)；凭证只读/操作权限见 [MCP 操作接口](../mcp-operations.md)。
+
+## 生产 blocker / warning 速查
+
+以下按 `backend/app/api/ops.py` 的 `/health/config` 分类；这不是所有启动校验和外部连通性检查的替代。
+
+- 通用 blockers：`CELERY_TASK_ALWAYS_EAGER`、`SESSION_COOKIE_SECURE`、`AUTH_ATTEMPT_HASH_SECRET`、`CSRF_TOKEN_SECRET`。
+- WeKnora 启用时：`WEKNORA_DEFAULT_EMBEDDING_MODEL`、`WEKNORA_DEFAULT_KNOWLEDGE_QA_MODEL`、`WEKNORA_MODEL_REF_SECRET`。
+- ONLYOFFICE 启用时：`ONLYOFFICE_DOCUMENT_SERVER_URL`、`ONLYOFFICE_DOCUMENT_SERVER_URL_ORIGIN`、`ONLYOFFICE_INTERNAL_BASE_URL`、`ONLYOFFICE_INTERNAL_BASE_URL_INVALID`、`ONLYOFFICE_ORIGIN`、`ONLYOFFICE_ORIGIN_INVALID`、`ONLYOFFICE_ORIGIN_MISMATCH`、`ONLYOFFICE_JWT_SECRET`。
+- 企微通知启用且缺凭证：`WECOM_CORP_ID/WECOM_APP_SECRET`。
+- 存在产品模型配置但缺加密密钥：`GENERATION_MODEL_ENCRYPTION_KEY`。
+- warnings：`EXTERNAL_LLM_NOT_CONFIGURED`、`WEKNORA_NOT_CONFIGURED`。旧 `llm_enabled=false` 不表示产品模型未配置，应结合 `external_llm_configured`。
+- `missing_config` 是启用但缺关键配置的子集，不含全部格式/一致性错误；不能代替 `production_blockers`。`production_ready=true` 也不代替业务验收。

@@ -21,7 +21,8 @@ python -m app.commands.recover_ocr_incident
 若事故任务 UUID 清单已导出，应为每条追加 `--task-id <UUID>`（最多 31 条）；这样 dry-run
 也会单独统计已成功、已非 processing 的任务，不会把后来已完成的任务再次入队。
 
-只有 `docker compose config` 能看到上述限流、单份 PDF 冒烟通过，且 cgroup `oom_kill`
+只核对 Compose 中队列、并发及内存配置项，并确认运行容器已采用这些值；不要输出完整
+`docker compose config` 或容器环境变量，以免展开真实密钥。只有限流已生效、单份 PDF 冒烟通过，且 cgroup `oom_kill`
 没有增长后，才允许每批 3 份低速恢复：
 
 ```bash

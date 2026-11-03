@@ -13,7 +13,11 @@
 7 天过期，绑定当前在职业务用户，轮换和撤销立即使旧凭证失效。禁止 query token、固定
 API key、共享账号和匿名工具发现。
 
-## WorkBuddy 5.4.5 兼容结论
+自助凭证默认只读；本人显式启用操作权限后才可使用受控写接口，见 [MCP 操作接口](../mcp-operations.md)。
+支持 OAuth 的客户端可使用同一 `/mcp`，需另行开启授权配置与代理路径，见 [OAuth 说明](../api/mcp-oauth.md)。
+下面的版本记录只代表历史兼容验证，不限制可接入的标准 MCP 客户端，也不证明新版本客户端已验收。
+
+## WorkBuddy 5.4.5 历史兼容记录
 
 2026-09-01 已用隔离、无业务数据的探针验证 WorkBuddy 5.4.5 能加载 `type: "http"` 的
 远程 MCP，并完成 `initialize` / `tools/list`；客户端必须完整退出并重启，随后由用户在 MCP
@@ -41,7 +45,7 @@ KAP 凭证，也未把 5.4.7 的观察替代为 5.4.5 生产验收证据。
 
 ## 发布验证
 
-1. 执行迁移 `0070_workbuddy_remote_mcp`，启动后检查
+1. 使用版本化部署入口迁移到目标提交的 Alembic head（包含远程入口所需的 `0070_workbuddy_remote_mcp`，不能停留在该历史版本），启动后检查
    `GET /api/v1/health/workbuddy-mcp` 只有聚合计数且不含 token、参数或内容。
 2. 自动化：运行 `test_workbuddy_remote_mcp.py`、`test_workbuddy_token.py`、
    `test_agent_gateway.py`；确认 16 个只读工具都在注册表。

@@ -17,9 +17,9 @@ MOWAYS（博维咨询）内部的**知识资产与交付治理工作台**。面�
 
 ## 核心能力
 
-- **今日工作台**：登录后首页是个人总览——我的待办（待确认入库、待审核、原文申请、索引失败等）、今日运营状态、快捷入口与项目范围，按角色裁剪。
+- **工作台**：按当前身份展示我的待办、近期资料和项目入口；通知与任务分别呈现，已读不等于任务完成。
 - **知识资产库**：浏览 + 语义检索（WeKnora 召回 + 意图路由 + 权限裁剪 + 脱敏），按公司 / 项目 / 个人范围切换，展示保密级、索引状态与原文层状态。
-- **入库 / 资产化确认**：企业微信微盘扫描（自动通道）与本地上传（手动通道）共享「AI 抽取 → 人工校正 → 确认入库」链路；外部 LLM 生成三层摘要与标签建议，未配置 LLM 时回退确定性草稿。入库 / 建库默认使用平台推荐的嵌入 / 重排模型，顾问可在「高级设置」按需切换（前端只用对底座 id 不可逆的 `model_ref` 选择，绝不接触真实模型 id）；平台未配置默认嵌入模型时入库被禁用并提示联系管理员，不再静默回退环境变量。
+- **入库 / 资产化确认**：企业微信微盘扫描（自动通道）与本地上传（手动通道）共享「AI 抽取 → 人工校正 → 确认入库」链路；外部 LLM 生成三层摘要与标签建议，未配置 LLM 时回退确定性草稿。入库 / 建库默认使用平台推荐的嵌入 / 重排模型，顾问可在「高级设置」按需切换（前端只用对底座 id 不可逆的 `model_ref` 选择，绝不接触真实模型 id）；平台未配置默认嵌入模型时相关建库/索引操作会受阻并提示补齐配置，不再静默回退环境变量。
 - **审核与升格**：项目资料 → 资产、个人 → 项目提交，按角色审核并登记验证证据。
 - **原文访问授权**：申请 / 审批 / 拒绝 / 撤销原文访问，审批通过生成有时效的访问授权，运行时叠加放行，过期或撤销立即失效。
 - **外部 Agent 接入**：provider 中立的外部 Agent / 工作流网关，当前主接入面为 **WorkBuddy MCP**（`integrations/workbuddy-mcp/`）；Dify 为 legacy 兼容适配器（保留可用，新接入优先使用 WorkBuddy MCP / agent-gateway）。Agent 不拥有独立权限，完全跟随调用人（按 token 绑定的真实用户）权限，经权限网关裁剪与脱敏。
@@ -27,7 +27,10 @@ MOWAYS（博维咨询）内部的**知识资产与交付治理工作台**。面�
 - **安全**：密码登录（PBKDF2）与企业微信 OAuth；服务端会话 + httpOnly cookie；登录失败锁定 / IP 限流、CSRF 防护、账号安全变更时撤销会话、企业微信身份生命周期同步。
 - **预览与通知**：ONLYOFFICE 只读预览（受控取件，不泄露存储地址）；企业微信通知（需开启）。
 
-> **当前不包含 / 计划增强**：OCR 扫描件识别、结构保持式文件重写、基于本地 LLM 的脱敏、历史资产全量重索引、MFA / 找回密码 / 密码轮换 / 完整多设备会话管理。这些尚未实现，界面会按真实边界展示，不放可点击的假按钮。
+- **文件解析与恢复**：PDF/图片 OCR、Office 正文抽取、旧版 Office 转换、上传会话恢复和重型解析队列已实现。格式与资源限制见[文件支持说明](docs/deployment/LEGACY_OFFICE_100MB.md)及[OCR 运行手册](docs/operations/OCR_QUEUE_RECOVERY.md)。
+- **帮助与手机端**：帮助中心提供按任务组织的使用教程；手机端使用任务导航、条目列表和引用/详情抽屉。
+
+> **当前边界**：已提供管理员会话查询/撤销、人员密码设置与历史正文回填；不等同于用户自助找回密码、MFA、完整的个人多设备管理或历史资产自动全量重索引。结构保持式文件重写、本地 LLM 脱敏和 S3/OSS/MinIO 存储适配也不是当前交付能力。
 
 ## 角色模型
 
@@ -44,15 +47,19 @@ MOWAYS（博维咨询）内部的**知识资产与交付治理工作台**。面�
 
 - 三类知识库（个人 / 项目 / 公司）统一用 `zone = material | asset` 表示资产化状态，确认规则按库不同（个人由所有者本人、项目由项目经理、公司由 Boss / 咨询总监）。
 - 三层访问：**发现层**（标题/类型/标签/脱敏简述）、**摘要层**（安全摘要）、**原文层**（原始文件 / 原文 chunk / 客户数据 / 预览）。权限管控集中在原文层。
-- 保密级 L1–L5 递增；L3/L4 对外摘要必须脱敏；L5 仅 Boss / 咨询总监可发现，管理员不因系统身份获得业务可见性。
+- 保密级 L1–L5 递增。本人个人库与 active 项目成员权限按所属范围判定；跨项目 L1–L4 仅可发现和查看受控摘要，L5 不可发现。公司 L5 仅总经理 / 咨询总监可发现；纯管理员没有业务知识访问权。L3/L4 对外摘要使用安全变体，原文仍须通过当前权限校验。
 
 ## 快速开始（Docker）
 
-前提：安装 Docker Desktop，准备 `backend/.env`（从 `backend/.env.example` 复制；本地可不填外部密钥，相关集成会安全降级）。
+前提：安装支持 `up --wait` 的 Docker Compose。首次启动时复制两份示例；已有配置不要覆盖。根 `.env` 用于 Compose 插值，`backend/.env` 用于后端集成配置，Compose 显式 `environment` 的优先级更高。
 
 ```powershell
+Copy-Item .env.example .env
+Copy-Item backend/.env.example backend/.env
+# 检查根 .env：本地 APP_ENV=dev；设置 POSTGRES_PASSWORD、REDIS_PASSWORD。
+# 示例密码仅供本地开发。外部集成可留空，相关功能会显示不可用或降级。
 docker compose build
-docker compose up -d      # postgres/redis 就绪 → migrate 自动迁移 → backend/worker/beat → frontend
+docker compose up -d --wait # postgres/redis → migrate → backend/worker/ocr_worker/beat → frontend
 docker compose exec backend python -m app.seed.dev_seed   # 可选：写入开发种子数据（仅 dev/test）
 ```
 
@@ -70,15 +77,17 @@ docker compose exec backend python -m app.seed.dev_seed   # 可选：写入开�
 
 ## 前端入口
 
-- **今日工作台** `/`：个人总览与待办。
+- **工作台** `/`：个人待办、项目入口和近期资料。
 - **知识资产库** `/knowledge`：浏览与语义检索。
-- **资产化确认** `/upload`：入库确认（微盘 / 上传两通道）。
-- **升级审核** `/review`、**原文访问** `/original-access`、**个人知识** `/my/knowledge`、**项目看板/设置** `/project/:id/...`。
+- **上传资料** `/upload`：上传、核对入库信息和上传记录（含微盘来源任务）。
+- **审批中心** `/review`、`/review/completed`、`/original-access`；**我的知识** `/my/knowledge`、**知识维护** `/knowledge-maintenance`。
+- **项目空间** `/projects`：成员项目概览、资料、问答和设置；知识库中的“项目库”是资料浏览入口，摘要可见不等于项目成员权限。
+- **帮助中心** `/help`、**更新日志** `/release-notes`、**MCP 接入** `/my/workbuddy`（保留兼容路径）。
 - **管理后台**：入库管理、微盘扫描、模型配置、审计日志、登录风控、告警设置、权限规则、人员权限（按角色可见）。
 
 ## 部署说明
 
-`docker-compose.yml` 提供后端 + Postgres + Redis + Celery worker/beat + 前端 nginx 的单机编排（编排内凭证仅本地开发用，**绝非生产凭证**）。生产上线需要真实域名、HTTPS/TLS 证书与反向代理、企业微信可信回调域名、外部系统密钥注入、对象存储与监控接入等运维动作；这些不在仓库内完成。
+`docker-compose.yml` 提供后端 + Postgres + Redis + Celery worker/ocr_worker/beat + 前端 nginx 的单机编排（编排内凭证仅本地开发用，**绝非生产凭证**）。生产上线需要真实域名、HTTPS/TLS 证书与反向代理、企业微信可信回调域名、外部系统密钥注入、持久卷备份与监控接入等运维动作；这些不在仓库内完成。
 
 仓库内提供可执行的部署手册与安全清单，作为上线前的操作依据：
 
@@ -92,12 +101,16 @@ docker compose exec backend python -m app.seed.dev_seed   # 可选：写入开�
 ## 安全边界
 
 - **不提交真实密钥**：所有外部系统凭证经部署注入，不入仓库；`backend/.env` 已被 Git 忽略。
-- **不输出内部标识**：API、前端与审计绝不返回 storage 引用、对象存储 URL、WeKnora / 企业微信内部 id、模型真实 id、完整 token / cookie / api key 或业务原文。
+- **按输出边界保护数据**：业务摘要、通知、日志与审计不得泄露原文、凭证、存储引用和底座标识。获准原文访问通过受控预览/正文接口执行；登录、CSRF、MCP 配置等专用凭证接口按契约返回必要凭证，不应复制进日志或报告。
 - **不展开密钥**：不要运行或粘贴完整 `docker compose config`（它会展开 `env_file` 里的真实密钥）。验证编排结构请用 `docker compose config --services` / `--volumes`，或对 `docker-compose.yml` 做定向检索。
 
 ## 代码质量门禁
 
-CI 对每个 PR 强制：后端 `ruff check` + `ruff format --check` + `mypy` + `pytest`；前端 `eslint` + `prettier --check` + `vitest` + `build`。
+CI 对每个 PR 检查后端 lint / 类型 / 测试 / 架构 / OpenAPI 契约，前端 lint / 格式 / 单元测试 / 构建 / 接口漂移和浏览器回归，以及 PostgreSQL 迁移、前后端镜像和 MCP 集成。详见 `.github/workflows/ci.yml`。
+
+- 前端结构与接口接入：[维护说明](docs/architecture/FRONTEND_STRUCTURE.md)。
+- 接口覆盖：`npm run api:frontend:check`；浏览器全量回归：`npm run test:ui:global-acceptance`。
+- 页面使用方法以应用内 `/help` 为入口；仓库文档主要面向开发和部署维护。
 
 本地用 **pre-commit**（一套框架，覆盖前后端；不使用 husky / lint-staged）在提交前自动跑 ruff(check --fix / format) 与 eslint / prettier：
 
@@ -115,4 +128,4 @@ pre-commit run --all-files    # 手动全量跑
 
 - 前端：React 18、TypeScript、Vite、React Router；自托管字体（Hanken Grotesk / Fraunces / IBM Plex Mono）与 lucide 图标。
 - 后端：FastAPI、SQLAlchemy（async）、Alembic、Celery、PostgreSQL、Redis。
-- 外部集成：WeKnora（向量检索/索引）、外部 LLM（内容处理）、企业微信（OAuth / 微盘 / 通知）、ONLYOFFICE（预览），均经环境变量启用、未配置时 fail-closed 降级。
+- 外部集成：WeKnora（向量检索/索引）、外部 LLM（内容处理）、企业微信（OAuth / 微盘 / 通知）、ONLYOFFICE（预览）。服务连接经环境配置注入；平台默认模型和 KAP 内容生成连接由模型管理页面维护，敏感配置加密存储，未配置时按实际能力降级。
