@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Inbox, LoaderCircle, MoveHorizontal } from "lucide-react";
 
 // 通用表格壳：列定义 + 行数据 + 空态 / 加载态。默认使用产品级表格类；尚未逐页迁移
@@ -38,13 +38,34 @@ export default function DataTable<T>({
   ariaLabel,
   scrollHint = "左右滑动查看完整表格",
 }: DataTableProps<T>) {
+  const scrollRegion = useRef<HTMLDivElement>(null);
+  const [overflows, setOverflows] = useState(false);
+  useLayoutEffect(() => {
+    const region = scrollRegion.current;
+    if (!region) return;
+    const measure = () => setOverflows(region.scrollWidth > region.clientWidth + 1);
+    measure();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(region);
+    if (region.firstElementChild) observer?.observe(region.firstElementChild);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [rows, columns, loading]);
   return (
     <div className="product-table-region">
-      <div className="product-table-scroll-hint" role="note">
+      <div
+        className="product-table-scroll-hint"
+        role="note"
+        style={{ display: overflows ? "flex" : "none" }}
+      >
         <MoveHorizontal size={14} aria-hidden="true" />
         {scrollHint}
       </div>
       <div
+        ref={scrollRegion}
         className={wrapClassName}
         data-table-scroll
         tabIndex={0}
@@ -55,7 +76,7 @@ export default function DataTable<T>({
           <thead>
             <tr>
               {columns.map((c) => (
-                <th key={c.key} className={c.headerClassName}>
+                <th key={c.key} className={c.headerClassName} scope="col">
                   {c.header}
                 </th>
               ))}
@@ -75,7 +96,12 @@ export default function DataTable<T>({
               rows.map((row) => (
                 <tr key={rowKey(row)} className={rowClassName?.(row)}>
                   {columns.map((c) => (
-                    <td key={c.key} className={c.className}>
+                    <td
+                      key={c.key}
+                      className={c.className}
+                      data-column={c.key}
+                      data-label={typeof c.header === "string" ? c.header : undefined}
+                    >
                       {c.render(row)}
                     </td>
                   ))}

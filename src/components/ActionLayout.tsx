@@ -65,11 +65,15 @@ export function ActionMenu({
   ariaLabel,
   children,
   disabled = false,
+  placement = "bottom",
+  className = "",
 }: {
   label?: string;
   ariaLabel?: string;
   children: ReactNode;
   disabled?: boolean;
+  placement?: "bottom" | "right";
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<CSSProperties>({ visibility: "hidden" });
@@ -100,7 +104,29 @@ export function ActionMenu({
       const height = viewport?.height ?? window.innerHeight;
       const gap = 6;
       const inset = 12;
-      const panelWidth = Math.min(Math.max(anchor.width, 200), Math.max(0, width - inset * 2));
+      const panelWidth = Math.min(
+        Math.max(anchor.width, placement === "right" ? 240 : 200),
+        Math.max(0, width - inset * 2),
+      );
+      if (placement === "right") {
+        const maxHeight = Math.max(0, height - inset * 2);
+        setPosition({
+          width: panelWidth,
+          left: Math.max(
+            leftEdge + inset,
+            Math.min(anchor.right + gap, leftEdge + width - panelWidth - inset),
+          ),
+          top: Math.max(
+            topEdge + inset,
+            Math.min(
+              anchor.top,
+              topEdge + height - Math.min(panel.scrollHeight + 2, maxHeight) - inset,
+            ),
+          ),
+          maxHeight,
+        });
+        return;
+      }
       const below = Math.max(0, topEdge + height - inset - anchor.bottom - gap);
       const above = Math.max(0, anchor.top - topEdge - inset - gap);
       const naturalHeight = panel.scrollHeight + 2;
@@ -155,7 +181,7 @@ export function ActionMenu({
       window.visualViewport?.removeEventListener("scroll", place);
       observer?.disconnect();
     };
-  }, [open, disabled, close]);
+  }, [open, disabled, close, placement]);
 
   useLayoutEffect(() => {
     if (open && !disabled && position.visibility !== "hidden") {
@@ -173,7 +199,7 @@ export function ActionMenu({
         aria-label={ariaLabel ?? label}
         aria-expanded={open && !disabled}
         aria-controls={open && !disabled ? panelId : undefined}
-        className="action-menu-trigger"
+        className={`action-menu-trigger ${className}`}
         onClick={() => {
           setPosition({ visibility: "hidden" });
           setOpen((value) => !value);

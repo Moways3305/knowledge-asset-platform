@@ -7,7 +7,7 @@ import CreateProjectModal from "../components/CreateProjectModal";
 import TaskCenterDrawer, { type TaskCenterGroup } from "../components/TaskCenterDrawer";
 import { taskStatusLabel, taskTypeLabel } from "../components/taskCenterLabels";
 import WorkbuddyStatusPanel from "../components/WorkbuddyStatusPanel";
-import { ProductPage } from "../components/ProductLayout";
+import { PageHeader, ProductPage } from "../components/ProductLayout";
 import type { WorkbenchSectionStatus, WorkbenchTaskItemDTO } from "../types/workbench";
 import { formatBeijingTime } from "../utils/time";
 import { scopeLabels } from "../utils/knowledgeLabels";
@@ -160,7 +160,6 @@ export default function HomeDashboardPage() {
   const [drawerGroup, setDrawerGroup] = useState<TaskCenterGroup>("my_tasks");
   const [drawerTaskRef, setDrawerTaskRef] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const [refractVersion, setRefractVersion] = useState(0);
   const [taskPage, setTaskPage] = useState(0);
 
   const taskCenterStatus: UiSectionStatus =
@@ -199,14 +198,12 @@ export default function HomeDashboardPage() {
     (safeTaskPage + 1) * dashboardTaskLimit,
   );
   const needsActionCount = center?.summary.needs_action ?? actionableItems.length;
-  const focusItem = actionableItems[0] ?? null;
 
   useEffect(() => {
     setTaskPage((page) => Math.min(page, taskPageCount - 1));
   }, [taskPageCount]);
 
   const handleRefresh = () => {
-    setRefractVersion((version) => version + 1);
     void refresh();
   };
 
@@ -262,267 +259,209 @@ export default function HomeDashboardPage() {
 
   return (
     <ProductPage className="task-first-workbench">
-      <div className="workbench-scene-shell">
-        <span key={refractVersion} className="workbench-light-sweep" aria-hidden="true" />
-        <header className="workbench-heading">
-          <div className="workbench-heading-copy">
-            <span>{todayLabel()}</span>
-            <h1>我的工作</h1>
-            <p aria-live="polite">
-              {state === "loading"
-                ? "正在同步需要你处理的事项"
-                : state === "error"
-                  ? "工作状态需要重新加载"
-                  : needsActionCount > 0
-                    ? `${needsActionCount} 项需要你处理`
-                    : "当前没有需要你处理的事项"}
-            </p>
+      <PageHeader
+        title="我的工作"
+        description={
+          <span aria-live="polite">
+            {state === "loading"
+              ? "正在同步需要你处理的事项"
+              : state === "error"
+                ? "工作状态需要重新加载"
+                : needsActionCount > 0
+                  ? `${needsActionCount} 项需要你处理`
+                  : "当前没有需要你处理的事项"}
+          </span>
+        }
+        actions={
+          <>
+            <span className="workbench-date">{todayLabel()}</span>
+            <button
+              type="button"
+              className="product-button is-secondary"
+              disabled={state === "loading"}
+              onClick={handleRefresh}
+            >
+              <RefreshCw size={15} aria-hidden="true" />
+              刷新
+            </button>
+          </>
+        }
+      />
+      <div className="work-dashboard-grid">
+        <section className="workbench-primary" aria-labelledby="workbench-list-title">
+          <div className="workbench-section-heading">
+            <div>
+              <h2 id="workbench-list-title">我的待办</h2>
+            </div>
           </div>
-          <button
-            type="button"
-            className="workbench-refresh"
-            disabled={state === "loading"}
-            onClick={handleRefresh}
-          >
-            <RefreshCw size={15} aria-hidden="true" />
-            刷新
-          </button>
-        </header>
-
-        <div className="workbench-layout">
-          <div className="workbench-environment" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-          </div>
-          <main className="workbench-primary" aria-labelledby="workbench-list-title">
-            <div className="workbench-section-heading">
-              <div>
-                <span>今日任务</span>
-                <h2 id="workbench-list-title">按下一步行动排列</h2>
-              </div>
-            </div>
-            {taskCenterStatus === "available" && focusItem ? (
+          <div className="workbench-tabs" role="tablist" aria-label="我的工作分组">
+            {WORK_TABS.map((tab) => (
               <button
+                key={tab.key}
                 type="button"
-                className={`workbench-focus is-${focusItem.status} ${taskMaterialClass(focusItem.task_type)}`}
-                aria-label="打开今日焦点任务"
-                onClick={() => openTask("my_tasks", focusItem.task_ref)}
+                role="tab"
+                aria-selected={activeTab === tab.key}
+                className={activeTab === tab.key ? "is-active" : ""}
+                onClick={() => selectTab(tab.key)}
               >
-                <span className="workbench-focus-prism" aria-hidden="true">
-                  <i />
-                  <i />
-                  <i />
-                </span>
-                <span className="workbench-focus-copy">
-                  <small>优先处理</small>
-                  <strong>{`今日焦点 · ${focusItem.object_name}`}</strong>
+                {tab.label}
+                {tab.key !== "recent_completed" && (
                   <span>
-                    {focusItem.project_name || focusItem.responsibility} ·{" "}
-                    {focusItem.next_action_label}
+                    {tab.key === "my_tasks" ? actionableItems.length : groups[tab.key].length}
                   </span>
-                </span>
-                <span className="workbench-focus-action">
-                  {waitLabel(focusItem.waiting_minutes) || taskStatusLabel(focusItem.status)}
-                  <ArrowRight size={17} aria-hidden="true" />
-                </span>
-              </button>
-            ) : (
-              <div
-                className={`workbench-focus ${taskCenterStatus === "available" ? "is-empty" : `is-${taskCenterStatus}`}`}
-              >
-                <span className="workbench-focus-prism" aria-hidden="true">
-                  <i />
-                  <i />
-                  <i />
-                </span>
-                <span className="workbench-focus-copy">
-                  <small>今日焦点</small>
-                  <strong>
-                    {taskCenterStatus === "loading"
-                      ? "正在确定优先事项"
-                      : taskCenterStatus === "error"
-                        ? "焦点暂时无法加载"
-                        : "工作台已清空"}
-                  </strong>
-                  <span>
-                    {taskCenterStatus === "available"
-                      ? "可以开始整理下一份知识资产"
-                      : "任务列表仍可在下方查看和恢复"}
-                  </span>
-                </span>
-              </div>
-            )}
-            <div className="workbench-tabs" role="tablist" aria-label="我的工作分组">
-              {WORK_TABS.map((tab) => (
-                <button
-                  key={tab.key}
-                  type="button"
-                  role="tab"
-                  aria-selected={activeTab === tab.key}
-                  className={activeTab === tab.key ? "is-active" : ""}
-                  onClick={() => selectTab(tab.key)}
-                >
-                  {tab.label}
-                  {tab.key !== "recent_completed" && (
-                    <span>
-                      {tab.key === "my_tasks" ? actionableItems.length : groups[tab.key].length}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
-            <div className="workbench-task-columns" aria-hidden="true">
-              <span>任务对象 / 类型</span>
-              <span>项目或范围 / 下一步</span>
-              <span>等待时长 / 状态</span>
-              <span />
-            </div>
-            <div className="workbench-task-list" role="tabpanel" aria-live="polite">
-              {taskCenterStatus === "available" && activeItems.length > 0 ? (
-                visibleTaskItems.map((item) => (
-                  <TaskRow key={item.task_ref} item={item} group={activeTab} onOpen={openTask} />
-                ))
-              ) : (
-                <SectionState
-                  status={taskCenterStatus === "available" ? "empty" : taskCenterStatus}
-                  kind={
-                    activeTab === "my_tasks"
-                      ? "tasks"
-                      : activeTab === "running_jobs"
-                        ? "running"
-                        : "completed"
-                  }
-                  onRetry={handleRefresh}
-                  emptyAction={activeTab === "my_tasks" ? emptyAction : undefined}
-                />
-              )}
-            </div>
-            {taskCenterStatus === "available" && activeItems.length > dashboardTaskLimit && (
-              <div className="workbench-task-pager">
-                <PagePagination
-                  ariaLabel="任务列表分页"
-                  page={safeTaskPage + 1}
-                  totalPages={taskPageCount}
-                  onPageChange={(nextPage) => setTaskPage(nextPage - 1)}
-                  summary={
-                    <>
-                      显示 {safeTaskPage * dashboardTaskLimit + 1}–
-                      {Math.min((safeTaskPage + 1) * dashboardTaskLimit, activeItems.length)} /{" "}
-                      {activeItems.length}
-                    </>
-                  }
-                />
-                <button type="button" onClick={() => openTask(activeTab)}>
-                  查看全部
-                </button>
-              </div>
-            )}
-            {groups.attention_items.length > 0 && (
-              <button
-                type="button"
-                className="workbench-attention-link"
-                onClick={() => openTask("attention_items")}
-              >
-                另有 {groups.attention_items.length} 项需要关注
-                <ArrowRight size={14} aria-hidden="true" />
-              </button>
-            )}
-          </main>
-
-          <aside className="workbench-context" aria-label="工作上下文">
-            <section className="workbench-projects" aria-labelledby="workbench-projects-title">
-              <div className="workbench-context-heading">
-                <div>
-                  <FolderKanban size={17} aria-hidden="true" />
-                  <h2 id="workbench-projects-title">我的项目</h2>
-                </div>
-                {capabilities.isGovernance && (
-                  <div className="workbench-create-wrap">
-                    <span>仅治理角色可见</span>
-                    <button type="button" onClick={() => setCreateOpen(true)}>
-                      <Plus size={14} aria-hidden="true" />
-                      新建项目
-                    </button>
-                  </div>
                 )}
-              </div>
-              {projectsStatus === "available" && overview!.projects.items.length > 0 ? (
-                <div className="workbench-project-list">
-                  {overview!.projects.items.map((project) => (
-                    <Link
-                      key={project.project_id}
-                      className={
-                        project.access_mode === "member" ? "material-project" : "material-summary"
-                      }
-                      to={
-                        project.access_mode === "member"
-                          ? `/project/${encodeURIComponent(project.project_id)}`
-                          : `/knowledge?scope=project&project_id=${encodeURIComponent(project.project_id)}`
-                      }
-                    >
-                      <span>
-                        <strong>{project.name}</strong>
-                        <small>{project.access_label}</small>
-                      </span>
-                      <ArrowRight size={15} aria-hidden="true" />
-                    </Link>
-                  ))}
-                </div>
-              ) : (
-                <SectionState
-                  status={projectsStatus === "available" ? "empty" : projectsStatus}
-                  kind="projects"
-                  onRetry={handleRefresh}
-                  emptyAction={
-                    !capabilities.isGovernance && authMe?.projects[0] ? (
-                      <Link to={`/project/${encodeURIComponent(authMe.projects[0].projectId)}`}>
-                        进入项目空间
-                      </Link>
-                    ) : undefined
-                  }
-                />
-              )}
-            </section>
-            {capabilities.isBusinessUser && <WorkbuddyStatusPanel />}
-          </aside>
-
-          <section className="workbench-recent" aria-labelledby="workbench-recent-title">
-            <div className="workbench-section-heading">
-              <div>
-                <span>近期变化</span>
-                <h2 id="workbench-recent-title">最近动态</h2>
-              </div>
+              </button>
+            ))}
+          </div>
+          <div className="workbench-task-columns" aria-hidden="true">
+            <span>任务对象 / 类型</span>
+            <span>项目或范围 / 下一步</span>
+            <span>等待时长 / 状态</span>
+            <span />
+          </div>
+          <div className="workbench-task-list" role="tabpanel" aria-live="polite">
+            {taskCenterStatus === "available" && activeItems.length > 0 ? (
+              visibleTaskItems.map((item) => (
+                <TaskRow key={item.task_ref} item={item} group={activeTab} onOpen={openTask} />
+              ))
+            ) : (
+              <SectionState
+                status={taskCenterStatus === "available" ? "empty" : taskCenterStatus}
+                kind={
+                  activeTab === "my_tasks"
+                    ? "tasks"
+                    : activeTab === "running_jobs"
+                      ? "running"
+                      : "completed"
+                }
+                onRetry={handleRefresh}
+                emptyAction={activeTab === "my_tasks" ? emptyAction : undefined}
+              />
+            )}
+          </div>
+          {taskCenterStatus === "available" && activeItems.length > dashboardTaskLimit && (
+            <div className="workbench-task-pager">
+              <PagePagination
+                ariaLabel="任务列表分页"
+                page={safeTaskPage + 1}
+                totalPages={taskPageCount}
+                onPageChange={(nextPage) => setTaskPage(nextPage - 1)}
+                summary={
+                  <>
+                    显示 {safeTaskPage * dashboardTaskLimit + 1}–
+                    {Math.min((safeTaskPage + 1) * dashboardTaskLimit, activeItems.length)} /{" "}
+                    {activeItems.length}
+                  </>
+                }
+              />
+              <button type="button" onClick={() => openTask(activeTab)}>
+                查看全部
+              </button>
             </div>
-            {visibleRecentStatus === "available" && overview!.recent_activity.items.length > 0 ? (
-              <div className="workbench-recent-list">
-                {overview!.recent_activity.items.slice(0, 3).map((item) => (
+          )}
+          {groups.attention_items.length > 0 && (
+            <button
+              type="button"
+              className="workbench-attention-link"
+              onClick={() => openTask("attention_items")}
+            >
+              另有 {groups.attention_items.length} 项需要关注
+              <ArrowRight size={14} aria-hidden="true" />
+            </button>
+          )}
+        </section>
+
+        <aside className="workbench-context" aria-label="工作上下文">
+          <section className="workbench-projects" aria-labelledby="workbench-projects-title">
+            <div className="workbench-context-heading">
+              <div>
+                <FolderKanban size={17} aria-hidden="true" />
+                <h2 id="workbench-projects-title">我的项目</h2>
+              </div>
+              {capabilities.isGovernance && (
+                <div className="workbench-create-wrap">
+                  <button type="button" onClick={() => setCreateOpen(true)}>
+                    <Plus size={14} aria-hidden="true" />
+                    新建项目
+                  </button>
+                </div>
+              )}
+            </div>
+            {projectsStatus === "available" && overview!.projects.items.length > 0 ? (
+              <div className="workbench-project-list">
+                {overview!.projects.items.map((project) => (
                   <Link
-                    key={item.asset_id}
-                    className={recentMaterialClass(item.asset_type, item.access_mode)}
-                    to={`/knowledge/${encodeURIComponent(item.asset_id)}`}
+                    key={project.project_id}
+                    className={
+                      project.access_mode === "member" ? "material-project" : "material-summary"
+                    }
+                    to={
+                      project.access_mode === "member"
+                        ? `/project/${encodeURIComponent(project.project_id)}`
+                        : `/knowledge?scope=project&project_id=${encodeURIComponent(project.project_id)}`
+                    }
                   >
                     <span>
-                      <strong>{canShowRecentTitles ? item.title : "业务标题已隐藏"}</strong>
-                      <small>{recentScopeLabel(item.scope, item.project_name)}</small>
+                      <strong>{project.name}</strong>
+                      <small>{project.access_label}</small>
                     </span>
-                    <time>
-                      <Clock3 size={13} aria-hidden="true" />
-                      {formatBeijingTime(item.updated_at)}
-                    </time>
                     <ArrowRight size={15} aria-hidden="true" />
                   </Link>
                 ))}
               </div>
             ) : (
               <SectionState
-                status={visibleRecentStatus === "available" ? "empty" : visibleRecentStatus}
-                kind="recent"
+                status={projectsStatus === "available" ? "empty" : projectsStatus}
+                kind="projects"
                 onRetry={handleRefresh}
+                emptyAction={
+                  !capabilities.isGovernance && authMe?.projects[0] ? (
+                    <Link to={`/project/${encodeURIComponent(authMe.projects[0].projectId)}`}>
+                      进入项目空间
+                    </Link>
+                  ) : undefined
+                }
               />
             )}
           </section>
-        </div>
+          {capabilities.isBusinessUser && <WorkbuddyStatusPanel />}
+        </aside>
+
+        <section className="workbench-recent" aria-labelledby="workbench-recent-title">
+          <div className="workbench-section-heading">
+            <div>
+              <h2 id="workbench-recent-title">最近动态</h2>
+            </div>
+          </div>
+          {visibleRecentStatus === "available" && overview!.recent_activity.items.length > 0 ? (
+            <div className="workbench-recent-list">
+              {overview!.recent_activity.items.slice(0, 3).map((item) => (
+                <Link
+                  key={item.asset_id}
+                  className={recentMaterialClass(item.asset_type, item.access_mode)}
+                  to={`/knowledge/${encodeURIComponent(item.asset_id)}`}
+                  state={{ backTo: "/", backLabel: "返回工作台", source: "task" }}
+                >
+                  <span>
+                    <strong>{canShowRecentTitles ? item.title : "业务标题已隐藏"}</strong>
+                    <small>{recentScopeLabel(item.scope, item.project_name)}</small>
+                  </span>
+                  <time>
+                    <Clock3 size={13} aria-hidden="true" />
+                    {formatBeijingTime(item.updated_at)}
+                  </time>
+                  <ArrowRight size={15} aria-hidden="true" />
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <SectionState
+              status={visibleRecentStatus === "available" ? "empty" : visibleRecentStatus}
+              kind="recent"
+              onRetry={handleRefresh}
+            />
+          )}
+        </section>
       </div>
 
       <CreateProjectModal

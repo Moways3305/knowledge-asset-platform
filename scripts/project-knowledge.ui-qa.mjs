@@ -133,7 +133,10 @@ function accepted(result) {
     result.overflowX <= 2 &&
     result.shellOverlap <= 1 &&
     result.clippedControls === 0 &&
-    result.moduleTitle === "项目知识库" &&
+    result.moduleTitle ===
+      (["no-model", "qa-success", "qa-failure"].includes(result.scenario)
+        ? "项目空间"
+        : "项目知识库") &&
     !result.sensitiveVisible &&
     !result.internalVisible &&
     !result.oldImplementationVisible &&
@@ -141,6 +144,31 @@ function accepted(result) {
   if (!basePass) return false;
   if (["empty-projects", "inaccessible"].includes(result.scenario)) {
     return !result.tableVisible && result.safeStateVisible;
+  }
+  if (result.scenario === "no-model") {
+    return (
+      result.sharedQaWorkspace &&
+      result.modelOptionsLazy &&
+      result.qaModelCalls === 1 &&
+      result.noModelVisible &&
+      result.qaInputDisabled
+    );
+  }
+  if (result.scenario === "qa-success") {
+    return (
+      result.sharedQaWorkspace &&
+      result.modelOptionsLazy &&
+      result.qaModelCalls === 1 &&
+      result.safeAnswerVisible
+    );
+  }
+  if (result.scenario === "qa-failure") {
+    return (
+      result.sharedQaWorkspace &&
+      result.modelOptionsLazy &&
+      result.qaModelCalls === 1 &&
+      result.qaFailureVisible
+    );
   }
   if (
     !result.tableVisible ||
@@ -152,7 +180,7 @@ function accepted(result) {
     return false;
   if (result.scenario === "member-list") {
     return (
-      result.qaInitiallyCollapsed &&
+      result.qaAbsentFromList &&
       result.modelOptionsLazy &&
       result.domOrderCorrect &&
       result.qaEntryCount === 1 &&
@@ -163,7 +191,7 @@ function accepted(result) {
   }
   if (result.scenario === "manager-list") {
     return (
-      result.qaInitiallyCollapsed &&
+      result.qaAbsentFromList &&
       result.modelOptionsLazy &&
       result.domOrderCorrect &&
       result.qaEntryCount === 1 &&
@@ -180,20 +208,6 @@ function accepted(result) {
   }
   if (result.scenario === "list-failure") return result.failureSeen && result.retrySucceeded;
   if (result.scenario === "filtered-empty") return result.filteredEmptyVisible;
-  if (result.scenario === "no-model") {
-    return (
-      result.modelOptionsLazy &&
-      result.qaModelCalls === 1 &&
-      result.noModelVisible &&
-      result.qaInputDisabled
-    );
-  }
-  if (result.scenario === "qa-success") {
-    return result.modelOptionsLazy && result.qaModelCalls === 1 && result.safeAnswerVisible;
-  }
-  if (result.scenario === "qa-failure") {
-    return result.modelOptionsLazy && result.qaModelCalls === 1 && result.qaFailureVisible;
-  }
   if (result.scenario === "upgrade-publication") {
     return result.upgradePublicationVisible && result.upgradePayloadValid;
   }
@@ -240,6 +254,43 @@ try {
           route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
         if (requestUrl.pathname === "/api/v1/auth/me") return fulfill(authMe(scenario));
+        const projectItems = authMe(scenario).project_memberships.map((item) => ({
+          id: item.project_id,
+          name: item.project_name,
+          client_name: null,
+          status: "active",
+          lifecycle_route_key: null,
+          lifecycle_phase_key: null,
+          created_at: "2026-07-15T00:00:00Z",
+          project_role: item.project_role,
+          can_manage: item.project_role === "project_manager",
+        }));
+        if (requestUrl.pathname === "/api/v1/projects") return fulfill({ items: projectItems });
+        const overviewMatch = requestUrl.pathname.match(/^\/api\/v1\/projects\/([^/]+)\/overview$/);
+        if (overviewMatch) {
+          const item = projectItems.find((item) => item.id === overviewMatch[1]);
+          if (!item) return fulfill({ detail: "Not found" }, 404);
+          return fulfill({
+            project: { ...item, project_id: item.id },
+            capabilities: {
+              can_view_knowledge: true,
+              can_upload_material: true,
+              can_manage_members: item.can_manage,
+              can_manage_kb: false,
+              can_confirm_assets: item.can_manage,
+            },
+            counts: {
+              material_count: 1,
+              asset_count: 0,
+              pending_confirmation_count: 0,
+              pending_review_count: 0,
+              original_access_request_count: 0,
+            },
+            knowledge_base: { configured: true, status: "active" },
+            members: [],
+            recent_activity: [],
+          });
+        }
         if (requestUrl.pathname === "/api/v1/naming-options") {
           return fulfill({
             required: true,
@@ -401,7 +452,7 @@ try {
       let initialLayout = {
         domOrderCorrect: false,
         qaEntryCount: 0,
-        qaInitiallyCollapsed: false,
+        qaAbsentFromList: false,
         qaInInitialViewport: false,
       };
       let topQaVisible = false;
@@ -439,20 +490,17 @@ try {
             const toolbar = document.querySelector(".pk-filter-form");
             const list = document.querySelector(".pk-list-section");
             const pagination = document.querySelector(".pk-pagination");
-            const qa = document.querySelector(
-              ".project-workspace-nav button[aria-haspopup='dialog']",
-            );
+            const qa = document.querySelector(".project-workspace-nav a[href$='?view=qa']");
             const follows = (first, second) =>
               Boolean(first?.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
             return {
               domOrderCorrect:
                 follows(qa, toolbar) && follows(toolbar, list) && follows(list, pagination),
-              qaEntryCount: document.querySelectorAll(
-                ".project-workspace-nav button[aria-haspopup='dialog']",
-              ).length,
-              qaInitiallyCollapsed:
-                qa?.getAttribute("aria-expanded") === "false" &&
-                !document.querySelector(".pk-qa-body"),
+              qaEntryCount: document.querySelectorAll(".project-workspace-nav a[href$='?view=qa']")
+                .length,
+              qaAbsentFromList:
+                Boolean(qa?.getAttribute("href")?.endsWith("?view=qa")) &&
+                !document.querySelector(".pk-qa-body, .project78-assistant"),
               qaInInitialViewport: Boolean(
                 qa && qa.getBoundingClientRect().bottom <= window.innerHeight,
               ),
@@ -464,7 +512,7 @@ try {
             animations: "disabled",
           });
           topQaVisible = await page
-            .getByRole("button", { name: "项目问答", exact: true })
+            .getByRole("link", { name: "项目问答", exact: true })
             .isVisible();
           await page.locator(".pk-pagination").scrollIntoViewIfNeeded();
           await page.screenshot({
@@ -503,13 +551,16 @@ try {
         }
 
         if (["no-model", "qa-success", "qa-failure"].includes(scenario)) {
-          await page.getByRole("button", { name: /项目问答/ }).click();
+          await page.getByRole("link", { name: "项目问答", exact: true }).click();
+          await page.waitForURL(`**/project/${initialProject}?view=qa`);
           if (scenario === "no-model") {
-            await page.getByText("当前项目暂无可用问答模型。").waitFor();
+            await page.getByText("当前项目暂无可用问答模型").waitFor();
             noModelVisible = true;
           } else {
-            await page.getByLabel("问答模型").selectOption("1");
-            await page.getByPlaceholder("向当前项目知识提问…").fill("项目风险是什么？");
+            await page.getByLabel("问答模型").selectOption(modelRef);
+            await page
+              .getByRole("textbox", { name: "向项目 AI 助手提问" })
+              .fill("项目风险是什么？");
             await page.getByRole("button", { name: "提问", exact: true }).click();
             if (scenario === "qa-success") {
               await page.getByText(qaResponse.response_text).waitFor();
@@ -517,7 +568,7 @@ try {
                 (await page.getByText("客户访谈纪要").isVisible()) &&
                 (await page.getByText("内容待审核，请谨慎参考").isVisible());
             } else {
-              await page.getByText("问答暂时未完成，请稍后重试。").waitFor();
+              await page.getByText("暂时无法完成回答，请稍后重试。").waitFor();
               qaFailureVisible = true;
             }
           }
@@ -595,20 +646,23 @@ try {
                 return rect.left >= 0 && rect.right <= window.innerWidth && rect.height > 0;
               },
             ),
-            qaInitiallyCollapsed:
-              document
-                .querySelector(".project-workspace-nav button[aria-haspopup='dialog']")
-                ?.getAttribute("aria-expanded") === "false",
+            qaAbsentFromList:
+              Boolean(document.querySelector(".project-workspace-nav a[href$='?view=qa']")) &&
+              !document.querySelector(".project78-assistant"),
             managerActionVisible: Boolean(document.querySelector(".pk-publish-action")),
+            sharedQaWorkspace:
+              Boolean(document.querySelector(".project78-assistant")) &&
+              !document.querySelector("[role=dialog]") &&
+              new URLSearchParams(window.location.search).get("view") === "qa",
             qaInputDisabled:
-              document.querySelector(".pk-qa-body textarea") instanceof HTMLTextAreaElement &&
-              document.querySelector(".pk-qa-body textarea").disabled,
+              document.querySelector("#project78-question") instanceof HTMLTextAreaElement &&
+              document.querySelector("#project78-question").disabled,
             safeStateVisible: /暂无可访问项目|当前账号无此入口|项目不可访问/.test(bodyText),
-            noModelVisible: bodyText.includes("当前项目暂无可用问答模型。"),
+            noModelVisible: bodyText.includes("当前项目暂无可用问答模型"),
             safeAnswerVisible:
               bodyText.includes("访谈材料显示，客户当前最关注交付节奏与复盘机制。") &&
               bodyText.includes("内容待审核，请谨慎参考"),
-            qaFailureVisible: bodyText.includes("问答暂时未完成，请稍后重试。"),
+            qaFailureVisible: bodyText.includes("暂时无法完成回答，请稍后重试。"),
             upgradeFailureVisible:
               bodyText.includes("公司发布申请提交失败，请检查目标命名后重试。"),
             filteredEmptyVisible: bodyText.includes("当前条件没有匹配内容"),
@@ -627,7 +681,7 @@ try {
               "used_access_layer",
               "WeKnora",
             ].some((value) => bodyText.includes(value)),
-            pathCorrect: window.location.pathname === expectedPath,
+            pathCorrect: window.location.pathname + window.location.search === expectedPath,
           };
         },
         {
@@ -635,7 +689,9 @@ try {
           expectedPath:
             scenario === "switch-late"
               ? `/project/${projectB}/knowledge`
-              : `/project/${initialProject}/knowledge`,
+              : ["no-model", "qa-success", "qa-failure"].includes(scenario)
+                ? `/project/${initialProject}?view=qa`
+                : `/project/${initialProject}/knowledge`,
           secrets: [
             assetA,
             assetB,

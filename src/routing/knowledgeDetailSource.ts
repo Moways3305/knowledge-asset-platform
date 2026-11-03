@@ -6,6 +6,7 @@ export type KnowledgeDetailSourceType =
   | "task"
   | "notification"
   | "original-access"
+  | "review"
   | "upload";
 
 export interface KnowledgeDetailSourceState {
@@ -54,6 +55,7 @@ export function readKnowledgeDetailSource(state: unknown): KnowledgeDetailSource
       "task",
       "notification",
       "original-access",
+      "review",
       "upload",
     ].includes(candidate.source ?? "")
   ) {

@@ -230,8 +230,8 @@
   cursor: pointer;
 }
 .release-tabs button[aria-selected="true"] {
-  color: #20365a;
-  border-bottom-color: #b5965d;
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
   font-weight: 650;
 }
 .release-admin-row {

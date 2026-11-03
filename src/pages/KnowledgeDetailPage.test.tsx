@@ -141,7 +141,7 @@ describe("KnowledgeDetailPage", () => {
       summaryStatus: "safe_pending",
     });
     renderDetail();
-    expect(await screen.findAllByText("安全摘要待处理")).toHaveLength(2);
+    expect(await screen.findByText("安全摘要待处理")).toBeVisible();
     expect(screen.queryByText("摘要待生成")).not.toBeInTheDocument();
   });
 
@@ -197,6 +197,7 @@ describe("KnowledgeDetailPage", () => {
       backLabel: "返回项目知识库",
       source: "project",
     });
+    fireEvent.click(await screen.findByRole("tab", { name: "维护与发布" }));
     fireEvent.click(await screen.findByRole("button", { name: "发布到公司知识库" }));
     const dialog = await screen.findByRole("dialog", { name: "发布到公司知识库" });
     fireEvent.change(within(dialog).getByLabelText("适用对象"), {

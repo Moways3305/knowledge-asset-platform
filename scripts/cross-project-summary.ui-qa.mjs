@@ -136,6 +136,26 @@ for (const testCase of cases) {
       });
     }
     if (url.pathname === "/api/v1/auth/csrf") return fulfill({ csrf_token: "ui-qa-csrf" });
+    if (url.pathname === "/api/v1/knowledge/projects") {
+      return fulfill({
+        items: [
+          {
+            project_id: alphaProject,
+            name: "Alpha 项目",
+            status: "active",
+            access_mode: "member",
+            access_label: "可查看资料",
+          },
+          {
+            project_id: betaProject,
+            name: "Beta 项目",
+            status: "active",
+            access_mode: "summary_visible",
+            access_label: "摘要可见",
+          },
+        ],
+      });
+    }
     if (url.pathname === "/api/v1/knowledge/directories") {
       const rows = [
         {
@@ -196,6 +216,9 @@ for (const testCase of cases) {
   const page = await context.newPage();
   await page.goto(`${base}/knowledge`, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: /项目库/ }).click();
+  if (testCase.width <= 700) {
+    await page.getByRole("button", { name: "选择项目与目录", exact: true }).click();
+  }
   await page
     .getByRole("button", { name: new RegExp(testCase.member ? "Alpha 项目" : "Beta 项目") })
     .click();

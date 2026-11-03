@@ -226,6 +226,7 @@ describe("KnowledgeDetailPage reference contract", () => {
     });
     renderDetail();
 
+    fireEvent.click(await screen.findByRole("tab", { name: "维护与发布" }));
     const lifecycle = await screen.findByText("生命周期");
     expect(fetchLifecycleEvents).not.toHaveBeenCalled();
     fireEvent.click(lifecycle);
@@ -246,6 +247,7 @@ describe("KnowledgeDetailPage reference contract", () => {
       .mockResolvedValueOnce({ items: [] });
     renderDetail();
 
+    fireEvent.click(await screen.findByRole("tab", { name: "维护与发布" }));
     fireEvent.click(await screen.findByText("生命周期"));
     expect(await screen.findByText("生命周期记录加载失败，请重试。")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("SECRET-LIKE");
@@ -280,6 +282,7 @@ describe("KnowledgeDetailPage reference contract", () => {
     });
     renderDetail();
 
+    fireEvent.click(await screen.findByRole("tab", { name: "维护与发布" }));
     fireEvent.click(await screen.findByText("更多操作"));
     const operations = screen.getByText("更多操作").closest("details")!;
     expect(within(operations).getByRole("button", { name: /发起归档候选/ })).toBeInTheDocument();
@@ -338,6 +341,7 @@ describe("KnowledgeDetailPage reference contract", () => {
     });
     renderDetail();
 
+    fireEvent.click(await screen.findByRole("tab", { name: "维护与发布" }));
     fireEvent.click(await screen.findByText("更多操作"));
     const operations = screen.getByText("更多操作").closest("details")!;
     fireEvent.click(within(operations).getByRole("button", { name: /发起归档候选/ }));

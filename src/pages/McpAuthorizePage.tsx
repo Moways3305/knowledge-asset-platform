@@ -2,15 +2,13 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import Button from "../components/Button";
 import { FormActions } from "../components/ActionLayout";
-import { apiGet, apiPost } from "../api/http";
+import {
+  fetchMcpConsent,
+  decideMcpConsent,
+  type McpConsentView as ConsentView,
+} from "../api/mcpOAuth";
 import { ProductPage, PageHeader, PageSection } from "../components/ProductLayout";
 import "../components/McpOAuth.css";
-
-interface ConsentView {
-  client_name: string;
-  redirect_origin: string;
-  operations_requested: boolean;
-}
 
 export default function McpAuthorizePage() {
   const [params] = useSearchParams();
@@ -28,7 +26,7 @@ export default function McpAuthorizePage() {
       return;
     }
     setError("");
-    apiGet<ConsentView>(`/api/v1/auth/mcp-oauth/requests/${encodeURIComponent(requestId)}`)
+    fetchMcpConsent(requestId)
       .then((value) => {
         if (active) setView(value);
       })
@@ -44,10 +42,7 @@ export default function McpAuthorizePage() {
     if (!view || !requestId || busy) return;
     setBusy(true);
     try {
-      const result = await apiPost<{ redirect_url: string }>(
-        `/api/v1/auth/mcp-oauth/requests/${encodeURIComponent(requestId)}`,
-        { approved, operations },
-      );
+      const result = await decideMcpConsent(requestId, { approved, operations });
       window.location.assign(result.redirect_url);
     } catch (e) {
       setError(e instanceof Error ? e.message : "授权未完成，请重新连接");
@@ -66,20 +61,34 @@ export default function McpAuthorizePage() {
         {!view && !error && <p role="status">正在读取授权请求…</p>}
         {view && (
           <>
-            <p>应用名称：{view.client_name}（由应用自行填写）</p>
-            <p>返回地址：{view.redirect_origin}</p>
-            <p>允许查询你有权限访问的知识、项目和待办。</p>
-            {view.operations_requested && (
-              <label>
-                <input
-                  type="checkbox"
-                  checked={operations}
-                  onChange={(e) => setOperations(e.target.checked)}
-                />
-                同意开放上传、入库确认和审批接口；每次业务操作仍需我的明确授权。
-              </label>
-            )}
-            <p>授权最长有效 30 天，可在「MCP 接入」中撤销。请勿授权不认识的应用。</p>
+            <dl className="consent-application">
+              <div>
+                <dt>应用名称</dt>
+                <dd>
+                  {view.client_name}
+                  <small>由应用自行填写</small>
+                </dd>
+              </div>
+              <div>
+                <dt>返回地址</dt>
+                <dd>{view.redirect_origin}</dd>
+              </div>
+            </dl>
+            <section className="consent-permissions" aria-label="授权范围">
+              <h3>授权范围</h3>
+              <p>允许查询你有权限访问的知识、项目和待办。</p>
+              {view.operations_requested && (
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={operations}
+                    onChange={(e) => setOperations(e.target.checked)}
+                  />
+                  同意开放上传、入库确认和审批接口；每次业务操作仍需我的明确授权。
+                </label>
+              )}
+              <p>授权最长有效 30 天，可在「MCP 接入」中撤销。请勿授权不认识的应用。</p>
+            </section>
             <FormActions>
               <Button disabled={busy} onClick={() => void decide(false)}>
                 拒绝授权

@@ -338,8 +338,8 @@ describe("AdminIngestPage operations reference", () => {
   it("separates recovery, jobs and diagnostics while displaying only safe failure data", async () => {
     renderPage();
 
-    expect(await screen.findByRole("heading", { name: "索引恢复控制台" })).toBeInTheDocument();
-    expect(screen.getByText("让未完成索引恢复为可检索资料")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "入库管理" })).toBeInTheDocument();
+    expect(screen.getByText("处理入库异常，跟踪恢复结果，检查运行状态。")).toBeInTheDocument();
     expect(
       screen.queryByText("优先恢复失败、卡住和待确认的入库与索引任务。"),
     ).not.toBeInTheDocument();
@@ -347,16 +347,13 @@ describe("AdminIngestPage operations reference", () => {
     expect(screen.queryByRole("link", { name: "微盘扫描" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "安全日志" })).not.toBeInTheDocument();
 
-    const track = screen.getByRole("list", { name: "索引处理轨道" });
-    expect(within(track).getByText("已入库").closest("li")).toHaveTextContent("—");
-    expect(within(track).getByText("索引提交").closest("li")).toHaveTextContent("2");
-    expect(within(track).getByText("索引提交中断").closest("li")).toHaveTextContent("—");
-    expect(within(track).getByText("解析中").closest("li")).toHaveTextContent("3");
-    expect(within(track).getByText("可检索").closest("li")).toHaveTextContent("12");
     const currentState = screen.getByLabelText("索引当前状态");
-    expect(within(currentState).getByText("索引提交中断").closest("p")).toHaveTextContent("0");
-    expect(within(currentState).getByText("解析中断").closest("p")).toHaveTextContent("1");
-    expect(within(currentState).getByText("已可检索").closest("p")).toHaveTextContent("12");
+    expect(within(currentState).queryByText("已入库")).not.toBeInTheDocument();
+    expect(within(currentState).getByText("索引提交").closest("div")).toHaveTextContent("2");
+    expect(within(currentState).getByText("索引提交中断").closest("div")).toHaveTextContent("0");
+    expect(within(currentState).getByText("解析中").closest("div")).toHaveTextContent("3");
+    expect(within(currentState).getByText("解析中断").closest("div")).toHaveTextContent("1");
+    expect(within(currentState).getByText("已可检索").closest("div")).toHaveTextContent("12");
 
     expect(await screen.findByText("连接检查未通过，请确认平台配置。")).toBeInTheDocument();
     expect(screen.getByText("1 项解析中断，等待恢复")).toBeInTheDocument();
@@ -377,6 +374,7 @@ describe("AdminIngestPage operations reference", () => {
     expect(document.body).not.toHaveTextContent("UPSTREAM_SECRET_CODE");
     expect(document.body).not.toHaveTextContent("critical");
     await openRuntimeDetails(userEvent.setup());
+    await userEvent.click(screen.getByText("近 24 小时运行趋势", { selector: "summary" }));
     expect(screen.getByText("正在积累运维数据")).toBeInTheDocument();
     expect(screen.queryByLabelText("近 24 小时索引运维趋势")).not.toBeInTheDocument();
     expect(screen.getAllByText("待确认").length).toBeGreaterThan(0);
@@ -527,6 +525,7 @@ describe("AdminIngestPage operations reference", () => {
     expect(await screen.findByText("1 项索引提交中断，等待恢复")).toBeInTheDocument();
     expect(screen.getAllByText("索引提交中断").length).toBeGreaterThan(0);
     expect(screen.getByText("索引提交未完成，尚未进入解析，可恢复重试。")).toBeInTheDocument();
+    await openRuntimeDetails(user);
     await user.click(screen.getByRole("button", { name: "识别中断索引" }));
     await screen.findByText(/扫描 46 项，识别 46 项，跳过新鲜作业 0 项/);
     expect(detectIndexSubmissionInterruptions).toHaveBeenCalledTimes(1);
@@ -756,8 +755,8 @@ describe("AdminIngestPage operations reference", () => {
     await waitFor(() => expect(fetchOpsIndexing).toHaveBeenCalledTimes(2));
     expect(screen.getByText("绝不能显示的业务标题")).toBeInTheDocument();
     const currentState = screen.getByLabelText("索引当前状态");
-    expect(within(currentState).getByText("索引提交中断").closest("p")).toHaveTextContent("0");
-    expect(within(currentState).getByText("解析中断").closest("p")).toHaveTextContent("1");
+    expect(within(currentState).getByText("索引提交中断").closest("div")).toHaveTextContent("0");
+    expect(within(currentState).getByText("解析中断").closest("div")).toHaveTextContent("1");
   });
 
   it("keeps accepted indexing distinct from searchable completion and does not resubmit", async () => {
@@ -782,7 +781,9 @@ describe("AdminIngestPage operations reference", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText("作业已完成")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "作业记录" }));
-    const submittedJobRow = screen.getByText("已提交，待索引确认").closest("li");
+    const submittedJobRow = within(screen.getByRole("table", { name: "最近作业记录" }))
+      .getByText("已提交，待索引确认")
+      .closest("tr");
     expect(submittedJobRow).not.toBeNull();
     await user.click(within(submittedJobRow!).getByRole("button", { name: "查看详情" }));
     const dialog = screen.getByRole("dialog", { name: "索引维护作业" });
@@ -832,12 +833,12 @@ describe("AdminIngestPage operations reference", () => {
       expect(screen.getAllByRole("button", { name: "正在执行：恢复索引" })[0]).toBeDisabled(),
     );
     await user.click(screen.getByRole("button", { name: "作业记录" }));
-    const runningRow = screen.getByText("执行中").closest("li");
+    const runningRow = within(screen.getByRole("table", { name: "最近作业记录" }))
+      .getByText("执行中")
+      .closest("tr");
     await user.click(within(runningRow!).getByRole("button", { name: "查看详情" }));
     expect(
-      within(screen.getByRole("dialog", { name: "索引维护作业" })).getByText(
-        /尚未达到最终完成状态/,
-      ),
+      within(screen.getByRole("dialog", { name: "索引维护作业" })).getByText(/正在等待处理结果/),
     ).toBeInTheDocument();
     await waitFor(() => expect(fetchIndexingJobs).toHaveBeenCalledTimes(3), {
       timeout: 3_500,
@@ -846,7 +847,7 @@ describe("AdminIngestPage operations reference", () => {
     expect(fetchOpsIndexing).toHaveBeenCalledTimes(3);
     expect(fetchIndexingHealth).toHaveBeenCalledTimes(3);
     expect(
-      within(screen.getByRole("dialog", { name: "索引维护作业" })).getByText(/作业已到达终态/),
+      within(screen.getByRole("dialog", { name: "索引维护作业" })).getByText(/本次操作已结束/),
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "返回作业列表" }));
@@ -952,7 +953,7 @@ describe("AdminIngestPage operations reference", () => {
     });
     renderPage();
 
-    expect(await screen.findAllByText("当前没有待恢复索引")).toHaveLength(2);
+    expect(await screen.findAllByText("当前没有待恢复索引")).toHaveLength(1);
   });
 
   it("keeps bounded parse-only recovery in the recovery workspace", async () => {
@@ -966,10 +967,8 @@ describe("AdminIngestPage operations reference", () => {
     });
     renderPage();
 
-    expect(await screen.findAllByText("当前没有待恢复索引")).toHaveLength(2);
-    expect(
-      screen.getByText("底座对账仍有异常；恢复前会再次校验连接与嵌入模型。"),
-    ).toBeInTheDocument();
+    expect(await screen.findAllByText("当前没有待恢复索引")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "查看作业" })).not.toBeInTheDocument();
     expect(screen.queryByText("当前没有索引失败项")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "重新解析" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "重新解析（2 项）" })).toBeInTheDocument();
@@ -1003,5 +1002,137 @@ describe("AdminIngestPage operations reference", () => {
     await user.click(await screen.findByRole("button", { name: /^恢复索引/ }));
     expect(await screen.findByRole("alert")).toHaveTextContent("索引恢复未能发起，请稍后重试。");
     expect(document.body).not.toHaveTextContent("SECRET TOKEN IN ERROR");
+  });
+  it("disables zero-candidate reparse and removes redundant empty controls", async () => {
+    vi.mocked(fetchOpsIndexing).mockResolvedValue({ ...ops, reparse_actionable_count: 0 });
+    const user = userEvent.setup();
+    renderPage();
+    const button = await screen.findByRole("button", { name: "重新解析（0 项）" });
+    expect(button).toBeDisabled();
+    await user.click(button);
+    expect(triggerIndexingReparse).not.toHaveBeenCalled();
+  });
+
+  it("filters and pages only loaded jobs and keeps context after closing details", async () => {
+    vi.mocked(fetchIndexingJobs).mockResolvedValue({
+      items: Array.from({ length: 15 }, (_, index) => ({
+        ...completedJob,
+        job_id: `job-${index}`,
+        operation_type: index < 12 ? "retry_index" : "reparse",
+        requested_at: index < 12 ? "2026-07-17T02:30:00Z" : "2026-07-16T02:30:00Z",
+      })),
+      total: 15,
+    });
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole("button", { name: "作业记录" }));
+    const table = await screen.findByRole("table", { name: "最近作业记录" });
+    await waitFor(() =>
+      expect(within(table).getAllByRole("button", { name: "查看详情" })).toHaveLength(10),
+    );
+    await user.click(screen.getByRole("button", { name: "下一页" }));
+    expect(within(table).getAllByRole("button", { name: "查看详情" })).toHaveLength(5);
+    await user.click(within(table).getAllByRole("button", { name: "查看详情" })[0]);
+    expect(screen.getByRole("dialog")).toHaveTextContent("发起时间");
+    await user.click(screen.getByRole("button", { name: "返回作业列表" }));
+    expect(screen.getByText("匹配 15 条 · 第 2 / 2 页")).toBeInTheDocument();
+    await user.selectOptions(screen.getByRole("combobox", { name: "操作类型" }), "reparse");
+    expect(within(table).getAllByRole("button", { name: "查看详情" })).toHaveLength(3);
+    fireEvent.change(screen.getByLabelText("发起日期"), { target: { value: "2026-07-17" } });
+    expect(within(table).getByText("当前筛选下没有作业，请调整筛选条件。")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "清除筛选" }));
+    expect(within(table).getAllByRole("button", { name: "查看详情" })).toHaveLength(10);
+  });
+
+  it("keeps rows and details visible while refreshing and warns on stale results", async () => {
+    vi.mocked(fetchIndexingJobs).mockResolvedValue({ items: [completedJob], total: 1 });
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole("button", { name: "作业记录" }));
+    const table = await screen.findByRole("table", { name: "最近作业记录" });
+    await within(table).findByRole("button", { name: "查看详情" });
+    let rejectRequest!: (error: Error) => void;
+    vi.mocked(fetchIndexingJobs).mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectRequest = reject;
+        }),
+    );
+    await user.click(screen.getByRole("button", { name: "刷新" }));
+    expect(within(table).getByRole("button", { name: "查看详情" })).toBeInTheDocument();
+    expect(screen.queryByText("正在读取作业状态…")).not.toBeInTheDocument();
+    await user.click(within(table).getByRole("button", { name: "查看详情" }));
+    await act(async () => rejectRequest(new Error("unavailable")));
+    expect(screen.getByRole("dialog")).toHaveTextContent("状态更新失败，以下为上次读取的结果。");
+    expect(within(table).getByRole("button", { name: "查看详情" })).toBeInTheDocument();
+  });
+
+  it("shows preflight failures distinctly and invalidates old approval after recheck fails", async () => {
+    const fixture = await vi.mocked(recoverProcessingTimeouts)();
+    vi.mocked(recoverProcessingTimeouts).mockResolvedValueOnce({
+      ...fixture,
+      preflight: {
+        ...fixture.preflight,
+        ready: false,
+        redis_ready: false,
+        reason: "redis_unavailable",
+      },
+    });
+    const user = userEvent.setup();
+    renderPage();
+    await openRuntimeDetails(user);
+    await user.click(screen.getByText("历史处理超时恢复", { selector: "summary" }));
+    expect(screen.getByText("未检查")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "检查超时任务" }));
+    expect(await screen.findByText("未通过")).toBeVisible();
+    expect(screen.getByRole("status", { name: "超时恢复检查结果" })).toHaveTextContent(
+      "Redis 当前不可用",
+    );
+    expect(screen.getByRole("button", { name: "二次确认并恢复最多 3 条" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "检查超时任务" }));
+    expect(await screen.findByText("通过", { selector: "strong" })).toBeVisible();
+    vi.mocked(recoverProcessingTimeouts).mockRejectedValueOnce(new Error("offline"));
+    await user.click(screen.getByRole("button", { name: "检查超时任务" }));
+    await screen.findByText("超时任务预检失败");
+    expect(screen.getByRole("button", { name: "二次确认并恢复最多 3 条" })).toBeDisabled();
+  });
+
+  it("shows submitted batch counts and next-check time without claiming completion", async () => {
+    const fixture = await vi.mocked(recoverProcessingTimeouts)();
+    vi.mocked(recoverProcessingTimeouts)
+      .mockResolvedValueOnce(fixture)
+      .mockResolvedValueOnce({
+        ...fixture,
+        dry_run: false,
+        selected: 3,
+        enqueued: 2,
+        conflicts: 1,
+        next_batch_not_before: "2026-11-03T05:00:15Z",
+      });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    renderPage();
+    await openRuntimeDetails(user);
+    await user.click(screen.getByText("历史处理超时恢复", { selector: "summary" }));
+    await user.click(screen.getByRole("button", { name: "检查超时任务" }));
+    await screen.findByText("通过", { selector: "strong" });
+    await user.click(screen.getByRole("button", { name: "二次确认并恢复最多 3 条" }));
+    const result = await screen.findByRole("status", { name: "超时恢复检查结果" });
+    await waitFor(() => expect(result).toHaveTextContent("本批已入队 2 条，冲突 1 条"));
+    expect(result).toHaveTextContent("入队不代表处理完成");
+    expect(result).toHaveTextContent("2026-11-03 13:00:15");
+    expect(screen.getByRole("button", { name: "二次确认并恢复最多 3 条" })).toBeDisabled();
+    confirm.mockRestore();
+  });
+
+  it("labels absent cache samples honestly", async () => {
+    vi.mocked(fetchLLMUsage).mockResolvedValue({ days: 14, items: [] });
+    renderPage();
+    const user = userEvent.setup();
+    await openRuntimeDetails(user);
+    await user.click(screen.getByText("模型用量 · 近 14 天", { selector: "summary" }));
+    const usage = screen.getByLabelText("近 14 天模型用量");
+    expect(await within(usage).findByText("暂无数据")).toBeVisible();
+    expect(within(usage).queryByText("0%")).not.toBeInTheDocument();
   });
 });

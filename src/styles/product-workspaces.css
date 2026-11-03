@@ -1,0 +1,503 @@
+/* Approved product work surfaces. Layouts follow task semantics and API capability,
+   never the former dashboard/card compositions. */
+.workspace-shell .page-workspace:not(.kbl-page) {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  margin: 0;
+  padding: 24px;
+  border: 1px solid #e5e6eb;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: none;
+}
+.workspace-shell .module-frame .page-workspace {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+}
+.workspace-shell .page-workspace > .product-page-header {
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  align-items: start;
+  gap: 16px;
+  background: transparent;
+}
+.workspace-shell .page-workspace .product-page-heading h2 {
+  margin: 0;
+  font-size: 24px;
+  line-height: 32px;
+  font-family: var(--font-sans);
+  font-weight: 600;
+}
+.workspace-shell .page-workspace .product-page-heading p {
+  margin: 6px 0 0;
+  color: #646a73;
+  font-size: 14px;
+  line-height: 22px;
+}
+.workspace-shell .page-workspace .product-page-actions {
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.workspace-shell
+  .page-workspace
+  :is(.secops-console, .gp-governance-console, .ao84-console, .ws87-console) {
+  display: block;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.workspace-shell
+  .page-workspace
+  :is(.secops-main-workspace, .gp-main-workspace, .ws87-main-workspace) {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+.workspace-shell
+  .page-workspace
+  :is(.secops-workspace, .gp-main-workspace, .secops-primary-section) {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.workspace-shell .page-workspace .secops-primary-section > .product-section-body {
+  padding: 0;
+}
+.workspace-shell .page-workspace .collection-workspace.is-toolbar {
+  border: 1px solid #e5e6eb;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fff;
+}
+.workspace-shell .page-workspace .collection-workspace.is-toolbar .collection-workspace-filters {
+  padding: 16px 20px;
+  background: #fff;
+  border: 0;
+  border-bottom: 1px solid #e5e6eb;
+}
+.workspace-shell .page-workspace .collection-workspace-results {
+  padding: 0;
+}
+.workspace-shell
+  .page-workspace
+  .collection-workspace
+  :is(.secops-table-wrap, .table-scroll, .pp-table-wrap) {
+  border: 0;
+  border-radius: 0;
+}
+.workspace-shell .page-workspace :is(.secops-table, .pp-table, .gp-table) th {
+  padding: 12px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  background: #f7f8fa;
+  color: #646a73;
+}
+.workspace-shell .page-workspace :is(.secops-table, .pp-table, .gp-table) td {
+  padding: 14px 16px;
+  font-size: 13px;
+}
+.workspace-shell .page-workspace :is(.workspace-outline, .collection-workspace.is-sidebar) {
+  grid-template-columns: 185px minmax(0, 1fr);
+  border-radius: 6px;
+  border-color: #e5e6eb;
+}
+.workspace-shell .page-workspace .workspace-outline.is-single-section {
+  grid-template-columns: minmax(0, 1fr);
+  border: 0;
+  background: transparent;
+}
+.workspace-shell .page-workspace .workspace-outline.is-single-section > .workspace-outline-content {
+  padding: 0;
+}
+.workspace-shell
+  .page-workspace
+  :is(.workspace-outline-nav, .collection-workspace.is-sidebar .collection-workspace-filters) {
+  padding: 16px 10px;
+  background: #fff;
+  border-right: 1px solid #e5e6eb;
+  border-radius: 0;
+}
+.workspace-shell .page-workspace .workspace-outline-content {
+  padding: 20px;
+}
+.workspace-shell .page-workspace .workspace-outline-content .product-section {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.workspace-shell .page-workspace .workspace-outline-content .product-section-header {
+  padding: 0 0 16px;
+  margin-bottom: 16px;
+}
+.workspace-shell .page-workspace .workspace-outline-content .product-section-body {
+  padding: 0;
+}
+.workspace-shell .page-workspace .workspace-outline-nav a {
+  padding: 10px;
+  border-radius: 5px;
+  font-size: 13px;
+}
+.workspace-shell .page-workspace .workspace-outline-nav a[aria-current] {
+  color: #3370ff;
+  background: #edf3ff;
+}
+.workspace-shell .module-frame .module-navigation {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.workspace-shell .module-frame .module-navigation > :is(a, button) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #646a73;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+.workspace-shell .module-frame .module-navigation > :is([aria-current="page"], .is-active) {
+  background: #edf3ff;
+  color: #3370ff;
+  font-weight: 600;
+}
+.workspace-shell .module-frame .module-navigation > :is(a, button):focus-visible {
+  outline: 2px solid #3370ff;
+  outline-offset: 2px;
+}
+.workspace-shell .upload-module-frame .upload-content-layout {
+  display: block;
+  margin: 0;
+}
+.workspace-shell .upload-module-frame .upload-process-guide {
+  position: static;
+  margin: 20px 0 0;
+  padding: 20px 10px 0;
+  border: 0;
+  border-top: 1px solid #e5e6eb;
+  border-radius: 0;
+  background: transparent;
+}
+.workspace-shell .upload-module-frame .upload-process-guide h2 {
+  font-size: 13px;
+}
+.workspace-shell .upload-module-frame .upload-process-guide ol {
+  flex-direction: column;
+  gap: 20px;
+}
+.workspace-shell .upload-module-frame .upload-process-guide li {
+  min-width: 0;
+  padding-left: 34px;
+}
+.workspace-shell .upload-module-frame .upload-process-guide p {
+  font-size: 12px;
+}
+.workspace-shell .work-dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 270px;
+  align-items: start;
+  gap: 24px;
+}
+.workspace-shell .work-dashboard-grid .workbench-primary {
+  grid-column: 1;
+}
+.workspace-shell .work-dashboard-grid .workbench-context {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+.workspace-shell .work-dashboard-grid .workbench-recent {
+  grid-column: 1;
+}
+.workspace-shell
+  .work-dashboard-grid
+  :is(.workbench-primary, .workbench-projects, .workbench-recent) {
+  min-width: 0;
+  border: 1px solid #e5e6eb;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: none;
+}
+.workbench-date {
+  color: #646a73;
+  font-size: 12px;
+}
+.ingest-state-summary {
+  border: 1px solid #e5e6eb;
+  border-radius: 6px;
+}
+.ingest-state-summary dl {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  margin: 0;
+}
+.ingest-state-summary dl > div {
+  padding: 16px;
+  border-right: 1px solid #e5e6eb;
+}
+.ingest-state-summary dl > div:last-child {
+  border-right: 0;
+}
+.ingest-state-summary dt {
+  font-size: 12px;
+  color: #646a73;
+}
+.ingest-state-summary dd {
+  margin: 8px 0 0;
+  font-size: 24px;
+  font-weight: 600;
+}
+.ingest-state-summary > p {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 12px 16px;
+  border-top: 1px solid #e5e6eb;
+  font-size: 12px;
+  color: #646a73;
+}
+.workspace-shell .ao84-page .irc-runtime-details {
+  padding: 20px;
+  border: 1px solid #e5e6eb;
+  box-shadow: none;
+}
+.workspace-shell .ao84-page .irc-runtime-details > h2 {
+  margin: 0 0 20px;
+  font-size: 18px;
+}
+.workspace-shell .ao84-page .ao84-ingest-counts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  border-top: 1px solid #e5e6eb;
+  margin: 16px 0;
+}
+.workspace-shell .ao84-page .ao84-ingest-counts > span {
+  padding: 12px 8px;
+  border-bottom: 1px solid #e5e6eb;
+  background: transparent;
+}
+.workspace-shell .work-dashboard-grid :is(.workbench-section-heading, .workbench-context-heading) {
+  padding: 16px;
+}
+.workspace-shell .page-workspace .help-workspace,
+.workspace-shell .page-workspace .release-reading-layout {
+  grid-template-columns: 185px minmax(0, 1fr);
+  border: 1px solid #e5e6eb;
+  border-radius: 6px;
+  gap: 0;
+  background: #fff;
+}
+.workspace-shell .page-workspace :is(.help-directory, .release-context) {
+  padding: 16px 12px;
+  border: 0;
+  border-right: 1px solid #e5e6eb;
+  border-radius: 0;
+  background: #fff;
+  min-width: 0;
+}
+.workspace-shell .page-workspace :is(.help-content, .release-timeline) {
+  padding: 20px 24px;
+}
+.workspace-shell .page-workspace .help-section {
+  border-radius: 0;
+  box-shadow: none;
+}
+.workspace-shell .page-workspace .model-settings-layout {
+  grid-template-columns: 185px minmax(0, 1fr);
+}
+.workspace-shell .page-workspace .model-settings-layout .mf-connection-workspace {
+  background: white;
+}
+.workspace-shell .page-workspace .company-kb-workspace {
+  display: block;
+  border: 0;
+}
+.workspace-shell .page-workspace .company-kb-content {
+  padding: 0;
+}
+.workspace-shell .page-workspace .company-kb-content .pp-section {
+  max-width: 760px;
+  margin: 0;
+}
+.experience-overlay .gw-action {
+  font-size: 14px;
+  min-height: 36px;
+}
+/* Keep compact controls usable by touch without stretching them across the page. */
+@media (max-width: 700px) {
+  .workspace-shell
+    :is(
+      button,
+      select,
+      input:not([type="checkbox"], [type="radio"], [type="hidden"], [type="file"]),
+      a.product-button,
+      a.btn-small
+    ) {
+    min-height: 40px;
+  }
+  .workspace-shell .notification-bell-trigger {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+@media (max-width: 1100px) {
+  .workspace-shell .work-dashboard-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .workspace-shell
+    .work-dashboard-grid
+    :is(.workbench-primary, .workbench-context, .workbench-recent) {
+    grid-column: 1;
+    grid-row: auto;
+  }
+}
+@media (max-width: 860px) {
+  .workspace-shell .kbl-navigation .module-navigation {
+    align-items: stretch;
+  }
+  .workspace-shell .kbl-navigation .module-navigation > :is(a, button) {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+  }
+  .workspace-shell .page-workspace .workspace-outline-nav {
+    flex-wrap: wrap;
+    overflow: visible;
+    gap: 4px 12px;
+  }
+  .workspace-shell .page-workspace .workspace-outline-nav a {
+    flex: 0 1 auto;
+    padding: 8px 0;
+  }
+  .workspace-shell .project78-page .project78-header-actions {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 12px;
+  }
+  .workspace-shell .project78-page .project78-header-actions > .product-button {
+    width: auto;
+  }
+  .workspace-shell .project78-page .project78-picker {
+    flex: 1;
+    width: auto;
+    min-width: 130px;
+  }
+  .workspace-shell .ao84-page .irc-runtime-details {
+    padding: 16px;
+  }
+  .workspace-shell .ao84-page .ao84-ingest-counts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ingest-state-summary dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ingest-state-summary dl > div {
+    border-bottom: 1px solid #e5e6eb;
+  }
+  .ingest-state-summary dl > div:nth-child(even) {
+    border-right: 0;
+  }
+  .ingest-state-summary dl > div:nth-last-child(-n + 2) {
+    border-bottom: 0;
+  }
+  .workspace-shell .page-workspace:not(.kbl-page) {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    gap: 20px;
+  }
+  .workspace-shell .page-workspace .product-page-heading h2 {
+    font-size: 22px;
+    line-height: 30px;
+  }
+  .workspace-shell .module-frame .module-navigation {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 18px;
+    margin-bottom: 12px;
+  }
+  .workspace-shell .module-frame .module-navigation > :is(a, button) {
+    padding: 8px 0;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    font-size: 12px;
+  }
+  .workspace-shell .module-frame .module-navigation > :is([aria-current="page"], .is-active) {
+    border-bottom-color: #3370ff;
+    background: transparent;
+  }
+  .workspace-shell .approval-module-navigation svg {
+    display: none;
+  }
+  .workspace-shell .upload-module-frame .upload-process-guide {
+    display: none;
+  }
+  .workspace-shell
+    .page-workspace
+    :is(
+      .workspace-outline,
+      .collection-workspace.is-sidebar,
+      .help-workspace,
+      .release-reading-layout,
+      .model-settings-layout
+    ) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .workspace-shell
+    .page-workspace
+    :is(
+      .workspace-outline-nav,
+      .collection-workspace.is-sidebar .collection-workspace-filters,
+      .help-directory,
+      .release-context
+    ) {
+    border-right: 0;
+    border-bottom: 1px solid #e5e6eb;
+  }
+  .workspace-shell
+    .page-workspace
+    :is(.workspace-outline-content, .help-content, .release-timeline) {
+    padding: 16px;
+  }
+  .workspace-shell .page-workspace .collection-workspace.is-toolbar .collection-workspace-filters {
+    padding: 12px;
+  }
+  .workspace-shell .page-workspace .collection-workspace.is-toolbar .product-toolbar {
+    flex-wrap: wrap;
+  }
+  .workspace-shell .work-dashboard-grid {
+    gap: 20px;
+  }
+  .workspace-shell .page-workspace .product-page-actions {
+    justify-content: flex-start;
+  }
+}

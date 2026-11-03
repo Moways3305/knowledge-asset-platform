@@ -260,6 +260,9 @@ for (const scenario of scenarios) {
     if (scenario === "full") {
       await page.goto(`${base}/knowledge`, { waitUntil: "networkidle" });
       await page.getByRole("button", { name: /公司库/ }).click();
+      if (viewport.width <= 700) {
+        await page.getByRole("button", { name: "选择目录", exact: true }).click();
+      }
       await page.getByRole("button", { name: /01 公司方法论/ }).click();
       await page.getByRole("button", { name: /^快速查看《/ }).click();
       const drawer = page.getByRole("dialog", { name: "客户增长项目复盘方法论" });

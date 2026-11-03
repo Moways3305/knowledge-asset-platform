@@ -1,0 +1,205 @@
+{
+  "description": "逐接口人工复核例外；新增接口必须接入或明确记录。静态调用不等于已完成真实服务验收。",
+  "operations": {
+    "GET /api/v1/agent-gateway/knowledge": {
+      "status": "系统集成",
+      "note": "Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。"
+    },
+    "GET /api/v1/agent-gateway/knowledge/directories": {
+      "status": "系统集成",
+      "note": "Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。"
+    },
+    "GET /api/v1/agent-gateway/knowledge/personal": {
+      "status": "系统集成",
+      "note": "Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。"
+    },
+    "GET /api/v1/agent-gateway/knowledge/recent": {
+      "status": "系统集成",
+      "note": "Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。"
+    },
+    "GET /api/v1/agent-gateway/knowledge/tags": {
+      "status": "系统集成",
+      "note": "Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。"
+    },
+    "GET /api/v1/agent-gateway/knowledge/{asset_id}": {
+      "status": "系统集成",
+      "note": "Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。"
+    },
+    "GET /api/v1/agent-gateway/knowledge/{asset_id}/content": {
+      "status": "系统集成",
+      "note": "Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。"
+    },
+    "GET /api/v1/agent-gateway/knowledge/{asset_id}/summary": {
+      "status": "系统集成",
+      "note": "Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。"
+    },
+    "GET /api/v1/agent-gateway/operations/ingest/{task_id}": {
+      "status": "系统集成",
+      "note": "Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。"
+    },
+    "POST /api/v1/agent-gateway/operations/ingest/{task_id}/confirm": {
+      "status": "系统集成",
+      "note": "Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。"
+    },
+    "POST /api/v1/agent-gateway/operations/ingest/{task_id}/naming-preview": {
+      "status": "系统集成",
+      "note": "Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。"
+    },
+    "POST /api/v1/agent-gateway/operations/ingest/{task_id}/prepare-confirmation": {
+      "status": "系统集成",
+      "note": "Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。"
+    },
+    "GET /api/v1/agent-gateway/operations/naming-options": {
+      "status": "系统集成",
+      "note": "Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。"
+    },
+    "GET /api/v1/agent-gateway/operations/reviews/{review_id}": {
+      "status": "系统集成",
+      "note": "Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。"
+    },
+    "POST /api/v1/agent-gateway/operations/reviews/{review_id}/decision": {
+      "status": "系统集成",
+      "note": "Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。"
+    },
+    "GET /api/v1/agent-gateway/operations/upload-destinations": {
+      "status": "系统集成",
+      "note": "Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。"
+    },
+    "POST /api/v1/agent-gateway/operations/uploads/init": {
+      "status": "系统集成",
+      "note": "Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。"
+    },
+    "GET /api/v1/agent-gateway/operations/uploads/{session_id}": {
+      "status": "系统集成",
+      "note": "Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。"
+    },
+    "POST /api/v1/agent-gateway/operations/uploads/{session_id}/batches": {
+      "status": "系统集成",
+      "note": "Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。"
+    },
+    "POST /api/v1/agent-gateway/operations/uploads/{session_id}/complete": {
+      "status": "系统集成",
+      "note": "Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。"
+    },
+    "GET /api/v1/agent-gateway/original-access/requests": {
+      "status": "系统集成",
+      "note": "Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。"
+    },
+    "GET /api/v1/agent-gateway/projects": {
+      "status": "系统集成",
+      "note": "Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。"
+    },
+    "GET /api/v1/agent-gateway/projects/{project_id}/brief": {
+      "status": "系统集成",
+      "note": "Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。"
+    },
+    "GET /api/v1/agent-gateway/projects/{project_id}/knowledge": {
+      "status": "系统集成",
+      "note": "Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。"
+    },
+    "GET /api/v1/agent-gateway/reviews/pending": {
+      "status": "系统集成",
+      "note": "Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。"
+    },
+    "GET /api/v1/agent-gateway/todos": {
+      "status": "系统集成",
+      "note": "Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。"
+    },
+    "POST /api/v1/agent-gateway/tools/knowledge-search": {
+      "status": "系统集成",
+      "note": "Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。"
+    },
+    "GET /health": {
+      "status": "系统集成",
+      "note": "健康与发布检查供运维和部署使用，不属于业务按钮。"
+    },
+    "GET /health/config": {
+      "status": "系统集成",
+      "note": "健康与发布检查供运维和部署使用，不属于业务按钮。"
+    },
+    "GET /health/ready": {
+      "status": "系统集成",
+      "note": "健康与发布检查供运维和部署使用，不属于业务按钮。"
+    },
+    "GET /health/release": {
+      "status": "系统集成",
+      "note": "健康与发布检查供运维和部署使用，不属于业务按钮。"
+    },
+    "GET /api/v1/auth/wecom/callback": {
+      "status": "系统集成",
+      "note": "企业微信登录跳转回调，由授权流程调用。"
+    },
+    "GET /api/v1/auth/csrf": {
+      "status": "传输基础设施",
+      "note": "http.ts 内部通过 ensureCsrfToken 调用，不需要页面按钮。"
+    },
+    "GET /api/v1/preview/{credential_id}/file": {
+      "status": "动态资源",
+      "note": "OnlyOfficePreview 经 preview.ts 读取后端签发的 file_url，或由浏览器预览组件加载。"
+    },
+    "GET /api/v1/auth/workbuddy-connectors/{platform}/{architecture}/download": {
+      "status": "动态资源",
+      "note": "WorkbuddySetupPage 经 downloadWorkbuddyConnector 读取后端返回的 downloadUrl。"
+    },
+    "PUT /api/v1/admin/generation/default-model": {
+      "status": "已有替代流程",
+      "note": "模型配置使用 model-connections（含 usages/current）、model-options 接口；后端 model_connections 服务复用 generation_models。保留兼容 API，不重复创建一套配置页。"
+    },
+    "GET /api/v1/admin/generation/models": {
+      "status": "已有替代流程",
+      "note": "模型配置使用 model-connections（含 usages/current）、model-options 接口；后端 model_connections 服务复用 generation_models。保留兼容 API，不重复创建一套配置页。"
+    },
+    "POST /api/v1/admin/generation/models": {
+      "status": "已有替代流程",
+      "note": "模型配置使用 model-connections（含 usages/current）、model-options 接口；后端 model_connections 服务复用 generation_models。保留兼容 API，不重复创建一套配置页。"
+    },
+    "PUT /api/v1/admin/generation/models/{model_ref}": {
+      "status": "已有替代流程",
+      "note": "模型配置使用 model-connections（含 usages/current）、model-options 接口；后端 model_connections 服务复用 generation_models。保留兼容 API，不重复创建一套配置页。"
+    },
+    "DELETE /api/v1/admin/generation/models/{model_ref}": {
+      "status": "已有替代流程",
+      "note": "模型配置使用 model-connections（含 usages/current）、model-options 接口；后端 model_connections 服务复用 generation_models。保留兼容 API，不重复创建一套配置页。"
+    },
+    "POST /api/v1/admin/generation/models/{model_ref}/test": {
+      "status": "已有替代流程",
+      "note": "模型配置使用 model-connections（含 usages/current）、model-options 接口；后端 model_connections 服务复用 generation_models。保留兼容 API，不重复创建一套配置页。"
+    },
+    "GET /api/v1/generation/model-options": {
+      "status": "已有替代流程",
+      "note": "模型配置使用 model-connections（含 usages/current）、model-options 接口；后端 model_connections 服务复用 generation_models。保留兼容 API，不重复创建一套配置页。"
+    },
+    "GET /api/v1/admin/people/{user_id}/project-memberships": {
+      "status": "已有替代流程",
+      "note": "人员接口 PersonOut 已包含 project_memberships；人员页面使用该字段，并调用成员关系写接口。"
+    },
+    "GET /api/v1/notifications/unread-count": {
+      "status": "已有替代流程",
+      "note": "通知列表响应已有 unread_count，通知中心据此显示角标。"
+    },
+    "POST /admin/ops/ingest/processing-timeout-recovery/{task_id}": {
+      "status": "已有替代流程",
+      "note": "入库管理使用批量超时恢复接口；未单独接入这一单条接口。"
+    },
+    "POST /api/v1/projects/{project_id}/knowledge/{asset_id}/confirm-asset": {
+      "status": "已有替代流程",
+      "note": "项目资料使用资产化 preflight/submit 流程，保留证据校验和结果反馈，不另增绕过预检的确认按钮。"
+    },
+    "POST /api/v1/my/knowledge/bulk-submit-to-project": {
+      "status": "已有替代流程",
+      "note": "后端明确返回 422 publication_naming_required，要求逐条核对项目命名与目录。个人知识已有逐条命名预览/提交入口，不添加必然失败的批量按钮。见 backend/app/api/my_knowledge.py。"
+    },
+    "POST /api/v1/projects/{project_id}/knowledge/bulk-upgrade-company": {
+      "status": "已有替代流程",
+      "note": "后端明确返回 422 publication_naming_required，要求逐条核对公司命名与目录。项目资料已有逐条公司发布向导，不绕过现有审批。见 backend/app/api/review.py。"
+    },
+    "POST /api/v1/projects/{project_id}/knowledge/bulk-confirm-asset": {
+      "status": "已有替代流程",
+      "note": "项目资料选择栏已有批量资产化入口：assetization-preflight → 登记缺失证据 → assetization-submit，同样创建/复用资产化审核，并返回逐项证据和资格结果。保留更完整的后端预检流程，不增加重复按钮。"
+    }
+  },
+  "dynamicCalls": {
+    "src/api/preview.ts#fetchPreviewText": "GET /api/v1/preview/{credential_id}/file",
+    "src/api/workbuddy.ts#downloadWorkbuddyConnector": "GET /api/v1/auth/workbuddy-connectors/{platform}/{architecture}/download"
+  }
+}

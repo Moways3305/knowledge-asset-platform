@@ -24,6 +24,10 @@ import type {
 } from "../types/myKnowledge";
 import MyKnowledgePage from "./MyKnowledgePage";
 
+vi.mock("../auth/AuthContext", () => ({
+  useAuth: () => ({ capabilities: { isBusinessUser: true, isGovernance: false, isAdmin: false } }),
+}));
+
 vi.mock("../api/auth", () => ({ fetchAuthMe: vi.fn() }));
 vi.mock("../api/knowledge", () => ({ deleteKnowledgeAsset: vi.fn() }));
 vi.mock("../api/naming", () => ({ fetchNamingOptions: vi.fn() }));
@@ -214,15 +218,17 @@ describe("MyKnowledgePage complete personal workflow", () => {
     });
   });
 
-  it("renders four real summary cards, type icons and localized states", async () => {
+  it("renders actionable state tabs with server counts, type icons and localized states", async () => {
     const { container } = renderPage();
 
-    expect(await screen.findByRole("heading", { name: "个人资料" })).toBeInTheDocument();
-    expect(screen.getByText("资料总数").parentElement).toHaveTextContent("25");
-    expect(screen.getByText("本月新增 6 份")).toBeInTheDocument();
-    expect(screen.getByText("待项目审批").parentElement).toHaveTextContent("3");
-    const stats = screen.getByLabelText("个人知识统计");
-    expect(within(stats).getByText("已进入项目").parentElement).toHaveTextContent("8");
+    await screen.findByText("客户访谈整理");
+    const stats = screen.getByRole("navigation", { name: "个人资料状态" });
+    expect(within(stats).getByRole("button", { name: /全部资料\s*25/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(within(stats).getByRole("button", { name: /待项目审批\s*3/ })).toBeEnabled();
+    expect(within(stats).getByRole("button", { name: /已进入项目\s*8/ })).toBeEnabled();
     expect(container.querySelectorAll(".mk83-type-icon svg")).toHaveLength(5);
     for (const label of [
       "待本人确认",
@@ -235,6 +241,18 @@ describe("MyKnowledgePage complete personal workflow", () => {
     }
     expect(screen.getByText("已登记 2 条候选证据")).toBeInTheDocument();
     expect(screen.queryByText("server label must not render")).not.toBeInTheDocument();
+  });
+
+  it("filters personal records through the state tabs", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("客户访谈整理");
+    await user.click(screen.getByRole("button", { name: /待项目审批\s*3/ }));
+    await waitFor(() =>
+      expect(fetchMyKnowledge).toHaveBeenLastCalledWith(
+        expect.objectContaining({ personalState: "pending_project_review", page: 1 }),
+      ),
+    );
   });
 
   it("sends search, filters, sorting and pagination to the server", async () => {

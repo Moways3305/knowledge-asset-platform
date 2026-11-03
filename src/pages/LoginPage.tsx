@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import { useLocation } from "react-router-dom";
-import { Eye, EyeOff, MessageCircle } from "lucide-react";
+import { Eye, EyeOff, MessageCircle, BookOpen, FolderKanban, ClipboardCheck } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { login, switchActiveCompanyRole } from "../api/auth";
 import { ApiError } from "../api/http";
@@ -70,9 +70,33 @@ export default function LoginPage() {
     <main className="login-page">
       <header className="login-brand">
         <img src="/moways-logo.png" alt="MOWAYS 博维咨询" width="984" height="327" />
-        <span className="login-brand-rule" aria-hidden="true" />
-        <h1>博维知识资产平台</h1>
-        <p>沉淀专业经验，支持项目交付</p>
+        <div className="login-product-intro">
+          <h1>博维知识资产平台</h1>
+          <p>沉淀专业经验，支持项目交付</p>
+          <ul className="login-workflows">
+            <li>
+              <BookOpen size={20} aria-hidden="true" />
+              <span>
+                <strong>知识资产</strong>
+                <small>查找可访问的资料，核对摘要与原文。</small>
+              </span>
+            </li>
+            <li>
+              <FolderKanban size={20} aria-hidden="true" />
+              <span>
+                <strong>项目协作</strong>
+                <small>围绕项目整理资料、提问并查阅引用。</small>
+              </span>
+            </li>
+            <li>
+              <ClipboardCheck size={20} aria-hidden="true" />
+              <span>
+                <strong>审核与治理</strong>
+                <small>在自己的权限范围内处理待办。</small>
+              </span>
+            </li>
+          </ul>
+        </div>
       </header>
       <section className="login-panel" aria-labelledby="login-heading">
         <h2 id="login-heading">欢迎登录</h2>

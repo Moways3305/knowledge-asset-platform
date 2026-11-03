@@ -4,15 +4,15 @@
 
 :root {
   /* Brand palette */
-  --color-primary: #1f2d75;
-  --color-primary-deep: #182250;
+  --color-primary: #3370ff;
+  --color-primary-deep: #245bdb;
   --color-accent-1: #4a6fa5;
   --color-accent-2: #a8b8cc;
   --color-gold: #c9a962;
   --color-gold-deep: #a8893f;
 
   /* Backgrounds — cool paper on a desk: greyer canvas, pure-white surfaces */
-  --color-bg-body: #eef0f4;
+  --color-bg-body: #f5f6f8;
   --color-bg-surface: #ffffff;
   --color-bg-sidebar: #fbfcfd;
   --color-bg-muted: #f6f7fa;
@@ -20,13 +20,13 @@
 
   /* Borders — hairlines */
   --color-border: #dcdfe6;
-  --color-border-light: #e9ebf0;
+  --color-border-light: #e5e6eb;
 
   /* Text */
-  --color-text-heading: #1a1f36;
+  --color-text-heading: #1f2329;
   --color-text-primary: #2e3340;
   --color-text-body: #2e3340;
-  --color-text-secondary: #595f70;
+  --color-text-secondary: #646a73;
   --color-text-tertiary: #8b90a0;
   --color-text-inverse: #ffffff;
 
@@ -50,8 +50,15 @@
   --font-sans:
     "Hanken Grotesk", "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont,
     "Segoe UI", "Noto Sans SC", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-serif: "Fraunces", "Source Han Serif SC", "Songti SC", Georgia, "Times New Roman", serif;
+  --font-serif: var(--font-sans);
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Consolas, "Courier New", monospace;
+
+  /* Shared page hierarchy: task text stays readable across workspaces. */
+  --text-sm: 12px;
+  --text-body: 14px;
+  --text-section: 16px;
+  --text-title: 24px;
+  --page-content-max: 1320px;
 
   /* Command rail (deep navy) + paper workspace — the structural signature. */
   --rail-bg-top: #21306e;
@@ -99,9 +106,9 @@
   --control-height-lg: 44px;
   --table-header-height: 40px;
   --table-row-height: 48px;
-  --shell-rail-width: 248px;
+  --shell-rail-width: 190px;
   --shell-rail-collapsed-width: 72px;
-  --shell-header-height: 64px;
+  --shell-header-height: 56px;
   --shell-content-padding-x: 32px;
   --shell-content-padding-y: 28px;
 
@@ -6213,7 +6220,7 @@ body {
   .project-settings-page,
   .help-page
 ) {
-  width: min(100%, 1320px);
+  width: min(100%, var(--page-content-max));
   min-width: 0;
   margin: 0 auto;
   display: flex;
@@ -6240,8 +6247,8 @@ body {
 
 .product-page-eyebrow {
   margin-bottom: 4px;
-  color: var(--color-text-tertiary);
-  font-size: 11px;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
   font-weight: 600;
   text-transform: uppercase;
 }
@@ -6252,8 +6259,8 @@ body {
   margin-top: 9px;
   padding-left: 8px;
   border-left: 2px solid var(--color-accent-1);
-  color: var(--color-text-tertiary);
-  font-size: 11px;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
   overflow-wrap: anywhere;
 }
 
@@ -6261,7 +6268,7 @@ body {
 .product-page-heading h2 {
   margin: 0;
   color: var(--color-text-heading);
-  font-size: 24px;
+  font-size: var(--text-title);
   line-height: 1.25;
   letter-spacing: 0;
 }
@@ -6270,7 +6277,7 @@ body {
 .product-page-heading p {
   margin: 6px 0 0;
   color: var(--color-text-secondary);
-  font-size: 13px;
+  font-size: var(--text-body);
   line-height: 1.55;
 }
 
@@ -6329,7 +6336,7 @@ body {
 :where(.ingest-section, .audit-section, .ws-section) > h3 {
   margin: 0;
   color: var(--color-text-heading);
-  font-size: 14px;
+  font-size: var(--text-section);
   font-weight: 650;
   letter-spacing: 0;
 }

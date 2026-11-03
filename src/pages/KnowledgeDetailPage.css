@@ -91,13 +91,6 @@
   justify-content: flex-start;
 }
 
-.kdetail-version-area:has(.knowledge-versions) {
-  padding: 20px;
-  border: 1px solid var(--color-border-light);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-surface);
-}
-
 .kdetail-version-area .knowledge-versions {
   margin: 0;
 }

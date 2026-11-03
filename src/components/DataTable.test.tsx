@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import DataTable, { type Column } from "./DataTable";
 
 interface Row {
@@ -17,6 +17,19 @@ const rows: Row[] = [
 ];
 
 describe("DataTable", () => {
+  it("shows scrolling guidance only when the current table actually overflows", () => {
+    const { container } = render(<DataTable columns={columns} rows={rows} rowKey={(r) => r.id} />);
+    const region = screen.getByRole("region");
+    const hint = container.querySelector('[role="note"]')!;
+    expect(hint).not.toBeVisible();
+    Object.defineProperty(region, "clientWidth", { configurable: true, value: 400 });
+    Object.defineProperty(region, "scrollWidth", { configurable: true, value: 800 });
+    fireEvent(window, new Event("resize"));
+    expect(hint).toBeVisible();
+    Object.defineProperty(region, "scrollWidth", { configurable: true, value: 400 });
+    fireEvent(window, new Event("resize"));
+    expect(hint).not.toBeVisible();
+  });
   it("renders headers and one row per item with the default table classes", () => {
     const { container } = render(<DataTable columns={columns} rows={rows} rowKey={(r) => r.id} />);
     expect(screen.getByText("名称")).toBeInTheDocument();

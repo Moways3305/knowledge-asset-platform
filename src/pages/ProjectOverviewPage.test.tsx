@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { Link, MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ProjectOverviewPage from "./ProjectOverviewPage";
 
@@ -135,14 +135,26 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function renderPage(path = `/project/${PROJECT_A}`) {
+function CitationDestination() {
+  const location = useLocation();
+  const state = location.state as { backTo?: string; backLabel?: string; source?: string } | null;
+  return (
+    <div data-testid="citation-destination" data-source={state?.source}>
+      <Link to={state?.backTo ?? "/knowledge"}>{state?.backLabel ?? "返回知识库"}</Link>
+    </div>
+  );
+}
+
+function renderPage(path = `/project/${PROJECT_A}?view=qa`) {
   return render(
     <MemoryRouter
       future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
       initialEntries={[path]}
     >
       <Routes>
+        <Route path="/projects" element={<ProjectOverviewPage />} />
         <Route path="/project/:id" element={<ProjectOverviewPage />} />
+        <Route path="/knowledge/:id" element={<CitationDestination />} />
         <Route path="/" element={<div>今日工作台</div>} />
       </Routes>
     </MemoryRouter>,
@@ -158,25 +170,53 @@ describe("ProjectOverviewPage project assistant workspace", () => {
     api.projectQa.mockResolvedValue(qaAnswer);
   });
 
-  it("uses the strict context-and-assistant skeleton for an ordinary member", async () => {
-    const { container } = renderPage();
+  it("lists real member projects without choosing the first one and filters by project name", async () => {
+    renderPage("/projects");
+    expect(await screen.findByRole("heading", { name: "项目空间" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "进入华东增长项目" })).toHaveAttribute(
+      "href",
+      `/project/${PROJECT_A}`,
+    );
+    expect(api.fetchProjectOverview).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByRole("textbox", { name: "搜索我的项目" }), {
+      target: { value: "无匹配项目" },
+    });
+    expect(screen.queryByRole("link", { name: "进入华东增长项目" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "清除搜索" }));
+    expect(screen.getByRole("link", { name: "进入华东增长项目" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "浏览项目库" })).toHaveAttribute(
+      "href",
+      "/knowledge?scope=project",
+    );
+  });
+
+  it("starts with project work and opens the shared QA view from navigation", async () => {
+    renderPage(`/project/${PROJECT_A}`);
 
     expect(await screen.findByRole("heading", { name: "华东增长项目" })).toBeInTheDocument();
-    expect(screen.getByRole("main", { name: "项目 AI 助手" })).toBeInTheDocument();
-    expect(screen.getByText("可以围绕“华东增长项目”的项目知识提问。")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "项目工作" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "最近项目资料" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "项目概览" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "项目知识库" })).toHaveAttribute(
       "href",
       `/project/${PROJECT_A}/knowledge`,
     );
-    const modelSelect = await screen.findByRole("combobox", { name: "问答模型" });
-    expect(modelSelect).toHaveValue("qa-default-secret");
-    expect(screen.getByRole("textbox", { name: "向项目 AI 助手提问" })).toBeEnabled();
-    expect(container.querySelector(".project78-context")).toBeInTheDocument();
-    expect(container.querySelector(".project78-assistant")).toBeInTheDocument();
-    expect(container.querySelector(".project78-composer")).toBeInTheDocument();
-    expect(container.querySelector(".project78-counts")).not.toBeInTheDocument();
-    expect(container.querySelector(".project78-members")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "上传资料" })).toHaveAttribute(
+      "href",
+      `/upload?source=local&project_id=${PROJECT_A}`,
+    );
+    expect(screen.queryByRole("textbox", { name: "向项目 AI 助手提问" })).not.toBeInTheDocument();
+    expect(api.fetchProjectQaModelOptions).not.toHaveBeenCalled();
+    expect(screen.queryByText(/项目协作成员/)).not.toBeInTheDocument();
     expect(document.body).not.toHaveTextContent(/route_A|诊断|consultant/);
+
+    fireEvent.click(screen.getByRole("link", { name: "项目问答" }));
+    expect(await screen.findByRole("combobox", { name: "问答模型" })).toHaveValue(
+      "qa-default-secret",
+    );
+    expect(screen.getByRole("link", { name: "项目问答" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("textbox", { name: "向项目 AI 助手提问" })).toBeEnabled();
+    expect(screen.queryByRole("heading", { name: "项目工作" })).not.toBeInTheDocument();
   });
 
   it("shows real members and the real review action only for manager capabilities", async () => {
@@ -202,12 +242,74 @@ describe("ProjectOverviewPage project assistant workspace", () => {
     renderPage(`/project/${PROJECT_B}`);
 
     expect(await screen.findByText("周项目经理")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "处理待审核（2）" })).toHaveAttribute(
+    expect(screen.getByText("周项目经理")).not.toBeVisible();
+    expect(document.querySelector(".project78-members")).not.toHaveAttribute("open");
+    expect(screen.getByRole("link", { name: "查看项目审核" })).toHaveAttribute(
       "href",
       `/review?project_id=${PROJECT_B}`,
     );
     expect(screen.getByRole("link", { name: "项目设置" })).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent("member-hidden-id");
+  });
+
+  it("shows recent accessible project documents and respects overview capabilities", async () => {
+    const recent = [
+      {
+        asset_id: "recent-asset",
+        title: "本周项目复盘",
+        zone: "asset",
+        asset_type: "case",
+        confidentiality_level: "L3",
+        updated_at: "2026-10-30T02:00:00Z",
+      },
+    ];
+    api.fetchProjectOverview.mockResolvedValueOnce(
+      overview(PROJECT_A, { recent_activity: recent }),
+    );
+    const first = renderPage(`/project/${PROJECT_A}`);
+    expect(await screen.findByRole("link", { name: "本周项目复盘" })).toHaveAttribute(
+      "href",
+      "/knowledge/recent-asset",
+    );
+    expect(screen.getByText("2026-10-30 10:00:00")).toBeInTheDocument();
+    first.unmount();
+
+    api.fetchProjectOverview.mockResolvedValueOnce(
+      overview(PROJECT_A, {
+        recent_activity: recent,
+        capabilities: {
+          can_view_knowledge: false,
+          can_upload_material: false,
+          can_manage_members: false,
+          can_manage_kb: false,
+          can_confirm_assets: false,
+        },
+      }),
+    );
+    renderPage(`/project/${PROJECT_A}`);
+    await screen.findByRole("heading", { name: "项目工作" });
+    expect(screen.queryByRole("link", { name: "项目知识库" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "上传资料" })).not.toBeInTheDocument();
+    expect(screen.queryByText("本周项目复盘")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "项目设置" })).not.toBeInTheDocument();
+  });
+
+  it("retains an unsent question and model choice when returning from the same project overview", async () => {
+    renderPage();
+    const input = await screen.findByRole("textbox", { name: "向项目 AI 助手提问" });
+    await screen.findByRole("option", { name: "备用问答模型" });
+    fireEvent.change(screen.getByRole("combobox", { name: "问答模型" }), {
+      target: { value: "qa-secondary-secret" },
+    });
+    fireEvent.change(input, { target: { value: "待补充的项目问题" } });
+    fireEvent.click(screen.getByRole("link", { name: "项目概览" }));
+    expect(await screen.findByRole("heading", { name: "项目工作" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: "项目问答" }));
+    expect(await screen.findByRole("textbox", { name: "向项目 AI 助手提问" })).toHaveValue(
+      "待补充的项目问题",
+    );
+    expect(screen.getByRole("combobox", { name: "问答模型" })).toHaveValue("qa-secondary-secret");
+    expect(api.projectQa).not.toHaveBeenCalled();
   });
 
   it("keeps pending confirmation as context without creating a processing action", async () => {
@@ -231,7 +333,7 @@ describe("ProjectOverviewPage project assistant workspace", () => {
     );
     renderPage(`/project/${PROJECT_B}`);
 
-    expect(await screen.findByRole("heading", { name: "项目 AI 助手" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "年度辅导项目" })).toBeInTheDocument();
     expect(screen.getByText("待确认").nextElementSibling).toHaveTextContent("3");
     expect(screen.queryByText(/处理待确认|处理待审核/)).not.toBeInTheDocument();
   });
@@ -257,6 +359,18 @@ describe("ProjectOverviewPage project assistant workspace", () => {
     expect(document.body).not.toHaveTextContent(
       /call-secret-78|trace-secret-78|qa-default-secret|allowed|asset-secret-78|summary|original text/,
     );
+
+    fireEvent.click(screen.getByRole("button", { name: "查看回答依据与引用" }));
+    const evidenceSheet = screen.getByRole("dialog", { name: "回答依据" });
+    expect(within(evidenceSheet).getByText("内容待审核，请谨慎参考")).toBeInTheDocument();
+    expect(evidenceSheet).not.toHaveTextContent(/original text|trace-secret-78/);
+    fireEvent.click(within(evidenceSheet).getByRole("link", { name: "[1] 客户访谈纪要" }));
+    const returnLink = await screen.findByRole("link", { name: "返回项目问答" });
+    expect(returnLink).toHaveAttribute("href", `/project/${PROJECT_A}?view=qa`);
+    expect(screen.getByTestId("citation-destination")).toHaveAttribute("data-source", "project");
+    fireEvent.click(returnLink);
+    expect(await screen.findByRole("textbox", { name: "向项目 AI 助手提问" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "项目问答" })).toHaveAttribute("aria-current", "page");
   });
 
   it("shows insufficient evidence without source links", async () => {
@@ -357,6 +471,16 @@ describe("ProjectOverviewPage project assistant workspace", () => {
       .mockResolvedValueOnce(overview(PROJECT_A));
     renderPage();
     expect(await screen.findByText("项目概览加载失败")).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "项目空间导航" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "项目概览" })).toHaveAttribute(
+      "href",
+      `/project/${PROJECT_A}`,
+    );
+    expect(screen.getByRole("link", { name: "项目知识库" })).toHaveAttribute(
+      "href",
+      `/project/${PROJECT_A}/knowledge`,
+    );
+    expect(screen.queryByRole("link", { name: "项目设置" })).not.toBeInTheDocument();
     expect(document.body).not.toHaveTextContent("internal project id secret");
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
     expect(await screen.findByRole("heading", { name: "项目 AI 助手" })).toBeInTheDocument();

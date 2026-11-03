@@ -1,3 +1,4 @@
+import TaskModal from "../../components/TaskModal";
 import { useEffect, useMemo, useState } from "react";
 import { createWecomScanConfig, updateWecomScanConfig } from "../../api/admin";
 import { ApiError } from "../../api/http";
@@ -122,14 +123,31 @@ export default function WecomScanConfigForm({
   if (!open) return null;
 
   return (
-    <section className="ws-section">
-      <div className="ws87-form-panel">
-        <div className="ws87-form-head">
-          <span>{editingConfig ? "编辑扫描配置" : "新增项目扫描配置"}</span>
+    <TaskModal
+      open={open}
+      title={editingConfig ? "编辑扫描配置" : "新增项目扫描配置"}
+      closeLabel="关闭扫描配置"
+      onClose={onClose}
+      busy={saveBusy}
+      portal
+      size="medium"
+      panelClassName="scan-config-modal"
+      footer={
+        <div className="ws-form-actions">
           <button className="btn-small" onClick={onClose} disabled={saveBusy}>
-            关闭
+            取消
+          </button>
+          <button
+            className="btn-small-primary"
+            onClick={() => void handleSave()}
+            disabled={saveBusy || optionsError}
+          >
+            {saveBusy ? "保存中…" : editingConfig ? "保存修改" : "创建配置"}
           </button>
         </div>
+      }
+    >
+      <fieldset disabled={saveBusy} className="scan-config-fields">
         <div className="ws-form-grid">
           <label className="ws-form-field" htmlFor="ws-config-name">
             <span className="ws-form-label">配置名称</span>
@@ -209,7 +227,7 @@ export default function WecomScanConfigForm({
               checked={values.enabled}
               onChange={(event) => set("enabled", event.target.checked)}
             />
-            <span>创建后启用</span>
+            <span>{editingConfig ? "启用扫描配置" : "创建后启用"}</span>
           </label>
         </div>
         {optionsError && (
@@ -222,19 +240,7 @@ export default function WecomScanConfigForm({
             {saveError}
           </div>
         )}
-        <div className="ws-form-actions">
-          <button
-            className="btn-small-primary"
-            onClick={() => void handleSave()}
-            disabled={saveBusy || optionsError}
-          >
-            {saveBusy ? "保存中…" : editingConfig ? "保存修改" : "创建配置"}
-          </button>
-          <button className="btn-small" onClick={onClose} disabled={saveBusy}>
-            取消
-          </button>
-        </div>
-      </div>
-    </section>
+      </fieldset>
+    </TaskModal>
   );
 }

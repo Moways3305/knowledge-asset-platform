@@ -1,6 +1,8 @@
+import PagePagination from "../components/PagePagination";
+import CollectionWorkspace from "../components/CollectionWorkspace";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Eye, Plus, Send, Trash2, FilePenLine, ArrowUpRight } from "lucide-react";
+import { Eye, Plus, Send, Trash2, FilePenLine, ArrowUpRight, RefreshCw } from "lucide-react";
 import { ApiError } from "../api/http";
 import {
   fetchReleaseNotes,
@@ -219,103 +221,116 @@ function ReleaseEditor({
           </div>
         ) : (
           <fieldset className="release-form" disabled={busy}>
-            <div className="release-form-top">
-              <label>
-                版本号
-                <input
-                  autoFocus
-                  value={draft.version}
-                  readOnly={deployed}
-                  maxLength={40}
-                  placeholder="例如 v1.0.0"
-                  onChange={(event) => setDraft({ ...draft, version: event.target.value })}
-                />
-              </label>
-              <label>
-                更新标题
-                <input
-                  value={draft.title}
-                  maxLength={120}
-                  placeholder="用一句话概括本次更新"
-                  onChange={(event) => setDraft({ ...draft, title: event.target.value })}
-                />
-              </label>
-            </div>
-            <div className="release-field-heading">
-              <h3>更新内容</h3>
-              <span>按用户能感受到的变化逐条填写</span>
-            </div>
-            <div className="release-entry-fields">
-              {draft.entries.map((entry, index) => (
-                <div className="release-entry-field" key={index}>
-                  <select
-                    aria-label={`第 ${index + 1} 条类型`}
-                    value={entry.kind}
-                    onChange={(event) =>
-                      setDraft({
-                        ...draft,
-                        entries: draft.entries.map((item, i) =>
-                          i === index ? { ...item, kind: event.target.value as ReleaseKind } : item,
-                        ),
-                      })
-                    }
-                  >
-                    {Object.entries(releaseKinds).map(([key, value]) => (
-                      <option key={key} value={key}>
-                        {value}
-                      </option>
-                    ))}
-                  </select>
-                  <textarea
-                    aria-label={`第 ${index + 1} 条内容`}
-                    value={entry.text}
-                    maxLength={500}
-                    rows={2}
-                    placeholder="说明功能变化或解决的问题"
-                    onChange={(event) =>
-                      setDraft({
-                        ...draft,
-                        entries: draft.entries.map((item, i) =>
-                          i === index ? { ...item, text: event.target.value } : item,
-                        ),
-                      })
-                    }
+            <section className="release-editor-section" aria-label="版本信息">
+              <h3>版本信息</h3>
+              <div className="release-form-top">
+                <label>
+                  版本号
+                  <input
+                    autoFocus
+                    value={draft.version}
+                    readOnly={deployed}
+                    maxLength={40}
+                    placeholder="例如 v1.0.0"
+                    onChange={(event) => setDraft({ ...draft, version: event.target.value })}
                   />
-                  <button
-                    className="release-remove"
-                    type="button"
-                    aria-label={`删除第 ${index + 1} 条`}
-                    onClick={() =>
-                      setDraft({ ...draft, entries: draft.entries.filter((_, i) => i !== index) })
-                    }
-                  >
-                    <Trash2 size={17} />
-                  </button>
-                </div>
-              ))}
-            </div>
-            <button
-              type="button"
-              className="release-text-button"
-              disabled={draft.entries.length >= 50}
-              onClick={() =>
-                setDraft({ ...draft, entries: [...draft.entries, { kind: "improved", text: "" }] })
-              }
-            >
-              <Plus size={16} />
-              添加一条
-            </button>
-            <label className="release-notify">
-              <input
-                type="checkbox"
-                checked={draft.notify_users}
-                onChange={(event) => setDraft({ ...draft, notify_users: event.target.checked })}
-              />
-              发布后提醒用户<span>在更新日志入口显示未读提示</span>
-            </label>
-            <p className="release-publish-note">
-              发布日志不会自动部署系统更新，请确认说明与实际上线内容一致。
-            </p>
+                </label>
+                <label>
+                  更新标题
+                  <input
+                    value={draft.title}
+                    maxLength={120}
+                    placeholder="用一句话概括本次更新"
+                    onChange={(event) => setDraft({ ...draft, title: event.target.value })}
+                  />
+                </label>
+              </div>
+            </section>
+            <section className="release-editor-section" aria-label="更新内容">
+              <div className="release-field-heading">
+                <h3>更新内容</h3>
+                <span>按用户能感受到的变化逐条填写</span>
+              </div>
+              <div className="release-entry-fields">
+                {draft.entries.map((entry, index) => (
+                  <div className="release-entry-field" key={index}>
+                    <select
+                      aria-label={`第 ${index + 1} 条类型`}
+                      value={entry.kind}
+                      onChange={(event) =>
+                        setDraft({
+                          ...draft,
+                          entries: draft.entries.map((item, i) =>
+                            i === index
+                              ? { ...item, kind: event.target.value as ReleaseKind }
+                              : item,
+                          ),
+                        })
+                      }
+                    >
+                      {Object.entries(releaseKinds).map(([key, value]) => (
+                        <option key={key} value={key}>
+                          {value}
+                        </option>
+                      ))}
+                    </select>
+                    <textarea
+                      aria-label={`第 ${index + 1} 条内容`}
+                      value={entry.text}
+                      maxLength={500}
+                      rows={2}
+                      placeholder="说明功能变化或解决的问题"
+                      onChange={(event) =>
+                        setDraft({
+                          ...draft,
+                          entries: draft.entries.map((item, i) =>
+                            i === index ? { ...item, text: event.target.value } : item,
+                          ),
+                        })
+                      }
+                    />
+                    <button
+                      className="release-remove"
+                      type="button"
+                      aria-label={`删除第 ${index + 1} 条`}
+                      onClick={() =>
+                        setDraft({ ...draft, entries: draft.entries.filter((_, i) => i !== index) })
+                      }
+                    >
+                      <Trash2 size={17} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="release-text-button"
+                disabled={draft.entries.length >= 50}
+                onClick={() =>
+                  setDraft({
+                    ...draft,
+                    entries: [...draft.entries, { kind: "improved", text: "" }],
+                  })
+                }
+              >
+                <Plus size={16} />
+                添加一条
+              </button>
+            </section>
+            <section className="release-editor-section" aria-label="发布提醒">
+              <h3>发布提醒</h3>
+              <label className="release-notify">
+                <input
+                  type="checkbox"
+                  checked={draft.notify_users}
+                  onChange={(event) => setDraft({ ...draft, notify_users: event.target.checked })}
+                />
+                发布后提醒用户<span>在更新日志入口显示未读提示</span>
+              </label>
+              <p className="release-publish-note">
+                发布日志不会自动部署系统更新，请确认说明与实际上线内容一致。
+              </p>
+            </section>
           </fieldset>
         )}
       </TaskModal>
@@ -364,13 +379,21 @@ export default function AdminReleaseNotesPage() {
     return () => controller.abort();
   }, [page, state, refresh]);
   return (
-    <ProductPage className="release-page">
+    <ProductPage className="release-page admin-control-page">
       <PageHeader
         className="release-hero"
         title="版本日志管理"
         description="部署验证后自动生成草稿，审核确认后再通知同事。"
         actions={
           <>
+            <button
+              className="btn-secondary"
+              disabled={!data && !error}
+              onClick={() => setRefresh((n) => n + 1)}
+            >
+              <RefreshCw size={16} />
+              刷新
+            </button>
             <Link className="btn-secondary" to="/release-notes">
               用户视图
               <ArrowUpRight size={16} />
@@ -394,94 +417,94 @@ export default function AdminReleaseNotesPage() {
         </p>
       )}
       <section className="release-management">
-        <div className="release-tabs" role="tablist" aria-label="发布状态">
-          {(["draft", "published"] as const).map((tab) => (
-            <button
-              key={tab}
-              role="tab"
-              aria-selected={state === tab}
-              onClick={() => {
-                setState(tab);
-                setPage(1);
-              }}
-            >
-              {tab === "draft" ? "草稿" : "已发布"}
-            </button>
-          ))}
-        </div>
-        {error ? (
-          <div className="release-empty" role="alert">
-            <p>{error}</p>
-            <button className="btn-secondary" onClick={() => setRefresh((n) => n + 1)}>
-              重试
-            </button>
-          </div>
-        ) : !data ? (
-          <p className="release-empty" role="status">
-            正在加载日志…
-          </p>
-        ) : !data.items.length ? (
-          <div className="release-empty">
-            <FilePenLine size={32} />
-            <h3>{state === "draft" ? "从一次值得记录的改进开始" : "还没有发布记录"}</h3>
-            <p>
-              {state === "draft"
-                ? "完成版本化部署后，待审核草稿会自动出现在这里；也可提前编写。"
-                : "草稿发布后，会保留在这里供你查阅。"}
+        <CollectionWorkspace
+          label="发布状态"
+          filters={
+            <>
+              <div className="release-management-toolbar">
+                <div className="release-tabs" role="tablist" aria-label="发布状态">
+                  {(["draft", "published"] as const).map((tab) => (
+                    <button
+                      key={tab}
+                      role="tab"
+                      aria-selected={state === tab}
+                      onClick={() => {
+                        setState(tab);
+                        setPage(1);
+                      }}
+                    >
+                      {tab === "draft" ? "草稿" : "已发布"}
+                    </button>
+                  ))}
+                </div>
+                {data && <span className="release-muted">共 {data.total} 条</span>}
+              </div>
+              <p className="collection-context-note">草稿可继续编辑；已发布内容保留为历史记录。</p>
+            </>
+          }
+        >
+          {error ? (
+            <div className="release-empty" role="alert">
+              <p>{error}</p>
+              <button className="btn-secondary" onClick={() => setRefresh((n) => n + 1)}>
+                重试
+              </button>
+            </div>
+          ) : !data ? (
+            <p className="release-empty" role="status">
+              正在加载日志…
             </p>
-            {state === "draft" && (
-              <button className="btn-primary" onClick={() => setEditor({ note: null })}>
-                新建日志
-              </button>
-            )}
-          </div>
-        ) : (
-          <div className="release-admin-list">
-            {data.items.map((note) => (
-              <button
-                className="release-admin-row"
-                key={note.id}
-                onClick={() => setEditor({ note })}
-              >
-                <span className="release-version">{note.version}</span>
-                <span className="release-row-content">
-                  <strong>{note.title}</strong>
-                  <small>
-                    {note.entries.length} 条更新 · {note.notify_users ? "提醒用户" : "静默发布"}
-                    {note.deployed_at ? " · 已验证部署" : " · 无部署验证记录"}
-                  </small>
-                </span>
-                <span className="release-row-date">
-                  {releaseDate(note.published_at ?? note.updated_at)}
-                </span>
-                <span className={`release-badge${state === "draft" ? " is-draft" : ""}`}>
-                  {state === "draft" ? "编辑草稿" : "查看记录"}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-        {data && data.total > 10 && (
-          <nav className="release-pagination" aria-label="管理日志分页">
-            <button
-              className="btn-secondary"
-              disabled={page === 1}
-              onClick={() => setPage(page - 1)}
-            >
-              上一页
-            </button>
-            <span>
-              第 {page} / {Math.ceil(data.total / 10)} 页
-            </span>
-            <button
-              className="btn-secondary"
-              disabled={page * 10 >= data.total}
-              onClick={() => setPage(page + 1)}
-            >
-              下一页
-            </button>
-          </nav>
-        )}
+          ) : !data.items.length ? (
+            <div className="release-empty">
+              <FilePenLine size={32} />
+              <h3>{state === "draft" ? "暂无待审核草稿" : "还没有发布记录"}</h3>
+              <p>
+                {state === "draft"
+                  ? "完成版本化部署后，待审核草稿会自动出现在这里；也可提前编写。"
+                  : "草稿发布后，会保留在这里供你查阅。"}
+              </p>
+              {state === "draft" && (
+                <button className="btn-primary" onClick={() => setEditor({ note: null })}>
+                  新建日志
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="release-admin-list">
+              {data.items.map((note) => (
+                <button
+                  className="release-admin-row"
+                  key={note.id}
+                  onClick={() => setEditor({ note })}
+                >
+                  <span className="release-version">{note.version}</span>
+                  <span className="release-row-content">
+                    <strong>{note.title}</strong>
+                    <small>
+                      {note.entries.length} 条更新 · {note.notify_users ? "提醒用户" : "静默发布"}
+                      {note.deployed_at ? " · 已验证部署" : " · 无部署验证记录"}
+                    </small>
+                  </span>
+                  <span className="release-row-date">
+                    {releaseDate(note.published_at ?? note.updated_at)}
+                  </span>
+                  <span className={`release-badge${state === "draft" ? " is-draft" : ""}`}>
+                    {state === "draft" ? "编辑草稿" : "查看记录"}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          {data && data.total > 10 && (
+            <PagePagination
+              ariaLabel="管理日志分页"
+              page={page}
+              totalPages={Math.ceil(data.total / 10)}
+              onPageChange={setPage}
+              summary={`共 ${data.total} 条`}
+            />
+          )}
+        </CollectionWorkspace>
       </section>
       {editor && (
         <ReleaseEditor

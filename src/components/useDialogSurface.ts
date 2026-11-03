@@ -3,6 +3,12 @@ import { useLayoutEffect, type KeyboardEvent, type RefObject } from "react";
 const FOCUSABLE =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+function availableControls(surface: HTMLElement | null) {
+  return [...(surface?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])].filter(
+    (element) => !element.closest('[hidden], [inert], [aria-hidden="true"]'),
+  );
+}
+
 export function useDialogSurface(
   open: boolean,
   surfaceRef: RefObject<HTMLElement | null>,
@@ -16,7 +22,7 @@ export function useDialogSurface(
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const preferred = surfaceRef.current?.querySelector<HTMLElement>("[data-autofocus]");
-    const first = surfaceRef.current?.querySelector<HTMLElement>(FOCUSABLE);
+    const first = availableControls(surfaceRef.current)[0];
     (preferred ?? first ?? surfaceRef.current)?.focus();
     return () => {
       document.body.style.overflow = previousOverflow;
@@ -31,7 +37,7 @@ export function useDialogSurface(
       return;
     }
     if (event.key !== "Tab") return;
-    const focusable = [...(surfaceRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])];
+    const focusable = availableControls(surfaceRef.current);
     if (focusable.length === 0) {
       event.preventDefault();
       surfaceRef.current?.focus();

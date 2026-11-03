@@ -1,10 +1,11 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/http";
 import {
   approveReview,
   bulkRegisterReviewEvidence,
+  fetchReview,
   fetchReviewPage,
   fetchReviews,
   rejectReview,
@@ -17,6 +18,7 @@ import ReviewCompletedPage from "./ReviewCompletedPage";
 vi.mock("../api/review", () => ({
   approveReview: vi.fn(),
   bulkRegisterReviewEvidence: vi.fn(),
+  fetchReview: vi.fn(),
   fetchReviewPage: vi.fn(),
   fetchReviews: vi.fn(),
   rejectReview: vi.fn(),
@@ -58,6 +60,7 @@ function renderPage(entry = "/review") {
       future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
       initialEntries={[entry]}
     >
+      <Link to={entry}>通知入口</Link>
       <Routes>
         <Route path="/review" element={<ReviewPage />} />
         <Route path="/original-access" element={<div>原文访问正式路由</div>} />
@@ -81,6 +84,9 @@ function renderCompletedPage() {
 
 describe("ReviewPage governance workspace", () => {
   beforeEach(() => {
+    vi.mocked(fetchReview)
+      .mockReset()
+      .mockResolvedValue({ ...pending, evidences: [] });
     vi.mocked(fetchReviewPage).mockReset();
     vi.mocked(fetchReviews).mockReset().mockResolvedValue([pending]);
     vi.mocked(approveReview).mockReset().mockResolvedValue(approved);
@@ -91,6 +97,58 @@ describe("ReviewPage governance workspace", () => {
       .mockReset()
       .mockResolvedValue({ ...approved, status: "rejected" });
     vi.mocked(bulkRegisterReviewEvidence).mockReset();
+  });
+
+  it("reopens a dismissed review when the same notification is followed again", async () => {
+    renderPage(`/review?target_id=${pending.id}`);
+    const detail = await screen.findByRole("dialog", { name: pending.asset_title! });
+    fireEvent.click(within(detail).getByRole("button", { name: "关闭详情" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: "通知入口" }));
+    expect(await screen.findByRole("dialog", { name: pending.asset_title! })).toBeVisible();
+    expect(approveReview).not.toHaveBeenCalled();
+    expect(rejectReview).not.toHaveBeenCalled();
+  });
+
+  it("opens an exact notification target including a completed read-only review", async () => {
+    vi.mocked(fetchReviews).mockResolvedValue([pending]);
+    const page = renderPage(`/review?target_id=${pending.id}`);
+    const detail = await screen.findByRole("dialog", { name: pending.asset_title! });
+    expect(within(detail).getByRole("button", { name: "确认" })).toBeEnabled();
+    page.unmount();
+    vi.mocked(fetchReview).mockResolvedValue({
+      ...pending,
+      evidences: [],
+      status: "rejected",
+      can_decide: false,
+    });
+    renderPage(`/review?target_id=${pending.id}&queue=completed`);
+    const completed = await screen.findByRole("dialog", { name: pending.asset_title! });
+    expect(fetchReview).toHaveBeenLastCalledWith(pending.id);
+    expect(fetchReviews).not.toHaveBeenCalled();
+    expect(within(completed).getByText("已拒绝")).toBeInTheDocument();
+    expect(within(completed).queryByRole("button", { name: "确认" })).not.toBeInTheDocument();
+  });
+
+  it("honors status filters on an exact target without fetching a list", async () => {
+    renderPage(`/review?review_id=${pending.id}`);
+    expect(await screen.findByText(pending.asset_title!)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("审核状态"), { target: { value: "4" } });
+    expect(await screen.findByText(/当前可见审核记录中未找到该事项/)).toBeInTheDocument();
+    expect(screen.queryByText(pending.asset_title!)).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("审核状态"), { target: { value: "0" } });
+    expect(await screen.findByText(pending.asset_title!)).toBeInTheDocument();
+    expect(fetchReviews).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back to a list when the target endpoint denies access", async () => {
+    vi.mocked(fetchReview).mockRejectedValue(new ApiError(403, "无权访问"));
+    renderPage(`/review?target_id=${pending.id}`);
+    await waitFor(() => expect(fetchReview).toHaveBeenCalledWith(pending.id));
+    expect(await screen.findByText("无审核权限")).toBeInTheDocument();
+    expect(fetchReviews).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByText(pending.asset_title!)).not.toBeInTheDocument();
   });
 
   it("selects without submitting and exposes batch actions only after selection", async () => {
@@ -129,7 +187,7 @@ describe("ReviewPage governance workspace", () => {
     expect(approveReview).not.toHaveBeenCalled();
   });
 
-  it("locates a project review only within the returned visible queue", async () => {
+  it("loads an exact authorized project review independently of list pagination", async () => {
     vi.mocked(fetchReviews).mockResolvedValue([
       pending,
       { ...pending, id: "other", asset_title: "其他事项" },
@@ -137,28 +195,26 @@ describe("ReviewPage governance workspace", () => {
     renderPage(`/review?review_id=${pending.id}&project_id=${pending.target_project_id}`);
     expect(await screen.findByText(pending.asset_title!)).toBeInTheDocument();
     expect(screen.queryByText("其他事项")).not.toBeInTheDocument();
-    expect(fetchReviews).toHaveBeenCalledWith({
-      queue: "open",
-      status: undefined,
-      reviewType: undefined,
-    });
+    expect(fetchReview).toHaveBeenCalledWith(pending.id);
+    expect(fetchReviews).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "查看全部待办" }));
-    expect(screen.getByText("其他事项")).toBeInTheDocument();
+    expect(await screen.findByText("其他事项")).toBeInTheDocument();
     expect(approveReview).not.toHaveBeenCalled();
   });
 
-  it("shows an honest missing-record state without fetching an arbitrary deep-link id", async () => {
+  it("does not show an authorized record under a mismatched project", async () => {
     renderPage(`/review?review_id=${pending.id}&project_id=wrong-project`);
     expect(await screen.findByText(/当前可见审核记录中未找到该事项/)).toBeInTheDocument();
     expect(screen.queryByText(pending.asset_title!)).not.toBeInTheDocument();
-    expect(fetchReviews).toHaveBeenCalledTimes(1);
+    expect(fetchReview).toHaveBeenCalledWith(pending.id);
+    expect(fetchReviews).not.toHaveBeenCalled();
     expect(approveReview).not.toHaveBeenCalled();
   });
 
   it("uses the formal route workspace and sends real status and type filters", async () => {
     renderPage();
     expect(await screen.findByRole("table", { name: "知识审核队列" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "审核与原文访问" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "审核待办" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "原文访问" })).toHaveAttribute(
       "href",
       "/original-access",
@@ -280,6 +336,18 @@ describe("ReviewPage governance workspace", () => {
     }
   });
 
+  it("explains a refresh failure after a successful review without inviting duplicate submission", async () => {
+    vi.mocked(fetchReviews)
+      .mockResolvedValueOnce([pending])
+      .mockRejectedValueOnce(new Error("offline"));
+    vi.mocked(approveReview).mockResolvedValueOnce(approved);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /^确认$/ }));
+    expect(await screen.findByText(/列表刷新失败.*无需重复提交/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: /^确认$/ })).not.toBeInTheDocument();
+    expect(approveReview).toHaveBeenCalledTimes(1);
+  });
+
   it("drives approve, retry and withdraw from capabilities and reloads the queue", async () => {
     vi.mocked(fetchReviews).mockResolvedValue([
       pending,
@@ -316,7 +384,14 @@ describe("ReviewPage governance workspace", () => {
     await waitFor(() =>
       expect(withdrawReviewConfirmation).toHaveBeenCalledWith("withdraw-review", "撤回本人确认"),
     );
-    expect(within(screen.getByText("只读审核").closest("tr")!).queryByRole("button")).toBeNull();
+    const readonlyRow = within(screen.getByText("只读审核").closest("tr")!);
+    expect(readonlyRow.queryByRole("button", { name: "确认" })).toBeNull();
+    expect(readonlyRow.queryByRole("button", { name: "拒绝" })).toBeNull();
+    fireEvent.click(readonlyRow.getByRole("button", { name: "只读审核" }));
+    const detail = screen.getByRole("dialog", { name: "只读审核" });
+    expect(within(detail).getByRole("heading", { name: "审批进度" })).toBeInTheDocument();
+    expect(within(detail).queryByRole("button", { name: "确认" })).toBeNull();
+    expect(within(detail).queryByRole("button", { name: "拒绝" })).toBeNull();
   });
 
   it("reloads an action with the latest filters when they change while the action is pending", async () => {

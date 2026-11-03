@@ -1,15 +1,6 @@
 // 入库流水线：Path B 真实文件上传、AI 处理结果轮询、Path A（企微微盘）待确认任务、
 // 统一确认入库，以及 admin 入库运营列表。响应只含安全元数据（不含任何存储引用 / 路径 / URL）。
-import {
-  apiDelete,
-  apiGet,
-  apiPost,
-  apiPostNoBody,
-  csrfHeaders,
-  handleResponse,
-  withCsrfRetry,
-  BASE_URL,
-} from "./http";
+import { apiDelete, apiGet, apiPost, apiPostNoBody, apiUpload } from "./http";
 import type {
   AdminIngestListResponseDTO,
   IngestAiResultDTO,
@@ -38,15 +29,7 @@ export async function createIngestUpload(input: {
   const formedOn = localDateFromMs(input.file.lastModified);
   if (formedOn) form.append("formed_on", formedOn);
   if (input.targetScope) form.append("target_scope", input.targetScope);
-  return withCsrfRetry(async () => {
-    const resp = await fetch(`${BASE_URL}/api/v1/ingest/upload`, {
-      method: "POST",
-      headers: await csrfHeaders(), // 不设 Content-Type：浏览器自动带 multipart boundary
-      body: form,
-      credentials: "include",
-    });
-    return handleResponse<IngestUploadResponseDTO>(resp);
-  });
+  return apiUpload<IngestUploadResponseDTO>(`/api/v1/ingest/upload`, form);
 }
 
 export async function createUploadSession(input: {
@@ -79,15 +62,7 @@ export async function createUploadSession(input: {
   if (input.sessionId) form.append("session_id", input.sessionId);
   if (input.targetScope) form.append("target_scope", input.targetScope);
   if (input.targetProjectId) form.append("target_project_id", input.targetProjectId);
-  return withCsrfRetry(async () => {
-    const resp = await fetch(`${BASE_URL}/api/v1/ingest/upload-sessions`, {
-      method: "POST",
-      headers: await csrfHeaders(),
-      body: form,
-      credentials: "include",
-    });
-    return handleResponse<UploadSessionDTO>(resp);
-  });
+  return apiUpload<UploadSessionDTO>(`/api/v1/ingest/upload-sessions`, form);
 }
 
 export interface UploadManifestInput {
@@ -139,19 +114,11 @@ export async function appendUploadSessionBatch(input: {
   form.append("batch_index", String(input.batchIndex));
   form.append("item_ids", JSON.stringify(input.itemIds));
   input.files.forEach((file) => form.append("files", file, file.name));
-  return withCsrfRetry(async () => {
-    const response = await fetch(
-      `${BASE_URL}/api/v1/ingest/upload-sessions/${input.sessionId}/batches`,
-      {
-        method: "POST",
-        headers: await csrfHeaders(),
-        body: form,
-        credentials: "include",
-        signal: input.signal,
-      },
-    );
-    return handleResponse<UploadSessionDTO>(response);
-  });
+  return apiUpload<UploadSessionDTO>(
+    `/api/v1/ingest/upload-sessions/${input.sessionId}/batches`,
+    form,
+    input.signal,
+  );
 }
 
 export async function completeUploadSession(sessionId: string): Promise<UploadSessionDTO> {
@@ -188,18 +155,10 @@ export async function replaceUploadSessionItemBytes(input: {
   form.append("file", input.file, input.file.name);
   const formedOn = localDateFromMs(input.file.lastModified);
   if (formedOn) form.append("formed_on", formedOn);
-  return withCsrfRetry(async () => {
-    const response = await fetch(
-      `${BASE_URL}/api/v1/ingest/upload-sessions/${input.sessionId}/items/${input.itemId}/bytes`,
-      {
-        method: "POST",
-        headers: await csrfHeaders(),
-        body: form,
-        credentials: "include",
-      },
-    );
-    return handleResponse<UploadSessionDTO>(response);
-  });
+  return apiUpload<UploadSessionDTO>(
+    `/api/v1/ingest/upload-sessions/${input.sessionId}/items/${input.itemId}/bytes`,
+    form,
+  );
 }
 
 export function localDateFromMs(ms: number): string | null {
@@ -264,7 +223,7 @@ export async function fetchPendingIngestTasks(source?: string): Promise<PendingI
   if (source) qs.set("source", source);
   const query = qs.toString();
   const data = await apiGet<PendingIngestListResponseDTO>(
-    `/api/v1/ingest/pending${query ? `?${query}` : ""}`,
+    query ? `/api/v1/ingest/pending?${query}` : "/api/v1/ingest/pending",
   );
   return data.items;
 }
@@ -318,7 +277,7 @@ export async function fetchMyUploads(
   if (filters.until) query.set("until", filters.until);
   const suffix = query.toString();
   const response = await apiGet<MyUploadListDTO>(
-    `/api/v1/ingest/my-uploads${suffix ? `?${suffix}` : ""}`,
+    suffix ? `/api/v1/ingest/my-uploads?${suffix}` : "/api/v1/ingest/my-uploads",
   );
   return response.items;
 }
@@ -354,4 +313,12 @@ export async function bulkConfirmIngest(input: {
 // Admin 入库运营列表（仅安全运营元数据；admin / 治理角色，普通业务用户 403）。
 export async function fetchAdminIngest(): Promise<AdminIngestListResponseDTO> {
   return apiGet<AdminIngestListResponseDTO>(`/api/v1/admin/ingest`);
+}
+
+// Explicit operator tools; the server remains the permission authority.
+export function refreshIngestParse(taskId: string) {
+  return apiPost<{ task_id: string; result_asset_id: string | null; parse_status: string | null }>(
+    `/api/v1/ingest/${encodeURIComponent(taskId)}/refresh-parse`,
+    {},
+  );
 }

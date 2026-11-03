@@ -1,3 +1,4 @@
+import PagePagination from "../components/PagePagination";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Layers, Settings2 } from "lucide-react";
@@ -68,7 +69,7 @@ export default function ReleaseNotesPage() {
       <PageHeader
         className="release-hero"
         title="更新日志"
-        description="了解每一次改进，让工作更从容。"
+        description="查看已发布的功能更新与问题修复。"
         actions={
           capabilities.isAdmin && (
             <Link className="btn-secondary" to="/admin/release-notes">
@@ -80,15 +81,21 @@ export default function ReleaseNotesPage() {
       />
       <div className="release-reading-layout">
         <aside className="release-context">
-          <div className="release-glass-mark" aria-hidden="true">
-            <Layers size={44} strokeWidth={1.2} />
-          </div>
-          <h3>持续打磨，每一步都有记录</h3>
-          <p>由平台管理员发布，集中查看新增功能、体验优化与问题修复。</p>
           <div className="release-runtime">
             <span>当前服务版本</span>
             <strong>{version ? `v${version.replace(/^v/, "")}` : "暂未获取"}</strong>
           </div>
+          {data && data.items.length > 0 && (
+            <nav className="release-version-index" aria-label="本页版本">
+              <h3>本页版本</h3>
+              {data.items.map((note) => (
+                <a key={note.id} href={`#release-${note.id}`}>
+                  <strong>{note.version}</strong>
+                  <span>{note.title}</span>
+                </a>
+              ))}
+            </nav>
+          )}
         </aside>
         <section className="release-timeline" aria-label="版本更新记录" aria-busy={!data && !error}>
           {error ? (
@@ -108,7 +115,14 @@ export default function ReleaseNotesPage() {
             </div>
           ) : (
             data.items.map((note, index) => (
-              <ReleaseNoteCard key={note.id} note={note} latest={page === 1 && index === 0} />
+              <div
+                key={note.id}
+                id={`release-${note.id}`}
+                tabIndex={-1}
+                className="release-history-entry"
+              >
+                <ReleaseNoteCard note={note} latest={page === 1 && index === 0} />
+              </div>
             ))
           )}
           {readError && (
@@ -120,25 +134,13 @@ export default function ReleaseNotesPage() {
             </p>
           )}
           {data && data.total > 10 && (
-            <nav className="release-pagination" aria-label="日志分页">
-              <button
-                className="btn-secondary"
-                disabled={page === 1}
-                onClick={() => setPage(page - 1)}
-              >
-                上一页
-              </button>
-              <span>
-                第 {page} / {Math.ceil(data.total / 10)} 页
-              </span>
-              <button
-                className="btn-secondary"
-                disabled={page * 10 >= data.total}
-                onClick={() => setPage(page + 1)}
-              >
-                下一页
-              </button>
-            </nav>
+            <PagePagination
+              ariaLabel="日志分页"
+              page={page}
+              totalPages={Math.ceil(data.total / 10)}
+              onPageChange={setPage}
+              summary={`共 ${data.total} 条`}
+            />
           )}
         </section>
       </div>

@@ -189,9 +189,12 @@ try {
 
       if (scenario === "help") {
         await page.getByRole("heading", { name: "帮助中心" }).waitFor();
-        await page.getByLabel("定位章节").selectOption("review");
-        await page.getByRole("link", { name: "跳转到章节" }).click();
-        await page.waitForFunction(() => window.location.hash === "#review");
+        await page.getByLabel("搜索帮助").fill("审批项目入库");
+        await page
+          .getByRole("region", { name: "帮助搜索结果" })
+          .getByRole("link", { name: /审批项目入库/ })
+          .click();
+        await page.getByRole("heading", { name: "审批项目入库", level: 2 }).waitFor();
         await page.evaluate(() => {
           window.scrollTo(0, 0);
           document.querySelector(".app-content")?.scrollTo(0, 0);
@@ -211,8 +214,10 @@ try {
       await page.waitForTimeout(160);
       const metrics = await page.evaluate((currentScenario) => {
         const root = document.documentElement;
-        const directory = document.querySelector(".help-directory")?.getBoundingClientRect();
-        const content = document.querySelector(".help-content")?.getBoundingClientRect();
+        const directory = document
+          .querySelector(".help-reading-directory")
+          ?.getBoundingClientRect();
+        const content = document.querySelector(".help-article")?.getBoundingClientRect();
         const state = document
           .querySelector(
             ".global-state-page, .product-state-shell, .state-box, .product-empty-state, .product-table-state-content",
@@ -236,9 +241,11 @@ try {
             ),
           helpDirectoryWidth: directory?.width ?? 0,
           helpContentRatio: directory && content ? content.width / directory.width : 0,
-          helpSections: document.querySelectorAll(".help-section").length,
-          helpIcons: document.querySelectorAll(".help-section-icon svg").length,
-          jumpWorked: currentScenario !== "help" || window.location.hash === "#review",
+          helpSections: document.querySelectorAll(".help-article").length,
+          helpGuideLinks: document.querySelectorAll(".help-reading-directory nav a").length,
+          jumpWorked:
+            currentScenario !== "help" ||
+            new URLSearchParams(window.location.search).get("article") === "review",
           stateHeight: state?.height ?? 0,
           stateGraphic: Boolean(
             document.querySelector(
@@ -283,11 +290,11 @@ try {
       const desktop = result.viewport === "1440";
       return (
         baseFailure ||
-        (desktop && (result.helpDirectoryWidth < 220 || result.helpDirectoryWidth > 250)) ||
+        (desktop && (result.helpDirectoryWidth < 160 || result.helpDirectoryWidth > 220)) ||
         (desktop && result.helpContentRatio < 2.4) ||
         (!desktop && result.helpDirectoryWidth <= 0) ||
-        result.helpSections !== 14 ||
-        result.helpIcons !== 14 ||
+        result.helpSections !== 1 ||
+        result.helpGuideLinks < 4 ||
         !result.jumpWorked
       );
     }

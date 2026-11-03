@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -129,42 +129,56 @@ describe("AppLayout shell contract", () => {
     auth.capabilities.isProjectManager = true;
   });
 
+  it("makes the parent breadcrumb clickable and returns to the previous page", async () => {
+    sessionStorage.clear();
+    renderLayout("/original-access");
+    expect(screen.getByRole("link", { name: "进入审批中心" })).toHaveAttribute("href", "/review");
+    fireEvent.click(screen.getByRole("link", { name: "进入审批中心" }));
+    await waitFor(() =>
+      expect(document.querySelector(".deck-title")).toHaveTextContent("升级审核"),
+    );
+    fireEvent.click(screen.getByRole("link", { name: "返回上一页" }));
+    await waitFor(() =>
+      expect(document.querySelector(".deck-title")).toHaveTextContent("原文访问审批"),
+    );
+  });
+
   it("keeps the product brand and real identity menu in the shell", () => {
     const { container } = renderLayout();
-    expect(screen.getByRole("img", { name: "MOWAYS 博维咨询" })).toHaveAttribute(
-      "src",
-      "/moways-logo.png",
-    );
+    const logos = screen.getAllByRole("img", { name: "MOWAYS 博维咨询" });
+    expect(logos).toHaveLength(2);
+    logos.forEach((logo) => expect(logo).toHaveAttribute("src", "/moways-logo.png"));
     expect(screen.queryByText("KAP")).not.toBeInTheDocument();
     expect(container.querySelector(".rail-sub")).toHaveTextContent("博维知识资产平台");
-    expect(container.querySelector(".deck-title")).toHaveTextContent("今日工作台");
+    expect(container.querySelector(".deck-title")).toHaveTextContent("我的工作");
     expect(screen.getByRole("button", { name: /布局验收用户/ })).toBeInTheDocument();
     expect(container.querySelector(".rail-foot .rail-identity .idm-trigger")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "帮助与更新" }));
     expect(screen.getByRole("link", { name: "帮助" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "退出登录" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "登出当前会话" })).not.toBeInTheDocument();
   });
 
-  it("groups navigation by the user's work context", () => {
-    renderLayout();
-    expect(screen.getByText("今日工作", { selector: ".rail-group-label" })).toBeInTheDocument();
-    expect(screen.getByText("知识资产", { selector: ".rail-group-label" })).toBeInTheDocument();
-    expect(screen.getByText("项目协作", { selector: ".rail-group-label" })).toBeInTheDocument();
-    expect(screen.getByText("运行与接入", { selector: ".rail-group-label" })).toBeInTheDocument();
-    expect(screen.getByText("安全与治理", { selector: ".rail-group-label" })).toBeInTheDocument();
-    expect(
-      screen.getByText("组织与知识治理", { selector: ".rail-group-label" }),
-    ).toBeInTheDocument();
-    expect(screen.queryByText("保障入库、扫描与模型连接可用。")).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "运营中枢" })).not.toBeInTheDocument();
+  it("groups features into five modules and keeps management tools in their local menu", () => {
+    renderLayout("/admin/ingest");
+    const nav = screen.getByRole("navigation", { name: "主导航" });
+    expect(within(nav).getAllByRole("link")).toHaveLength(5);
+    expect(within(nav).getByRole("link", { name: "管理中心" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(within(nav).queryByRole("link", { name: "入库管理" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "切换管理模块" }));
     expect(screen.getByRole("link", { name: "入库管理" })).toHaveAttribute("href", "/admin/ingest");
+    expect(screen.getByRole("link", { name: "人员权限" })).toHaveAttribute("href", "/admin/people");
   });
 
-  it("offers a visible rail logout action and refreshes the shared identity", async () => {
+  it("offers logout through the existing identity menu and refreshes the shared identity", async () => {
     vi.mocked(logout).mockResolvedValue(undefined);
     auth.reload.mockResolvedValue(undefined);
     renderLayout();
 
-    fireEvent.click(screen.getByRole("button", { name: "退出登录" }));
+    fireEvent.click(screen.getByRole("button", { name: /布局验收用户/ }));
+    fireEvent.click(screen.getByRole("button", { name: "登出当前会话" }));
 
     await waitFor(() => expect(logout).toHaveBeenCalledTimes(1));
     expect(auth.reload).toHaveBeenCalledTimes(1);
@@ -173,8 +187,9 @@ describe("AppLayout shell contract", () => {
   it("shows scoped model configuration navigation to project managers", () => {
     auth.capabilities.isAdmin = false;
     auth.capabilities.isGovernance = false;
-    renderLayout();
-    expect(screen.getByRole("link", { name: "知识资产库" })).toBeInTheDocument();
+    renderLayout("/admin/weknora-models");
+    fireEvent.click(screen.getByRole("button", { name: "切换管理模块" }));
+    expect(screen.getByRole("link", { name: "知识库" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "模型配置" })).toHaveAttribute(
       "href",
       "/admin/weknora-models",
@@ -187,44 +202,56 @@ describe("AppLayout shell contract", () => {
     auth.capabilities.isGovernance = false;
     auth.capabilities.isProjectManager = false;
     renderLayout();
-    expect(screen.getByRole("link", { name: "知识资产库" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "知识库" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "模型配置" })).not.toBeInTheDocument();
   });
 
-  it("builds project navigation from the real auth project id", () => {
+  it("opens the project directory instead of silently choosing the first project", () => {
     renderLayout();
-    expect(screen.getByRole("link", { name: "项目空间" })).toHaveAttribute(
-      "href",
-      "/project/project-real-64",
-    );
-    expect(screen.getByRole("link", { name: "项目设置" })).toHaveAttribute(
-      "href",
-      "/project/project-real-64/settings",
-    );
+    expect(screen.getByRole("link", { name: "项目空间" })).toHaveAttribute("href", "/projects");
+    expect(screen.queryByRole("button", { name: "切换项目" })).not.toBeInTheDocument();
+  });
+
+  it("uses the same permitted project and full menu in mobile navigation", () => {
+    renderLayout("/projects");
+    expect(screen.getByRole("link", { name: "底部项目空间" })).toHaveAttribute("href", "/projects");
+    fireEvent.click(screen.getByRole("button", { name: "打开我的与全部功能" }));
+    expect(screen.getByRole("dialog", { name: "我的" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "我的项目" })).toHaveAttribute("href", "/projects");
+    expect(screen.queryByRole("button", { name: "切换项目" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "原文访问审批" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: "我的项目" }));
+    expect(screen.queryByRole("dialog", { name: "我的" })).not.toBeInTheDocument();
   });
 
   it("hides project business entries for admin even when project membership remains assigned", () => {
     auth.capabilities.isBoss = false;
     auth.capabilities.isBusinessUser = false;
     auth.capabilities.isGovernance = false;
-    renderLayout();
+    renderLayout("/admin/ingest");
+    fireEvent.click(screen.getByRole("button", { name: "切换管理模块" }));
 
     expect(screen.queryByRole("link", { name: "项目空间" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "项目知识库" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "项目设置" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "底部项目空间" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "入库管理" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "登录风控" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "登录安全" })).toBeInTheDocument();
   });
 
-  it("names each project module and activates only its exact rail entry", () => {
+  it("names project views while keeping their parent workspace active", () => {
     const overview = renderLayout("/project/project-real-64");
-    expect(overview.container.querySelector(".deck-title")).toHaveTextContent("项目空间");
+    expect(overview.container.querySelector(".deck-title")).toHaveTextContent("项目概览");
     expect(screen.getByRole("link", { name: "项目空间" })).toHaveClass("active");
     overview.unmount();
 
+    const qa = renderLayout("/project/project-real-64?view=qa");
+    expect(qa.container.querySelector(".deck-title")).toHaveTextContent("项目问答");
+    qa.unmount();
+
     const knowledge = renderLayout("/project/project-real-64/knowledge");
-    expect(knowledge.container.querySelector(".deck-title")).toHaveTextContent("项目知识库");
-    expect(screen.getByRole("link", { name: "项目空间" })).not.toHaveClass("active");
+    expect(knowledge.container.querySelector(".deck-title")).toHaveTextContent("项目资料");
+    expect(screen.getByRole("link", { name: "项目空间" })).toHaveClass("active");
     knowledge.unmount();
 
     const settings = renderLayout("/project/project-real-64/settings");
@@ -241,7 +268,7 @@ describe("AppLayout shell contract", () => {
       "展开主导航",
     );
     expect(screen.getByRole("button", { name: "展开主导航" })).toHaveClass("rail-collapse");
-    expect(screen.getByRole("link", { name: "今日工作台" })).toHaveAttribute("title", "今日工作台");
+    expect(screen.getByRole("link", { name: "工作台" })).toHaveAttribute("title", "工作台");
   });
 
   it("clears desktop collapse when crossing into tablet and mobile navigation", () => {
@@ -253,7 +280,7 @@ describe("AppLayout shell contract", () => {
     window.innerWidth = 800;
     fireEvent.resize(window);
     expect(shell).not.toHaveClass("is-rail-collapsed");
-    expect(screen.getByRole("link", { name: "今日工作台" })).not.toHaveAttribute("title");
+    expect(screen.getByRole("link", { name: "工作台" })).not.toHaveAttribute("title");
 
     window.innerWidth = 929;
     fireEvent.resize(window);
@@ -264,12 +291,15 @@ describe("AppLayout shell contract", () => {
     fireEvent.click(screen.getByRole("button", { name: "打开导航" }));
     expect(shell).toHaveClass("is-mobile-nav-open");
     expect(shell).not.toHaveClass("is-rail-collapsed");
-    expect(screen.getByRole("button", { name: "关闭导航" })).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
+    expect(screen.getByRole("dialog", { name: "我的" })).toBeInTheDocument();
 
     window.innerWidth = 701;
+    fireEvent.resize(window);
+    expect(shell).toHaveClass("is-mobile-nav-open");
+    window.innerWidth = 860;
+    fireEvent.resize(window);
+    expect(shell).toHaveClass("is-mobile-nav-open");
+    window.innerWidth = 861;
     fireEvent.resize(window);
     expect(shell).not.toHaveClass("is-mobile-nav-open");
     expect(document.body.style.overflow).not.toBe("hidden");
@@ -278,8 +308,10 @@ describe("AppLayout shell contract", () => {
   it("keeps the slim header with the shared task status and notification actions", () => {
     const { container } = renderLayout();
     const header = container.querySelector(".deck");
-    expect(header).toHaveTextContent("今日工作台");
-    expect(screen.getByRole("button", { name: "通知中心，0 项待处理" })).toBeInTheDocument();
+    expect(header).toHaveTextContent("我的工作");
+    expect(
+      screen.getByRole("button", { name: "通知中心，0 项待处理，0 条未读" }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /打开任务中心/ })).toBeInTheDocument();
     expect(header).not.toHaveTextContent(/搜索|导出|新建项目/);
     expect(header?.querySelector("input")).toBeNull();
@@ -292,9 +324,12 @@ describe("AppLayout shell contract", () => {
     auth.capabilities.isBusinessUser = false;
     auth.capabilities.hasProject = false;
     auth.capabilities.isProjectManager = false;
-    renderLayout();
+    renderLayout("/admin/ingest");
+    fireEvent.click(screen.getByRole("button", { name: "切换管理模块" }));
     expect(screen.getByRole("link", { name: "审计日志" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "通知中心，0 项待处理" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "通知中心，0 项待处理，0 条未读" }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "人员权限" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "项目设置" })).not.toBeInTheDocument();
   });

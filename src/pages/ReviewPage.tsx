@@ -1,466 +1,94 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { ControlledBulkRequestError } from "../api/bulk";
-import { ApiError } from "../api/http";
-import {
-  approveReview,
-  bulkRegisterReviewEvidence,
-  bulkReviewAction,
-  fetchReviews,
-  rejectReview,
-  withdrawReviewConfirmation,
-} from "../api/review";
+import { Link } from "react-router-dom";
+import { bulkRegisterReviewEvidence } from "../api/review";
+import { BulkSelectionRail } from "../components/BulkSelection";
 import ConfirmDialog from "../components/ConfirmDialog";
-import { BulkSelectionRail, SelectionCheckbox } from "../components/BulkSelection";
-import DataTable, { type Column } from "../components/DataTable";
-import GovernanceWorkspace from "../components/GovernanceWorkspace";
+import DataTable from "../components/DataTable";
 import DetailDrawer from "../components/DetailDrawer";
-import type { ReviewActionResponseDTO, ReviewItemDTO } from "../types/review";
-import { reviewActionFeedback, type ReviewAction } from "../utils/reviewActionFeedback";
+import GovernanceWorkspace from "../components/GovernanceWorkspace";
 import { formatBeijingTime } from "../utils/time";
-
-const SAFE_FALLBACK = "信息待确认";
-const confirmationLabel: Record<string, string> = {
-  pending: "待确认",
-  confirmed: "已确认",
-  withdrawn: "已撤回",
-  rejected: "已拒绝",
-};
-
-function companyConfirmationLabel(status: string | null) {
-  return status === null ? "待确认" : (confirmationLabel[status] ?? SAFE_FALLBACK);
-}
-
-const reviewTypeLabel: Record<string, string> = {
-  material_to_asset: "资料资产化",
-  personal_to_project: "个人知识升级",
-  project_to_company: "公司资产升级",
-  lifecycle_change: "生命周期变更",
-  project_ingest_approval: "项目知识入库",
-};
-
-const statusLabel: Record<string, string> = {
-  pending_evidence: "待补充证据",
-  pending_reviewer: "待审核",
-  approved: "已通过",
-  rejected: "已拒绝",
-  approving: "处理中",
-  approval_failed: "处理失败",
-};
-
-const statusTone: Record<string, string> = {
-  pending_evidence: "is-pending",
-  pending_reviewer: "is-pending",
-  approved: "is-success",
-  rejected: "is-danger",
-  approving: "is-neutral",
-  approval_failed: "is-danger",
-};
-
-const statusFilters = [
-  { token: "0", apiValue: "", label: "全部状态" },
-  { token: "1", apiValue: "pending_evidence", label: "待补充证据" },
-  { token: "2", apiValue: "pending_reviewer", label: "待审核" },
-  { token: "3", apiValue: "approving", label: "处理中" },
-  { token: "4", apiValue: "approval_failed", label: "处理失败" },
-];
-
-const reviewTypeFilters = [
-  { token: "0", apiValue: "", label: "全部类型" },
-  { token: "1", apiValue: "project_ingest_approval", label: "项目知识入库" },
-  { token: "2", apiValue: "material_to_asset", label: "资料资产化" },
-  { token: "3", apiValue: "personal_to_project", label: "个人知识升级" },
-  { token: "4", apiValue: "project_to_company", label: "公司资产升级" },
-  { token: "5", apiValue: "lifecycle_change", label: "生命周期变更" },
-];
-
-type Feedback = { tone: "success" | "error" | "info"; text: string } | null;
-
-function safeTitle(item: ReviewItemDTO) {
-  return item.asset_title?.trim() || "待确认知识";
-}
-
-function isForbidden(error: unknown) {
-  return error instanceof ApiError && error.status === 403;
-}
+import {
+  SAFE_FALLBACK,
+  companyConfirmationLabel,
+  reviewTypeFilters,
+  reviewTypeLabel,
+  safeTitle,
+  statusFilters,
+  statusLabel,
+  statusTone,
+} from "./controllers/Review/model";
+import { useReview } from "./controllers/Review/useReview";
 
 export default function ReviewPage() {
-  const [statusToken, setStatusToken] = useState("0");
-  const [reviewTypeToken, setReviewTypeToken] = useState("0");
-  const [params, setParams] = useSearchParams();
-  const focusReviewId = params.get("review_id");
-  const focusProjectId = params.get("project_id");
-  const [availableItems, setItems] = useState<ReviewItemDTO[]>([]);
-  const items = availableItems.filter(
-    (item) =>
-      (!focusReviewId || item.id === focusReviewId) &&
-      (!focusProjectId || item.target_project_id === focusProjectId),
-  );
-  const [loading, setLoading] = useState(true);
-  const [forbidden, setForbidden] = useState(false);
-  const [loadFailed, setLoadFailed] = useState(false);
-  const [feedback, setFeedback] = useState<Feedback>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [rejectTarget, setRejectTarget] = useState<ReviewItemDTO | null>(null);
-  const [rejectReason, setRejectReason] = useState("");
-  const [rejectError, setRejectError] = useState<string | null>(null);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  useEffect(() => setSelectedIds([]), [focusReviewId, focusProjectId]);
-  const [bulkAction, setBulkAction] = useState<"approve" | "reject" | null>(null);
-  const [bulkBusy, setBulkBusy] = useState(false);
-  const [evidenceTarget, setEvidenceTarget] = useState<ReviewItemDTO | null>(null);
-  const [evidenceReviewIds, setEvidenceReviewIds] = useState<string[]>([]);
-  const [evidenceDescription, setEvidenceDescription] = useState("");
-  const [evidenceType, setEvidenceType] = useState<"internal_sharing" | "client_validation">(
-    "internal_sharing",
-  );
-  const [evidenceCategory, setEvidenceCategory] = useState<
-    "meeting_minutes" | "wecom_record" | "client_email" | "acceptance_doc" | "delivery_adoption"
-  >("meeting_minutes");
-  const [evidenceBusy, setEvidenceBusy] = useState(false);
-  const requestRef = useRef(0);
-  const bulkRunRef = useRef(false);
-  const filtersRef = useRef({ status: "", reviewType: "" });
-  const status = statusFilters.find((item) => item.token === statusToken)?.apiValue ?? "";
-  const reviewType =
-    reviewTypeFilters.find((item) => item.token === reviewTypeToken)?.apiValue ?? "";
-  filtersRef.current = { status, reviewType };
-
-  const load = useCallback(async () => {
-    const requestId = ++requestRef.current;
-    const filters = filtersRef.current;
-    setLoading(true);
-    setForbidden(false);
-    setLoadFailed(false);
-    setFeedback(null);
-    setSelectedIds([]);
-    setItems([]);
-    try {
-      const next = await fetchReviews({
-        queue: "open",
-        status: filters.status || undefined,
-        reviewType: filters.reviewType || undefined,
-      });
-      if (requestId !== requestRef.current) return;
-      setItems(next);
-    } catch (error) {
-      if (requestId !== requestRef.current) return;
-      setForbidden(isForbidden(error));
-      setLoadFailed(!isForbidden(error));
-    } finally {
-      if (requestId === requestRef.current) setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-    return () => {
-      requestRef.current += 1;
-    };
-  }, [load, reviewType, status]);
-
-  const runAction = async (
-    item: ReviewItemDTO,
-    action: () => Promise<ReviewActionResponseDTO>,
-    kind: ReviewAction,
-  ) => {
-    setBusyId(item.id);
-    setFeedback(null);
-    try {
-      const result = await action();
-      await load();
-      const outcome = reviewActionFeedback(result, kind);
-      setFeedback(outcome);
-      return outcome.tone !== "error";
-    } catch {
-      setFeedback({ tone: "error", text: "操作未完成，请稍后重试。" });
-      return false;
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const decidePending = (item: ReviewItemDTO) =>
-    item.can_decide && item.status === "pending_reviewer";
-  const retryFailed = (item: ReviewItemDTO) => item.can_decide && item.status === "approval_failed";
-  const eligibleItems = items.filter(decidePending);
-  const selectedEligible = eligibleItems.filter((item) => selectedIds.includes(item.id));
-  const selectedEvidence = items.filter(
-    (item) => item.status === "pending_evidence" && selectedIds.includes(item.id),
-  );
-  const pageAllSelected =
-    eligibleItems.length > 0 && selectedEligible.length === eligibleItems.length;
-  const pageIndeterminate = selectedEligible.length > 0 && !pageAllSelected;
-
-  const runBulkAction = async () => {
-    if (!bulkAction || selectedEligible.length === 0 || bulkRunRef.current) return;
-    const selectionSnapshot = selectedEligible.map((item) => item.id);
-    const selectionRequest = requestRef.current;
-    const reason = rejectReason.trim();
-    if (bulkAction === "reject" && !reason) {
-      setRejectError("请填写拒绝原因。");
-      return;
-    }
-    bulkRunRef.current = true;
-    setBulkBusy(true);
-    setRejectError(null);
-    try {
-      const result = await bulkReviewAction({
-        itemIds: selectionSnapshot,
-        action: bulkAction,
-        comment: bulkAction === "reject" ? reason : "批量确认通过",
-      });
-      setBulkAction(null);
-      setRejectReason("");
-      await load();
-      setFeedback({
-        tone: result.failed > 0 || result.skipped > 0 ? "error" : "success",
-        text: `已提交 ${result.submitted} 项：成功 ${result.succeeded}，跳过 ${result.skipped}，失败 ${result.failed}。`,
-      });
-    } catch (error) {
-      const retryIds =
-        error instanceof ControlledBulkRequestError
-          ? (error.retryItems as string[])
-          : selectionSnapshot;
-      const partial = error instanceof ControlledBulkRequestError ? error.partialResult : null;
-      const selectionScopeUnchanged = requestRef.current === selectionRequest;
-      await load();
-      if (selectionScopeUnchanged && requestRef.current === selectionRequest + 1) {
-        setSelectedIds(retryIds);
-      }
-      setBulkAction(null);
-      setFeedback({
-        tone: "error",
-        text: partial
-          ? `批量操作中断：已完成提交 ${partial.submitted} 项（成功 ${partial.succeeded}，跳过 ${partial.skipped}，失败 ${partial.failed}），剩余 ${retryIds.length} 项可重试。`
-          : `批量操作未开始，${retryIds.length} 项仍保留选择，可重试。`,
-      });
-    } finally {
-      bulkRunRef.current = false;
-      setBulkBusy(false);
-    }
-  };
-
-  const submitReject = async () => {
-    if (!rejectTarget) return;
-    const reason = rejectReason.trim();
-    if (!reason) {
-      setRejectError("请填写拒绝原因。");
-      return;
-    }
-    setRejectError(null);
-    const completed = await runAction(
-      rejectTarget,
-      () => rejectReview(rejectTarget.id, reason),
-      "reject",
-    );
-    if (completed) {
-      setRejectTarget(null);
-      setRejectReason("");
-    }
-  };
-
-  const columns: Column<ReviewItemDTO>[] = [
-    {
-      key: "select",
-      header: (
-        <SelectionCheckbox
-          checked={pageAllSelected}
-          indeterminate={pageIndeterminate}
-          disabled={eligibleItems.length === 0 || bulkBusy}
-          label="全选当前页可审核项"
-          onChange={() =>
-            setSelectedIds(pageAllSelected ? [] : eligibleItems.map((item) => item.id))
-          }
-        />
-      ),
-      headerClassName: "gw-col-review-select",
-      className: "gw-col-review-select",
-      render: (item) => (
-        <SelectionCheckbox
-          checked={selectedIds.includes(item.id)}
-          disabled={(!decidePending(item) && item.status !== "pending_evidence") || bulkBusy}
-          label={`选择审核项 ${safeTitle(item)}`}
-          onChange={() =>
-            setSelectedIds((current) =>
-              current.includes(item.id)
-                ? current.filter((id) => id !== item.id)
-                : [...current, item.id],
-            )
-          }
-        />
-      ),
-    },
-    {
-      key: "title",
-      header: "知识标题",
-      className: "gw-title-cell",
-      headerClassName: "gw-col-review-title",
-      render: safeTitle,
-    },
-    {
-      key: "type",
-      header: "审核类型",
-      headerClassName: "gw-col-review-type",
-      render: (item) => (
-        <span className="gw-type-tag">{reviewTypeLabel[item.review_type] ?? SAFE_FALLBACK}</span>
-      ),
-    },
-    {
-      key: "project",
-      header: "来源项目",
-      headerClassName: "gw-col-review-project",
-      render: (item) => <span className="gw-muted">{item.project_name?.trim() || "—"}</span>,
-    },
-    {
-      key: "evidence",
-      header: "适用内容",
-      headerClassName: "gw-col-review-evidence",
-      render: (item) => (
-        <span title={item.blocking_reason || undefined}>
-          {item.review_type === "project_ingest_approval"
-            ? "无需证据"
-            : `${item.evidence_count} 项证据`}
-          {item.status === "pending_evidence" && (
-            <small className="gw-blocking-reason">
-              {item.blocking_reason || "缺少资产化验证证据"}
-            </small>
-          )}
-        </span>
-      ),
-    },
-    {
-      key: "status",
-      header: "状态",
-      headerClassName: "gw-col-review-status",
-      render: (item) => (
-        <div>
-          <span className={`gw-status ${statusTone[item.status] ?? "is-neutral"}`}>
-            {statusLabel[item.status] ?? SAFE_FALLBACK}
-          </span>
-          {item.review_type === "project_to_company" && (
-            <small className="gw-blocking-reason">
-              <span>
-                总经理：{companyConfirmationLabel(item.general_manager_confirmation_status)}
-              </span>
-              <br />
-              <span>
-                咨询总监：{companyConfirmationLabel(item.consulting_director_confirmation_status)}
-              </span>
-            </small>
-          )}
-        </div>
-      ),
-    },
-    {
-      key: "created",
-      header: "提交时间",
-      className: "gw-time",
-      headerClassName: "gw-col-review-time",
-      render: (item) => formatBeijingTime(item.created_at),
-    },
-    {
-      key: "actions",
-      header: "操作",
-      headerClassName: "gw-col-review-actions",
-      render: (item) => (
-        <div className="gw-actions">
-          {item.status === "pending_evidence" && item.review_type === "material_to_asset" && (
-            <button
-              className="gw-action is-primary"
-              type="button"
-              onClick={() => {
-                setEvidenceTarget(item);
-                setEvidenceReviewIds([item.id]);
-                setEvidenceDescription("");
-              }}
-            >
-              补充证据 / 查看要求
-            </button>
-          )}
-          {decidePending(item) && (
-            <>
-              <button
-                className="gw-action is-primary"
-                type="button"
-                disabled={busyId === item.id}
-                onClick={() =>
-                  void runAction(item, () => approveReview(item.id, "确认通过"), "approve")
-                }
-              >
-                确认
-              </button>
-              <button
-                className="gw-action is-danger"
-                type="button"
-                disabled={busyId === item.id}
-                onClick={() => {
-                  setFeedback(null);
-                  setRejectTarget(item);
-                  setRejectReason("");
-                  setRejectError(null);
-                }}
-              >
-                拒绝
-              </button>
-            </>
-          )}
-          {retryFailed(item) && (
-            <button
-              className="gw-action is-primary"
-              type="button"
-              disabled={busyId === item.id}
-              onClick={() =>
-                void runAction(item, () => approveReview(item.id, "重试入库"), "approve")
-              }
-            >
-              重试
-            </button>
-          )}
-          {item.can_withdraw && (
-            <button
-              className="gw-action"
-              type="button"
-              disabled={busyId === item.id}
-              onClick={() =>
-                void runAction(
-                  item,
-                  () => withdrawReviewConfirmation(item.id, "撤回本人确认"),
-                  "withdraw",
-                )
-              }
-            >
-              撤回
-            </button>
-          )}
-          {item.status !== "pending_evidence" &&
-            !decidePending(item) &&
-            !retryFailed(item) &&
-            !item.can_withdraw && <span className="gw-muted">—</span>}
-        </div>
-      ),
-    },
-  ];
-
-  const state = forbidden
-    ? { title: "无审核权限", description: "当前账号无法查看审核队列。" }
-    : loadFailed
-      ? { title: "审核队列加载失败", description: "请稍后重试。" }
-      : { title: "暂无审核事项", description: "当前筛选条件下没有需要处理的审核事项。" };
+  const {
+    completedTarget,
+    loading,
+    load,
+    focusReviewId,
+    focusProjectId,
+    forbidden,
+    loadFailed,
+    items,
+    params,
+    setParams,
+    statusToken,
+    setStatusToken,
+    reviewTypeToken,
+    setReviewTypeToken,
+    eligibleItems,
+    feedback,
+    selectedEligible,
+    selectedEvidence,
+    bulkBusy,
+    evidenceBusy,
+    setSelectedIds,
+    setBulkAction,
+    setRejectReason,
+    setRejectError,
+    setFeedback,
+    setEvidenceTarget,
+    setEvidenceReviewIds,
+    setEvidenceDescription,
+    columns,
+    state,
+    rejectTarget,
+    busyId,
+    rejectError,
+    submitReject,
+    setRejectTarget,
+    rejectReason,
+    detail,
+    setDetailId,
+    renderReviewActions,
+    evidenceTarget,
+    evidenceReviewIds,
+    evidenceDescription,
+    setEvidenceBusy,
+    evidenceType,
+    evidenceCategory,
+    setEvidenceType,
+    setEvidenceCategory,
+    bulkAction,
+    runBulkAction,
+  } = useReview();
 
   return (
-    <GovernanceWorkspace active="review" loading={loading} onRefresh={() => void load()}>
-      <h2>审核待办</h2>
+    <GovernanceWorkspace
+      active={completedTarget ? "review-completed" : "review"}
+      loading={loading}
+      onRefresh={() => void load()}
+    >
       {(focusReviewId || focusProjectId) && (
         <div className="gw-feedback is-info" role="status">
           {!loading && !forbidden && !loadFailed && items.length === 0
             ? "当前可见审核记录中未找到该事项，可能已处理或不在当前身份的可见范围。"
-            : "正在查看从项目定位的审核事项。"}
+            : "正在查看指定的审核事项。"}
           <button
             className="btn-small"
             onClick={() => {
               const next = new URLSearchParams(params);
               next.delete("review_id");
+              next.delete("target_id");
+              next.delete("queue");
               next.delete("project_id");
               setParams(next);
             }}
@@ -618,6 +246,92 @@ export default function ReviewPage() {
           />
         </label>
       </ConfirmDialog>
+      <DetailDrawer
+        portal
+        open={Boolean(detail)}
+        title={detail ? safeTitle(detail) : "审核详情"}
+        description={detail ? (reviewTypeLabel[detail.review_type] ?? SAFE_FALLBACK) : undefined}
+        className="approval-detail-drawer"
+        onClose={() => setDetailId(null)}
+        busy={Boolean(detail && busyId === detail.id)}
+        footer={detail && renderReviewActions(detail)}
+      >
+        {detail && (
+          <div className="approval-detail-layout">
+            <section className="approval-detail-material">
+              <h3>审核资料</h3>
+              <dl>
+                <div>
+                  <dt>来源项目</dt>
+                  <dd>{detail.project_name?.trim() || "未提供"}</dd>
+                </div>
+                <div>
+                  <dt>提交时间</dt>
+                  <dd>{formatBeijingTime(detail.created_at)}</dd>
+                </div>
+                <div>
+                  <dt>适用证据</dt>
+                  <dd>
+                    {detail.review_type === "project_ingest_approval"
+                      ? "无需证据"
+                      : `${detail.evidence_count} 项证据`}
+                  </dd>
+                </div>
+              </dl>
+              {detail.target_asset_id && (
+                <Link
+                  className="product-button is-secondary"
+                  to={`/knowledge/${encodeURIComponent(detail.target_asset_id)}`}
+                  state={{
+                    backTo: `/review${params.size ? `?${params}` : ""}`,
+                    backLabel: "返回审核待办",
+                    source: "review",
+                  }}
+                >
+                  查看资料与摘要
+                </Link>
+              )}
+              {detail.blocking_reason && (
+                <p className="approval-detail-note">{detail.blocking_reason}</p>
+              )}
+              {detail.review_comment && (
+                <>
+                  <h3>审核意见</h3>
+                  <p>{detail.review_comment}</p>
+                </>
+              )}
+            </section>
+            <aside className="approval-detail-progress">
+              <h3>审批进度</h3>
+              <span className={`gw-status ${statusTone[detail.status] ?? "is-neutral"}`}>
+                {statusLabel[detail.status] ?? SAFE_FALLBACK}
+              </span>
+              {detail.review_type === "project_to_company" && (
+                <ol>
+                  <li>
+                    <strong>总经理确认</strong>
+                    <span>
+                      {companyConfirmationLabel(detail.general_manager_confirmation_status)}
+                    </span>
+                  </li>
+                  <li>
+                    <strong>咨询总监确认</strong>
+                    <span>
+                      {companyConfirmationLabel(detail.consulting_director_confirmation_status)}
+                    </span>
+                  </li>
+                </ol>
+              )}
+              {detail.reviewed_at && <p>处理于 {formatBeijingTime(detail.reviewed_at)}</p>}
+            </aside>
+            {feedback && (
+              <p className={`gw-feedback is-${feedback.tone}`} role="status">
+                {feedback.text}
+              </p>
+            )}
+          </div>
+        )}
+      </DetailDrawer>
       <DetailDrawer
         open={Boolean(evidenceTarget)}
         title="补充资产化验证证据"

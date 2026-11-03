@@ -3,6 +3,25 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import CompanyGovernancePage from "./CompanyGovernancePage";
 import { fetchGovernance, applyGovernance } from "../api/governance";
+import {
+  fetchCompanyKnowledgeBase,
+  createCompanyKnowledgeBase,
+  deleteCompanyKnowledgeBase,
+} from "../api/admin";
+import { managementEntries } from "../navigation/workspaces";
+
+vi.mock("../auth/AuthContext", () => ({ useAuth: () => ({ capabilities: { isBoss: true } }) }));
+vi.mock("../api/admin", () => ({
+  fetchCompanyKnowledgeBase: vi.fn().mockResolvedValue({
+    exists: true,
+    display_name: "公司知识库",
+    available: true,
+    status: "active",
+    created_at: null,
+  }),
+  createCompanyKnowledgeBase: vi.fn(),
+  deleteCompanyKnowledgeBase: vi.fn(),
+}));
 
 vi.mock("../api/governance", () => ({ fetchGovernance: vi.fn(), applyGovernance: vi.fn() }));
 vi.mock("../api/http", () => ({ apiGet: vi.fn().mockResolvedValue({ items: [] }) }));
@@ -33,6 +52,36 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
 });
+it("opens company settings in place without losing the selected governance view", async () => {
+  render(
+    <MemoryRouter>
+      <CompanyGovernancePage />
+    </MemoryRouter>,
+  );
+  await screen.findByRole("button", { name: "历史研究报告" });
+  fireEvent.click(screen.getByRole("button", { name: "全部在库" }));
+  fireEvent.click(screen.getByRole("button", { name: "设置" }));
+  const settings = await screen.findByRole("dialog", { name: "公司库设置" });
+  expect(await within(settings).findByText("正常")).toBeInTheDocument();
+  expect(fetchCompanyKnowledgeBase).toHaveBeenCalledTimes(1);
+  fireEvent.click(within(settings).getByRole("button", { name: "关闭公司库设置" }));
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "全部在库" })).toHaveAttribute("aria-pressed", "true");
+  expect(createCompanyKnowledgeBase).not.toHaveBeenCalled();
+  expect(deleteCompanyKnowledgeBase).not.toHaveBeenCalled();
+  expect(managementEntries.some((entry) => entry.to === "/admin/company-kb")).toBe(false);
+});
+
+it("opens settings from a legacy-link destination", async () => {
+  render(
+    <MemoryRouter initialEntries={["/company-governance?settings=knowledge-base"]}>
+      <CompanyGovernancePage />
+    </MemoryRouter>,
+  );
+  const settings = await screen.findByRole("dialog", { name: "公司库设置" });
+  expect(await within(settings).findByText("正常")).toBeInTheDocument();
+});
+
 it("requires selection, preview and reason before mutation", async () => {
   render(
     <MemoryRouter>

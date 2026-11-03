@@ -1,0 +1,362 @@
+/* Management uses the same compact list rhythm as the ingest workspace. */
+.workspace-shell .mf-page .mf-add-button {
+  width: auto;
+  flex: 0 0 auto;
+  align-self: flex-start;
+}
+.workspace-shell .naming-center .naming-migration-panel > header h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+}
+.workspace-shell .naming-center .naming-migration-panel > header p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.workspace-shell .naming-center .naming-migration-panel > header > button {
+  flex: 0 0 auto;
+}
+.workspace-shell .naming-center .naming-migration-panel > p {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.workspace-shell .naming-center .naming-migration-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 12px 0;
+  border-block: 1px solid var(--color-border-light);
+}
+.workspace-shell .naming-center .naming-migration-actions > button {
+  flex: 0 0 auto;
+  width: auto;
+}
+.workspace-shell .naming-center .naming-migration-actions > span {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.workspace-shell .naming-center .naming-migration-submit {
+  margin-left: auto;
+}
+.workspace-shell .naming-center .naming-migration-panel .page-pagination {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border-light);
+}
+.workspace-shell .naming-center .naming-migration-list label {
+  align-items: flex-start;
+  border-bottom: 1px solid var(--color-border-light);
+  border-radius: 0;
+}
+.workspace-shell .naming-center .naming-migration-list label > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 640px) {
+  .workspace-shell
+    .page-workspace.admin-control-page
+    :is(.product-button, .btn-small, .btn-small-primary, .btn-small-danger, .secops-toggle) {
+    min-height: 40px;
+  }
+  .workspace-shell .ingest-workspace .ao84-text-action {
+    min-height: 40px;
+  }
+  .workspace-shell .naming-center .naming-migration-panel .product-button {
+    min-height: 40px;
+  }
+  .workspace-shell .naming-center .naming-migration-submit {
+    margin-left: 0;
+  }
+}
+.workspace-shell .page-workspace.admin-control-page .workspace-outline {
+  grid-template-columns: minmax(0, 1fr);
+  border: 0;
+  background: transparent;
+}
+.workspace-shell .page-workspace.admin-control-page .workspace-outline-nav {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 0 0 12px;
+  border: 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.workspace-shell .page-workspace.admin-control-page .workspace-outline-label {
+  display: none;
+}
+.workspace-shell .page-workspace.admin-control-page .workspace-outline-nav a {
+  min-height: 36px;
+  padding: 8px 12px;
+  background: var(--color-bg-surface);
+}
+.workspace-shell .page-workspace.admin-control-page .workspace-outline-nav a[aria-current] {
+  background: #edf3ff;
+}
+.workspace-shell .page-workspace.admin-control-page .workspace-outline-content {
+  padding: 16px 0 0;
+}
+.workspace-shell .page-workspace.admin-control-page :is(.secops-toolbar, .gp-toolbar, .pp-toolbar) {
+  gap: 12px;
+  padding: 12px 16px;
+  align-items: center;
+}
+.workspace-shell
+  .page-workspace.admin-control-page
+  :is(.gp-toolbar-actions, .secops-toolbar-actions, .pp-toolbar-actions) {
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.workspace-shell .page-workspace.admin-control-page :is(.secops-filters, .gp-filter-select) select {
+  width: auto;
+  min-width: 100px;
+  min-height: 34px;
+}
+.workspace-shell .page-workspace.admin-control-page :is(.gp-row-actions, .secops-row-actions) {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.admin-list-context {
+  margin: 0;
+  padding: 10px 16px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  border-bottom: 1px solid var(--color-border-light);
+}
+.admin-row-details {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  max-width: 48ch;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.admin-row-details summary {
+  cursor: pointer;
+  color: var(--color-info);
+  width: fit-content;
+  padding-block: 4px;
+}
+.admin-row-details p {
+  margin: 6px 0;
+  line-height: 1.65;
+}
+.workspace-shell .permissions89-page .gp-table {
+  table-layout: fixed;
+}
+.workspace-shell .permissions89-page #permission-rules th:nth-child(1) {
+  width: 40%;
+}
+.workspace-shell .permissions89-page #permission-rules th:nth-child(2) {
+  width: 18%;
+}
+.workspace-shell .permissions89-page #permission-rules th:nth-child(3) {
+  width: 24%;
+}
+.workspace-shell .permissions89-page #permission-rules th:nth-child(4) {
+  width: 18%;
+}
+.workspace-shell .permissions89-page :is(.gp-status, .gp-field-mark, .gp-row-title-mark) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.workspace-shell .permissions89-page .gp-inline-edit input {
+  width: 88px;
+  max-width: 100%;
+}
+.workspace-shell .page-workspace.admin-control-page :is(.gp-empty, .secops-empty) {
+  height: auto;
+  padding: 32px 16px;
+}
+.workspace-shell .page-workspace.admin-control-page .gp-empty-content {
+  min-height: 140px;
+}
+.workspace-shell .naming-center .naming-overview > div:last-child {
+  display: flex;
+}
+
+@media (max-width: 700px) {
+  .workspace-shell .page-workspace.admin-control-page .workspace-outline-nav {
+    padding: 0 0 10px;
+  }
+  .workspace-shell
+    .page-workspace.admin-control-page
+    :is(.secops-toolbar, .gp-toolbar, .pp-toolbar) {
+    padding: 12px;
+    gap: 12px;
+    align-items: stretch;
+  }
+  .workspace-shell .page-workspace.admin-control-page .secops-filters {
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .workspace-shell .page-workspace.admin-control-page .secops-filters > svg {
+    display: none;
+  }
+  .workspace-shell .page-workspace.admin-control-page .secops-filters label {
+    flex: 1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 5px;
+    white-space: nowrap;
+  }
+  .workspace-shell .page-workspace.admin-control-page .secops-filters select {
+    min-width: 0;
+    min-height: 40px;
+    width: 100%;
+  }
+  .workspace-shell .page-workspace.admin-control-page :is(.gp-row-actions, .secops-row-actions) {
+    flex-direction: row;
+  }
+  .workspace-shell
+    .page-workspace.admin-control-page
+    :is(.gp-row-actions, .secops-row-actions)
+    button {
+    min-height: 40px;
+    padding: 8px 14px;
+    flex: 0 1 auto;
+  }
+  .workspace-shell .permissions89-page .gp-table td[data-label] {
+    min-width: 0;
+  }
+  .workspace-shell .permissions89-page .admin-row-details summary {
+    padding-block: 8px;
+  }
+  .workspace-shell .auth-security-page .secops-table td[data-label="原因"] {
+    display: block;
+  }
+}
+
+.scan-config-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.scan-config-modal .ws-form-grid {
+  grid-template-columns: minmax(0, 1fr);
+  padding: 0;
+}
+.scan-config-modal .ws-form-actions {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.workspace-shell .naming-center .naming-directory-row {
+  padding-block: 12px;
+}
+
+@media (max-width: 700px) {
+  .workspace-shell .permissions89-page .gp-access-note {
+    margin: 0 0 12px;
+    padding: 0;
+    background: transparent;
+    border: 0;
+  }
+  .workspace-shell .permissions89-page .workspace-outline-content .product-section-header {
+    min-height: 0;
+    padding: 10px 0;
+    margin-bottom: 0;
+  }
+  .workspace-shell .permissions89-page .gp-toolbar {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+}
+
+@media (max-width: 700px) {
+  .workspace-shell
+    .page-workspace.admin-control-page:is(
+      .auth-security-page,
+      .audit-page,
+      .permissions89-page,
+      .alert-settings-page
+    )
+    table
+    tbody
+    > tr:not(:has(td[colspan])) {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 16px;
+  }
+  .workspace-shell
+    .page-workspace.admin-control-page:is(
+      .auth-security-page,
+      .audit-page,
+      .permissions89-page,
+      .alert-settings-page
+    )
+    table
+    tbody
+    > tr
+    > td:first-child,
+  .workspace-shell .page-workspace.admin-control-page table tbody > tr > td[data-label="操作"],
+  .workspace-shell
+    .page-workspace.alert-settings-page
+    table
+    tbody
+    > tr
+    > td[data-label="规则名称"] {
+    grid-column: 1 / -1;
+  }
+  .workspace-shell .page-workspace.alert-settings-page td[data-label="规则名称"]::before {
+    display: none;
+  }
+}
+
+.release-management-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.workspace-shell .release-page.admin-control-page .release-tabs {
+  flex: 0 0 auto;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.workspace-shell .release-page.admin-control-page .release-tabs button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  min-height: 40px;
+  padding: 10px 12px;
+}
+.workspace-shell .release-page.admin-control-page .release-empty {
+  min-height: 200px;
+  padding: 32px 20px;
+}
+
+.scan-config-modal :is(.ws-form-input, .ws-form-actions button) {
+  min-height: 40px;
+}
+
+@media (max-width: 700px) {
+  .workspace-shell .page-workspace.admin-control-page.mf-page > .product-page-header {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .workspace-shell .page-workspace.admin-control-page.mf-page .product-page-heading {
+    min-width: 0;
+    flex: 1;
+  }
+  .workspace-shell .page-workspace.admin-control-page.mf-page .product-page-actions {
+    width: auto;
+    flex: 0 0 auto;
+  }
+}

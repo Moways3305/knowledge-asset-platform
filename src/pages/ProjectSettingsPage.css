@@ -407,26 +407,6 @@
   width: max-content;
 }
 
-.ps74-remove-btn {
-  background: none;
-  border: 0;
-  padding: 0;
-  color: var(--color-danger-fg, #b00);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.ps74-remove-btn:hover:not(:disabled) {
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.ps74-remove-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 .ps74-project-switcher {
   display: inline-flex;
   align-items: center;

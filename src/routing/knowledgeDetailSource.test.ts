@@ -2,6 +2,14 @@ import { describe, expect, it } from "vitest";
 import { readKnowledgeDetailSource } from "./knowledgeDetailSource";
 
 describe("knowledge detail source", () => {
+  it("preserves the review queue and selected project on return", () => {
+    const state = {
+      backTo: "/review?project_id=p1&review_id=r1",
+      backLabel: "返回审核待办",
+      source: "review",
+    };
+    expect(readKnowledgeDetailSource(state)).toEqual(state);
+  });
   it("keeps an explicit internal source including its query context", () => {
     expect(
       readKnowledgeDetailSource({

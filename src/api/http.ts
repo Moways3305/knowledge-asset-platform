@@ -4,6 +4,7 @@
 
 // 默认走 Vite 的 /api 代理；也可用 VITE_API_BASE_URL 覆盖为绝对地址。
 import { invalidateTaskStatus } from "../workbench/taskStatusEvents";
+import type { ApiPath } from "./generated/routes";
 
 export const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -181,7 +182,7 @@ export async function handleResponse<T>(resp: Response): Promise<T> {
 
 // 所有请求带上 credentials，使会话 cookie（kap_session, httpOnly）随同发送。
 // 同源经 Vite /api 代理时 cookie 正常工作；X-Dev-User-Id 仍作为开发态回退。
-export async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
+export async function apiGet<T>(path: ApiPath<"get">, signal?: AbortSignal): Promise<T> {
   const resp = await fetch(`${BASE_URL}${path}`, {
     headers: devHeaders(),
     credentials: "include",
@@ -190,8 +191,28 @@ export async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> 
   return handleResponse<T>(resp);
 }
 
+export async function apiUpload<T>(
+  path: ApiPath<"post">,
+  body: FormData,
+  signal?: AbortSignal,
+): Promise<T> {
+  // The browser owns multipart boundaries. Upload batching retains its own
+  // progress/invalidation policy; only transport and CSRF handling live here.
+  return withCsrfRetry(async () =>
+    handleResponse<T>(
+      await fetch(`${BASE_URL}${path}`, {
+        method: "POST",
+        headers: await csrfHeaders(),
+        body,
+        credentials: "include",
+        signal,
+      }),
+    ),
+  );
+}
+
 export async function apiPost<T>(
-  path: string,
+  path: ApiPath<"post">,
   body: unknown,
   extraHeaders: Record<string, string> = {},
 ): Promise<T> {
@@ -208,7 +229,7 @@ export async function apiPost<T>(
   });
 }
 
-export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
+export async function apiPatch<T>(path: ApiPath<"patch">, body: unknown): Promise<T> {
   return withCsrfRetry(async () => {
     const resp = await fetch(`${BASE_URL}${path}`, {
       method: "PATCH",
@@ -222,7 +243,7 @@ export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
   });
 }
 
-export async function apiPut<T>(path: string, body: unknown): Promise<T> {
+export async function apiPut<T>(path: ApiPath<"put">, body: unknown): Promise<T> {
   return withCsrfRetry(async () => {
     const resp = await fetch(`${BASE_URL}${path}`, {
       method: "PUT",
@@ -236,7 +257,7 @@ export async function apiPut<T>(path: string, body: unknown): Promise<T> {
   });
 }
 
-export async function apiDelete<T>(path: string): Promise<T> {
+export async function apiDelete<T>(path: ApiPath<"delete">): Promise<T> {
   return withCsrfRetry(async () => {
     const resp = await fetch(`${BASE_URL}${path}`, {
       method: "DELETE",
@@ -251,7 +272,7 @@ export async function apiDelete<T>(path: string): Promise<T> {
 
 // 无请求体的 POST（如标记处理 / 触发扫描 / 登出）。仍走 CSRF 重试包装。
 export async function apiPostNoBody<T>(
-  path: string,
+  path: ApiPath<"post">,
   extraHeaders: Record<string, string> = {},
 ): Promise<T> {
   return withCsrfRetry(async () => {

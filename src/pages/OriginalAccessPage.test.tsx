@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/http";
 import {
@@ -40,6 +40,7 @@ function renderPage(path = "/original-access?box=inbox") {
       future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
       initialEntries={[path]}
     >
+      <Link to={path}>通知入口</Link>
       <Routes>
         <Route path="/original-access" element={<OriginalAccessPage />} />
         <Route path="/review" element={<div>知识审核正式路由</div>} />
@@ -59,6 +60,51 @@ describe("OriginalAccessPage governance workspace", () => {
     vi.mocked(rejectOriginalAccess)
       .mockReset()
       .mockResolvedValue({} as never);
+  });
+
+  it("reopens a dismissed request when the same notification is followed again", async () => {
+    renderPage(`/original-access?box=inbox&target_id=${pending.request_id}`);
+    const detail = await screen.findByRole("dialog", { name: pending.asset_title! });
+    fireEvent.click(within(detail).getByRole("button", { name: "关闭详情" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: "通知入口" }));
+    expect(await screen.findByRole("dialog", { name: pending.asset_title! })).toBeVisible();
+    expect(approveOriginalAccess).not.toHaveBeenCalled();
+    expect(rejectOriginalAccess).not.toHaveBeenCalled();
+  });
+
+  it("keeps project-context actions scoped to that project's visible requests", async () => {
+    vi.mocked(fetchOriginalAccessRequests).mockResolvedValue({
+      items: [
+        pending,
+        {
+          ...pending,
+          request_id: "other",
+          project_id: "other-project",
+          asset_title: "其他项目资料",
+        },
+      ],
+      total: 2,
+    });
+    renderPage(`/original-access?box=inbox&project_id=${pending.project_id}`);
+    await screen.findByRole("button", { name: pending.asset_title! });
+    expect(screen.queryByRole("button", { name: "其他项目资料" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "查看全部申请" }));
+    expect(await screen.findByRole("button", { name: "其他项目资料" })).toBeInTheDocument();
+    expect(approveOriginalAccess).not.toHaveBeenCalled();
+  });
+
+  it("opens the notification target and does not expose actions for a missing target", async () => {
+    vi.mocked(fetchOriginalAccessRequests).mockResolvedValue({ items: [pending], total: 1 });
+    const page = renderPage(`/original-access?box=inbox&target_id=${pending.request_id}`);
+    const detail = await screen.findByRole("dialog", { name: pending.asset_title! });
+    expect(within(detail).getByText(pending.reason!)).toBeInTheDocument();
+    expect(within(detail).getByRole("button", { name: "通过" })).toBeEnabled();
+    page.unmount();
+    renderPage("/original-access?box=inbox&target_id=missing");
+    await screen.findByText(/该申请已不可用/);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(approveOriginalAccess).not.toHaveBeenCalled();
   });
 
   it("uses the formal route workspace and only the backend-supported box switch", async () => {
@@ -128,11 +174,44 @@ describe("OriginalAccessPage governance workspace", () => {
     await waitFor(() => expect(approveOriginalAccess).toHaveBeenCalledWith(pending.request_id));
     await waitFor(() => expect(fetchOriginalAccessRequests).toHaveBeenCalledTimes(2));
     const terminalRow = screen.getByText("已完成申请").closest("tr");
-    expect(within(terminalRow!).queryByRole("button")).toBeNull();
+    expect(within(terminalRow!).queryByRole("button", { name: "通过" })).toBeNull();
+    expect(within(terminalRow!).queryByRole("button", { name: "拒绝" })).toBeNull();
+    fireEvent.click(within(terminalRow!).getByRole("button", { name: "已完成申请" }));
+    const detail = screen.getByRole("dialog", { name: "已完成申请" });
+    expect(within(detail).getByText("已通过")).toBeInTheDocument();
+    expect(within(detail).queryByRole("button", { name: "通过" })).toBeNull();
+    fireEvent.click(within(detail).getByRole("button", { name: "关闭详情" }));
 
     const reloadedPendingRow = screen.getByText("客户访谈原文").closest("tr");
     fireEvent.click(within(reloadedPendingRow!).getByRole("button", { name: "拒绝" }));
     await waitFor(() => expect(rejectOriginalAccess).toHaveBeenCalledWith(pending.request_id));
+  });
+
+  it("identifies the completed request while leaving the other applicant pending", async () => {
+    const other = { ...pending, request_id: "other", requester_name: "另一位顾问" };
+    vi.mocked(fetchOriginalAccessRequests)
+      .mockResolvedValueOnce({ items: [pending, other], total: 2 })
+      .mockResolvedValueOnce({ items: [other], total: 1 });
+    renderPage();
+    const row = (await screen.findByText("王顾问")).closest("tr")!;
+    fireEvent.click(within(row).getByRole("button", { name: "通过" }));
+    expect(await screen.findByText("已通过王顾问对《客户访谈原文》的原文访问申请。")).toBeVisible();
+    const remaining = screen.getByText("另一位顾问").closest("tr")!;
+    expect(within(remaining).getByText("待审批")).toBeVisible();
+    expect(within(remaining).getByRole("button", { name: "通过" })).toBeEnabled();
+    expect(screen.queryByText("王顾问")).not.toBeInTheDocument();
+  });
+
+  it("separates a successful decision from a failed list refresh", async () => {
+    vi.mocked(fetchOriginalAccessRequests)
+      .mockResolvedValueOnce({ items: [pending], total: 1 })
+      .mockRejectedValueOnce(new ApiError(500, "failed", "failed"));
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "通过" }));
+    expect(await screen.findByText(/无需重复审批/)).toBeVisible();
+    expect(screen.getByText("原文访问申请加载失败")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "通过" })).not.toBeInTheDocument();
+    expect(approveOriginalAccess).toHaveBeenCalledTimes(1);
   });
 
   it("switches to mine through a real request and shows reviewer records without actions", async () => {

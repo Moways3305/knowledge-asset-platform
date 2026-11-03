@@ -37,7 +37,9 @@
     "test:ui:global-acceptance": "node --test scripts/global-frontend-acceptance.coverage.test.mjs scripts/ui-qa-process.test.mjs && node scripts/global-frontend-acceptance.ui-qa.mjs",
     "test:acceptance:global-frontend": "npm test -- --run src/components/ExperienceSystem.test.tsx src/components/StatusBadge.test.tsx src/layouts/AppLayout.test.tsx && npm run test:ui:global-acceptance && python -m pytest backend/tests/test_workbench_overview.py backend/tests/test_user_notifications.py -q",
     "test:ui:directory-governance": "node scripts/directory-governance.ui-qa.mjs",
-    "api:export": "python scripts/export_openapi.py"
+    "api:export": "python scripts/export_openapi.py",
+    "api:frontend:generate": "node scripts/frontend-api-contract.mjs",
+    "api:frontend:check": "node --test scripts/frontend-api-contract.test.mjs && node scripts/frontend-api-contract.mjs --check"
   },
   "dependencies": {
     "@fontsource/fraunces": "^5.2.9",

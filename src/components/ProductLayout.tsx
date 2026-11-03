@@ -8,7 +8,11 @@ export function ProductPage({
   children: ReactNode;
   className?: string;
 }) {
-  return <div className={`product-page ${className}`.trim()}>{children}</div>;
+  return (
+    <div className={`product-page workspace-page page-workspace ${className}`.trim()}>
+      {children}
+    </div>
+  );
 }
 
 export function PageHeader({
@@ -45,12 +49,16 @@ export function PageHeader({
 }
 
 export function PageSection({
+  id,
+  tabIndex,
   title,
   description,
   actions,
   children,
   className = "",
 }: {
+  id?: string;
+  tabIndex?: number;
   title?: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
@@ -58,7 +66,7 @@ export function PageSection({
   className?: string;
 }) {
   return (
-    <section className={`product-section ${className}`.trim()}>
+    <section id={id} tabIndex={tabIndex} className={`product-section ${className}`.trim()}>
       {(title || description || actions) && (
         <div className="product-section-header">
           <div>

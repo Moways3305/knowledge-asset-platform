@@ -24,6 +24,7 @@ export interface BusinessNotificationDTO {
     | "completed"
     | "partial"
     | "failed"
+    | "rejected"
     | "cancelled"
     | "duplicate_skipped";
   task_group: "my_tasks" | "running_jobs" | "attention_items" | "recent_completed";

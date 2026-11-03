@@ -1,3 +1,4 @@
+import type { AuditEventDTO } from "../types/audit";
 // 管理与运营领域：索引运维 / 登录风控 / 会话运维 / 企微身份对账 / WeKnora 模型配置 /
 // 审计 / 告警 / 人员与角色 / 权限规则 / 外部 Agent 注册 / 企微微盘扫描 / 企微 OAuth 启动。
 // 所有响应只含安全运营/治理元数据；前端不构造、不展示任何内部标识（后端本就不返回）。
@@ -156,7 +157,9 @@ export async function fetchAuthSecurityOverview(params?: {
   if (params?.limit != null) q.set("limit", String(params.limit));
   if (params?.result) q.set("result", params.result);
   const qs = q.toString();
-  return apiGet<AuthSecurityOverviewDTO>(`/admin/ops/auth-security${qs ? `?${qs}` : ""}`);
+  return apiGet<AuthSecurityOverviewDTO>(
+    qs ? `/admin/ops/auth-security?${qs}` : "/admin/ops/auth-security",
+  );
 }
 
 export async function unlockAuthLockout(body: {
@@ -193,7 +196,7 @@ export async function reconcileWecomIdentity(body: {
 const WK = "/api/v1/admin/weknora";
 
 export async function fetchWeknoraModels(type?: string): Promise<ModelDTO[]> {
-  const qs = type ? `?type=${encodeURIComponent(type)}` : "";
+  const qs: "" | `?${string}` = type ? `?type=${encodeURIComponent(type)}` : "";
   return (await apiGet<{ items: ModelDTO[] }>(`${WK}/models${qs}`)).items;
 }
 
@@ -213,7 +216,7 @@ export async function updateWeknoraDefaultModels(
 
 // ---- WeKnora 供应商列表（新增模型表单可选项）----
 export async function fetchWeknoraProviders(modelType?: string): Promise<WeknoraProviderDTO[]> {
-  const qs = modelType ? `?model_type=${encodeURIComponent(modelType)}` : "";
+  const qs: "" | `?${string}` = modelType ? `?model_type=${encodeURIComponent(modelType)}` : "";
   const data = await apiGet<{ items: WeknoraProviderDTO[] }>(`${WK}/providers${qs}`);
   return data.items;
 }
@@ -481,4 +484,71 @@ export type WecomOAuthMode = "client" | "web_qr";
 
 export async function startWecomOAuth(mode: WecomOAuthMode = "client"): Promise<WecomAuthorizeDTO> {
   return apiGet<WecomAuthorizeDTO>(`/api/v1/auth/wecom/start?mode=${mode}`);
+}
+
+// Explicit operator tools; the server remains the permission authority.
+export interface UserSessions {
+  user_id: string;
+  active_count: number;
+  sessions: {
+    session_id: string;
+    login_method: string;
+    created_at: string;
+    last_seen_at: string | null;
+    expires_at: string | null;
+    revoked_at: string | null;
+    active: boolean;
+    is_current_actor_session: boolean;
+  }[];
+}
+
+export function fetchUserSessions(userId: string) {
+  return apiGet<UserSessions>(`/admin/ops/sessions/users/${encodeURIComponent(userId)}`);
+}
+
+export interface OpsSummary {
+  app_env: string;
+  version: string;
+  db_ready: boolean;
+  redis_ready: boolean;
+  celery_eager: boolean;
+  ingest: { processing: number; pending_confirmation: number; failed: number; completed: number };
+  notifications: { pending_wecom: number };
+  audit: { unprocessed_exceptions: number };
+}
+
+export function fetchOpsSummary() {
+  return apiGet<OpsSummary>("/admin/ops/summary");
+}
+
+export function backfillMarkdown(body: {
+  scope: string;
+  project_id?: string;
+  limit: number;
+  rebuild_index: boolean;
+}) {
+  return apiPost<IndexingJobSummaryDTO>("/admin/ops/indexing/markdown-backfill", body);
+}
+
+export function fetchAuditTrace(traceId: string) {
+  return apiGet<{ trace_id: string; items: AuditEventDTO[]; view: string }>(
+    `/api/v1/admin/audit/trace/${encodeURIComponent(traceId)}`,
+  );
+}
+
+export interface AgentRegistration {
+  provider: string;
+  agent_identifier: string;
+  agent_name: string;
+  capability: "qa";
+  bound_user_id?: string;
+  allowed_scope: string | null;
+  allowed_project_id?: string;
+  max_confidentiality_level: string;
+  max_ai_access_level: string;
+  enabled: boolean;
+}
+
+export function registerAgent(body: AgentRegistration) {
+  return apiPost<AgentRegistryUpdateResponseDTO>("/api/v1/admin/permissions/agent-whitelist", body);
 }

@@ -70,11 +70,11 @@
 
 .gw-route-tabs a:hover,
 .gw-route-tabs a.is-active {
-  color: #1f2d75;
+  color: var(--color-primary);
 }
 
 .gw-route-tabs a.is-active::after {
-  background: #c9a962;
+  background: var(--color-primary);
 }
 
 .gw-route-tabs a:focus-visible,
@@ -156,16 +156,41 @@
 
 .gw-box-switch button.is-active {
   background: #fff;
-  color: #1f2d75;
+  color: var(--color-primary);
   box-shadow: 0 1px 2px rgb(31 45 117 / 10%);
 }
 
 .gw-feedback {
   min-height: 38px;
-  padding: 9px 12px;
-  border-right: 1px solid #dfe4ed;
-  border-left: 1px solid #dfe4ed;
-  font-size: 12px;
+  padding: 12px 20px;
+  margin: 0;
+  border: 0;
+  border-bottom: 1px solid #dfe4ed;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.gw-feedback.is-info {
+  background: #f0f5ff;
+  color: #245bba;
+}
+
+.gw-feedback > button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.gw-feedback > button:hover {
+  background: rgb(51 112 255 / 8%);
 }
 
 .gw-feedback.is-success {
@@ -228,7 +253,7 @@
 }
 
 .gw-title-cell {
-  color: #1f2d75;
+  color: var(--color-primary);
   font-weight: 600;
   overflow-wrap: anywhere;
 }
@@ -239,11 +264,12 @@
   color: #667085;
 }
 
-.gw-reason {
+.gw-reason-text {
   display: -webkit-box;
   overflow: hidden;
+  overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
 }
 
 .gw-status,
@@ -295,20 +321,20 @@
 }
 
 .gw-action {
-  min-height: 28px;
-  padding: 0 9px;
+  min-height: 32px;
+  padding: 6px 12px;
   border: 1px solid #cbd3df;
   border-radius: 4px;
   background: #fff;
   color: #4a6fa5;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
 }
 
 .gw-action.is-primary {
-  border-color: #1f2d75;
-  background: #1f2d75;
+  border-color: var(--color-primary);
+  background: var(--color-primary);
   color: #fff;
 }
 

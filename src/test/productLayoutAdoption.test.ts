@@ -1,3 +1,4 @@
+import { pageTitle } from "../navigation/workspaces";
 import { describe, expect, it } from "vitest";
 
 const sourceModules = import.meta.glob(
@@ -20,12 +21,8 @@ describe("product layout and route contract", () => {
     expect(read("src/layouts/AppLayout.tsx")).not.toContain("运营中枢");
   });
 
-  it("uses the upload page name consistently in the application shell", () => {
-    const layout = read("src/layouts/AppLayout.tsx");
-    expect(layout).toContain('{ to: "/upload", label: "上传文件"');
-    expect(layout).toContain('["/upload", "上传文件"]');
-    expect(layout).not.toContain('label: "资产化确认"');
-    expect(layout).not.toContain('["/upload", "资产化确认"]');
+  it("uses the upload page name consistently in navigation", () => {
+    expect(pageTitle("/upload")).toBe("上传资料");
   });
 
   it("shares the product page primitive across representative user and admin routes", () => {
@@ -52,12 +49,18 @@ describe("product layout and route contract", () => {
       "AdminPermissionsPage.tsx",
       "AdminPeoplePage.tsx",
       "AdminNamingRulesPage.tsx",
-      "AdminCompanyKbPage.tsx",
     ]) {
       const source = read(`src/pages/${page}`);
       expect(source).toContain("<ProductPage");
       expect(source).toContain("<PageHeader");
     }
+  });
+
+  it("moves the former company configuration route into governance settings", () => {
+    expect(read("src/pages/AdminCompanyKbPage.tsx")).toContain(
+      '<Navigate to="/company-governance?settings=knowledge-base" replace />',
+    );
+    expect(read("src/pages/CompanyGovernancePage.tsx")).toContain('title="公司库设置"');
   });
 
   it("keeps the alert settings workspace focused on rules without loading notification history", () => {
@@ -68,7 +71,12 @@ describe("product layout and route contract", () => {
   });
 
   it("keeps the admin operations page on the status-first disposition contract", () => {
-    const source = read("src/pages/AdminIngestPage.tsx");
+    const source =
+      read("src/pages/AdminIngestPage.tsx") +
+      Object.entries(sourceModules)
+        .filter(([file]) => file.startsWith("../pages/controllers/AdminIngest/"))
+        .map(([, content]) => content)
+        .join("\n");
     expect(source).toContain('className="ao84-console"');
     expect(source).toContain('className="ao84-panel ao84-failures"');
     expect(source).toContain('className="ao85-runtime-details"');
@@ -156,7 +164,7 @@ describe("product layout and route contract", () => {
     const localUpload = read("src/pages/upload/UploadStepB.tsx");
     const fileTasks = read("src/pages/upload/UnifiedFileTasks.tsx");
     const confirmation = read("src/pages/upload/UploadConfirmPanel.tsx");
-    expect(page).toContain('title="上传文件"');
+    expect(page).toContain('confirmationOpen ? "核对入库信息" : "上传资料"');
     expect(page).not.toContain("UploadNamingCard");
     expect(localUpload).toContain('className="upload-dropzone upload77-dropzone"');
     expect(localUpload).toContain("className={`upload-inline-info");

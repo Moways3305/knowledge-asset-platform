@@ -1,4 +1,4 @@
-import { apiGet, BASE_URL, csrfHeaders, handleResponse, withCsrfRetry } from "./http";
+import { apiGet, apiUpload } from "./http";
 import type { IngestUploadResponseDTO } from "../types/ingest";
 import { localDateFromMs } from "./ingest";
 
@@ -48,14 +48,5 @@ export async function uploadVersion(id: string, file: File, stamp: string, versi
   body.append("expected_updated_at", stamp);
   body.append("update_of_asset_id", id);
   body.append("version_label", version);
-  return withCsrfRetry(async () =>
-    handleResponse<IngestUploadResponseDTO>(
-      await fetch(`${BASE_URL}/api/v1/ingest/upload`, {
-        method: "POST",
-        body,
-        credentials: "include",
-        headers: await csrfHeaders(),
-      }),
-    ),
-  );
+  return apiUpload<IngestUploadResponseDTO>("/api/v1/ingest/upload", body);
 }

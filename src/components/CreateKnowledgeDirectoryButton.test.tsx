@@ -4,8 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import CreateKnowledgeDirectoryButton from "./CreateKnowledgeDirectoryButton";
 
 const mocks = vi.hoisted(() => ({ list: vi.fn(), create: vi.fn() }));
-vi.mock("../api/knowledge", () => ({ fetchKnowledgeDirectories: mocks.list }));
-vi.mock("../api/http", () => ({ apiPost: mocks.create }));
+vi.mock("../api/knowledge", () => ({
+  fetchKnowledgeDirectories: mocks.list,
+  createKnowledgeDirectory: mocks.create,
+}));
 
 function Location() {
   return <output aria-label="当前路径">{useLocation().search}</output>;
@@ -45,7 +47,7 @@ describe("新建知识库目录", () => {
     fireEvent.change(screen.getByLabelText("目录名称"), { target: { value: "操作模板" } });
     fireEvent.click(screen.getByRole("button", { name: "创建目录" }));
     await waitFor(() =>
-      expect(mocks.create).toHaveBeenCalledWith("/api/v1/knowledge/directories", {
+      expect(mocks.create).toHaveBeenCalledWith({
         scope: "company",
         project_id: null,
         parent_key: "company.methodology",
@@ -82,7 +84,7 @@ describe("新建知识库目录", () => {
     fireEvent.change(screen.getByLabelText("目录名称"), { target: { value: "报告" } });
     fireEvent.click(screen.getByRole("button", { name: "创建目录" }));
     await waitFor(() =>
-      expect(mocks.create).toHaveBeenCalledWith("/api/v1/knowledge/directories", {
+      expect(mocks.create).toHaveBeenCalledWith({
         scope: "project",
         project_id: "project-a",
         parent_key: "project.deliverables",

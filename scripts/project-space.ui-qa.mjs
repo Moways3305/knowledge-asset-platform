@@ -18,6 +18,7 @@ const hiddenAssetId = "asset-secret-78";
 const modelRef = "qa-model-ref-secret-78";
 const scenarios = [
   "member-initial",
+  "qa-initial",
   "manager",
   "manager-confirmation-only",
   "qa-success",
@@ -153,20 +154,14 @@ function overview(projectId, manager = false) {
 }
 
 function hasValidSkeleton(result) {
-  const desktop = result.viewportWidth > 1200;
-  const tablet = result.viewportWidth > 760 && result.viewportWidth <= 1200;
-  const responsiveColumns = desktop
-    ? result.assistantWidth / result.contextWidth >= 2.5
-    : tablet
-      ? result.contextWidth >= 200 && result.contextWidth <= 300 && result.assistantWidth >= 400
-      : result.contextWidth >= result.viewportWidth - 40 &&
-        result.assistantWidth >= result.viewportWidth - 40;
+  if (!result.workspaceNavVisible || result.oldContextPresent || result.chartCount > 0)
+    return false;
+  if (result.overviewVisible)
+    return !result.assistantVisible && result.workSummaryVisible && result.recentSectionVisible;
   return (
-    responsiveColumns &&
+    result.assistantVisible &&
     (result.composerVisible || result.composerReachable) &&
-    result.conversationScrollable &&
-    !result.oldDashboardPresent &&
-    result.chartCount === 0
+    result.conversationReadable
   );
 }
 
@@ -189,6 +184,14 @@ function accepted(result) {
   }
   if (!hasValidSkeleton(result)) return false;
   if (result.scenario === "member-initial") {
+    return (
+      result.overviewVisible &&
+      result.memberSectionCount === 0 &&
+      result.knowledgeLinkCorrect &&
+      !result.assistantVisible
+    );
+  }
+  if (result.scenario === "qa-initial") {
     return (
       result.welcomeVisible &&
       result.defaultModelSelected &&
@@ -308,7 +311,18 @@ try {
 
       const page = await context.newPage();
       const initialProject = scenario === "inaccessible" ? "not-accessible" : projectA;
-      await page.goto(`${base}/project/${initialProject}`, { waitUntil: "networkidle" });
+      const qaView = [
+        "qa-initial",
+        "qa-success",
+        "qa-sending",
+        "qa-failure",
+        "no-model",
+        "model-failure",
+        "switch-late-answer",
+      ].includes(scenario);
+      await page.goto(`${base}/project/${initialProject}${qaView ? "?view=qa" : ""}`, {
+        waitUntil: "networkidle",
+      });
 
       if (scenario === "empty-projects") {
         await page.getByText("暂无可访问项目").waitFor();
@@ -318,10 +332,14 @@ try {
         await page.getByText("项目概览加载失败").waitFor();
         overviewFailureSeen = true;
         await page.getByRole("button", { name: "重试" }).click();
-        await page.getByRole("heading", { name: "项目 AI 助手" }).waitFor();
+        await page.getByRole("heading", { name: "项目工作" }).waitFor();
         retrySucceeded = true;
       } else {
-        await page.getByRole("heading", { name: "项目 AI 助手" }).waitFor();
+        await page.getByRole("heading", { name: qaView ? "项目 AI 助手" : "项目工作" }).waitFor();
+      }
+      if (scenario === "manager") {
+        await page.locator(".project78-members summary").click();
+        await page.getByText("周项目经理").waitFor();
       }
 
       if (["qa-success", "qa-sending", "qa-failure", "switch-late-answer"].includes(scenario)) {
@@ -374,21 +392,19 @@ try {
           const bodyText = document.body.innerText;
           const rail = document.querySelector(".rail")?.getBoundingClientRect();
           const appMain = document.querySelector(".app-main")?.getBoundingClientRect();
-          const contextPanel = document
-            .querySelector(".project78-context")
-            ?.getBoundingClientRect();
+          const overview = document.querySelector(".project78-overview");
           const assistant = document.querySelector(".project78-assistant")?.getBoundingClientRect();
           const composer = document.querySelector(".project78-composer")?.getBoundingClientRect();
           const conversation = document.querySelector(".project78-conversation");
           const input = document.querySelector("#project78-question");
           const send = document.querySelector(".project78-send");
           const model = document.querySelector('select[aria-label="问答模型"]');
-          const reviewLink = [...document.querySelectorAll(".project78-context-actions a")].find(
+          const reviewLink = [...document.querySelectorAll(".project78-work-actions a")].find(
             (link) => link.textContent?.includes("处理待审核（2）"),
           );
           const interactive = [
             ...document.querySelectorAll(
-              ".project78-assistant button, .project78-assistant textarea, .project78-assistant select",
+              ".project78-page button, .project78-page textarea, .project78-page select",
             ),
           ];
           return {
@@ -401,7 +417,13 @@ try {
               return rect.left < 0 || rect.right > window.innerWidth;
             }).length,
             deckTitle: document.querySelector(".deck-title")?.textContent?.trim() || "",
-            contextWidth: contextPanel?.width || 0,
+            workspaceNavVisible: Boolean(document.querySelector(".project-workspace-nav")),
+            overviewVisible: Boolean(overview),
+            assistantVisible: Boolean(assistant),
+            workSummaryVisible: Boolean(document.querySelector(".project78-work-summary")),
+            recentSectionVisible: [...document.querySelectorAll(".project78-overview h3")].some(
+              (h) => h.textContent === "最近项目资料",
+            ),
             assistantWidth: assistant?.width || 0,
             composerVisible: Boolean(
               composer &&
@@ -415,18 +437,16 @@ try {
               composer.right <= window.innerWidth &&
               document.documentElement.scrollHeight >= composer.bottom,
             ),
-            conversationScrollable:
+            conversationReadable:
               conversation instanceof HTMLElement &&
-              ["auto", "scroll"].includes(getComputedStyle(conversation).overflowY),
-            oldDashboardPresent: Boolean(
-              document.querySelector(".project78-counts, .project78-action-list, .project78-main"),
-            ),
+              conversation.clientHeight >= conversation.scrollHeight - 2,
+            oldContextPresent: Boolean(document.querySelector(".project78-context")),
             chartCount: document.querySelectorAll("canvas, .chart, [data-chart]").length,
             welcomeVisible: bodyText.includes("可以围绕“华东增长项目”的项目知识提问。"),
             projectBWelcome: bodyText.includes("可以围绕“年度辅导项目”的项目知识提问。"),
-            projectBHeading: [...document.querySelectorAll(".project78-context h2")].some(
-              (heading) => heading.textContent?.trim() === "年度辅导项目",
-            ),
+            projectBHeading: [
+              ...document.querySelectorAll(".project78-page .product-page-heading h2"),
+            ].some((heading) => heading.textContent?.trim() === "年度辅导项目"),
             memberSectionCount: document.querySelectorAll(".project78-members").length,
             memberVisible: bodyText.includes("周项目经理"),
             settingsVisible: Boolean(
@@ -437,12 +457,14 @@ try {
             reviewActionVisible: Boolean(reviewLink),
             reviewLinkCorrect:
               reviewLink?.getAttribute("href") === `/review?project_id=${projectAId}`,
-            pendingConfirmationStat: [...document.querySelectorAll(".project78-facts div")].some(
+            pendingConfirmationStat: [
+              ...document.querySelectorAll(".project78-work-summary div"),
+            ].some(
               (item) => item.textContent?.includes("待确认") && item.textContent?.includes("3"),
             ),
-            knowledgeLinkCorrect:
-              document.querySelector(".project-workspace-nav a")?.getAttribute("href") ===
-              `/project/${projectAId}/knowledge`,
+            knowledgeLinkCorrect: [...document.querySelectorAll(".project-workspace-nav a")].some(
+              (link) => link.getAttribute("href") === `/project/${projectAId}/knowledge`,
+            ),
             defaultModelSelected:
               model instanceof HTMLSelectElement && model.value === defaultModelRef,
             inputEnabled: input instanceof HTMLTextAreaElement && !input.disabled,
@@ -463,7 +485,9 @@ try {
             modelFailureSeen: modelFailureWasSeen,
             qaFailureSeen: qaFailureWasSeen,
             retrySucceeded: retryDidSucceed,
-            pathEndsWithProjectB: window.location.pathname === `/project/${projectBId}`,
+            pathEndsWithProjectB:
+              window.location.pathname === `/project/${projectBId}` &&
+              new URLSearchParams(window.location.search).get("view") === "qa",
             sensitiveVisible: secrets.some((secret) => bodyText.includes(secret)),
             internalEnumVisible: [
               "route_A",
@@ -535,4 +559,4 @@ fs.writeFileSync(path.join(outDir, "report.json"), JSON.stringify(results, null,
 console.log(JSON.stringify(results, null, 2));
 const failed = results.filter((result) => !result.passed);
 if (failed.length > 0)
-  throw new Error(`PBC-78 strict-reference UI QA failed in ${failed.length} scenario(s)`);
+  throw new Error(`Project workspace UI QA failed in ${failed.length} scenario(s)`);

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import UploadPage from "./UploadPage";
 
@@ -22,6 +22,7 @@ const flow = vi.hoisted(() => ({
 }));
 
 vi.mock("./upload/useUploadFlow", () => ({ useUploadFlow: () => flow.current }));
+vi.mock("../components/MyUploadsPanel", () => ({ default: () => <div>本人上传记录列表</div> }));
 vi.mock("./upload/UploadStepA", () => ({ default: () => <div>企微待确认列表</div> }));
 vi.mock("./upload/UploadStepB", () => ({ default: () => <div>本地文件上传区</div> }));
 vi.mock("./upload/UploadConfirmPanel", () => ({
@@ -41,7 +42,19 @@ function renderPage(entry = "/upload") {
       future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
     >
       <UploadPage />
+      <NavigationProbe />
     </MemoryRouter>,
+  );
+}
+
+function NavigationProbe() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  return (
+    <>
+      <output aria-label="上传路径">{location.search}</output>
+      <button onClick={() => navigate(-1)}>浏览器后退</button>
+    </>
   );
 }
 
@@ -66,11 +79,23 @@ describe("UploadPage reference workflow", () => {
   it("starts with the local upload workspace and switches source through the flow", () => {
     renderPage();
 
-    expect(screen.getByRole("heading", { name: "上传文件" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "上传资料" })).toBeInTheDocument();
     expect(screen.getByText("本地文件上传区")).toBeInTheDocument();
     expect(screen.queryByText("企微待确认列表")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "企微微盘待确认" }));
     expect(flow.current.switchPath).toHaveBeenCalledWith("a");
+  });
+
+  it("returns to upload history from a detail link and keeps the source through tab and browser navigation", () => {
+    renderPage("/upload?view=history&source=local&project_id=p1");
+    expect(screen.getByRole("heading", { name: "上传记录" })).toBeInTheDocument();
+    expect(screen.getByText("本人上传记录列表")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "上传" }));
+    expect(screen.getByLabelText("上传路径")).toHaveTextContent("?source=local&project_id=p1");
+    expect(screen.getByRole("heading", { name: "上传资料" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "浏览器后退" }));
+    expect(screen.getByRole("heading", { name: "上传记录" })).toBeInTheDocument();
+    expect(screen.getByLabelText("上传路径")).toHaveTextContent("view=history");
   });
 
   it("prefills a permitted project only for a new unlocked confirmation", () => {

@@ -229,6 +229,14 @@ export default function App() {
               }
             />
             <Route
+              path="projects"
+              element={
+                <RouteGuard cap={can.viewProject}>
+                  <ProjectOverviewPage />
+                </RouteGuard>
+              }
+            />
+            <Route
               path="project/:id"
               element={
                 <RouteGuard cap={can.viewProject}>

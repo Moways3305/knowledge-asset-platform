@@ -1,3 +1,4 @@
+import { RefreshParseButton } from "./operations/AssetTools";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { fetchMyUploads } from "../api/ingest";
@@ -169,6 +170,7 @@ export default function MyUploadsPanel({
                     </dd>
                   </div>
                 </dl>
+                {item.result_asset_id && <RefreshParseButton taskId={item.task_id} />}
               </details>
               {item.final_status === "rejected" && (
                 <>
@@ -185,7 +187,16 @@ export default function MyUploadsPanel({
                 </>
               )}
               {item.result_asset_id && (
-                <Link to={`/knowledge/${item.result_asset_id}`}>查看资产详情</Link>
+                <Link
+                  to={`/knowledge/${item.result_asset_id}`}
+                  state={{
+                    backTo: "/upload?view=history",
+                    backLabel: "返回上传记录",
+                    source: "upload",
+                  }}
+                >
+                  查看资产详情
+                </Link>
               )}
             </article>
           ))}

@@ -19,7 +19,7 @@ interface PagePaginationProps {
   ariaLabel: string;
 }
 
-/** Shared pagination: compact nearby pages plus an explicit jump to any page. */
+/** No navigation for a single page; a jump field is useful only for longer lists. */
 export default function PagePagination({
   page,
   totalPages,
@@ -31,12 +31,13 @@ export default function PagePagination({
   ariaLabel,
 }: PagePaginationProps) {
   const [requestedPage, setRequestedPage] = useState(String(page));
-  const safeTotalPages = Math.max(1, totalPages);
+  const safeTotalPages = Math.max(1, totalPages, hasNext ? page + 1 : 1);
 
   useEffect(() => setRequestedPage(String(page)), [page]);
 
   const jump = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (disabled) return;
     const target = Number.parseInt(requestedPage, 10);
     if (!Number.isInteger(target) || target < 1 || target > safeTotalPages || target === page)
       return;
@@ -50,8 +51,10 @@ export default function PagePagination({
     requested <= safeTotalPages &&
     requested !== page;
 
+  if (safeTotalPages <= 1 && page <= 1) return null;
+
   return (
-    <div className={`page-pagination ${className ?? ""}`.trim()} aria-label={ariaLabel}>
+    <nav className={`page-pagination ${className ?? ""}`.trim()} aria-label={ariaLabel}>
       {summary && <span className="page-pagination-summary">{summary}</span>}
       <div className="page-pagination-actions">
         <div className="page-pagination-pages">
@@ -60,7 +63,7 @@ export default function PagePagination({
             aria-label="上一页"
             title="上一页"
             disabled={disabled || page <= 1}
-            onClick={() => onPageChange(Math.max(1, page - 1))}
+            onClick={() => onPageChange(Math.max(1, Math.min(safeTotalPages, page - 1)))}
           >
             <ChevronLeft size={16} aria-hidden="true" />
           </button>
@@ -72,7 +75,7 @@ export default function PagePagination({
               aria-label={`第 ${pageNumber} 页`}
               aria-current={pageNumber === page ? "page" : undefined}
               disabled={disabled}
-              onClick={() => onPageChange(pageNumber)}
+              onClick={() => pageNumber !== page && onPageChange(pageNumber)}
             >
               {pageNumber}
             </button>
@@ -87,26 +90,28 @@ export default function PagePagination({
             <ChevronRight size={16} aria-hidden="true" />
           </button>
         </div>
-        <form className="page-pagination-jump" onSubmit={jump}>
-          <label>
-            跳至
-            <input
-              aria-label="跳至指定页"
-              inputMode="numeric"
-              min={1}
-              max={safeTotalPages}
-              type="number"
-              value={requestedPage}
-              disabled={disabled}
-              onChange={(event) => setRequestedPage(event.target.value)}
-            />
-            页
-          </label>
-          <button type="submit" disabled={disabled || !canJump}>
-            跳转
-          </button>
-        </form>
+        {safeTotalPages > 7 && (
+          <form className="page-pagination-jump" onSubmit={jump}>
+            <label>
+              跳至
+              <input
+                aria-label="跳至指定页"
+                inputMode="numeric"
+                min={1}
+                max={safeTotalPages}
+                type="number"
+                value={requestedPage}
+                disabled={disabled}
+                onChange={(event) => setRequestedPage(event.target.value)}
+              />
+              页
+            </label>
+            <button type="submit" disabled={disabled || !canJump}>
+              跳转
+            </button>
+          </form>
+        )}
       </div>
-    </div>
+    </nav>
   );
 }

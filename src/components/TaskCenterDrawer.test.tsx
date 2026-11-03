@@ -42,6 +42,30 @@ const task: WorkbenchTaskItemDTO = {
 };
 
 describe("TaskCenterDrawer", () => {
+  it.each([
+    ["decide_original_access", "inbox"],
+    [null, "mine"],
+  ])("routes original access action %s to the correct queue", (action, box) => {
+    render(
+      <MemoryRouter>
+        <TaskCenterDrawer
+          open
+          groups={{
+            my_tasks: [{ ...task, route_key: "original_access", next_action_key: action }],
+            running_jobs: [],
+            attention_items: [],
+            recent_completed: [],
+          }}
+          onClose={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("link", { name: /进入审核/ })).toHaveAttribute(
+      "href",
+      `/original-access?box=${box}`,
+    );
+  });
+
   it("shows submitted indexing as waiting for indexing confirmation", () => {
     render(
       <MemoryRouter>

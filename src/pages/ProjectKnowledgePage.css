@@ -39,11 +39,20 @@
   gap: 10px;
   color: #566078;
   font-size: 12px;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .pk-project-switcher select {
-  width: 250px;
+  width: 200px;
+  max-width: 100%;
+  min-width: 0;
   min-height: 36px;
+  padding: 7px 30px 7px 10px;
+  border: 1px solid #d7dde8;
+  border-radius: 6px;
+  color: #263047;
+  font: inherit;
   background: #fff;
 }
 
@@ -54,6 +63,7 @@
 .pk-filter-form .product-filter-bar {
   position: relative;
   align-items: center;
+  flex-wrap: wrap;
   padding: 18px;
   border: 1px solid #dfe4ed;
   border-radius: 4px;
@@ -61,10 +71,10 @@
 }
 
 .pk-filter-form .product-filter-fields {
-  display: grid;
-  grid-template-columns: minmax(200px, 1.55fr) repeat(4, minmax(112px, 0.62fr)) auto;
+  display: flex;
+  flex-wrap: wrap;
   gap: 10px;
-  flex: 1 1 780px;
+  flex: 1 1 620px;
   min-width: 0;
 }
 
@@ -72,6 +82,19 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  margin-left: auto;
+}
+
+.pk-filter-form .pk-keyword-field {
+  flex: 1 1 200px;
+}
+.pk-filter-form .pk-select-field {
+  flex: 1 1 112px;
+}
+.pk-filter-form .pk-more-filters {
+  flex: 0 0 112px;
 }
 
 .pk-keyword-field {
@@ -153,6 +176,14 @@
 .pk-more-filter-panel input,
 .pk-more-filter-panel select {
   min-height: 36px;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid #d7dde8;
+  border-radius: 6px;
+  background: #fff;
+  color: #263047;
+  font: inherit;
 }
 
 .pk-more-filter-panel .pk-archive-toggle {
@@ -164,6 +195,7 @@
 
 .pk-archive-toggle input {
   min-height: auto;
+  width: auto;
 }
 
 .pk-result-total {
@@ -177,24 +209,21 @@
 }
 
 .pk-table-status {
-  height: 20px;
+  padding: 8px 16px;
   color: #4a6fa5;
   font-size: 12px;
   text-align: right;
 }
+.pk-table-status:empty {
+  display: none;
+}
 
 .pk-table-wrap {
-  min-height: 292px;
+  min-height: 0;
   overflow-x: auto;
   border: 1px solid #dfe4ed;
   border-radius: 4px 4px 0 0;
   transition: opacity 140ms ease;
-}
-
-@media (min-width: 1000px) {
-  .pk-table-wrap {
-    min-height: max(292px, calc(100vh - 380px));
-  }
 }
 
 .pk-table-wrap.is-updating tbody {
@@ -202,48 +231,43 @@
 }
 
 .pk-table {
-  min-width: 960px;
+  min-width: 820px;
   table-layout: fixed;
 }
 
 /* 1. 全选复选框 */
 .pk-table th:nth-child(1) {
-  width: 3%;
+  width: 40px;
 }
 
 /* 2. 知识名称 */
 .pk-table th:nth-child(2) {
-  width: 26%;
+  width: auto;
 }
 
 /* 3. 所属区域 */
 .pk-table th:nth-child(3) {
-  width: 11%;
+  width: 92px;
 }
 
-/* 4. 类型 */
+/* 4. 保密级别 */
 .pk-table th:nth-child(4) {
-  width: 11%;
+  width: 128px;
 }
 
-/* 5. 保密级别 */
+/* 5. 状态 */
 .pk-table th:nth-child(5) {
-  width: 14%;
+  width: 82px;
 }
 
-/* 6. 状态 */
+/* 6. 最后更新 */
 .pk-table th:nth-child(6) {
-  width: 11%;
+  width: 110px;
 }
 
-/* 7. 最后更新 */
+/* 7. 操作 */
 .pk-table th:nth-child(7) {
-  width: 12%;
-}
-
-/* 8. 操作 */
-.pk-table th:nth-child(8) {
-  width: 12%;
+  width: 180px;
 }
 
 .pk-table td {
@@ -494,186 +518,30 @@
   margin-top: 18px;
 }
 
-.pk-qa-section {
-  margin-top: 22px;
-  border-top: 1px solid #dfe4ed;
-}
-
-.pk-qa-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  min-height: 54px;
-  padding: 0 4px;
-  border: 0;
-  background: transparent;
-  color: #1f2d75;
-  cursor: pointer;
-}
-
-.pk-qa-toggle > span {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.pk-qa-toggle small {
-  color: #7b8498;
-  font-size: 12px;
-  font-weight: 400;
-}
-
-.pk-qa-body {
-  max-width: 920px;
-  padding: 16px;
-  border: 1px solid #dfe4ed;
-  border-radius: 4px;
-  background: #fff;
-}
-
-.pk-qa-controls {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-
-.pk-qa-controls label {
-  display: grid;
-  gap: 4px;
-  color: #566078;
-  font-size: 12px;
-}
-
-.pk-qa-controls select {
-  width: 260px;
-  min-height: 36px;
-}
-
-.pk-qa-body textarea {
-  width: 100%;
-  resize: vertical;
-}
-
-.pk-qa-submit-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 8px;
-}
-
-.pk-qa-submit-row > span,
-.pk-qa-state {
-  color: #7b8498;
-  font-size: 12px;
-}
-
-.pk-qa-state {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.pk-qa-error {
-  margin-top: 12px;
-  padding: 9px 12px;
-  border-left: 3px solid #b24747;
-  background: #fff2f2;
-  color: #8f3434;
-  font-size: 12px;
-}
-
-.pk-conversation {
-  display: grid;
-  gap: 12px;
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid #e5e9f0;
-}
-
-.pk-question,
-.pk-answer {
-  max-width: 760px;
-}
-
-.pk-question > span,
-.pk-answer > span {
-  color: #7b8498;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.pk-question p,
-.pk-answer p {
-  margin: 5px 0 0;
-  color: #263047;
-  font-size: 14px;
-  line-height: 1.65;
-}
-
-.pk-citations {
-  display: grid;
-  gap: 7px;
-  margin-top: 12px;
-  padding: 10px 12px;
-  background: #f7f8fa;
-}
-
-.pk-citations strong {
-  color: #566078;
-  font-size: 11px;
-}
-
-.pk-citations > div {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  font-size: 12px;
-}
-
-.pk-citations small {
-  color: #4a6fa5;
-}
-
-.pk-citations em {
-  color: #8a6b14;
-  font-size: 11px;
-  font-style: normal;
-}
-
-@media (max-width: 1180px) {
-  .pk-filter-form .product-filter-fields {
-    grid-template-columns: minmax(220px, 1.5fr) repeat(2, minmax(132px, 1fr));
-  }
-}
-
 @media (max-width: 760px) {
   .pk-page .product-page-header,
-  .pk-pagination,
-  .pk-qa-controls {
+  .pk-pagination {
     align-items: stretch;
     flex-direction: column;
   }
 
   .pk-project-switcher,
-  .pk-project-switcher select,
-  .pk-qa-controls select {
+  .pk-project-switcher select {
     width: 100%;
   }
-
-  .pk-filter-form .product-filter-fields {
-    grid-template-columns: 1fr;
+  .pk-project-switcher select {
+    flex: 1;
+    width: auto;
   }
-
+  .pk-filter-form .pk-more-filters[open] {
+    flex-basis: 100%;
+  }
   .pk-more-filter-panel {
-    right: auto;
-    left: 0;
+    position: static;
     grid-template-columns: 1fr;
-    width: min(86vw, 360px);
+    width: 100%;
+    margin-top: 8px;
+    box-shadow: none;
   }
 
   .pk-pagination {

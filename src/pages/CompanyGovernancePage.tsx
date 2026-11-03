@@ -1,3 +1,6 @@
+import PagePagination from "../components/PagePagination";
+import ListWorkspace from "../components/ListWorkspace";
+import { ProductPage, PageHeader } from "../components/ProductLayout";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Archive,
@@ -6,9 +9,11 @@ import {
   RotateCcw,
   Search,
   SlidersHorizontal,
+  Settings,
 } from "lucide-react";
-import { Link } from "react-router-dom";
-import { apiGet } from "../api/http";
+import { Link, useSearchParams } from "react-router-dom";
+import { CompanyKnowledgeBaseSettings } from "./AdminCompanyKbPage";
+import { fetchLifecycleEvents } from "../api/knowledge";
 import {
   applyGovernance,
   fetchGovernance,
@@ -61,6 +66,21 @@ const eventNames: Record<string, string> = {
 };
 
 export default function CompanyGovernancePage() {
+  const [params, setParams] = useSearchParams();
+  const settingsOpen = params.get("settings") === "knowledge-base";
+  const [settingsBusy, setSettingsBusy] = useState(false);
+  const showSettings = (open: boolean) => {
+    if (settingsBusy) return;
+    setParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (open) next.set("settings", "knowledge-base");
+        else next.delete("settings");
+        return next;
+      },
+      { replace: true },
+    );
+  };
   const [view, setView] = useState("candidates");
   const [signal, setSignal] = useState("");
   const [input, setInput] = useState("");
@@ -111,7 +131,7 @@ export default function CompanyGovernancePage() {
     let active = true;
     setEvents([]);
     setEventStatus("正在读取历史…");
-    apiGet<{ items: Event[] }>(`/api/v1/knowledge/${detail.asset_id}/lifecycle/events`)
+    fetchLifecycleEvents(detail.asset_id)
       .then((r) => {
         if (active) {
           setEvents(r.items);
@@ -163,44 +183,40 @@ export default function CompanyGovernancePage() {
     }
   }
   return (
-    <main className="cg-page">
-      <header className="cg-header">
-        <div>
-          <h1>公司库治理</h1>
-          <p>让有效知识留在工作中，让历史资料有处可查。</p>
-        </div>
-        <Link to="/knowledge?scope=company">
-          浏览公司库 <ArrowUpRight size={16} />
-        </Link>
-      </header>
-      <section className="cg-overview" aria-label="治理概览">
-        <div className="cg-overview-intro">
-          <Archive size={28} />
-          <h2>整理知识，保留价值。</h2>
-          <p>候选由文件标题和安全摘要生成。逐项核验后处理，历史资料可随时恢复。</p>
-        </div>
-        <div className="cg-meters">
-          {[
-            ["all", "在库资料"],
-            ["candidates", "待核验候选"],
-            ["archived", "已归档"],
-          ].map(([key, label]) => (
-            <div className="cg-meter" key={key}>
-              <strong>{data ? (data.counts[key]?.toLocaleString() ?? 0) : "—"}</strong>
-              <span>{label}</span>
-            </div>
-          ))}
-        </div>
-      </section>
-      <section className="cg-workspace" aria-label="文件治理工作台">
+    <ProductPage className="cg-page admin-control-page">
+      <PageHeader
+        title="公司库治理"
+        description="根据资料标题与安全摘要逐项核验，管理在库与归档资料。"
+        actions={
+          <>
+            <Link className="product-button is-secondary" to="/knowledge?scope=company">
+              浏览公司库 <ArrowUpRight size={16} />
+            </Link>
+            <button
+              type="button"
+              className="product-button is-secondary"
+              onClick={() => showSettings(true)}
+            >
+              <Settings size={16} aria-hidden="true" /> 设置
+            </button>
+          </>
+        }
+      />
+      <ListWorkspace className="cg-workspace" label="文件治理工作台">
         <div className="cg-tabs" role="group" aria-label="公司库治理视图">
           {[
             ["candidates", "待核验"],
             ["all", "全部在库"],
             ["archived", "归档中心"],
           ].map(([key, label]) => (
-            <button key={key} aria-pressed={view === key} onClick={() => changeView(key)}>
+            <button
+              key={key}
+              aria-label={label}
+              aria-pressed={view === key}
+              onClick={() => changeView(key)}
+            >
               {label}
+              <span className="list-tab-count">{data ? (data.counts[key] ?? 0) : "—"}</span>
             </button>
           ))}
           <button className="cg-refresh" onClick={() => void load()} disabled={loading}>
@@ -252,7 +268,7 @@ export default function CompanyGovernancePage() {
               ? "归档资料不参与默认检索与问答；恢复后重新进入在库范围。"
               : "同名和年代较早仅为核验线索，不代表重复或失效。"}
           </span>
-          <span>{data?.total ?? 0} 项</span>
+          <span>{loading ? "正在读取…" : data ? `${data.total} 项` : ""}</span>
         </div>
         {result && (
           <div className="cg-result" role="status">
@@ -279,12 +295,41 @@ export default function CompanyGovernancePage() {
         ) : !data?.items.length ? (
           <div className="cg-empty">
             <Archive size={28} />
-            <h3>{archived ? "暂无匹配的归档资料" : "暂无匹配的资料"}</h3>
-            <p>试试其他筛选条件，或查看全部在库资料。</p>
+            <h3>
+              {keyword || signal
+                ? "暂无匹配的资料"
+                : view === "candidates"
+                  ? "暂无待核验资料"
+                  : archived
+                    ? "暂无归档资料"
+                    : "公司库暂无资料"}
+            </h3>
+            <p>
+              {keyword || signal
+                ? "调整搜索或筛选条件后重试。"
+                : view === "candidates"
+                  ? "可切换到全部在库，查看公司资料。"
+                  : archived
+                    ? "归档后的资料会显示在这里。"
+                    : "资料完成公司发布后，会显示在这里。"}
+            </p>
+            {(keyword || signal) && (
+              <button
+                className="product-button is-secondary"
+                onClick={() => {
+                  setInput("");
+                  setKeyword("");
+                  setSignal("");
+                  setPage(1);
+                }}
+              >
+                清除筛选
+              </button>
+            )}
           </div>
         ) : (
           <div className="cg-table-wrap">
-            <table>
+            <table data-responsive-table>
               <thead>
                 <tr>
                   <th>
@@ -317,7 +362,7 @@ export default function CompanyGovernancePage() {
                         onChange={() => toggle(item)}
                       />
                     </td>
-                    <td>
+                    <td data-label="文件">
                       <div className="cg-file">
                         <span className="cg-file-icon">
                           <FileText size={19} />
@@ -333,7 +378,7 @@ export default function CompanyGovernancePage() {
                         </div>
                       </div>
                     </td>
-                    <td>
+                    <td data-label="核验提示">
                       {item.signals.length ? (
                         item.signals.map((s) => (
                           <span className="cg-tag" key={s}>
@@ -347,7 +392,7 @@ export default function CompanyGovernancePage() {
                     <td className="cg-date">
                       {date(archived ? item.archived_at : item.updated_at)}
                     </td>
-                    <td>
+                    <td data-label="操作">
                       <button className="cg-inspect" onClick={() => setDetail(item)}>
                         核验
                       </button>
@@ -358,40 +403,37 @@ export default function CompanyGovernancePage() {
             </table>
           </div>
         )}
-        <footer className="cg-bottom">
-          {selected.length > 0 && (
-            <ActionGroup label="所选资料操作">
-              <span>已选 {selected.length} 项（本页）</span>
-              <button
-                className="cg-primary"
-                disabled={!selected.length || loading}
-                onClick={() => {
-                  setConfirm(true);
-                  setActionError("");
-                  setCode(archived ? "other" : "historical");
-                }}
-              >
-                {archived ? <RotateCcw size={16} /> : <Archive size={16} />}{" "}
-                {archived ? "预览恢复" : "预览归档"}
-              </button>
-            </ActionGroup>
-          )}
-          <div className="cg-pagination">
-            <button disabled={page === 1 || loading} onClick={() => setPage((p) => p - 1)}>
-              上一页
-            </button>
-            <span>
-              {page} / {Math.max(1, Math.ceil((data?.total ?? 0) / 25))}
-            </span>
-            <button
-              disabled={loading || page * 25 >= (data?.total ?? 0)}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              下一页
-            </button>
-          </div>
-        </footer>
-      </section>
+        {(selected.length > 0 || (data?.total ?? 0) > 25 || page > 1) && (
+          <footer className="cg-bottom">
+            {selected.length > 0 && (
+              <ActionGroup label="所选资料操作">
+                <span>已选 {selected.length} 项（本页）</span>
+                <button
+                  className="cg-primary"
+                  disabled={!selected.length || loading}
+                  onClick={() => {
+                    setConfirm(true);
+                    setActionError("");
+                    setCode(archived ? "other" : "historical");
+                  }}
+                >
+                  {archived ? <RotateCcw size={16} /> : <Archive size={16} />}{" "}
+                  {archived ? "预览恢复" : "预览归档"}
+                </button>
+              </ActionGroup>
+            )}
+            {((data?.total ?? 0) > 25 || page > 1) && (
+              <PagePagination
+                ariaLabel="公司资料治理分页"
+                page={page}
+                totalPages={Math.ceil((data?.total ?? 0) / 25)}
+                disabled={loading}
+                onPageChange={setPage}
+              />
+            )}
+          </footer>
+        )}
+      </ListWorkspace>
       <DetailDrawer
         open={!!detail}
         title={detail?.title}
@@ -535,6 +577,17 @@ export default function CompanyGovernancePage() {
           {actionError && <p role="alert">{actionError}</p>}
         </div>
       </TaskModal>
-    </main>
+      <TaskModal
+        open={settingsOpen}
+        title="公司库设置"
+        description="查看知识库状态，管理初始化与维护操作。"
+        closeLabel="关闭公司库设置"
+        size="medium"
+        busy={settingsBusy}
+        onClose={() => showSettings(false)}
+      >
+        {settingsOpen && <CompanyKnowledgeBaseSettings onBusyChange={setSettingsBusy} />}
+      </TaskModal>
+    </ProductPage>
   );
 }

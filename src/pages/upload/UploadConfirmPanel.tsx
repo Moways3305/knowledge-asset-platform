@@ -155,14 +155,199 @@ export default function UploadConfirmPanel({
     <section className="upload77-confirm" aria-labelledby="upload-confirm-title">
       <div className="upload77-confirm-head">
         <div>
-          <span className="upload77-kicker">核对并确认</span>
-          <h2 id="upload-confirm-title">内容建议预览</h2>
+          <h2 id="upload-confirm-title">确认入库</h2>
         </div>
         <span className="upload77-status upload77-status-ready">待确认</span>
       </div>
 
+      <div className="upload77-confirm-source">
+        <span>{sourceLabel}</span>
+        <strong>{sourceFile}</strong>
+      </div>
       <div className="upload77-confirm-layout">
-        <div className="upload77-form-column">
+        <section className="upload77-targets" aria-labelledby="upload77-targets-title">
+          <h3 id="upload77-targets-title">入库归属</h3>
+          {!targetLibrary && (
+            <p className="upload77-field-note" role="status">
+              选择项目库或公司库后生成规范名
+            </p>
+          )}
+          {targetLocked && (
+            <p className="upload77-field-note" role="status">
+              目标已由来源规则锁定
+            </p>
+          )}
+          <label className="upload77-field" htmlFor="upload77-target-library">
+            <span>目标知识库</span>
+            <select
+              id="upload77-target-library"
+              value={targetLibrary}
+              disabled={targetLocked}
+              onChange={(event) => setTargetLibrary(event.target.value as TargetLibrary)}
+            >
+              {targetLibraryOptions
+                .filter(
+                  (option) =>
+                    option.value !== "project" ||
+                    projects.length > 0 ||
+                    targetLibrary === "project",
+                )
+                .filter(
+                  (option) =>
+                    option.value !== "company" ||
+                    canUseCompanyTarget ||
+                    targetLibrary === "company",
+                )
+                .map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+            </select>
+          </label>
+          {targetLibrary === "project" && (
+            <label className="upload77-field" htmlFor="upload77-target-project">
+              <span>目标项目</span>
+              {projects.length > 0 ? (
+                <select
+                  id="upload77-target-project"
+                  value={targetProjectId}
+                  disabled={targetLocked}
+                  onChange={(event) => setTargetProjectId(event.target.value)}
+                >
+                  <option value="">请选择目标项目</option>
+                  {targetProjectId &&
+                    !projects.some((project) => project.projectId === targetProjectId) && (
+                      <option value={targetProjectId}>来源规则锁定项目（当前不可用）</option>
+                    )}
+                  {projects.map((project) => (
+                    <option key={project.projectId} value={project.projectId}>
+                      {project.projectName}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="upload77-field-error">当前没有可提交的项目</span>
+              )}
+            </label>
+          )}
+          {targetLibrary && namingOptions?.directories?.length ? (
+            <label className="upload77-field" htmlFor="upload77-directory">
+              <span>正式目录</span>
+              <select
+                id="upload77-directory"
+                value={directoryKey}
+                onChange={(event) => setDirectoryKey(event.target.value)}
+              >
+                <option value="">请选择正式目录</option>
+                {namingOptions.directories
+                  .filter((directory) => directory.directory_key !== "personal.pending")
+                  .map((directory) => (
+                    <option key={directory.directory_key} value={directory.directory_key}>
+                      {directory.display_name}
+                    </option>
+                  ))}
+              </select>
+              <small>正式目录决定资料归属与规范名，提交前可直接调整。</small>
+            </label>
+          ) : null}
+          {targetLibrary && (
+            <label className="upload77-field" htmlFor="upload77-naming-confidentiality">
+              <span>密级</span>
+              <select
+                id="upload77-naming-confidentiality"
+                value={editConfidentiality}
+                onChange={(event) => setEditConfidentiality(event.target.value)}
+              >
+                <option value="">请选择密级（需人工确认）</option>
+                {confidentialityOptions.map((option) => (
+                  <option key={option}>{option}</option>
+                ))}
+              </select>
+            </label>
+          )}
+          {targetLibrary === "personal" && (
+            <p className="upload77-naming-exemption" role="status">
+              个人资料不强制规范命名，保留原文件名用于来源追溯。
+            </p>
+          )}
+          {(targetLibrary === "project" || targetLibrary === "company") && namingRequired && (
+            <div className="upload77-canonical-form" aria-label="规范命名字段">
+              <label className="upload77-field" htmlFor="upload77-naming-date">
+                <span>文件最后修改日期</span>
+                <input
+                  id="upload77-naming-date"
+                  type="date"
+                  value={namingFormedOn}
+                  onChange={(event) => setNamingFormedOn(event.target.value)}
+                />
+              </label>
+              <label className="upload77-field" htmlFor="upload77-naming-version">
+                <span>版本</span>
+                <input
+                  id="upload77-naming-version"
+                  value={namingVersion}
+                  placeholder="V1 或 V1.1"
+                  onChange={(event) => setNamingVersion(event.target.value.toUpperCase())}
+                />
+              </label>
+              {targetLibrary === "company" && (
+                <label className="upload77-field" htmlFor="upload77-naming-applicable">
+                  <span>适用对象</span>
+                  <input
+                    id="upload77-naming-applicable"
+                    value={namingApplicableTo}
+                    onChange={(event) => setNamingApplicableTo(event.target.value)}
+                  />
+                </label>
+              )}
+              <div className="upload77-canonical-preview" aria-live="polite">
+                <span>规范名预览</span>
+                {namingPreviewBusy ? (
+                  <p>正在按已发布规则计算…</p>
+                ) : namingPreview?.canonical_name ? (
+                  <code>{namingPreview.canonical_name}</code>
+                ) : (
+                  <p>{namingPreviewError ?? "填写字段后生成预览"}</p>
+                )}
+                {namingPreview?.notices.map((notice) => (
+                  <strong className={`is-${notice.kind}`} key={`${notice.kind}-${notice.message}`}>
+                    {notice.message}
+                  </strong>
+                ))}
+              </div>
+            </div>
+          )}
+          {(targetLibrary === "project" || targetLibrary === "company") &&
+            namingPreviewError &&
+            !namingRequired && (
+              <p className="upload77-field-error" role="alert">
+                {namingPreviewError}
+              </p>
+            )}
+        </section>
+        <DuplicateComparisonPopover
+          duplicate={namingPreview?.duplicate}
+          current={{
+            fileName: sourceFile,
+            fileSize: flow.fileSize,
+            scopeLabel:
+              targetLibrary === "personal"
+                ? "我的个人库"
+                : targetLibrary === "company"
+                  ? "公司知识库"
+                  : "当前项目库",
+            directory: directoryKey,
+            subject: editTitle,
+            formedOn: namingFormedOn,
+            version: namingVersion,
+          }}
+          busy={duplicateDecisionBusy}
+          onSkip={() => void handleDuplicateDecision("skip")}
+          onIndependent={() => void handleDuplicateDecision("independent")}
+        />
+        <section className="upload77-form-column" aria-labelledby="upload77-content-title">
+          <h3 id="upload77-content-title">内容建议预览</h3>
           <div className={`upload77-summary-status upload77-summary-${summaryStatus ?? "pending"}`}>
             {summaryStatusText}
           </div>
@@ -233,20 +418,11 @@ export default function UploadConfirmPanel({
               onChange={(event) => setEditTags(event.target.value)}
             />
           </label>
-        </div>
-
-        <aside className="upload77-confirm-side" aria-label="入库上下文与提交">
+        </section>
+        <details className="upload77-processing-details">
+          <summary>处理详情与来源依据</summary>
           <div className="upload77-context">
-            <h3>资料信息</h3>
             <dl>
-              <div>
-                <dt>来源</dt>
-                <dd>{sourceLabel}</dd>
-              </div>
-              <div>
-                <dt>文件</dt>
-                <dd>{sourceFile}</dd>
-              </div>
               <div>
                 <dt>建议生成状态</dt>
                 <dd>
@@ -271,7 +447,6 @@ export default function UploadConfirmPanel({
               </div>
             </dl>
           </div>
-
           {naming && (
             <details className="upload77-naming">
               <summary>主题提取依据</summary>
@@ -281,204 +456,22 @@ export default function UploadConfirmPanel({
               </span>
             </details>
           )}
-
-          <DuplicateComparisonPopover
-            duplicate={namingPreview?.duplicate}
-            current={{
-              fileName: sourceFile,
-              fileSize: flow.fileSize,
-              scopeLabel:
-                targetLibrary === "personal"
-                  ? "我的个人库"
-                  : targetLibrary === "company"
-                    ? "公司知识库"
-                    : "当前项目库",
-              directory: directoryKey,
-              subject: editTitle,
-              formedOn: namingFormedOn,
-              version: namingVersion,
-            }}
-            busy={duplicateDecisionBusy}
-            onSkip={() => void handleDuplicateDecision("skip")}
-            onIndependent={() => void handleDuplicateDecision("independent")}
-          />
-
-          <div className="upload77-targets">
-            <h3>入库目标</h3>
-            <p className="upload77-field-note">已选资料 1 项</p>
-            {!targetLibrary && (
-              <p className="upload77-field-note" role="status">
-                选择项目库或公司库后生成规范名
-              </p>
-            )}
-            {targetLocked && (
-              <p className="upload77-field-note" role="status">
-                目标已由来源规则锁定
-              </p>
-            )}
-            <label className="upload77-field" htmlFor="upload77-target-library">
-              <span>目标知识库</span>
-              <select
-                id="upload77-target-library"
-                value={targetLibrary}
-                disabled={targetLocked}
-                onChange={(event) => setTargetLibrary(event.target.value as TargetLibrary)}
-              >
-                {targetLibraryOptions
-                  .filter(
-                    (option) =>
-                      option.value !== "project" ||
-                      projects.length > 0 ||
-                      targetLibrary === "project",
-                  )
-                  .filter(
-                    (option) =>
-                      option.value !== "company" ||
-                      canUseCompanyTarget ||
-                      targetLibrary === "company",
-                  )
-                  .map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            {targetLibrary === "project" && (
-              <label className="upload77-field" htmlFor="upload77-target-project">
-                <span>目标项目</span>
-                {projects.length > 0 ? (
-                  <select
-                    id="upload77-target-project"
-                    value={targetProjectId}
-                    disabled={targetLocked}
-                    onChange={(event) => setTargetProjectId(event.target.value)}
-                  >
-                    <option value="">请选择目标项目</option>
-                    {targetProjectId &&
-                      !projects.some((project) => project.projectId === targetProjectId) && (
-                        <option value={targetProjectId}>来源规则锁定项目（当前不可用）</option>
-                      )}
-                    {projects.map((project) => (
-                      <option key={project.projectId} value={project.projectId}>
-                        {project.projectName}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <span className="upload77-field-error">当前没有可提交的项目</span>
-                )}
-              </label>
-            )}
-            {targetLibrary && (
-              <label className="upload77-field" htmlFor="upload77-naming-confidentiality">
-                <span>密级</span>
-                <select
-                  id="upload77-naming-confidentiality"
-                  value={editConfidentiality}
-                  onChange={(event) => setEditConfidentiality(event.target.value)}
-                >
-                  <option value="">请选择密级（需人工确认）</option>
-                  {confidentialityOptions.map((option) => (
-                    <option key={option}>{option}</option>
-                  ))}
-                </select>
-              </label>
-            )}
-            {targetLibrary === "personal" && (
-              <p className="upload77-naming-exemption" role="status">
-                个人资料不强制规范命名，保留原文件名用于来源追溯。
-              </p>
-            )}
-            {targetLibrary && namingOptions?.directories?.length ? (
-              <label className="upload77-field" htmlFor="upload77-directory">
-                <span>正式目录</span>
-                <select
-                  id="upload77-directory"
-                  value={directoryKey}
-                  onChange={(event) => setDirectoryKey(event.target.value)}
-                >
-                  <option value="">请选择正式目录</option>
-                  {namingOptions.directories
-                    .filter((directory) => directory.directory_key !== "personal.pending")
-                    .map((directory) => (
-                      <option key={directory.directory_key} value={directory.directory_key}>
-                        {directory.display_name}
-                      </option>
-                    ))}
-                </select>
-                <small>正式目录决定资料归属与规范名，提交前可直接调整。</small>
-              </label>
-            ) : null}
-            {(targetLibrary === "project" || targetLibrary === "company") && namingRequired && (
-              <div className="upload77-canonical-form" aria-label="规范命名字段">
-                <label className="upload77-field" htmlFor="upload77-naming-date">
-                  <span>文件最后修改日期</span>
-                  <input
-                    id="upload77-naming-date"
-                    type="date"
-                    value={namingFormedOn}
-                    onChange={(event) => setNamingFormedOn(event.target.value)}
-                  />
-                </label>
-                <label className="upload77-field" htmlFor="upload77-naming-version">
-                  <span>版本</span>
-                  <input
-                    id="upload77-naming-version"
-                    value={namingVersion}
-                    placeholder="V1 或 V1.1"
-                    onChange={(event) => setNamingVersion(event.target.value.toUpperCase())}
-                  />
-                </label>
-                {targetLibrary === "company" && (
-                  <label className="upload77-field" htmlFor="upload77-naming-applicable">
-                    <span>适用对象</span>
-                    <input
-                      id="upload77-naming-applicable"
-                      value={namingApplicableTo}
-                      onChange={(event) => setNamingApplicableTo(event.target.value)}
-                    />
-                  </label>
-                )}
-                <div className="upload77-canonical-preview" aria-live="polite">
-                  <span>规范名预览</span>
-                  {namingPreviewBusy ? (
-                    <p>正在按已发布规则计算…</p>
-                  ) : namingPreview?.canonical_name ? (
-                    <code>{namingPreview.canonical_name}</code>
-                  ) : (
-                    <p>{namingPreviewError ?? "填写字段后生成预览"}</p>
-                  )}
-                  {namingPreview?.notices.map((notice) => (
-                    <strong
-                      className={`is-${notice.kind}`}
-                      key={`${notice.kind}-${notice.message}`}
-                    >
-                      {notice.message}
-                    </strong>
-                  ))}
-                </div>
-              </div>
-            )}
-            {(targetLibrary === "project" || targetLibrary === "company") &&
-              namingPreviewError &&
-              !namingRequired && (
-                <p className="upload77-field-error" role="alert">
-                  {namingPreviewError}
-                </p>
-              )}
+        </details>
+        <ModelAdvancedSettings models={models} />
+        {apiError && (
+          <div className="upload77-submit-error" role="alert">
+            {apiError}
           </div>
-
-          <ModelAdvancedSettings models={models} />
-
-          {apiError && (
-            <div className="upload77-submit-error" role="alert">
-              {apiError}
-            </div>
-          )}
-        </aside>
+        )}
       </div>
       <FormActions sticky description="确认前请核对内容、目标知识库与密级。">
+        <button className="upload77-exit" onClick={onExit} type="button">
+          返回文件任务
+        </button>
+        <button className="upload77-reject" onClick={onReject} type="button">
+          <XCircle size={14} aria-hidden="true" />
+          拒绝入库
+        </button>
         <button
           className="btn-primary upload77-submit"
           disabled={!canSubmit}
@@ -486,13 +479,6 @@ export default function UploadConfirmPanel({
           type="button"
         >
           {(namingPreview?.notices.length ?? 0) > 0 ? "仍然确认入库" : "确认入库"}
-        </button>
-        <button className="upload77-reject" onClick={onReject} type="button">
-          <XCircle size={14} aria-hidden="true" />
-          拒绝入库
-        </button>
-        <button className="upload77-exit" onClick={onExit} type="button">
-          返回文件任务
         </button>
       </FormActions>
     </section>
