@@ -3,6 +3,13 @@ import assert from "node:assert/strict";
 import { coverageReport, scanRequests, operations } from "./frontend-api-contract.mjs";
 const calls = scanRequests();
 describe("frontend API coverage guard", () => {
+  it("generates identical output regardless of filesystem and consumer traversal order", () => {
+    const reversed = [...calls].reverse().map((call) => ({
+      ...call,
+      consumers: [...call.consumers].reverse(),
+    }));
+    assert.equal(coverageReport(reversed), coverageReport(calls));
+  });
   it("accounts for the current backend contract", () => {
     assert.ok(coverageReport(calls).includes(`共 ${operations.length} 个 HTTP 操作`));
   });

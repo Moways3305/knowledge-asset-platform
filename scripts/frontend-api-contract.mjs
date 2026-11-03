@@ -298,10 +298,15 @@ export function coverageReport(calls) {
   for (const row of rows) {
     const locations = row.adapters.map(
       (call) =>
-        `\`${call.file}#${call.owner}\` → ${call.consumers.map((file) => `\`${file}\``).join("、") || "模块内部 / 暂无直接引用"}`,
+        `\`${call.file}#${call.owner}\` → ${
+          [...call.consumers]
+            .sort()
+            .map((file) => `\`${file}\``)
+            .join("、") || "模块内部 / 暂无直接引用"
+        }`,
     );
     lines.push(
-      `| \`${row.key}\` | ${row.status} | ${[...new Set(locations)].join("<br>") || "见说明"} | ${row.note} |`,
+      `| \`${row.key}\` | ${row.status} | ${[...new Set(locations)].sort().join("<br>") || "见说明"} | ${row.note} |`,
     );
   }
   return lines.join("\n") + "\n";
