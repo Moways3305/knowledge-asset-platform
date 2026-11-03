@@ -8,6 +8,16 @@
 .knowledge-maintenance-page .list-row-action:hover {
   text-decoration: underline;
 }
+/* Keep the next action visible when both navigation rails leave a narrow work area. */
+@media (min-width: 861px) {
+  .knowledge-maintenance-page .maintenance-actions {
+    position: sticky;
+    right: 0;
+    z-index: 1;
+    background: var(--color-bg-surface);
+    box-shadow: -8px 0 12px -12px rgba(15, 34, 28, 0.45);
+  }
+}
 @media (max-width: 860px) {
   .knowledge-maintenance-page .product-data-table,
   .knowledge-maintenance-page tbody,

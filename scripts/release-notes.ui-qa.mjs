@@ -191,7 +191,7 @@ try {
     assert.deepEqual(reads, ["note-one"]);
     await layout(page, `reader-${width}`);
     await page.goto(base + "/admin/release-notes");
-    await page.getByRole("heading", { name: "从一次值得记录的改进开始" }).waitFor();
+    await page.getByRole("heading", { name: "暂无待审核草稿", exact: true }).waitFor();
     await layout(page, `admin-empty-${width}`);
     await page.getByRole("button", { name: "新建日志" }).first().click();
     await page.getByLabel("版本号", { exact: true }).fill("v1.8.1");

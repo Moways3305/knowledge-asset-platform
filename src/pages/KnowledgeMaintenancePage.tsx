@@ -123,6 +123,8 @@ export default function KnowledgeMaintenancePage() {
                   {
                     key: "action",
                     header: "操作",
+                    className: "maintenance-actions",
+                    headerClassName: "maintenance-actions",
                     render: (item) => (
                       <Link
                         className="list-row-action"
