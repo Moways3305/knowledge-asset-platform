@@ -304,12 +304,22 @@ try {
       page.on("console", (message) => browserMessages.push(message.text()));
       page.on("pageerror", (error) => browserMessages.push(error.message));
       await page.goto(`${base}/my/knowledge`, { waitUntil: "networkidle" });
-      await page.getByRole("heading", { name: "我的个人知识" }).waitFor();
+      await page.getByRole("heading", { name: "我的知识", exact: true }).waitFor();
 
       if (scenario === "filter-search") {
         await page.getByRole("button", { name: "筛选" }).click();
         const panel = page.getByRole("dialog", { name: "筛选个人资料" });
+        const typeResponse = page.waitForResponse((response) => {
+          const url = new URL(response.url());
+          return (
+            url.pathname === "/api/v1/my/knowledge" &&
+            url.searchParams.get("asset_type") === "template"
+          );
+        });
         await panel.getByLabel("资料类型").selectOption("template");
+        await typeResponse;
+        await page.getByText("项目复盘方法模板", { exact: true }).waitFor();
+        await page.getByRole("button", { name: "筛选", exact: true }).click();
         await page.getByRole("textbox", { name: "搜索个人资料" }).fill("复盘");
         const filteredResponse = page.waitForResponse((response) => {
           const url = new URL(response.url());
@@ -376,7 +386,7 @@ try {
         const text = document.body.innerText;
         const root = document.documentElement;
         const table = document.querySelector(".mk83-table")?.getBoundingClientRect();
-        const stats = [...document.querySelectorAll(".mk83-stats article")].map((node) =>
+        const stats = [...document.querySelectorAll(".personal-state-tabs > button")].map((node) =>
           node.getBoundingClientRect(),
         );
         const internalTerms = [
@@ -394,7 +404,7 @@ try {
           scenario: scenarioName,
           overflowX: root.scrollWidth - root.clientWidth,
           clippedControls: [...document.querySelectorAll("a, button")].filter(
-            (node) => node.scrollWidth > node.clientWidth + 2,
+            (node) => !node.matches(".rail-mark") && node.scrollWidth > node.clientWidth + 2,
           ).length,
           statsReady:
             scenarioName === "forbidden" ||

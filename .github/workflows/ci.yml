@@ -161,6 +161,8 @@ jobs:
           cache: npm
       - name: Install
         run: npm ci
+      - name: Frontend API coverage and route contract
+        run: npm run api:frontend:check
       - name: Lint
         run: npm run lint
       - name: Format check (prettier)

@@ -25,7 +25,7 @@ const routes: RouteContract[] = [
     component: "CompanyGovernancePage",
     guard: "viewCompanyKnowledge",
     owners: ["pages/CompanyGovernancePage.tsx"],
-    apiModules: ["governance", "http"],
+    apiModules: ["governance", "knowledge"],
   },
   {
     route: "/release-notes",
@@ -58,7 +58,7 @@ const routes: RouteContract[] = [
     component: "KnowledgeListPage",
     guard: "viewKnowledge",
     owners: ["pages/KnowledgeListPage.tsx"],
-    apiModules: ["knowledge"],
+    apiModules: ["http", "knowledge"],
   },
   {
     route: "/knowledge/:id",
@@ -69,7 +69,7 @@ const routes: RouteContract[] = [
       "pages/knowledge/OnlyOfficePreview.tsx",
       "components/KnowledgeTrustPanel.tsx",
     ],
-    apiModules: ["http", "knowledge", "knowledgeTrust", "knowledgeVersions"],
+    apiModules: ["http", "knowledge", "knowledgeTrust", "knowledgeVersions", "preview"],
     allowedTimerOwners: ["pages/knowledge/OnlyOfficePreview.tsx"],
   },
   {
@@ -95,14 +95,14 @@ const routes: RouteContract[] = [
       "components/WorkbuddyAccessCard.tsx",
       "components/McpOAuthGrants.tsx",
     ],
-    apiModules: ["http", "workbuddy"],
+    apiModules: ["http", "workbuddy", "mcpOAuth"],
   },
   {
     route: "/mcp-authorize",
     component: "McpAuthorizePage",
     guard: "viewWorkbuddy",
     owners: ["pages/McpAuthorizePage.tsx"],
-    apiModules: ["http"],
+    apiModules: ["mcpOAuth"],
   },
   {
     route: "/upload",
@@ -216,6 +216,13 @@ const routes: RouteContract[] = [
     apiModules: ["http", "knowledge"],
   },
   {
+    route: "/projects",
+    component: "ProjectOverviewPage",
+    guard: "viewProject",
+    owners: ["pages/ProjectOverviewPage.tsx", "components/CreateProjectModal.tsx"],
+    apiModules: ["admin", "http", "project"],
+  },
+  {
     route: "/project/:id",
     component: "ProjectOverviewPage",
     guard: "viewProject",
@@ -227,7 +234,7 @@ const routes: RouteContract[] = [
     component: "ProjectKnowledgePage",
     guard: "viewProject",
     owners: ["pages/ProjectKnowledgePage.tsx"],
-    apiModules: ["bulk", "knowledge", "project", "review"],
+    apiModules: ["bulk", "knowledge", "review"],
   },
   {
     route: "/project/:id/settings",
@@ -265,8 +272,8 @@ const businessOptions: BusinessOptionContract[] = [
     source: { kind: "runtime", symbol: "useAuth" },
   },
   {
-    route: "/project/:id/knowledge",
-    owner: "pages/ProjectKnowledgePage.tsx",
+    route: "/project/:id",
+    owner: "pages/ProjectOverviewPage.tsx",
     option: "model",
     source: { kind: "runtime", symbol: "fetchProjectQaModelOptions" },
   },
@@ -305,7 +312,7 @@ const businessOptions: BusinessOptionContract[] = [
 const repairedBusinessOptionDefects = [
   {
     id: "PBC-62-project-qa-demo-models",
-    owner: "pages/ProjectKnowledgePage.tsx",
+    owner: "pages/ProjectOverviewPage.tsx",
     forbiddenValues: ["deepseek-r1", "qwen-enterprise", "DeepSeek-R1 内网版", "通义千问企业版"],
   },
 ];
@@ -335,7 +342,16 @@ const sourceModules = import.meta.glob(
 const source = (file: string) => {
   const value = sourceModules[`../${file}`];
   expect(value, `missing takeover owner: ${file}`).toBeDefined();
-  return value;
+  const feature = file.match(/^pages\/([^/]+)Page\.tsx$/)?.[1];
+  const ownedModules = feature
+    ? Object.entries(sourceModules)
+        .filter(
+          ([name]) =>
+            name.startsWith(`../pages/controllers/${feature}/`) && !name.includes(".test."),
+        )
+        .map(([, content]) => content)
+    : [];
+  return [value, ...ownedModules].join("\n");
 };
 
 function parse(file: string, text: string) {
@@ -441,7 +457,7 @@ describe("frontend route takeover gate", () => {
       .sort();
     // LoginPage is owned by LoginGate, before any business route is mounted.
     const registered = [
-      ...routes.map((item) => item.component),
+      ...new Set(routes.map((item) => item.component)),
       "NotFoundPage",
       "LoginPage",
     ].sort();
@@ -549,7 +565,7 @@ describe("frontend route takeover gate", () => {
   });
 
   it("keeps project settings on real APIs without retired identity-bearing UI", () => {
-    const projectSettingsSource = productionUiModules["../pages/ProjectSettingsPage.tsx"];
+    const projectSettingsSource = source("pages/ProjectSettingsPage.tsx");
     const styles = Object.values(styleModules).join("\n");
     expect(projectSettingsSource).toBeDefined();
     expect(projectSettingsSource).toContain("fetchProjectSettings");

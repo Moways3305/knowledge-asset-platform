@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, expect, it, vi } from "vitest";
 import KnowledgeTrustPanel from "./KnowledgeTrustPanel";
 import {
@@ -47,6 +47,40 @@ function open() {
   );
   fireEvent.click(screen.getByRole("button", { name: "知识维护与复核" }));
 }
+
+function LocationProbe() {
+  const location = useLocation();
+  return (
+    <output data-testid="location">
+      {JSON.stringify({ search: location.search, state: location.state })}
+    </output>
+  );
+}
+
+it("preserves the detail return source when closing a deep-linked maintenance dialog", async () => {
+  const state = {
+    backTo: "/knowledge-maintenance?type=review",
+    backLabel: "返回知识维护",
+    source: "task",
+  };
+  render(
+    <MemoryRouter
+      initialEntries={[
+        { pathname: "/knowledge/old", search: "?maintenance=review&other=kept", state },
+      ]}
+    >
+      <KnowledgeTrustPanel assetId="old" />
+      <LocationProbe />
+    </MemoryRouter>,
+  );
+  await screen.findByText("尚未复核");
+  fireEvent.click(screen.getByRole("button", { name: "关闭弹窗" }));
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(JSON.parse(screen.getByTestId("location").textContent!)).toEqual({
+    search: "?other=kept",
+    state,
+  });
+});
 
 it("keeps each maintenance reason scoped to its action and preserves other drafts after saving", async () => {
   vi.mocked(saveTrustPolicy).mockResolvedValue({ ...initial, updated_at: "2026-10-08T02:00:00Z" });

@@ -1,0 +1,374 @@
+/* Canonical list layout shared by maintenance, approvals and company governance. */
+.workspace-shell .list-workspace {
+  border: 1px solid var(--workspace-line);
+  border-radius: 8px;
+  background: white;
+  min-width: 0;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  box-shadow: none;
+}
+.workspace-shell .list-workspace > * {
+  margin-inline: 0;
+}
+.workspace-shell .list-workspace .gw-workspace {
+  min-height: 0;
+  background: white;
+  border: 0;
+  border-radius: 0;
+}
+.workspace-shell .list-workspace .product-table-scroll-hint {
+  margin: 0;
+  padding: 8px 20px;
+  background: #fafbfc;
+}
+.workspace-shell .list-workspace :is(.gw-route-tabs, .module-navigation, .cg-tabs) {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 24px;
+  align-items: center;
+  padding: 0 20px;
+  margin: 0;
+  border: 0;
+  border-bottom: 1px solid var(--workspace-line);
+  border-radius: 0;
+  min-height: 48px;
+  background: white;
+}
+.workspace-shell
+  .list-workspace
+  :is(.gw-route-tabs, .module-navigation, .cg-tabs)
+  > :is(a, button) {
+  font: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  padding: 13px 0;
+  min-height: 48px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text-secondary);
+  gap: 8px;
+}
+.workspace-shell
+  .list-workspace
+  :is(.gw-route-tabs, .module-navigation, .cg-tabs)
+  > :is(.active, .is-active, [aria-pressed="true"]) {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+  font-weight: 600;
+}
+.workspace-shell .list-workspace :is(.product-filter-bar, .gw-toolbar, .cg-filters) {
+  padding: 16px 20px;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  align-items: center;
+  border: 0;
+  border-bottom: 1px solid var(--workspace-line);
+  border-radius: 0;
+  background: white;
+  min-height: 70px;
+}
+.workspace-shell .list-workspace :is(.product-filter-fields, .gw-toolbar-fields) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+}
+.workspace-shell .list-workspace :is(.form-field, .gw-filter-label) {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+.workspace-shell .list-workspace :is(.form-field-label, .gw-filter-label > span) {
+  white-space: nowrap;
+  font-weight: 400;
+}
+.workspace-shell .list-workspace :is(select, input:not([type="checkbox"])) {
+  font: inherit;
+  font-size: 14px;
+  min-height: 36px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: var(--color-text-primary);
+  background: white;
+  min-width: 0;
+}
+.workspace-shell .list-workspace select {
+  min-width: 144px;
+}
+.workspace-shell .list-workspace :is(.list-workspace-note, .cg-context) {
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--color-text-secondary);
+  padding: 10px 20px;
+  margin: 0;
+  background: #fafbfc;
+}
+.workspace-shell .list-workspace :is(.product-table-wrap, .gw-table-wrap, .table-scroll) {
+  border: 0;
+  border-radius: 0;
+  min-height: 0;
+}
+.workspace-shell .list-workspace :is(.product-data-table, .gw-table) th {
+  font-size: 13px;
+  font-weight: 500;
+  background: #f7f8fa;
+  padding: 12px 20px;
+}
+.workspace-shell .list-workspace :is(.product-data-table, .gw-table) td {
+  font-size: 14px;
+  padding: 14px 20px;
+  overflow-wrap: anywhere;
+}
+.workspace-shell .list-workspace :is(.gw-state, .cg-empty, .product-table-state) {
+  min-height: 220px;
+  height: auto;
+  padding: 48px 20px;
+}
+.workspace-shell .list-workspace .page-pagination {
+  padding: 12px 20px;
+  border-top: 1px solid var(--workspace-line);
+  margin: 0;
+}
+.workspace-shell .list-workspace .cg-search {
+  width: min(440px, 100%);
+  border: 0;
+  padding: 0;
+  background: white;
+  gap: 8px;
+}
+.workspace-shell .list-workspace .cg-search input {
+  flex: 1;
+  width: 100%;
+}
+.workspace-shell .list-workspace .cg-search button {
+  border: 1px solid var(--workspace-line);
+  border-radius: 6px;
+  min-height: 36px;
+  padding: 6px 12px;
+  white-space: nowrap;
+}
+@media (max-width: 860px) {
+  .workspace-shell .workspace-page:has(> .list-workspace) {
+    gap: 16px;
+  }
+  .workspace-shell .workspace-page:has(> .list-workspace) .product-page-heading h2 {
+    font-size: 22px;
+  }
+  .workspace-shell .list-workspace :is(.gw-route-tabs, .module-navigation, .cg-tabs) {
+    gap: 16px;
+    padding-inline: 16px;
+  }
+  .workspace-shell .list-workspace :is(.product-filter-bar, .gw-toolbar, .cg-filters) {
+    padding: 14px 16px;
+  }
+  .workspace-shell .list-workspace :is(.form-field, .gw-filter-label) {
+    flex: 1 1 140px;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .workspace-shell .list-workspace :is(.product-filter-fields, .gw-toolbar-fields) {
+    width: 100%;
+    flex: 1;
+  }
+  .workspace-shell .list-workspace select {
+    width: 100%;
+    min-height: 40px;
+  }
+  .workspace-shell .list-workspace .cg-filters > label {
+    width: 100%;
+  }
+  .workspace-shell .list-workspace .cg-filters > label select {
+    flex: 1;
+  }
+  .workspace-shell .list-workspace :is(.product-data-table, .gw-table) td {
+    padding: 7px 16px;
+  }
+}
+
+.workspace-shell .list-workspace .list-tab-count {
+  font-size: 12px;
+  font-weight: 400;
+  color: #646a73;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #f2f3f5;
+}
+.workspace-shell .list-workspace td.product-table-state {
+  padding: 0;
+}
+/* Keep a usable action column instead of wrapping a two-button decision into
+   a tall row. Narrow desktop windows scroll the table; phones use records. */
+@media (min-width: 861px) {
+  .workspace-shell .gw-page .list-workspace .gw-workspace .gw-table {
+    min-width: 940px;
+  }
+  .workspace-shell .list-workspace .gw-col-access-actions {
+    width: 156px;
+  }
+  .workspace-shell .list-workspace .gw-col-access-title {
+    width: 20%;
+  }
+  .workspace-shell .list-workspace .gw-col-access-reason {
+    width: auto;
+  }
+  .workspace-shell
+    .list-workspace
+    :is(.gw-col-access-scope, .gw-col-access-requester, .gw-col-access-status) {
+    width: 80px;
+  }
+  .workspace-shell .list-workspace .gw-col-access-time {
+    width: 136px;
+  }
+  .workspace-shell .list-workspace .gw-col-review-actions {
+    width: 164px;
+  }
+  .workspace-shell .list-workspace .gw-col-access-select {
+    width: 44px;
+    padding-inline: 12px;
+  }
+  .workspace-shell
+    .gw-page
+    .list-workspace
+    .gw-workspace
+    .gw-table
+    td[data-column="actions"]
+    .gw-actions {
+    flex-wrap: nowrap;
+  }
+}
+.workspace-shell .list-workspace .gw-state {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  min-height: 220px;
+  padding: 32px 20px;
+}
+.workspace-shell .list-workspace .gw-state p {
+  margin: 0;
+}
+.workspace-shell .list-workspace .page-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: #646a73;
+}
+@media (max-width: 860px) {
+  .workspace-shell .list-workspace .gw-feedback {
+    padding-inline: 16px;
+  }
+  .workspace-shell .gw-page .list-workspace .gw-workspace .gw-table td[data-label] {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+    align-items: start;
+    gap: 8px;
+    padding: 4px 0;
+  }
+  .workspace-shell .gw-page .list-workspace .gw-workspace .gw-table td[data-label]::before {
+    margin: 0;
+    line-height: inherit;
+  }
+  .workspace-shell
+    .gw-page
+    .list-workspace
+    .gw-workspace
+    .gw-table
+    td:is([data-column="asset"], [data-column="title"], [data-column="actions"]) {
+    display: block;
+  }
+  .workspace-shell
+    .gw-page
+    .list-workspace
+    .gw-workspace
+    .gw-table
+    td:is([data-column="asset"], [data-column="title"], [data-column="actions"])::before {
+    display: none;
+  }
+  .workspace-shell .list-workspace .gw-reason-text {
+    display: block;
+    overflow: visible;
+    -webkit-line-clamp: unset;
+  }
+  .workspace-shell .list-workspace .product-filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .workspace-shell .list-workspace .product-filter-fields {
+    flex-wrap: wrap;
+  }
+  .workspace-shell .list-workspace .product-filter-actions {
+    align-self: flex-end;
+  }
+  .workspace-shell .knowledge-maintenance-page .list-workspace table.product-data-table tr {
+    display: block;
+    padding: 8px 0;
+  }
+  .workspace-shell .knowledge-maintenance-page .list-workspace .product-data-table td[data-column] {
+    display: grid;
+    grid-template-columns: 76px minmax(0, 1fr);
+    gap: 10px;
+    min-height: 0;
+    height: auto;
+    padding: 6px 16px;
+  }
+  .workspace-shell
+    .knowledge-maintenance-page
+    .list-workspace
+    .product-data-table
+    td[data-column]:first-child {
+    display: block;
+    font-weight: 600;
+    padding-block: 12px;
+  }
+  .workspace-shell
+    .knowledge-maintenance-page
+    .list-workspace
+    .product-data-table
+    td[data-column]:first-child::before {
+    display: none;
+  }
+  .workspace-shell
+    .knowledge-maintenance-page
+    .list-workspace
+    .product-data-table
+    td[data-column]::before {
+    content: attr(data-label);
+    margin: 0;
+  }
+  .workspace-shell .list-workspace .gw-state {
+    min-height: 180px;
+  }
+}
+
+@media (max-width: 860px) {
+  .workspace-shell .list-workspace .gw-route-tabs {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0;
+    padding-inline: 8px;
+  }
+  .workspace-shell .list-workspace .gw-route-tabs > a {
+    flex: none;
+    flex-direction: column;
+    justify-content: center;
+    gap: 5px;
+    padding: 10px 2px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+}

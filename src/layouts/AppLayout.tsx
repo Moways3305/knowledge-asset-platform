@@ -1,29 +1,18 @@
 import { Suspense, useEffect, useState } from "react";
-import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import { Link, Outlet, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
   LibraryBig,
-  UserRound,
-  FileCheck2,
   ShieldCheck,
   FolderKanban,
-  SlidersHorizontal,
-  Inbox,
-  ScanLine,
-  Cpu,
-  ScrollText,
-  ShieldAlert,
-  BellRing,
-  KeySquare,
-  Users,
-  BookType,
+  Settings2,
   LifeBuoy,
-  LogOut,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
-  X,
-  type LucideIcon,
+  ChevronRight,
+  ArrowLeft,
+  UserRound,
 } from "lucide-react";
 import IdentityMenu from "../components/IdentityMenu";
 import NotificationBell from "../components/NotificationBell";
@@ -31,12 +20,23 @@ import ReleaseNotesLink from "../components/ReleaseNotesLink";
 import GlobalTaskStatus from "../components/GlobalTaskStatus";
 import ErrorBoundary from "../components/ErrorBoundary";
 import LoadingError from "../components/LoadingError";
+import DetailDrawer from "../components/DetailDrawer";
+import ModuleNavigation from "../components/ModuleNavigation";
+import { ActionMenu } from "../components/ActionLayout";
 import { AuthProvider, useAuth } from "../auth/AuthContext";
 import LoginGate from "../auth/LoginGate";
-import { logout } from "../api/auth";
-import { can, type Capability, type Capabilities } from "../auth/permissions";
-import { SafeNavigationProvider } from "../routing/SafeNavigation";
+import { can } from "../auth/permissions";
+import { HistoryBackButton, SafeNavigationProvider } from "../routing/SafeNavigation";
 import { WorkbenchProvider } from "../workbench/WorkbenchContext";
+import {
+  approvalEntries,
+  knowledgeEntries,
+  managementEntries,
+  permittedEntries,
+  workspaceForPath,
+  workspaceLabels,
+  pageTitle,
+} from "../navigation/workspaces";
 import "./AppLayout.css";
 import "../styles/workbench.css";
 import "../styles/workbench-home-admin.css";
@@ -45,340 +45,142 @@ import "../styles/people-permissions-governance.css";
 import "../styles/help-global-experience.css";
 import "../styles/experience-system.css";
 import "../styles/admin-console.css";
+import "../styles/refined-workspaces.css";
+import "../styles/knowledge-workspaces.css";
+import "../styles/workspace-rollout.css";
+import "../styles/workspace-content.css";
+import "../styles/workspace-shell.css";
+import "../styles/product-workspaces.css";
+import "../styles/admin-management.css";
 
-// 每个导航项带一个能力谓词 `cap`，与页面级守卫（RouteGuard）共用 `can` 判定，
-// 保证「看得到的入口 = 进得去的页面」。无权入口直接不渲染，而非渲染后再报错。
-type NavItem = { to: string; label: string; icon: LucideIcon; end?: boolean; cap: Capability };
-type NavGroup = { label: string; items: NavItem[] };
-
-const navGroups: NavGroup[] = [
-  {
-    label: "今日工作",
-    items: [
-      {
-        to: "/",
-        label: "今日工作台",
-        icon: LayoutDashboard,
-        end: true,
-        cap: can.viewHome,
-      },
-      { to: "/upload", label: "上传文件", icon: FileCheck2, cap: can.viewUpload },
-      { to: "/review", label: "升级审核", icon: ShieldCheck, cap: can.viewReview },
-      {
-        to: "/original-access",
-        label: "原文访问审批",
-        icon: ScrollText,
-        cap: can.viewOriginalAccess,
-      },
-    ],
-  },
-  {
-    label: "知识资产",
-    items: [
-      {
-        to: "/knowledge",
-        label: "知识资产库",
-        icon: LibraryBig,
-        end: true,
-        cap: can.viewKnowledge,
-      },
-      { to: "/my/knowledge", label: "个人知识", icon: UserRound, cap: can.viewMyKnowledge },
-      { to: "/knowledge-maintenance", label: "知识维护", icon: LibraryBig, cap: can.viewKnowledge },
-    ],
-  },
-  {
-    label: "项目协作",
-    items: [
-      {
-        to: "/project/:projectId",
-        label: "项目空间",
-        icon: FolderKanban,
-        end: true,
-        cap: can.viewProject,
-      },
-      {
-        to: "/project/:projectId/knowledge",
-        label: "项目知识库",
-        icon: LibraryBig,
-        cap: can.viewProject,
-      },
-      {
-        to: "/project/:projectId/settings",
-        label: "项目设置",
-        icon: SlidersHorizontal,
-        cap: can.viewProject,
-      },
-    ],
-  },
-  {
-    label: "运行与接入",
-    items: [
-      { to: "/admin/ingest", label: "入库管理", icon: Inbox, cap: can.viewIngestAdmin },
-      {
-        to: "/admin/release-notes",
-        label: "版本日志管理",
-        icon: ScrollText,
-        cap: can.manageReleaseNotes,
-      },
-      { to: "/admin/wecom-scan", label: "微盘扫描", icon: ScanLine, cap: can.viewWecomScan },
-      { to: "/admin/weknora-models", label: "模型配置", icon: Cpu, cap: can.viewModels },
-    ],
-  },
-  {
-    label: "安全与治理",
-    items: [
-      { to: "/admin/audit", label: "审计日志", icon: ScrollText, cap: can.viewAudit },
-      {
-        to: "/admin/auth-security",
-        label: "登录风控",
-        icon: ShieldAlert,
-        cap: can.viewAuthSecurity,
-      },
-      { to: "/admin/alert-settings", label: "告警设置", icon: BellRing, cap: can.viewAlerts },
-      { to: "/admin/permissions", label: "权限规则", icon: KeySquare, cap: can.viewPermissions },
-    ],
-  },
-  {
-    label: "组织与知识治理",
-    items: [
-      {
-        to: "/company-governance",
-        label: "公司库治理",
-        icon: LibraryBig,
-        cap: can.viewCompanyKnowledge,
-      },
-      { to: "/admin/people", label: "人员权限", icon: Users, cap: can.viewPeople },
-      { to: "/admin/naming-rules", label: "目录治理", icon: BookType, cap: can.viewNamingRules },
-      {
-        to: "/admin/company-kb",
-        label: "公司知识库",
-        icon: LibraryBig,
-        cap: can.viewCompanyKnowledge,
-      },
-    ],
-  },
-];
-
-const moduleTitles: Array<[prefix: string, title: string]> = [
-  ["/knowledge-maintenance", "知识维护"],
-  ["/company-governance", "公司库治理"],
-  ["/project/", "项目空间"],
-  ["/knowledge", "知识资产库"],
-  ["/my/knowledge", "个人知识"],
-  ["/my/workbuddy", "MCP 接入"],
-  ["/upload", "上传文件"],
-  ["/review", "升级审核"],
-  ["/original-access", "原文访问"],
-  ["/admin/ingest", "入库管理"],
-  ["/admin/wecom-scan", "微盘扫描"],
-  ["/admin/weknora-models", "模型配置"],
-  ["/admin/audit", "审计日志"],
-  ["/admin/auth-security", "登录风控"],
-  ["/admin/alert-settings", "告警设置"],
-  ["/admin/permissions", "权限规则"],
-  ["/admin/people", "人员权限"],
-  ["/admin/naming-rules", "目录治理"],
-  ["/admin/company-kb", "公司知识库"],
-  ["/help", "帮助"],
-  ["/admin/release-notes", "版本日志管理"],
-  ["/release-notes", "更新日志"],
-  ["/", "今日工作台"],
-];
-
-function currentModuleTitle(pathname: string): string {
-  if (/^\/project\/[^/]+\/settings(?:\/|$)/.test(pathname)) return "项目设置";
-  if (/^\/project\/[^/]+\/knowledge(?:\/|$)/.test(pathname)) return "项目知识库";
-  return (
-    moduleTitles.find(([prefix]) =>
-      prefix === "/" ? pathname === "/" : pathname.startsWith(prefix),
-    )?.[1] ?? "知识资产工作台"
-  );
-}
-
-function RailLink({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
-  const Icon = item.icon;
-  return (
-    <li>
-      <NavLink
-        to={item.to}
-        end={item.end}
-        className={({ isActive }) => (isActive ? "active" : "")}
-        aria-label={item.label}
-        title={collapsed ? item.label : undefined}
-      >
-        <Icon size={18} className="rail-icon" strokeWidth={1.8} aria-hidden="true" />
-        <span className="rail-label">{item.label}</span>
-      </NavLink>
-    </li>
-  );
-}
-
-function RailNav({
-  capabilities,
-  projectId,
-  collapsed,
-}: {
-  capabilities: Capabilities;
-  projectId?: string;
-  collapsed: boolean;
-}) {
-  // 按能力过滤：隐藏当前身份无意义的入口，并丢弃过滤后变空的分组（不留空标题）。
-  const groups = navGroups
-    .map((group) => ({
-      ...group,
-      items: group.items
-        .filter((item) => item.cap(capabilities) && (!item.to.includes(":projectId") || projectId))
-        .map((item) => ({
-          ...item,
-          to: projectId ? item.to.replace(":projectId", projectId) : item.to,
-        })),
-    }))
-    .filter((group) => group.items.length > 0);
-  return (
-    <nav className="rail-nav" id="primary-navigation" aria-label="主导航">
-      {groups.map((group) => (
-        <div key={group.label} className="rail-group">
-          <div className="rail-group-label">{group.label}</div>
-          <ul>
-            {group.items.map((item) => (
-              <RailLink key={item.to} item={item} collapsed={collapsed} />
-            ))}
-          </ul>
-        </div>
-      ))}
-    </nav>
-  );
-}
+const mobileLabels: Record<string, string> = {
+  work: "工作",
+  knowledge: "知识",
+  project: "项目",
+  approval: "审批",
+};
 
 function AppShell() {
-  const { authMe, capabilities, reload } = useAuth();
+  const { authMe, capabilities } = useAuth();
   const location = useLocation();
-  const firstProjectId = authMe?.projects[0]?.projectId;
-  // 项目入口跟随当前 URL 中的项目；未进入项目页时回退到第一个项目。
-  const urlProjectId = (() => {
-    const match = location.pathname.match(/^\/project\/([0-9a-f-]{36})(?:\/|$)/i);
-    return match ? match[1] : null;
-  })();
-  const projectId = urlProjectId ?? firstProjectId;
+  const workspace = workspaceForPath(location.pathname);
+  const projectPath = "/projects";
+  const managers = permittedEntries(managementEntries, capabilities);
   const [railCollapsed, setRailCollapsed] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [logoutBusy, setLogoutBusy] = useState(false);
-  const [logoutError, setLogoutError] = useState<string | null>(null);
+  const focusLayout =
+    /^\/knowledge\/[^/]+/.test(location.pathname) ||
+    location.pathname === "/upload" ||
+    (workspace === "project" && new URLSearchParams(location.search).get("view") === "qa");
 
-  // Desktop collapse must not leak into the tablet rail or the mobile drawer.
   useEffect(() => {
-    const syncNavigationMode = () => {
+    const sync = () => {
       if (window.innerWidth <= 860) setRailCollapsed(false);
-      if (window.innerWidth > 700) setMobileNavOpen(false);
+      if (window.innerWidth > 860) setMobileNavOpen(false);
     };
-    syncNavigationMode();
-    window.addEventListener("resize", syncNavigationMode);
-    return () => window.removeEventListener("resize", syncNavigationMode);
+    sync();
+    window.addEventListener("resize", sync);
+    return () => window.removeEventListener("resize", sync);
   }, []);
-
-  // 路由变化时自动收起手机抽屉，避免导航后抽屉遮住内容。
   useEffect(() => {
     setMobileNavOpen(false);
-  }, [location.pathname]);
+  }, [location.pathname, location.search, authMe?.activeCompanyRole]);
 
-  // 抽屉打开时：Esc 关闭 + 锁定背景滚动。
-  useEffect(() => {
-    if (!mobileNavOpen) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMobileNavOpen(false);
-    };
-    document.addEventListener("keydown", onKey);
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [mobileNavOpen]);
-
-  const handleLogout = async () => {
-    setLogoutBusy(true);
-    setLogoutError(null);
-    try {
-      await logout();
-      await reload();
-    } catch {
-      setLogoutError("退出失败，请重试");
-    } finally {
-      setLogoutBusy(false);
-    }
-  };
+  const primary = [
+    {
+      key: "work",
+      to: "/",
+      label: "工作台",
+      icon: LayoutDashboard,
+      allowed: can.viewHome(capabilities),
+    },
+    {
+      key: "knowledge",
+      to: "/knowledge",
+      label: "知识库",
+      icon: LibraryBig,
+      allowed: can.viewKnowledge(capabilities),
+    },
+    {
+      key: "project",
+      to: projectPath,
+      label: "项目空间",
+      icon: FolderKanban,
+      allowed: can.viewProject(capabilities),
+    },
+    {
+      key: "approval",
+      to: can.viewReview(capabilities) ? "/review" : "/original-access",
+      label: "审批中心",
+      icon: ShieldCheck,
+      allowed: can.viewReview(capabilities) || can.viewOriginalAccess(capabilities),
+    },
+    {
+      key: "admin",
+      to: managers[0]?.to ?? "/",
+      label: "管理中心",
+      icon: Settings2,
+      allowed: managers.length > 0,
+    },
+  ].filter((item) => item.allowed);
+  const workspaceHome = primary.find((item) => item.key === workspace)?.to ?? "/";
   return (
     <div
-      className={`app-layout ${railCollapsed ? "is-rail-collapsed" : ""} ${
-        mobileNavOpen ? "is-mobile-nav-open" : ""
-      }`}
+      className={`app-layout refined-shell is-refined-workspace workspace-shell ${railCollapsed ? "is-rail-collapsed" : ""} ${mobileNavOpen ? "is-mobile-nav-open" : ""} ${focusLayout ? "is-focused-workspace" : ""}`}
+      data-workspace={workspace}
     >
-      {mobileNavOpen && (
-        <div className="rail-backdrop" onClick={() => setMobileNavOpen(false)} aria-hidden="true" />
-      )}
       <aside className="rail" aria-label="产品导航">
         <div className="rail-brand">
           <div className="rail-brand-row">
-            <span className="rail-mark">
+            <Link to="/" className="rail-mark">
               <img src="/moways-logo.png" alt="MOWAYS 博维咨询" width={984} height={327} />
-            </span>
+            </Link>
             <button
-              type="button"
               className="rail-collapse"
-              onClick={() => setRailCollapsed((value) => !value)}
+              type="button"
+              onClick={() => setRailCollapsed((v) => !v)}
               aria-label={railCollapsed ? "展开主导航" : "折叠主导航"}
               aria-expanded={!railCollapsed}
               aria-controls="primary-navigation"
               title={railCollapsed ? "展开主导航" : "折叠主导航"}
             >
-              {railCollapsed ? (
-                <PanelLeftOpen size={18} aria-hidden="true" />
-              ) : (
-                <PanelLeftClose size={18} aria-hidden="true" />
-              )}
+              {railCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
             </button>
           </div>
           <span className="rail-sub">博维知识资产平台</span>
         </div>
-        <RailNav capabilities={capabilities} projectId={projectId} collapsed={railCollapsed} />
+        <nav className="rail-nav" id="primary-navigation" aria-label="主导航">
+          <ul>
+            {primary.map(({ key, to, label, icon: Icon }) => (
+              <li key={key} className="primary-module-item">
+                <Link
+                  to={to}
+                  aria-label={label}
+                  title={railCollapsed ? label : undefined}
+                  aria-current={workspace === key ? "page" : undefined}
+                  className={workspace === key ? "active" : ""}
+                >
+                  <Icon size={18} className="rail-icon" aria-hidden="true" />
+                  <span className="rail-label">{label}</span>
+                </Link>
+                {key === "admin" && <ModuleNavigation rail />}
+              </li>
+            ))}
+          </ul>
+        </nav>
         <div className="rail-foot">
-          <ReleaseNotesLink />
-          {can.viewHelp(capabilities) && (
-            <Link
-              to="/help"
-              className="rail-foot-link"
-              aria-label="帮助"
-              title={railCollapsed ? "帮助" : undefined}
-            >
-              <LifeBuoy size={18} aria-hidden="true" />
-              <span className="rail-foot-label">帮助</span>
+          <ActionMenu label="帮助与更新" ariaLabel="帮助与更新">
+            <Link to="/help">
+              <LifeBuoy size={16} aria-hidden="true" />
+              帮助
             </Link>
-          )}
-          {authMe && (
-            <button
-              type="button"
-              className="rail-foot-link rail-foot-action"
-              aria-label="退出登录"
-              title={railCollapsed ? "退出登录" : undefined}
-              disabled={logoutBusy}
-              onClick={() => void handleLogout()}
-            >
-              <LogOut size={18} aria-hidden="true" />
-              <span className="rail-foot-label">{logoutBusy ? "退出中…" : "退出登录"}</span>
-            </button>
-          )}
-          {logoutError && (
-            <span className="rail-foot-error" role="alert">
-              {logoutError}
-            </span>
-          )}
+            <ReleaseNotesLink />
+          </ActionMenu>
           <div className="rail-identity">
             <IdentityMenu />
           </div>
         </div>
       </aside>
-
       <div className="app-main">
         <header className="deck">
           <button
@@ -386,19 +188,43 @@ function AppShell() {
             className="deck-mobile-menu"
             aria-label={mobileNavOpen ? "关闭导航" : "打开导航"}
             aria-expanded={mobileNavOpen}
-            aria-controls="primary-navigation"
-            onClick={() => setMobileNavOpen((value) => !value)}
+            onClick={() => setMobileNavOpen((v) => !v)}
           >
-            {mobileNavOpen ? (
-              <X size={18} aria-hidden="true" />
-            ) : (
-              <Menu size={18} aria-hidden="true" />
-            )}
+            <Menu size={18} aria-hidden="true" />
           </button>
-          <div className="deck-context">
-            <span className="deck-eyebrow">博维知识资产平台</span>
-            <strong className="deck-title">{currentModuleTitle(location.pathname)}</strong>
-          </div>
+          <Link to="/" className="deck-brand-link">
+            <img
+              className="deck-brand-logo"
+              src="/moways-logo.png"
+              alt="MOWAYS 博维咨询"
+              width={984}
+              height={327}
+            />
+          </Link>
+          {location.pathname !== "/" && (
+            <HistoryBackButton
+              fallback={workspaceHome}
+              className="deck-back"
+              aria-label="返回上一页"
+              title="返回上一页"
+            >
+              <ArrowLeft size={18} aria-hidden="true" />
+            </HistoryBackButton>
+          )}
+          <nav className="deck-context" aria-label="当前位置">
+            <span className="deck-eyebrow">
+              <Link to={workspaceHome} aria-label={`进入${workspaceLabels[workspace]}`}>
+                {workspaceLabels[workspace]}
+              </Link>
+              <ChevronRight size={13} aria-hidden="true" />
+            </span>
+            <strong className="deck-title" aria-current="page">
+              {/^\/project\/[^/]+\/?$/.test(location.pathname) &&
+              new URLSearchParams(location.search).get("view") === "qa"
+                ? "项目问答"
+                : pageTitle(location.pathname)}
+            </strong>
+          </nav>
           {authMe && (
             <div className="deck-actions">
               <GlobalTaskStatus />
@@ -407,21 +233,89 @@ function AppShell() {
           )}
         </header>
         <main className="app-content">
-          {/* 内容区兜底：页面 chunk 加载时显示 loading；某个页面渲染崩溃时只在此处显示
-              错误卡片，左侧导航与顶栏不受影响（外层 App 还有一道全局 ErrorBoundary）。 */}
           <ErrorBoundary>
             <Suspense fallback={<LoadingError loading />}>
               <Outlet />
             </Suspense>
           </ErrorBoundary>
         </main>
+        <nav className="mobile-workspace-nav" aria-label="手机快捷导航">
+          {primary
+            .filter((item) => item.key !== "admin")
+            .map(({ key, to, label, icon: Icon }) => (
+              <Link
+                key={key}
+                to={to}
+                aria-current={workspace === key ? "page" : undefined}
+                className={workspace === key ? "active" : ""}
+                aria-label={`底部${label}`}
+              >
+                <Icon size={20} aria-hidden="true" />
+                <span>{mobileLabels[key] ?? label}</span>
+              </Link>
+            ))}
+          <button
+            type="button"
+            aria-label="打开我的与全部功能"
+            aria-expanded={mobileNavOpen}
+            onClick={() => setMobileNavOpen((v) => !v)}
+          >
+            <UserRound size={20} aria-hidden="true" />
+            <span>我的</span>
+          </button>
+        </nav>
       </div>
+      <DetailDrawer
+        portal
+        open={mobileNavOpen}
+        title="我的"
+        onClose={() => setMobileNavOpen(false)}
+        className="mobile-account-drawer"
+      >
+        <IdentityMenu />
+        <nav className="account-navigation" aria-label="全部功能">
+          {can.viewProject(capabilities) && (
+            <Link to={projectPath} onClick={() => setMobileNavOpen(false)}>
+              <FolderKanban size={17} aria-hidden="true" />
+              我的项目
+            </Link>
+          )}
+          {[
+            ...permittedEntries(knowledgeEntries, capabilities),
+            ...permittedEntries(approvalEntries, capabilities),
+          ].map((entry) => (
+            <Link key={entry.to} to={entry.to}>
+              {entry.label}
+              <ChevronRight size={15} aria-hidden="true" />
+            </Link>
+          ))}
+          {can.viewWorkbuddy(capabilities) && (
+            <Link to="/my/workbuddy">
+              个人工具接入
+              <ChevronRight size={15} aria-hidden="true" />
+            </Link>
+          )}
+          {managers.length > 0 && (
+            <>
+              <h3>管理中心</h3>
+              {managers.map((entry) => (
+                <Link key={entry.to} to={entry.to}>
+                  {entry.label}
+                  <ChevronRight size={15} aria-hidden="true" />
+                </Link>
+              ))}
+            </>
+          )}
+          <h3>帮助与更新</h3>
+          <Link to="/help">帮助中心</Link>
+          <ReleaseNotesLink />
+        </nav>
+      </DetailDrawer>
     </div>
   );
 }
 
 export default function AppLayout() {
-  // AuthProvider 包裹整个外壳：导航过滤、身份菜单、页面守卫共享同一份 /auth/me。
   return (
     <AuthProvider>
       <LoginGate>

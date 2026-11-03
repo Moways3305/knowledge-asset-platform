@@ -24,7 +24,7 @@ export interface TrustState {
   maintainers: { id: string; name: string }[];
 }
 
-const path = (id: string) => `/api/v1/knowledge/${encodeURIComponent(id)}/trust`;
+const path = (id: string) => `/api/v1/knowledge/${encodeURIComponent(id)}/trust` as const;
 export async function fetchTrust(id: string): Promise<TrustState> {
   const state = await apiGet<TrustState>(path(id));
   if (

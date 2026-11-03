@@ -142,6 +142,10 @@
   overscroll-behavior: contain;
 }
 
+.detail-drawer-body {
+  flex: 1;
+}
+
 .task-modal-footer,
 .detail-drawer-footer {
   display: flex;

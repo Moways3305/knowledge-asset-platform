@@ -26,7 +26,7 @@ export function fetchNotifications(
   if (params.unreadOnly) query.set("unread_only", "true");
   if (params.actionRequired != null) query.set("action_required", String(params.actionRequired));
   const suffix = query.toString();
-  return apiGet(`/api/v1/notifications${suffix ? `?${suffix}` : ""}`, signal);
+  return apiGet(suffix ? `/api/v1/notifications?${suffix}` : "/api/v1/notifications", signal);
 }
 
 export function fetchNotificationUnreadCount(): Promise<UnreadCountResponseDTO> {

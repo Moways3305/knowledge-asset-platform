@@ -161,7 +161,7 @@ describe("administrator release workflow", () => {
       list([{ ...note, published_at: "2026-09-20T02:00:00Z", is_unread: true }], 20),
     );
     mount(<ReleaseNotesPage />);
-    expect(await screen.findByText("上传体验优化")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "上传体验优化" })).toBeInTheDocument();
     await waitFor(() => expect(api.readReleaseNotes).toHaveBeenCalledWith(["one"]));
     expect(screen.getByText("v0.9.0")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "管理日志" })).not.toBeInTheDocument();
@@ -178,6 +178,6 @@ describe("administrator release workflow", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("暂时无法加载");
     expect(api.readReleaseNotes).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
-    expect(await screen.findByText("上传体验优化")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "上传体验优化" })).toBeInTheDocument();
   });
 });

@@ -1,15 +1,8 @@
+import ProjectModuleFrame from "../components/ProjectModuleFrame";
 import ProjectWorkspaceNav from "../components/ProjectWorkspaceNav";
-import TaskModal from "../components/TaskModal";
 import { ActionMenu } from "../components/ActionLayout";
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type FormEvent,
-  type KeyboardEvent,
-} from "react";
-import { FileText, Search } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { FileText, Search, Upload } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   bulkDeleteKnowledgeAssets,
@@ -17,7 +10,6 @@ import {
   fetchKnowledgePage,
 } from "../api/knowledge";
 import { ControlledBulkRequestError } from "../api/bulk";
-import { fetchProjectQaModelOptions, projectQa } from "../api/project";
 import { preflightAssetization, registerAssetEvidence, submitAssetization } from "../api/review";
 import { useAuth } from "../auth/AuthContext";
 import DataTable, { type Column } from "../components/DataTable";
@@ -38,7 +30,6 @@ import {
 } from "../components/ProductLayout";
 import StatusBadge from "../components/StatusBadge";
 import PagePagination from "../components/PagePagination";
-import type { ProjectQaModelOptionDTO, ProjectQaResponseDTO } from "../types/agent";
 import type { AssetizationPreflightItemDTO, EvidenceInputDTO } from "../types/review";
 import type {
   AssetStatus,
@@ -137,18 +128,6 @@ function ProjectKnowledgeWorkspace({
   const [listRetryKey, setListRetryKey] = useState(0);
   const listRequestRef = useRef(0);
 
-  const [qaOpen, setQaOpen] = useState(false);
-  const [models, setModels] = useState<ProjectQaModelOptionDTO[]>([]);
-  const [selectedModelIndex, setSelectedModelIndex] = useState("");
-  const [modelsState, setModelsState] = useState<"idle" | "loading" | "ready" | "error">("idle");
-  const [modelsRetryKey, setModelsRetryKey] = useState(0);
-  const modelRequestRef = useRef(0);
-  const [qaInput, setQaInput] = useState("");
-  const [qaQuestion, setQaQuestion] = useState("");
-  const [qaResult, setQaResult] = useState<ProjectQaResponseDTO | null>(null);
-  const [qaState, setQaState] = useState<"idle" | "loading" | "error">("idle");
-  const qaRequestRef = useRef(0);
-
   const [upgradeAsset, setUpgradeAsset] = useState<KnowledgeCardVM | null>(null);
   const [upgradeNotice, setUpgradeNotice] = useState<{
     tone: "success" | "error";
@@ -241,42 +220,13 @@ function ProjectKnowledgeWorkspace({
     zone,
   ]);
 
-  useEffect(() => {
-    if (!qaOpen) return;
-    const requestId = ++modelRequestRef.current;
-    let active = true;
-    setModelsState("loading");
-    void fetchProjectQaModelOptions(project.projectId)
-      .then((response) => {
-        if (!active || requestId !== modelRequestRef.current) return;
-        setModels(response.items);
-        const defaultIndex = response.items.findIndex((item) => item.is_default);
-        setSelectedModelIndex(
-          response.items.length === 0 ? "" : String(defaultIndex >= 0 ? defaultIndex : 0),
-        );
-        setModelsState("ready");
-      })
-      .catch(() => {
-        if (!active || requestId !== modelRequestRef.current) return;
-        setModels([]);
-        setSelectedModelIndex("");
-        setModelsState("error");
-      });
-    return () => {
-      active = false;
-    };
-  }, [modelsRetryKey, project.projectId, qaOpen]);
-
   useEffect(
     () => () => {
       listRequestRef.current += 1;
-      modelRequestRef.current += 1;
-      qaRequestRef.current += 1;
     },
     [],
   );
 
-  const selectedModel = models[Number(selectedModelIndex)];
   const hasActiveFilters = Boolean(
     keyword ||
     zone ||
@@ -307,35 +257,6 @@ function ProjectKnowledgeWorkspace({
     event.preventDefault();
     setKeyword(keywordInput.trim());
     setPage(1);
-  };
-
-  const askQuestion = async () => {
-    const question = qaInput.trim();
-    if (!question || !selectedModel || qaState === "loading") return;
-    const requestId = ++qaRequestRef.current;
-    setQaQuestion(question);
-    setQaResult(null);
-    setQaState("loading");
-    try {
-      const response = await projectQa(project.projectId, {
-        query: question,
-        modelRef: selectedModel.model_ref,
-      });
-      if (requestId !== qaRequestRef.current) return;
-      setQaResult(response);
-      setQaState("idle");
-    } catch {
-      if (requestId !== qaRequestRef.current) return;
-      setQaResult(null);
-      setQaState("error");
-    }
-  };
-
-  const handleQaKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-      event.preventDefault();
-      void askQuestion();
-    }
   };
 
   const openUpgrade = useCallback(
@@ -655,7 +576,16 @@ function ProjectKnowledgeWorkspace({
           asset.assetStatus !== "archived";
         return (
           <div className="pk-row-actions">
-            <Link to={`/knowledge/${encodeURIComponent(asset.id)}`}>查看详情</Link>
+            <Link
+              to={`/knowledge/${encodeURIComponent(asset.id)}`}
+              state={{
+                backTo: `/project/${project.projectId}/knowledge`,
+                backLabel: "返回项目知识库",
+                source: "project",
+              }}
+            >
+              查看详情
+            </Link>
             {
               <ActionMenu label="更多操作" ariaLabel={`更多操作：${asset.title}`}>
                 {!publication.eligible && <p>{publication.reason}</p>}
@@ -692,604 +622,506 @@ function ProjectKnowledgeWorkspace({
   const initialLoading = loading && !hasLoaded;
 
   return (
-    <ProductPage className="pk-page">
-      <PageHeader
-        title="项目知识库"
-        description={project.projectName}
-        actions={
-          <div className="pk-header-actions">
-            {project.projectRole === "project_manager" && (
-              <CreateKnowledgeDirectoryButton scope="project" projectId={project.projectId} />
-            )}
-            <HistoryBackButton
-              className="product-button is-secondary is-small"
-              fallback={`/project/${project.projectId}`}
-            >
-              返回项目空间
-            </HistoryBackButton>
-            <label className="pk-project-switcher" htmlFor="pk-project-switcher-header">
-              <span>切换项目</span>
-              <select
-                id="pk-project-switcher-header"
-                value={project.projectId}
-                onChange={(event) => onSwitch(event.target.value)}
-              >
-                {projects.map((item) => (
-                  <option key={item.projectId} value={item.projectId}>
-                    {item.projectName}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-        }
-      />
-
-      <ProjectWorkspaceNav
-        projectId={project.projectId}
-        current="knowledge"
-        canManage={project.projectRole === "project_manager"}
-        onAsk={() => setQaOpen(true)}
-        askOpen={qaOpen}
-      />
-
-      <form className="pk-filter-form" onSubmit={submitKeyword}>
-        <FilterBar
-          ariaLabel="项目知识筛选"
+    <ProjectModuleFrame
+      navigation={
+        <ProjectWorkspaceNav
+          projectId={project.projectId}
+          current="knowledge"
+          canManage={project.projectRole === "project_manager"}
+        />
+      }
+    >
+      <ProductPage className="pk-page">
+        <PageHeader
+          title="项目知识库"
+          description={project.projectName}
           actions={
-            <>
-              <span className="pk-result-total">共 {result.total} 条</span>
-              <button className="product-button is-primary is-small" type="submit">
-                搜索
-              </button>
-              <button
-                className="product-button is-ghost is-small"
-                type="button"
-                disabled={!hasActiveFilters && !keywordInput}
-                onClick={resetFilters}
+            <div className="pk-header-actions">
+              <Link
+                className="product-button is-primary"
+                to={`/upload?source=local&project_id=${encodeURIComponent(project.projectId)}`}
               >
-                重置
-              </button>
-            </>
+                <Upload size={16} aria-hidden="true" />
+                上传资料
+              </Link>
+              {project.projectRole === "project_manager" && (
+                <CreateKnowledgeDirectoryButton scope="project" projectId={project.projectId} />
+              )}
+              <HistoryBackButton
+                className="product-button is-secondary is-small"
+                fallback={`/project/${project.projectId}`}
+              >
+                返回项目空间
+              </HistoryBackButton>
+              <label className="pk-project-switcher" htmlFor="pk-project-switcher-header">
+                <span>切换项目</span>
+                <select
+                  id="pk-project-switcher-header"
+                  value={project.projectId}
+                  onChange={(event) => onSwitch(event.target.value)}
+                >
+                  {projects.map((item) => (
+                    <option key={item.projectId} value={item.projectId}>
+                      {item.projectName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           }
-        >
-          <div className="pk-keyword-field">
-            <Search size={16} aria-hidden="true" />
-            <label className="sr-only" htmlFor="project-knowledge-keyword">
-              关键词
-            </label>
-            <input
-              id="project-knowledge-keyword"
-              value={keywordInput}
-              onChange={(event) => setKeywordInput(event.target.value)}
-              placeholder="按标题或标签搜索"
-            />
-          </div>
-          <label className="pk-select-field" htmlFor="pk-filter-zone">
-            <span className="sr-only">资料区域</span>
-            <select
-              id="pk-filter-zone"
-              aria-label="资料区域"
-              value={zone}
-              onChange={(event) => {
-                setZone(event.target.value as KnowledgeZone | "");
-                setPage(1);
-              }}
-            >
-              <option value="">区域：全部</option>
-              <option value="material">区域：资料区</option>
-              <option value="asset">区域：资产区</option>
-            </select>
-          </label>
-          <label className="pk-select-field" htmlFor="pk-filter-status">
-            <span className="sr-only">资产状态</span>
-            <select
-              id="pk-filter-status"
-              aria-label="资产状态"
-              value={assetStatus}
-              onChange={(event) => {
-                setAssetStatus(event.target.value as AssetStatus | "");
-                setPage(1);
-              }}
-            >
-              <option value="">状态：全部</option>
-              {ASSET_STATUSES.map((value) => (
-                <option key={value} value={value}>
-                  状态：{assetStatusLabel[value]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="pk-select-field" htmlFor="pk-filter-confidentiality">
-            <span className="sr-only">保密级别</span>
-            <select
-              id="pk-filter-confidentiality"
-              aria-label="保密级别"
-              value={confidentialityLevel}
-              onChange={(event) => {
-                setConfidentialityLevel(event.target.value as ConfidentialityLevel | "");
-                setPage(1);
-              }}
-            >
-              <option value="">保密：全部</option>
-              {CONFIDENTIALITY_LEVELS.map((value) => (
-                <option key={value} value={value}>
-                  保密：{value}
-                </option>
-              ))}
-            </select>
-          </label>
-          <details className="pk-more-filters">
-            <summary>更多筛选</summary>
-            <div className="pk-more-filter-panel">
-              <label htmlFor="pk-filter-updated-from">
-                <span>更新开始</span>
-                <input
-                  id="pk-filter-updated-from"
-                  type="date"
-                  value={updatedFrom}
-                  onChange={(event) => {
-                    setUpdatedFrom(event.target.value);
-                    setPage(1);
-                  }}
-                />
-              </label>
-              <label htmlFor="pk-filter-updated-to">
-                <span>更新结束</span>
-                <input
-                  id="pk-filter-updated-to"
-                  type="date"
-                  value={updatedTo}
-                  onChange={(event) => {
-                    setUpdatedTo(event.target.value);
-                    setPage(1);
-                  }}
-                />
-              </label>
-              <label htmlFor="pk-filter-sort-by">
-                <span>排序字段</span>
-                <select
-                  id="pk-filter-sort-by"
-                  aria-label="排序字段"
-                  value={sortBy}
-                  onChange={(event) => {
-                    setSortBy(event.target.value as KnowledgeSortField);
-                    setPage(1);
-                  }}
-                >
-                  <option value="updated_at">最后更新</option>
-                  <option value="created_at">创建时间</option>
-                  <option value="title">标题</option>
-                  <option value="confidentiality_level">保密级别</option>
-                  <option value="asset_status">状态</option>
-                </select>
-              </label>
-              <label htmlFor="pk-filter-sort-direction">
-                <span>排序方向</span>
-                <select
-                  id="pk-filter-sort-direction"
-                  aria-label="排序方向"
-                  value={sortDirection}
-                  onChange={(event) => {
-                    setSortDirection(event.target.value as SortDirection);
-                    setPage(1);
-                  }}
-                >
-                  <option value="desc">降序</option>
-                  <option value="asc">升序</option>
-                </select>
-              </label>
-              <label className="pk-archive-toggle" htmlFor="pk-filter-include-archived">
-                <input
-                  id="pk-filter-include-archived"
-                  type="checkbox"
-                  checked={includeArchived}
-                  onChange={(event) => {
-                    setIncludeArchived(event.target.checked);
-                    setPage(1);
-                  }}
-                />
-                <span>包含归档</span>
-              </label>
-            </div>
-          </details>
-        </FilterBar>
-      </form>
+        />
 
-      <PageSection className="pk-list-section">
-        {listError ? (
-          <LoadingError
-            error={listError}
-            errorTitle="项目知识加载失败"
-            errorDescription="项目知识暂时无法加载，请稍后重试。"
-            onRetry={() => setListRetryKey((value) => value + 1)}
-          />
-        ) : (
-          <>
-            <div className="pk-table-status" role="status" aria-live="polite">
-              {loading && hasLoaded ? "正在更新列表…" : ""}
-            </div>
-            {upgradeNotice && (
-              <div className={`pk-upgrade-notice is-${upgradeNotice.tone}`} role="status">
-                {upgradeNotice.text}
-              </div>
-            )}
-            {deleteNotice && (
-              <div className={`pk-delete-notice is-${deleteNotice.tone}`} role="status">
-                {deleteNotice.text}
-              </div>
-            )}
-            <BulkSelectionRail
-              selectedCount={selectedAssets.length}
-              pageSelectedCount={selectedPageAssets.length}
-              matchingCount={matchingSelectableAssets?.length ?? selectedPageAssets.length}
-              allMatchingSelected={allMatchingSelected}
-              matchingPending={matchingSelectionLoading}
-              busy={bulkDeleteBusy || bulkAssetizeBusy}
-              onSelectAllMatching={
-                matchingSelectableAssets &&
-                matchingSelectableAssets.length > selectedPageAssets.length
-                  ? () => void selectAllMatching()
-                  : undefined
+        <div className="project-collection-workspace">
+          <form className="pk-filter-form" onSubmit={submitKeyword}>
+            <FilterBar
+              ariaLabel="项目知识筛选"
+              actions={
+                <>
+                  <span className="pk-result-total">共 {result.total} 条</span>
+                  <button className="product-button is-primary is-small" type="submit">
+                    搜索
+                  </button>
+                  <button
+                    className="product-button is-ghost is-small"
+                    type="button"
+                    disabled={!hasActiveFilters && !keywordInput}
+                    onClick={resetFilters}
+                  >
+                    重置
+                  </button>
+                </>
               }
-              onClear={() => {
-                setSelectedAssets([]);
-                setAllMatchingSelected(false);
-              }}
             >
-              {selectedMaterialAssets.length > 0 && (
-                <button
-                  className="product-button is-small"
-                  disabled={bulkAssetizeBusy || bulkDeleteBusy}
-                  onClick={() => void openAssetization()}
-                  type="button"
-                >
-                  发起资产化审核（{selectedMaterialAssets.length}）
-                </button>
-              )}
-              {selectedDeletableAssets.length > 0 && (
-                <button
-                  className="product-button is-danger is-small"
-                  disabled={bulkDeleteBusy || bulkAssetizeBusy}
-                  onClick={() => setBulkDeleteOpen(true)}
-                  type="button"
-                >
-                  批量删除（{selectedDeletableAssets.length}）
-                </button>
-              )}
-            </BulkSelectionRail>
-            <DataTable
-              columns={columns}
-              rows={result.items}
-              rowKey={(asset) => asset.id}
-              loading={initialLoading}
-              loadingText="正在加载项目知识…"
-              emptyText={
-                <EmptyState
-                  title={hasActiveFilters ? "当前条件没有匹配内容" : "该项目暂无知识"}
-                  description={
-                    hasActiveFilters
-                      ? "调整或清除筛选条件后重新查看。"
-                      : "当前项目可访问的知识会显示在这里。"
-                  }
-                  action={
-                    hasActiveFilters ? (
-                      <button
-                        className="product-button is-secondary is-small"
-                        type="button"
-                        onClick={resetFilters}
-                      >
-                        清除筛选
-                      </button>
-                    ) : undefined
-                  }
+              <div className="pk-keyword-field">
+                <Search size={16} aria-hidden="true" />
+                <label className="sr-only" htmlFor="project-knowledge-keyword">
+                  关键词
+                </label>
+                <input
+                  id="project-knowledge-keyword"
+                  value={keywordInput}
+                  onChange={(event) => setKeywordInput(event.target.value)}
+                  placeholder="按标题或标签搜索"
                 />
-              }
-              wrapClassName={`product-table-wrap pk-table-wrap ${loading ? "is-updating" : ""}`}
-              tableClassName="product-data-table pk-table"
-              ariaLabel="项目知识列表"
-            />
-            {hasLoaded && result.total > 0 && (
-              <PagePagination
-                className="pk-pagination"
-                ariaLabel="项目知识分页"
-                page={result.page}
-                totalPages={totalPages}
-                hasNext={result.hasNext}
-                disabled={loading}
-                onPageChange={setPage}
-                summary={
-                  <>
-                    显示 {firstItem}-{lastItem} 条，共 {result.total} 条
-                  </>
-                }
-              />
-            )}
-            {confirmDeleteId && (
-              <div
-                className="pk-delete-overlay"
-                role="dialog"
-                aria-modal="true"
-                aria-label="删除确认"
-              >
-                <div className="pk-delete-confirm">
-                  <p>
-                    确定要删除{" "}
-                    <strong>
-                      "{result.items.find((item) => item.id === confirmDeleteId)?.title ?? "该资产"}
-                      "
-                    </strong>{" "}
-                    吗？
-                  </p>
-                  <p className="pk-delete-hint">删除后将无法恢复，关联的知识引用也会失效。</p>
-                  <div className="pk-delete-actions">
-                    <button
-                      className="product-button is-secondary is-small"
-                      type="button"
-                      disabled={deleteBusyId === confirmDeleteId}
-                      onClick={() => setConfirmDeleteId(null)}
-                    >
-                      取消
-                    </button>
-                    <button
-                      className="product-button is-danger is-small"
-                      type="button"
-                      disabled={deleteBusyId === confirmDeleteId}
-                      onClick={() => void handleDelete(confirmDeleteId)}
-                    >
-                      {deleteBusyId === confirmDeleteId ? "删除中…" : "确认删除"}
-                    </button>
-                  </div>
-                </div>
               </div>
-            )}
-            <ConfirmDialog
-              open={bulkDeleteOpen}
-              title={`批量删除 ${selectedDeletableAssets.length} 项项目知识`}
-              description={`目标项目：${project.projectName}。删除后资料将退出列表、检索、问答与原文授权；服务端会逐项重新核验项目归属、成员权限、状态及引用/保留约束，变化项会安全跳过。`}
-              confirmText="确认批量删除"
-              danger
-              busy={bulkDeleteBusy}
-              onCancel={() => {
-                if (!bulkDeleteBusy) setBulkDeleteOpen(false);
-              }}
-              onConfirm={() => void handleBulkDelete()}
-            />
-            <ProjectCompanyPublicationDialog
-              projectId={project.projectId}
-              target={upgradeAsset}
-              onClose={() => setUpgradeAsset(null)}
-              onSubmitted={() => {
-                setUpgradeAsset(null);
-                setUpgradeNotice({ tone: "success", text: "已提交公司发布申请。" });
-              }}
-            />
-            <WizardModal
-              open={assetizationOpen}
-              title="发起资产化审核"
-              description="资料区转为资产区需要验证证据。证据只是支持内部分享或客户验证的治理线索，不代表平台已核验业务事实。"
-              steps={[
-                { label: "核对资料", description: "查看证据与资格" },
-                { label: "补充证据", description: "仅为缺失项登记" },
-                { label: "提交审核", description: "等待项目经理处理" },
-              ]}
-              currentStep={assetizationStep}
-              busy={bulkAssetizeBusy}
-              nextDisabled={
-                assetizationItems.length === 0 ||
-                (assetizationStep === 1 &&
-                  assetizationItems.some((item) => item.status === "evidence_missing") &&
-                  !evidenceDescription.trim())
-              }
-              completeDisabled={assetizationItems.every((item) => item.status === "ineligible")}
-              completeText="提交资产化审核"
-              onBack={() => setAssetizationStep((value) => Math.max(0, value - 1))}
-              onNext={() => setAssetizationStep((value) => Math.min(2, value + 1))}
-              onCancel={() => {
-                if (!bulkAssetizeBusy) setAssetizationOpen(false);
-              }}
-              onComplete={() => void completeAssetization()}
-            >
-              {assetizationError && (
-                <p className="pk-assetization-error" role="alert">
-                  {assetizationError}
-                </p>
-              )}
-              {assetizationStep === 0 && (
-                <div className="pk-assetization-review">
-                  <div className="pk-assetization-counts">
-                    <strong>
-                      {assetizationItems.filter((item) => item.status === "ready").length}
-                    </strong>
-                    <span>已有证据</span>
-                    <strong>
-                      {
-                        assetizationItems.filter((item) => item.status === "evidence_missing")
-                          .length
-                      }
-                    </strong>
-                    <span>缺少证据</span>
-                    <strong>
-                      {assetizationItems.filter((item) => item.status === "ineligible").length}
-                    </strong>
-                    <span>不可发起</span>
-                  </div>
-                  <ul>
-                    {assetizationItems.map((item) => (
-                      <li key={item.item_id}>
-                        <strong>{item.title}</strong>
-                        <span>{item.message}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {assetizationStep === 1 && (
-                <div className="pk-assetization-form">
-                  <p>以下登记仅绑定到本次选择中缺少证据的资料；已有证据项不会重复创建。</p>
-                  <label>
-                    <span>证据类型</span>
-                    <select
-                      value={evidenceType}
-                      onChange={(event) =>
-                        setEvidenceType(event.target.value as EvidenceInputDTO["evidence_type"])
-                      }
-                    >
-                      <option value="internal_sharing">内部分享</option>
-                      <option value="client_validation">客户验证</option>
-                    </select>
-                  </label>
-                  <label>
-                    <span>证据类别</span>
-                    <select
-                      value={evidenceCategory}
-                      onChange={(event) =>
-                        setEvidenceCategory(
-                          event.target.value as EvidenceInputDTO["evidence_category"],
-                        )
-                      }
-                    >
-                      <option value="meeting_minutes">会议纪要</option>
-                      <option value="wecom_record">企业沟通记录</option>
-                      <option value="client_email">客户邮件</option>
-                      <option value="acceptance_doc">验收文件</option>
-                      <option value="delivery_adoption">交付采纳记录</option>
-                    </select>
-                  </label>
-                  <label>
-                    <span>适用说明</span>
-                    <textarea
-                      value={evidenceDescription}
-                      onChange={(event) => setEvidenceDescription(event.target.value)}
-                      placeholder="说明适用项目、场景和资料范围"
+              <label className="pk-select-field" htmlFor="pk-filter-zone">
+                <span className="sr-only">资料区域</span>
+                <select
+                  id="pk-filter-zone"
+                  aria-label="资料区域"
+                  value={zone}
+                  onChange={(event) => {
+                    setZone(event.target.value as KnowledgeZone | "");
+                    setPage(1);
+                  }}
+                >
+                  <option value="">区域：全部</option>
+                  <option value="material">区域：资料区</option>
+                  <option value="asset">区域：资产区</option>
+                </select>
+              </label>
+              <label className="pk-select-field" htmlFor="pk-filter-status">
+                <span className="sr-only">资产状态</span>
+                <select
+                  id="pk-filter-status"
+                  aria-label="资产状态"
+                  value={assetStatus}
+                  onChange={(event) => {
+                    setAssetStatus(event.target.value as AssetStatus | "");
+                    setPage(1);
+                  }}
+                >
+                  <option value="">状态：全部</option>
+                  {ASSET_STATUSES.map((value) => (
+                    <option key={value} value={value}>
+                      状态：{assetStatusLabel[value]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="pk-select-field" htmlFor="pk-filter-confidentiality">
+                <span className="sr-only">保密级别</span>
+                <select
+                  id="pk-filter-confidentiality"
+                  aria-label="保密级别"
+                  value={confidentialityLevel}
+                  onChange={(event) => {
+                    setConfidentialityLevel(event.target.value as ConfidentialityLevel | "");
+                    setPage(1);
+                  }}
+                >
+                  <option value="">保密：全部</option>
+                  {CONFIDENTIALITY_LEVELS.map((value) => (
+                    <option key={value} value={value}>
+                      保密：{value}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <details className="pk-more-filters">
+                <summary>更多筛选</summary>
+                <div className="pk-more-filter-panel">
+                  <label htmlFor="pk-filter-updated-from">
+                    <span>更新开始</span>
+                    <input
+                      id="pk-filter-updated-from"
+                      type="date"
+                      value={updatedFrom}
+                      onChange={(event) => {
+                        setUpdatedFrom(event.target.value);
+                        setPage(1);
+                      }}
                     />
                   </label>
-                </div>
-              )}
-              {assetizationStep === 2 && (
-                <div className="pk-assetization-summary">
-                  <strong>提交后状态是“待审核”，不是已完成资产化。</strong>
-                  <p>服务端会逐项复核项目归属、资料状态和证据。已有待办会复用，不会重复建单。</p>
-                </div>
-              )}
-            </WizardModal>
-          </>
-        )}
-      </PageSection>
-
-      <TaskModal
-        open={qaOpen}
-        onClose={() => setQaOpen(false)}
-        title="项目问答"
-        description={`基于${project.projectName}的当前可访问资料提问。`}
-        portal
-        size="large"
-      >
-        {qaOpen && (
-          <div className="pk-qa-body">
-            {modelsState === "error" ? (
-              <div className="pk-qa-state" role="status">
-                <span>问答模型暂时无法加载。</span>
-                <button
-                  className="product-button is-secondary is-small"
-                  type="button"
-                  onClick={() => {
-                    setModelsRetryKey((value) => value + 1);
-                  }}
-                >
-                  重试
-                </button>
-              </div>
-            ) : (
-              <>
-                <div className="pk-qa-controls">
-                  <label htmlFor="pk-qa-model">
-                    <span>问答模型</span>
+                  <label htmlFor="pk-filter-updated-to">
+                    <span>更新结束</span>
+                    <input
+                      id="pk-filter-updated-to"
+                      type="date"
+                      value={updatedTo}
+                      onChange={(event) => {
+                        setUpdatedTo(event.target.value);
+                        setPage(1);
+                      }}
+                    />
+                  </label>
+                  <label htmlFor="pk-filter-sort-by">
+                    <span>排序字段</span>
                     <select
-                      id="pk-qa-model"
-                      value={selectedModelIndex}
-                      onChange={(event) => setSelectedModelIndex(event.target.value)}
-                      disabled={modelsState === "loading" || models.length === 0}
+                      id="pk-filter-sort-by"
+                      aria-label="排序字段"
+                      value={sortBy}
+                      onChange={(event) => {
+                        setSortBy(event.target.value as KnowledgeSortField);
+                        setPage(1);
+                      }}
                     >
-                      {modelsState === "loading" && <option value="">正在加载…</option>}
-                      {modelsState === "ready" && models.length === 0 && (
-                        <option value="">暂无可用模型</option>
-                      )}
-                      {models.map((model, index) => (
-                        <option key={index} value={String(index)}>
-                          {model.display_name}
-                        </option>
-                      ))}
+                      <option value="updated_at">最后更新</option>
+                      <option value="created_at">创建时间</option>
+                      <option value="title">标题</option>
+                      <option value="confidentiality_level">保密级别</option>
+                      <option value="asset_status">状态</option>
                     </select>
                   </label>
-                  {modelsState === "ready" && models.length === 0 && (
-                    <span className="pk-qa-state">当前项目暂无可用问答模型。</span>
+                  <label htmlFor="pk-filter-sort-direction">
+                    <span>排序方向</span>
+                    <select
+                      id="pk-filter-sort-direction"
+                      aria-label="排序方向"
+                      value={sortDirection}
+                      onChange={(event) => {
+                        setSortDirection(event.target.value as SortDirection);
+                        setPage(1);
+                      }}
+                    >
+                      <option value="desc">降序</option>
+                      <option value="asc">升序</option>
+                    </select>
+                  </label>
+                  <label className="pk-archive-toggle" htmlFor="pk-filter-include-archived">
+                    <input
+                      id="pk-filter-include-archived"
+                      type="checkbox"
+                      checked={includeArchived}
+                      onChange={(event) => {
+                        setIncludeArchived(event.target.checked);
+                        setPage(1);
+                      }}
+                    />
+                    <span>包含归档</span>
+                  </label>
+                </div>
+              </details>
+            </FilterBar>
+          </form>
+
+          <PageSection className="pk-list-section">
+            {listError ? (
+              <LoadingError
+                error={listError}
+                errorTitle="项目知识加载失败"
+                errorDescription="项目知识暂时无法加载，请稍后重试。"
+                onRetry={() => setListRetryKey((value) => value + 1)}
+              />
+            ) : (
+              <>
+                <div className="pk-table-status" role="status" aria-live="polite">
+                  {loading && hasLoaded ? "正在更新列表…" : ""}
+                </div>
+                {upgradeNotice && (
+                  <div className={`pk-upgrade-notice is-${upgradeNotice.tone}`} role="status">
+                    {upgradeNotice.text}
+                  </div>
+                )}
+                {deleteNotice && (
+                  <div className={`pk-delete-notice is-${deleteNotice.tone}`} role="status">
+                    {deleteNotice.text}
+                  </div>
+                )}
+                <BulkSelectionRail
+                  selectedCount={selectedAssets.length}
+                  pageSelectedCount={selectedPageAssets.length}
+                  matchingCount={matchingSelectableAssets?.length ?? selectedPageAssets.length}
+                  allMatchingSelected={allMatchingSelected}
+                  matchingPending={matchingSelectionLoading}
+                  busy={bulkDeleteBusy || bulkAssetizeBusy}
+                  onSelectAllMatching={
+                    matchingSelectableAssets &&
+                    matchingSelectableAssets.length > selectedPageAssets.length
+                      ? () => void selectAllMatching()
+                      : undefined
+                  }
+                  onClear={() => {
+                    setSelectedAssets([]);
+                    setAllMatchingSelected(false);
+                  }}
+                >
+                  {selectedMaterialAssets.length > 0 && (
+                    <button
+                      className="product-button is-small"
+                      disabled={bulkAssetizeBusy || bulkDeleteBusy}
+                      onClick={() => void openAssetization()}
+                      type="button"
+                    >
+                      发起资产化审核（{selectedMaterialAssets.length}）
+                    </button>
                   )}
-                </div>
-                <textarea
-                  value={qaInput}
-                  onChange={(event) => setQaInput(event.target.value)}
-                  onKeyDown={handleQaKeyDown}
-                  placeholder="向当前项目知识提问…"
-                  disabled={modelsState !== "ready" || models.length === 0}
-                  rows={3}
+                  {selectedDeletableAssets.length > 0 && (
+                    <button
+                      className="product-button is-danger is-small"
+                      disabled={bulkDeleteBusy || bulkAssetizeBusy}
+                      onClick={() => setBulkDeleteOpen(true)}
+                      type="button"
+                    >
+                      批量删除（{selectedDeletableAssets.length}）
+                    </button>
+                  )}
+                </BulkSelectionRail>
+                <DataTable
+                  columns={columns}
+                  rows={result.items}
+                  rowKey={(asset) => asset.id}
+                  loading={initialLoading}
+                  loadingText="正在加载项目知识…"
+                  emptyText={
+                    <EmptyState
+                      title={hasActiveFilters ? "当前条件没有匹配内容" : "该项目暂无知识"}
+                      description={
+                        hasActiveFilters
+                          ? "调整或清除筛选条件后重新查看。"
+                          : "当前项目可访问的知识会显示在这里。"
+                      }
+                      action={
+                        hasActiveFilters ? (
+                          <button
+                            className="product-button is-secondary is-small"
+                            type="button"
+                            onClick={resetFilters}
+                          >
+                            清除筛选
+                          </button>
+                        ) : undefined
+                      }
+                    />
+                  }
+                  wrapClassName={`product-table-wrap pk-table-wrap ${loading ? "is-updating" : ""}`}
+                  tableClassName="product-data-table pk-table"
+                  ariaLabel="项目知识列表"
                 />
-                <div className="pk-qa-submit-row">
-                  <span>Ctrl / Command + Enter 发送</span>
-                  <button
-                    className="product-button is-primary is-small"
-                    type="button"
-                    disabled={!qaInput.trim() || !selectedModel || qaState === "loading"}
-                    onClick={() => void askQuestion()}
+                {hasLoaded && result.total > 0 && (
+                  <PagePagination
+                    className="pk-pagination"
+                    ariaLabel="项目知识分页"
+                    page={result.page}
+                    totalPages={totalPages}
+                    hasNext={result.hasNext}
+                    disabled={loading}
+                    onPageChange={setPage}
+                    summary={
+                      <>
+                        显示 {firstItem}-{lastItem} 条，共 {result.total} 条
+                      </>
+                    }
+                  />
+                )}
+                {confirmDeleteId && (
+                  <div
+                    className="pk-delete-overlay"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="删除确认"
                   >
-                    {qaState === "loading" ? "正在回答…" : "提问"}
-                  </button>
-                </div>
-                {qaState === "error" && (
-                  <div className="pk-qa-error" role="alert">
-                    问答暂时未完成，请稍后重试。
-                  </div>
-                )}
-                {qaQuestion && (qaResult || qaState === "loading") && (
-                  <div className="pk-conversation">
-                    <div className="pk-question">
-                      <span>你的问题</span>
-                      <p>{qaQuestion}</p>
-                    </div>
-                    {qaResult && (
-                      <div className="pk-answer">
-                        <span>
-                          {qaResult.answer_status === "insufficient_evidence"
-                            ? "依据不足"
-                            : "项目问答"}
-                        </span>
-                        <p>{qaResult.response_text}</p>
-                        {qaResult.citations.length > 0 && (
-                          <div className="pk-citations">
-                            <strong>引用</strong>
-                            {qaResult.citations.map((citation, index) => (
-                              <div
-                                key={`${citation.asset_title}-${citation.citation_order}-${index}`}
-                              >
-                                <Link to={`/knowledge/${encodeURIComponent(citation.asset_id)}`}>
-                                  [{citation.citation_order}] {citation.asset_title}
-                                </Link>
-                                <small>{safeZone(citation.cited_zone)}</small>
-                                {citation.is_pending_review && <em>内容待审核，请谨慎参考</em>}
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                    <div className="pk-delete-confirm">
+                      <p>
+                        确定要删除{" "}
+                        <strong>
+                          "
+                          {result.items.find((item) => item.id === confirmDeleteId)?.title ??
+                            "该资产"}
+                          "
+                        </strong>{" "}
+                        吗？
+                      </p>
+                      <p className="pk-delete-hint">删除后将无法恢复，关联的知识引用也会失效。</p>
+                      <div className="pk-delete-actions">
+                        <button
+                          className="product-button is-secondary is-small"
+                          type="button"
+                          disabled={deleteBusyId === confirmDeleteId}
+                          onClick={() => setConfirmDeleteId(null)}
+                        >
+                          取消
+                        </button>
+                        <button
+                          className="product-button is-danger is-small"
+                          type="button"
+                          disabled={deleteBusyId === confirmDeleteId}
+                          onClick={() => void handleDelete(confirmDeleteId)}
+                        >
+                          {deleteBusyId === confirmDeleteId ? "删除中…" : "确认删除"}
+                        </button>
                       </div>
-                    )}
+                    </div>
                   </div>
                 )}
+                <ConfirmDialog
+                  open={bulkDeleteOpen}
+                  title={`批量删除 ${selectedDeletableAssets.length} 项项目知识`}
+                  description={`目标项目：${project.projectName}。删除后资料将退出列表、检索、问答与原文授权；服务端会逐项重新核验项目归属、成员权限、状态及引用/保留约束，变化项会安全跳过。`}
+                  confirmText="确认批量删除"
+                  danger
+                  busy={bulkDeleteBusy}
+                  onCancel={() => {
+                    if (!bulkDeleteBusy) setBulkDeleteOpen(false);
+                  }}
+                  onConfirm={() => void handleBulkDelete()}
+                />
+                <ProjectCompanyPublicationDialog
+                  projectId={project.projectId}
+                  target={upgradeAsset}
+                  onClose={() => setUpgradeAsset(null)}
+                  onSubmitted={() => {
+                    setUpgradeAsset(null);
+                    setUpgradeNotice({ tone: "success", text: "已提交公司发布申请。" });
+                  }}
+                />
+                <WizardModal
+                  open={assetizationOpen}
+                  title="发起资产化审核"
+                  description="资料区转为资产区需要验证证据。证据只是支持内部分享或客户验证的治理线索，不代表平台已核验业务事实。"
+                  steps={[
+                    { label: "核对资料", description: "查看证据与资格" },
+                    { label: "补充证据", description: "仅为缺失项登记" },
+                    { label: "提交审核", description: "等待项目经理处理" },
+                  ]}
+                  currentStep={assetizationStep}
+                  busy={bulkAssetizeBusy}
+                  nextDisabled={
+                    assetizationItems.length === 0 ||
+                    (assetizationStep === 1 &&
+                      assetizationItems.some((item) => item.status === "evidence_missing") &&
+                      !evidenceDescription.trim())
+                  }
+                  completeDisabled={assetizationItems.every((item) => item.status === "ineligible")}
+                  completeText="提交资产化审核"
+                  onBack={() => setAssetizationStep((value) => Math.max(0, value - 1))}
+                  onNext={() => setAssetizationStep((value) => Math.min(2, value + 1))}
+                  onCancel={() => {
+                    if (!bulkAssetizeBusy) setAssetizationOpen(false);
+                  }}
+                  onComplete={() => void completeAssetization()}
+                >
+                  {assetizationError && (
+                    <p className="pk-assetization-error" role="alert">
+                      {assetizationError}
+                    </p>
+                  )}
+                  {assetizationStep === 0 && (
+                    <div className="pk-assetization-review">
+                      <div className="pk-assetization-counts">
+                        <strong>
+                          {assetizationItems.filter((item) => item.status === "ready").length}
+                        </strong>
+                        <span>已有证据</span>
+                        <strong>
+                          {
+                            assetizationItems.filter((item) => item.status === "evidence_missing")
+                              .length
+                          }
+                        </strong>
+                        <span>缺少证据</span>
+                        <strong>
+                          {assetizationItems.filter((item) => item.status === "ineligible").length}
+                        </strong>
+                        <span>不可发起</span>
+                      </div>
+                      <ul>
+                        {assetizationItems.map((item) => (
+                          <li key={item.item_id}>
+                            <strong>{item.title}</strong>
+                            <span>{item.message}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {assetizationStep === 1 && (
+                    <div className="pk-assetization-form">
+                      <p>以下登记仅绑定到本次选择中缺少证据的资料；已有证据项不会重复创建。</p>
+                      <label>
+                        <span>证据类型</span>
+                        <select
+                          value={evidenceType}
+                          onChange={(event) =>
+                            setEvidenceType(event.target.value as EvidenceInputDTO["evidence_type"])
+                          }
+                        >
+                          <option value="internal_sharing">内部分享</option>
+                          <option value="client_validation">客户验证</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>证据类别</span>
+                        <select
+                          value={evidenceCategory}
+                          onChange={(event) =>
+                            setEvidenceCategory(
+                              event.target.value as EvidenceInputDTO["evidence_category"],
+                            )
+                          }
+                        >
+                          <option value="meeting_minutes">会议纪要</option>
+                          <option value="wecom_record">企业沟通记录</option>
+                          <option value="client_email">客户邮件</option>
+                          <option value="acceptance_doc">验收文件</option>
+                          <option value="delivery_adoption">交付采纳记录</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>适用说明</span>
+                        <textarea
+                          value={evidenceDescription}
+                          onChange={(event) => setEvidenceDescription(event.target.value)}
+                          placeholder="说明适用项目、场景和资料范围"
+                        />
+                      </label>
+                    </div>
+                  )}
+                  {assetizationStep === 2 && (
+                    <div className="pk-assetization-summary">
+                      <strong>提交后状态是“待审核”，不是已完成资产化。</strong>
+                      <p>
+                        服务端会逐项复核项目归属、资料状态和证据。已有待办会复用，不会重复建单。
+                      </p>
+                    </div>
+                  )}
+                </WizardModal>
               </>
             )}
-          </div>
-        )}
-      </TaskModal>
-    </ProductPage>
+          </PageSection>
+        </div>
+      </ProductPage>
+    </ProjectModuleFrame>
   );
 }
 

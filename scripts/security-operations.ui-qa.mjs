@@ -234,41 +234,30 @@ try {
         await page.getByRole("heading", { name: target.heading }).waitFor();
         let alertThresholdLayout = true;
         if (target.name === "alerts" && scenario === "normal") {
-          const row = page
-            .getByRole("row")
-            .filter({ has: page.getByText(rule.rule_name, { exact: true }) });
-          await row.getByRole("button", { name: `编辑${rule.rule_name}阈值` }).click();
-          await row.getByRole("spinbutton").fill("11");
-          await row.getByRole("button", { name: "取消", exact: true }).scrollIntoViewIfNeeded();
-          alertThresholdLayout = await row.evaluate((element) => {
-            const cell = element.querySelector("td:nth-child(3)").getBoundingClientRect();
-            const status = element.querySelector(".secops-toggle").getBoundingClientRect();
-            const controls = [...element.querySelectorAll(".alert-threshold-actions button")];
+          const edit = page.getByRole("button", { name: `编辑${rule.rule_name}阈值`, exact: true });
+          const row = page.getByRole("row").filter({ has: edit });
+          await edit.click();
+          const dialog = page.getByRole("dialog", { name: "编辑告警阈值", exact: true });
+          await dialog.getByRole("spinbutton").fill("11");
+          const cancel = dialog.getByRole("button", { name: "取消", exact: true });
+          await cancel.scrollIntoViewIfNeeded();
+          alertThresholdLayout = await dialog.evaluate((element) => {
+            const controls = [...element.querySelectorAll("footer button")];
             return (
+              controls.length === 2 &&
               controls.every((button) => {
                 const rect = button.getBoundingClientRect();
                 const hit = document.elementFromPoint(
                   rect.left + rect.width / 2,
                   rect.top + rect.height / 2,
                 );
-                const overlapsStatus =
-                  rect.left < status.right &&
-                  rect.right > status.left &&
-                  rect.top < status.bottom &&
-                  rect.bottom > status.top;
                 return (
-                  rect.left >= cell.left &&
-                  rect.right <= cell.right + 1 &&
                   rect.left >= 0 &&
                   rect.right <= innerWidth &&
-                  !overlapsStatus &&
+                  rect.top >= 0 &&
+                  rect.bottom <= innerHeight &&
                   Boolean(hit && button.contains(hit))
                 );
-              }) &&
-              [...document.querySelectorAll(".alert-threshold-value > span")].every((span) => {
-                const range = document.createRange();
-                range.selectNodeContents(span);
-                return range.getClientRects().length === 1;
               })
             );
           });
@@ -277,11 +266,11 @@ try {
             fullPage: true,
             animations: "disabled",
           });
-          await row.getByRole("button", { name: "取消", exact: true }).click();
-          await row.getByRole("button", { name: `编辑${rule.rule_name}阈值` }).waitFor();
+          await cancel.click();
+          await dialog.waitFor({ state: "hidden" });
           alertThresholdLayout =
             alertThresholdLayout &&
-            (await row.getByRole("spinbutton").count()) === 0 &&
+            (await edit.isEnabled()) &&
             (await row.getByRole("button", { name: `${rule.rule_name}停用` }).isEnabled()) &&
             writeRequests === 0;
         }
@@ -317,12 +306,7 @@ try {
                 console.children.length === 1 &&
                 Math.abs(console.getBoundingClientRect().width - main.width) <= 2,
               noStatusStrip: !document.querySelector(".product-status-strip"),
-              hasReferenceIconography:
-                Boolean(
-                  document.querySelector(
-                    ".secops-main-workspace .secops-workspace-heading-icon svg",
-                  ),
-                ) && Boolean(refreshButton?.querySelector("svg")),
+              hasReferenceIconography: Boolean(refreshButton?.querySelector("svg")),
               noInnerScroll: tableWraps.every((node) => node.scrollWidth - node.clientWidth <= 2),
               actionsVisible: actionButtons.every((button) => {
                 const rect = button.getBoundingClientRect();

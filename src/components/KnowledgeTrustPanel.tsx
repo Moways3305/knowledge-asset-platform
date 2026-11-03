@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { ApiError } from "../api/http";
 import {
   fetchTrust,
@@ -32,6 +32,7 @@ interface KnowledgeTrustPanelProps {
 }
 
 export default function KnowledgeTrustPanel(props: KnowledgeTrustPanelProps) {
+  const location = useLocation();
   const [params, setParams] = useSearchParams();
   const requestedSection = params.get("maintenance");
   const section = ["review", "corrections", "verify"].includes(requestedSection ?? "")
@@ -71,7 +72,7 @@ export default function KnowledgeTrustPanel(props: KnowledgeTrustPanelProps) {
                 next.delete("maintenance");
                 return next;
               },
-              { replace: true },
+              { replace: true, state: location.state },
             );
         }}
       >

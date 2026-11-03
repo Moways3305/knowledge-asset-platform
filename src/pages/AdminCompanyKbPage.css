@@ -1,25 +1,57 @@
-.company-kb-page .pp-support-section {
-  margin-top: 18px;
-}
-
-.company-kb-page .pp-support-section.is-empty {
-  max-width: 760px;
-}
-
-.company-kb-page .gp-panel-heading span {
-  display: inline-flex;
+.company-kb-settings-toolbar {
+  display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 
-.company-kb-page .gp-panel-heading h3 {
+.company-kb-settings-toolbar h3 {
   margin: 0;
   font-size: 16px;
-  color: var(--color-text-heading);
+  font-weight: 600;
 }
 
-.company-kb-page .pp-role-tags {
-  margin-top: 12px;
+.company-kb-settings .company-kb-facts {
+  margin-block: 16px;
+}
+
+.company-kb-settings .company-kb-facts > div {
+  padding-block: 12px;
+}
+
+.company-kb-status-panel {
+  max-width: 760px;
+}
+.company-kb-status-panel h3 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.company-kb-facts {
+  margin: 20px 0;
+  border-top: 1px solid var(--color-border);
+}
+.company-kb-facts > div {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  gap: 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 14px;
+}
+.company-kb-facts dt {
+  color: var(--color-text-secondary);
+}
+.company-kb-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  .company-kb-facts > div {
+    grid-template-columns: 100px minmax(0, 1fr);
+    gap: 12px;
+  }
 }
 
 .ckb-actions {

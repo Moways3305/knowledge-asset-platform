@@ -1,5 +1,8 @@
+import { AlertHistoryButton } from "../components/operations/ReadTools";
+import TaskModal from "../components/TaskModal";
+import CollectionWorkspace from "../components/CollectionWorkspace";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { RefreshCw, Siren, SlidersHorizontal } from "lucide-react";
+import { RefreshCw, SlidersHorizontal } from "lucide-react";
 import { fetchAlertRules, updateAlertRule } from "../api/admin";
 import { ApiError } from "../api/http";
 import { PageHeader, PageSection, PageToolbar, ProductPage } from "../components/ProductLayout";
@@ -88,7 +91,6 @@ export default function AdminAlertSettingsPage() {
           });
         setDrafts((current) => ({ ...current, [rule.id]: String(updated.threshold ?? "") }));
       } catch (reason) {
-        setDrafts((current) => ({ ...current, [rule.id]: String(rule.threshold ?? "") }));
         setRowErrors((current) => ({
           ...current,
           [rule.id]:
@@ -111,7 +113,6 @@ export default function AdminAlertSettingsPage() {
     (rule: AlertRuleDTO) => {
       const value = Number(drafts[rule.id]);
       if (!Number.isFinite(value) || value < 1) {
-        setDrafts((current) => ({ ...current, [rule.id]: String(rule.threshold ?? "") }));
         setRowErrors((current) => ({ ...current, [rule.id]: "阈值必须是不小于 1 的数字。" }));
         return;
       }
@@ -126,9 +127,21 @@ export default function AdminAlertSettingsPage() {
     [drafts, saveRule],
   );
 
+  const editingRule = rules.find((rule) => editingIds.has(rule.id));
+  const cancelEdit = () => {
+    if (!editingRule || saving.has(editingRule.id)) return;
+    setDrafts((current) => ({ ...current, [editingRule.id]: String(editingRule.threshold ?? "") }));
+    setRowErrors((current) => ({ ...current, [editingRule.id]: "" }));
+    setEditingIds(new Set());
+  };
+
   return (
     <ProductPage className="secops-page alert-settings-page admin-control-page">
-      <PageHeader eyebrow="安全运营" title="告警设置" />
+      <PageHeader
+        title="告警设置"
+        actions={<AlertHistoryButton />}
+        description="管理触发阈值与通知状态。规则级别代表告警严重程度，不表示当前发生了故障。"
+      />
       <div className="secops-console">
         <main className="secops-main-workspace">
           {error && (
@@ -136,207 +149,213 @@ export default function AdminAlertSettingsPage() {
               {error}
             </div>
           )}
-          <PageSection
-            title={
-              <span className="secops-section-title">
-                <span className="secops-workspace-heading-icon">
-                  <Siren size={16} />
-                </span>
-                告警规则
-              </span>
-            }
-            className="secops-workspace secops-primary-section"
-          >
-            <PageToolbar
-              className="secops-toolbar"
-              start={
-                <div className="secops-filters">
-                  <SlidersHorizontal size={14} aria-hidden="true" />
-                  <label>
-                    级别
-                    <select
-                      aria-label="规则级别"
-                      value={filterLevel}
-                      onChange={(event) => setFilterLevel(event.target.value)}
-                    >
-                      <option value="">全部</option>
-                      <option value="critical">严重</option>
-                      <option value="error">错误</option>
-                      <option value="warning">警告</option>
-                    </select>
-                  </label>
-                  <label>
-                    状态
-                    <select
-                      aria-label="规则状态"
-                      value={filterEnabled}
-                      onChange={(event) => setFilterEnabled(event.target.value)}
-                    >
-                      <option value="">全部</option>
-                      <option value="enabled">已启用</option>
-                      <option value="disabled">已停用</option>
-                    </select>
-                  </label>
-                </div>
-              }
-              end={
-                <div className="secops-toolbar-actions">
-                  <span className="secops-count">共 {filteredRules.length} 条规则</span>
-                  <button className="btn-small" onClick={() => void load()} disabled={loading}>
-                    <RefreshCw size={13} aria-hidden="true" /> {loading ? "刷新中…" : "刷新"}
-                  </button>
-                </div>
-              }
-            />
-            <div className="secops-table-wrap">
-              <table className="secops-table">
-                <thead>
-                  <tr>
-                    <th className="alert-severity-column">级别</th>
-                    <th>规则名称</th>
-                    <th className="alert-threshold-column">阈值</th>
-                    <th className="secops-col-secondary">通知渠道</th>
-                    <th className="secops-col-secondary">防重复</th>
-                    <th className="secops-col-secondary">更新时间</th>
-                    <th className="alert-status-column">状态</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredRules.map((rule) => (
-                    <tr
-                      key={rule.id}
-                      className={`${rule.severity === "critical" && rule.enabled ? "is-actionable" : ""} ${!rule.enabled ? "is-disabled" : ""}`}
-                    >
-                      <td>
-                        <span className={`secops-pill severity-${rule.severity}`}>
-                          {severityLabel[rule.severity] ?? "未分级"}
-                        </span>
-                      </td>
-                      <td className="secops-primary">{rule.rule_name}</td>
-                      <td>
-                        <div className="secops-threshold">
-                          <div className="alert-threshold-value">
-                            {editingIds.has(rule.id) ? (
-                              <input
-                                aria-label={`${rule.rule_name}阈值`}
-                                type="number"
-                                min={1}
-                                value={drafts[rule.id] ?? ""}
-                                disabled={saving.has(rule.id)}
-                                onChange={(event) =>
-                                  setDrafts((current) => ({
-                                    ...current,
-                                    [rule.id]: event.target.value,
-                                  }))
-                                }
-                              />
-                            ) : (
-                              <span>{rule.threshold ?? "—"}</span>
-                            )}
-                            <span>{rule.threshold_unit ?? ""}</span>
-                          </div>
-                          <div
-                            className="alert-threshold-actions"
-                            role="group"
-                            aria-label={`${rule.rule_name}阈值操作`}
-                          >
-                            {editingIds.has(rule.id) ? (
-                              <>
-                                <button
-                                  className="btn-small btn-small-primary"
-                                  disabled={saving.has(rule.id)}
-                                  onClick={() => commitThreshold(rule)}
-                                >
-                                  保存阈值
-                                </button>
-                                <button
-                                  className="btn-small"
-                                  disabled={saving.has(rule.id)}
-                                  onClick={() => {
-                                    setDrafts((current) => ({
-                                      ...current,
-                                      [rule.id]: String(rule.threshold ?? ""),
-                                    }));
-                                    setEditingIds((current) => {
-                                      const next = new Set(current);
-                                      next.delete(rule.id);
-                                      return next;
-                                    });
-                                  }}
-                                >
-                                  取消
-                                </button>
-                              </>
-                            ) : (
-                              <button
-                                className="btn-small"
-                                aria-label={`编辑${rule.rule_name}阈值`}
-                                disabled={saving.has(rule.id)}
-                                onClick={() => {
-                                  setDrafts((current) => ({
-                                    ...current,
-                                    [rule.id]: String(rule.threshold ?? ""),
-                                  }));
-                                  setEditingIds((current) => new Set(current).add(rule.id));
-                                }}
-                              >
-                                编辑
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                        {rowErrors[rule.id] && (
-                          <span className="secops-row-error" role="alert">
-                            {rowErrors[rule.id]}
-                          </span>
-                        )}
-                      </td>
-                      <td className="secops-col-secondary">
-                        {rule.notification_channels.map((channel) => (
-                          <span className="secops-channel" key={channel}>
-                            {channelLabel[channel] ?? "其他渠道"}
-                          </span>
-                        ))}
-                      </td>
-                      <td className="secops-col-secondary">
-                        {dedupLabel[rule.dedup_strategy ?? ""] ?? "按规则合并"}
-                      </td>
-                      <td className="secops-time secops-col-secondary">
-                        {formatBeijingTime(rule.updated_at)}
-                      </td>
-                      <td>
-                        <button
-                          className={`secops-toggle ${rule.enabled ? "is-on" : ""}`}
-                          aria-label={`${rule.rule_name}${rule.enabled ? "停用" : "启用"}`}
-                          aria-pressed={rule.enabled}
-                          disabled={saving.has(rule.id) || editingIds.has(rule.id)}
-                          onClick={() => void saveRule(rule, { enabled: !rule.enabled })}
+          <PageSection className="secops-workspace secops-primary-section">
+            <CollectionWorkspace
+              filters={
+                <PageToolbar
+                  className="secops-toolbar"
+                  start={
+                    <div className="secops-filters">
+                      <SlidersHorizontal size={14} aria-hidden="true" />
+                      <label>
+                        级别
+                        <select
+                          aria-label="规则级别"
+                          value={filterLevel}
+                          onChange={(event) => setFilterLevel(event.target.value)}
                         >
-                          {saving.has(rule.id) ? "保存中…" : rule.enabled ? "已启用" : "已停用"}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {!loading && filteredRules.length === 0 && (
+                          <option value="">全部</option>
+                          <option value="critical">严重</option>
+                          <option value="error">错误</option>
+                          <option value="warning">警告</option>
+                        </select>
+                      </label>
+                      <label>
+                        状态
+                        <select
+                          aria-label="规则状态"
+                          value={filterEnabled}
+                          onChange={(event) => setFilterEnabled(event.target.value)}
+                        >
+                          <option value="">全部</option>
+                          <option value="enabled">已启用</option>
+                          <option value="disabled">已停用</option>
+                        </select>
+                      </label>
+                    </div>
+                  }
+                  end={
+                    <div className="secops-toolbar-actions">
+                      <span className="secops-count">共 {filteredRules.length} 条规则</span>
+                      <button
+                        className="btn-small"
+                        onClick={() => void load()}
+                        disabled={loading || saving.size > 0 || editingIds.size > 0}
+                      >
+                        <RefreshCw size={13} aria-hidden="true" /> {loading ? "刷新中…" : "刷新"}
+                      </button>
+                    </div>
+                  }
+                />
+              }
+            >
+              <div className="secops-table-wrap">
+                <table data-responsive-table className="secops-table">
+                  <thead>
                     <tr>
-                      <td colSpan={7} className="secops-empty">
-                        暂无符合条件的告警规则
-                      </td>
+                      <th className="alert-severity-column">级别</th>
+                      <th>规则名称</th>
+                      <th className="alert-threshold-column">阈值</th>
+                      <th className="alert-status-column">状态</th>
+                      <th className="alert-action-column">操作</th>
                     </tr>
-                  )}
-                  {loading && (
-                    <tr>
-                      <td colSpan={7} className="secops-empty">
-                        正在加载告警规则…
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {filteredRules.map((rule) => (
+                      <tr key={rule.id} className={!rule.enabled ? "is-disabled" : undefined}>
+                        <td data-label="级别">
+                          <span className={`secops-pill severity-${rule.severity}`}>
+                            {severityLabel[rule.severity] ?? "未分级"}
+                          </span>
+                        </td>
+                        <td data-label="规则名称" className="secops-primary">
+                          {rule.rule_name}
+                          <details className="admin-row-details">
+                            <summary>通知与更新时间</summary>
+                            <p>
+                              通知渠道：
+                              {rule.notification_channels
+                                .map((channel) => channelLabel[channel] ?? "其他渠道")
+                                .join("、") || "未设置"}
+                            </p>
+                            <p>防重复：{dedupLabel[rule.dedup_strategy ?? ""] ?? "按规则合并"}</p>
+                            <small>更新时间：{formatBeijingTime(rule.updated_at)}</small>
+                          </details>
+                        </td>
+                        <td data-label="阈值">
+                          <div className="secops-threshold">
+                            <div className="alert-threshold-value">
+                              <span>{rule.threshold ?? "—"}</span>
+                              <span>{rule.threshold_unit ?? ""}</span>
+                            </div>
+                          </div>
+                          {rowErrors[rule.id] && !editingIds.has(rule.id) && (
+                            <span className="secops-row-error" role="alert">
+                              {rowErrors[rule.id]}
+                            </span>
+                          )}
+                        </td>
+                        <td data-label="状态" className="alert-status-cell">
+                          <button
+                            className={`secops-toggle ${rule.enabled ? "is-on" : ""}`}
+                            aria-label={`${rule.rule_name}${rule.enabled ? "停用" : "启用"}`}
+                            aria-pressed={rule.enabled}
+                            disabled={loading || saving.size > 0 || editingIds.size > 0}
+                            onClick={() => void saveRule(rule, { enabled: !rule.enabled })}
+                          >
+                            {saving.has(rule.id) ? "保存中…" : rule.enabled ? "已启用" : "已停用"}
+                          </button>
+                        </td>
+                        <td data-label="操作" className="alert-action-cell">
+                          <button
+                            className="btn-small"
+                            aria-label={`编辑${rule.rule_name}阈值`}
+                            disabled={loading || saving.size > 0 || editingIds.size > 0}
+                            onClick={() => {
+                              setDrafts((current) => ({
+                                ...current,
+                                [rule.id]: String(rule.threshold ?? ""),
+                              }));
+                              setRowErrors((current) => ({ ...current, [rule.id]: "" }));
+                              setEditingIds(new Set([rule.id]));
+                            }}
+                          >
+                            编辑
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {!loading && !error && filteredRules.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="secops-empty">
+                          暂无符合条件的告警规则
+                        </td>
+                      </tr>
+                    )}
+                    {loading && (
+                      <tr>
+                        <td colSpan={5} className="secops-empty">
+                          正在加载告警规则…
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CollectionWorkspace>
           </PageSection>
         </main>
       </div>
+      <TaskModal
+        portal
+        open={Boolean(editingRule)}
+        title="编辑告警阈值"
+        description={editingRule?.rule_name}
+        size="small"
+        onClose={cancelEdit}
+        busy={Boolean(editingRule && saving.has(editingRule.id))}
+        footer={
+          editingRule && (
+            <div
+              className="alert-rule-editor-actions"
+              role="group"
+              aria-label={`${editingRule.rule_name}阈值操作`}
+            >
+              <button
+                className="product-button is-secondary"
+                disabled={saving.has(editingRule.id)}
+                onClick={cancelEdit}
+              >
+                取消
+              </button>
+              <button
+                className="product-button is-primary"
+                disabled={saving.has(editingRule.id)}
+                onClick={() => commitThreshold(editingRule)}
+              >
+                {saving.has(editingRule.id) ? "保存中…" : "保存阈值"}
+              </button>
+            </div>
+          )
+        }
+      >
+        {editingRule && (
+          <div className="alert-rule-editor">
+            <label>
+              触发阈值
+              <div className="alert-rule-editor-input">
+                <input
+                  aria-label={`${editingRule.rule_name}阈值`}
+                  type="number"
+                  min={1}
+                  value={drafts[editingRule.id] ?? ""}
+                  disabled={saving.has(editingRule.id)}
+                  onChange={(event) =>
+                    setDrafts((current) => ({ ...current, [editingRule.id]: event.target.value }))
+                  }
+                />
+                <span>{editingRule.threshold_unit ?? ""}</span>
+              </div>
+            </label>
+            <p>保存后按新阈值执行此规则，通知渠道和启用状态保持当前设置。</p>
+            {rowErrors[editingRule.id] && (
+              <p className="secops-row-error" role="alert">
+                {rowErrors[editingRule.id]}
+              </p>
+            )}
+          </div>
+        )}
+      </TaskModal>
     </ProductPage>
   );
 }

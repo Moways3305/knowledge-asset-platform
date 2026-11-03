@@ -1052,9 +1052,8 @@
   }
 }
 
-/* ---- 手机端（≤700px）：导航抽屉化 ---------------------------------------- */
-/* 桌面/平板（>860px 固定侧栏，700–860px 横向顶栏）之上，手机再叠加抽屉：
-   侧栏离屏收起，顶部菜单按钮 + 遮罩打开；路由切换 / Esc / 点遮罩自动关闭。 */
+/* ---- 手机与平板（≤860px）：统一抽屉导航 ---------------------------------- */
+/* 侧栏离屏收起；路由切换 / Esc / 点遮罩自动关闭。 */
 .deck-mobile-menu {
   display: none;
   width: var(--control-height);
@@ -1070,7 +1069,7 @@
   cursor: pointer;
 }
 
-@media (max-width: 700px) {
+@media (max-width: 860px) {
   .app-layout {
     height: 100dvh;
     min-height: 0;
@@ -1184,93 +1183,6 @@
 }
 
 /* ---- Responsive ----------------------------------------------------------- */
-@media (min-width: 701px) and (max-width: 860px) {
-  body {
-    overflow: auto;
-  }
-  .app-layout {
-    flex-direction: column;
-    height: auto;
-    min-height: 100dvh;
-    overflow: visible;
-  }
-  .rail {
-    position: static;
-    width: 100%;
-    height: auto;
-    flex-direction: column;
-    border-right: none;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.3);
-  }
-  .rail-brand {
-    padding: 14px 18px 10px;
-  }
-  .rail-collapse {
-    display: none;
-  }
-  .rail-nav {
-    display: flex;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    padding: 0 10px 10px;
-    gap: 4px;
-    scrollbar-width: none;
-  }
-  .rail-nav::-webkit-scrollbar {
-    display: none;
-  }
-  .rail-group {
-    margin-top: 0;
-    flex-shrink: 0;
-  }
-  .rail-group-label {
-    display: none;
-  }
-  .rail-nav ul {
-    display: flex;
-    gap: 4px;
-  }
-  .rail-nav li a {
-    padding: 7px 11px;
-    border-left: none;
-    border-radius: var(--radius-sm);
-    white-space: nowrap;
-    font-size: 12.5px;
-  }
-  .rail-nav li a.active {
-    border-left: none;
-  }
-  .rail-foot {
-    flex-direction: row;
-    align-items: center;
-    justify-content: flex-end;
-    padding: 8px 14px;
-  }
-  .rail-identity {
-    width: min(240px, calc(100vw - 90px));
-  }
-  .rail-identity .idm-panel {
-    right: 0;
-    bottom: auto;
-    left: auto;
-    top: calc(100% + 8px);
-  }
-  .app-main {
-    height: auto;
-    overflow: visible;
-  }
-  .deck {
-    height: auto;
-    padding: 10px 18px;
-    flex-wrap: wrap;
-    gap: 10px;
-  }
-  .app-content {
-    height: auto;
-    padding: 20px 18px 40px;
-  }
-}
-
 @media (max-width: 560px) {
   .kb-masthead {
     align-items: flex-start;

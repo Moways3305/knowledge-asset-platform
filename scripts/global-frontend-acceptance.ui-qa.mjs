@@ -69,6 +69,8 @@ const suites = [
     name: "project-knowledge",
     script: "project-knowledge.ui-qa.mjs",
     evidence: "project-knowledge",
+    // 52 browser cases include publication dialogs at four viewport sizes.
+    timeoutMs: 180_000,
   },
   {
     name: "review-access",
@@ -85,6 +87,8 @@ const suites = [
     name: "admin-ingest",
     script: "admin-operations.ui-qa.mjs",
     evidence: "admin-operations",
+    // 45 cases exercise trend focus/hover and recovery dialogs, not only screenshots.
+    timeoutMs: 180_000,
   },
   {
     name: "model-foundation",

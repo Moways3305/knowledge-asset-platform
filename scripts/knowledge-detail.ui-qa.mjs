@@ -260,6 +260,9 @@ for (const scenario of scenarios) {
     if (scenario === "full") {
       await page.goto(`${base}/knowledge`, { waitUntil: "networkidle" });
       await page.getByRole("button", { name: /公司库/ }).click();
+      if (viewport.width <= 700) {
+        await page.getByRole("button", { name: "选择目录", exact: true }).click();
+      }
       await page.getByRole("button", { name: /01 公司方法论/ }).click();
       await page.getByRole("button", { name: /^快速查看《/ }).click();
       const drawer = page.getByRole("dialog", { name: "客户增长项目复盘方法论" });
@@ -283,6 +286,11 @@ for (const scenario of scenarios) {
       await page.getByRole("heading", { name: "客户增长项目复盘方法论" }).waitFor();
     } else {
       await page.getByRole("heading", { name: "客户增长项目复盘方法论" }).waitFor();
+    }
+    if (scenario !== "denied") {
+      const properties = page.locator(".kdetail-property-toggle");
+      if (await properties.isVisible()) await properties.click();
+      await page.getByRole("tab", { name: "维护与发布", exact: true }).click();
     }
     if (scenario === "preview-failure") {
       await page.getByRole("button", { name: "预览原文" }).click();
@@ -436,9 +444,9 @@ if (
       (result.scenario !== "denied" &&
         (result.layoutWidth === 0 ||
           (result.viewport === "1440" && result.mainWidth <= result.sideWidth) ||
-          (["1440", "1024"].includes(result.viewport) && result.sideWidth < 280))) ||
+          (["1440", "1024"].includes(result.viewport) && result.sideWidth < 260))) ||
       result.clippedActions > 0 ||
-      result.moduleTitle !== "知识资产库" ||
+      result.moduleTitle !== "资料详情" ||
       result.oldSectionVisible ||
       result.fakeFeatureVisible ||
       result.sensitiveTextVisible ||

@@ -76,6 +76,47 @@ const center: NamingRuleCenterDTO = {
 };
 
 describe("AdminNamingRulesPage directory governance", () => {
+  it("keeps both directory entries visible in the history queue and preserves the draft when returning", async () => {
+    vi.mocked(fetchDirectoryMigration).mockResolvedValue({
+      overview: {
+        total: 12,
+        migrated: 12,
+        clear_match: 0,
+        manual_required: 0,
+        no_candidate: 0,
+        failed: 0,
+        rule_version: 1,
+      },
+      items: [],
+      total: 0,
+      directories: [],
+    });
+    render(<AdminNamingRulesPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "编辑02 方法论" }));
+    fireEvent.change(screen.getByDisplayValue("02 方法论"), {
+      target: { value: "未保存的目录名称" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "历史待治理" }));
+    await screen.findByText("暂无待治理资料");
+    const company = screen.getByRole("button", { name: "公司目录" });
+    const project = screen.getByRole("button", { name: "项目目录" });
+    expect(company).toBeVisible();
+    expect(project).toBeVisible();
+    expect(company).toHaveAttribute("aria-pressed", "false");
+    expect(project).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(company);
+    expect(screen.getByDisplayValue("未保存的目录名称")).toBeInTheDocument();
+    expect(company).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByText("暂无待治理资料")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "历史待治理" }));
+    await screen.findByText("暂无待治理资料");
+    fireEvent.click(project);
+    expect(screen.getByRole("button", { name: "编辑03 交付成果" })).toBeInTheDocument();
+    expect(project).toHaveAttribute("aria-pressed", "true");
+    expect(fetchNamingRuleCenter).toHaveBeenCalledTimes(1);
+    expect(saveNamingRuleDraft).not.toHaveBeenCalled();
+    expect(publishNamingRuleDraft).not.toHaveBeenCalled();
+  });
   it("adds a company third-level directory to draft with stable parent and inherited defaults", async () => {
     render(<AdminNamingRulesPage />);
     await screen.findByText("目录治理");
@@ -281,6 +322,11 @@ describe("AdminNamingRulesPage directory governance", () => {
     expect(
       await screen.findByText(/资产总计 3 · 已归类 1 · 待治理 0 · 待人工 1 · 无明确候选 1/),
     ).toBeInTheDocument();
+    expect(screen.getByText("暂无待治理资料")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "全选本页可迁移项" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /确认迁移/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "历史待治理分页" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "刷新历史待治理队列" })).toBeEnabled();
   });
   it("loads subsequent pending pages", async () => {
     vi.mocked(fetchDirectoryMigration).mockResolvedValue({
@@ -360,12 +406,12 @@ describe("AdminNamingRulesPage directory governance", () => {
     expect(screen.getByRole("button", { name: "确认迁移 1 项" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "取消全选" }));
     expect(clear).not.toBeChecked();
-    expect(screen.getByRole("button", { name: "确认迁移 0 项" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "确认迁移" })).toBeDisabled();
     fireEvent.click(clear);
     fireEvent.click(screen.getByRole("button", { name: "下一页" }));
     await screen.findByText(/第 2 \/ 2 页/);
     expect(clear).not.toBeChecked();
-    expect(screen.getByRole("button", { name: "确认迁移 0 项" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "确认迁移" })).toBeDisabled();
     fireEvent.click(clear);
     fireEvent.click(screen.getByRole("button", { name: "确认迁移 1 项" }));
     await waitFor(() =>

@@ -1,8 +1,7 @@
 import { useId, useRef, useState, type FormEvent } from "react";
 import { FolderPlus } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { apiPost } from "../api/http";
-import { fetchKnowledgeDirectories } from "../api/knowledge";
+import { createKnowledgeDirectory, fetchKnowledgeDirectories } from "../api/knowledge";
 import type { KnowledgeDirectoryDTO } from "../types/knowledge";
 import TaskModal from "./TaskModal";
 import "./CreateKnowledgeDirectoryButton.css";
@@ -60,7 +59,7 @@ export default function CreateKnowledgeDirectoryButton({
     setBusy(true);
     setError("");
     try {
-      const created = await apiPost<{ directory_key: string }>("/api/v1/knowledge/directories", {
+      const created = await createKnowledgeDirectory({
         scope,
         project_id: scope === "project" ? projectId : null,
         parent_key: parent,

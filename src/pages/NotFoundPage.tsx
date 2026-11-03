@@ -7,7 +7,7 @@ import { useSafeNavigation } from "../routing/SafeNavigation";
 export default function NotFoundPage() {
   const { goBack } = useSafeNavigation();
   return (
-    <main className="global-state-page not-found-page" role="alert">
+    <section className="global-state-page not-found-page" role="alert">
       <div className="global-state-graphic is-route" aria-hidden="true">
         <Compass size={30} />
         <span className="global-state-route-line" />
@@ -25,6 +25,6 @@ export default function NotFoundPage() {
           返回今日工作台
         </Link>
       </div>
-    </main>
+    </section>
   );
 }

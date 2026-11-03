@@ -31,6 +31,17 @@ export interface ReviewItemDTO {
   consulting_director_confirmation_status: string | null;
 }
 
+export interface ReviewDetailDTO extends ReviewItemDTO {
+  evidences: Array<{
+    id: string;
+    evidence_type: string;
+    evidence_category: string;
+    description: string | null;
+    submitted_by: string;
+    created_at: string | null;
+  }>;
+}
+
 export interface AssetizationPreflightItemDTO {
   item_id: string;
   title: string;

@@ -5,6 +5,10 @@ import KnowledgeMaintenancePage from "./KnowledgeMaintenancePage";
 import { fetchMaintenance } from "../api/knowledgeTrust";
 import { ApiError } from "../api/http";
 
+vi.mock("../auth/AuthContext", () => ({
+  useAuth: () => ({ capabilities: { isBusinessUser: true, isGovernance: false, isAdmin: false } }),
+}));
+
 vi.mock("../api/knowledgeTrust", () => ({ fetchMaintenance: vi.fn() }));
 beforeEach(() => vi.resetAllMocks());
 
@@ -35,7 +39,7 @@ it("shows actionable maintenance records and bounded pagination", async () => {
     "href",
     "/knowledge/a?maintenance=corrections",
   );
-  expect(screen.getByRole("button", { name: "下一页" })).toBeDisabled();
+  expect(screen.queryByRole("button", { name: "下一页" })).not.toBeInTheDocument();
 });
 
 it("supports retry and a clear empty state", async () => {

@@ -8,13 +8,17 @@
 
 .page-pagination-actions {
   gap: 12px;
+  flex-wrap: wrap;
+  max-width: 100%;
 }
 
 .page-pagination-pages {
   gap: 5px;
+  flex-wrap: wrap;
 }
 
 .page-pagination-pages button {
+  flex: 0 0 auto;
   width: 32px;
   height: 32px;
   display: inline-grid;
@@ -85,6 +89,23 @@
     flex-direction: column;
   }
   .page-pagination-pages button {
-    width: 30px;
+    width: 40px;
+    height: 40px;
   }
+  .page-pagination-jump :is(input, button) {
+    height: 40px;
+  }
+}
+.page-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  min-width: 0;
+}
+
+.page-pagination-summary {
+  color: var(--color-text-secondary);
+  font-size: 13px;
 }

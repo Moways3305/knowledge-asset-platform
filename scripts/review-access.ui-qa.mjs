@@ -139,7 +139,8 @@ function accepted(result) {
     result.workspaceCount === 1 &&
     result.routeTabCount === 4 &&
     result.tableVisible &&
-    result.maxRowHeight <= 72 &&
+    result.cellContentFits &&
+    result.mobileFieldsLabelled &&
     !result.oldSurfaceVisible &&
     !result.sensitiveVisible &&
     !result.internalVisible &&
@@ -646,13 +647,13 @@ try {
             .locator("xpath=ancestor::tr")
             .getByRole("button", { name: "通过" })
             .click();
-          await page.getByText("原文访问申请已通过。").waitFor();
+          await page.getByText(/已通过.+对《客户访谈原文》的原文访问申请。/).waitFor();
           await page
             .getByText("客户访谈原文")
             .locator("xpath=ancestor::tr")
             .getByRole("button", { name: "拒绝" })
             .click();
-          await page.getByText("原文访问申请已拒绝。").waitFor();
+          await page.getByText(/已拒绝.+对《客户访谈原文》的原文访问申请。/).waitFor();
         }
         if (scenario.name === "access-action-failure") {
           await page
@@ -686,9 +687,25 @@ try {
             shellOverlap: rail && deck ? Math.max(0, rail.right - deck.left) : 1,
             clippedControls,
             workspaceCount: document.querySelectorAll(".gw-page").length,
-            routeTabCount: document.querySelectorAll(".gw-route-tabs a").length,
+            routeTabCount: document.querySelectorAll(".approval-module-navigation a").length,
             tableVisible: Boolean(document.querySelector(".gw-table")),
             maxRowHeight: Math.max(0, ...rows.map((row) => row.getBoundingClientRect().height)),
+            cellContentFits: rows.every((row) =>
+              [...row.querySelectorAll("td")].every(
+                (cell) => cell.scrollHeight <= cell.clientHeight + 2,
+              ),
+            ),
+            mobileFieldsLabelled:
+              innerWidth > 700 ||
+              rows.every((row) =>
+                [...row.querySelectorAll("td[data-label]")].every((cell) => {
+                  const style = getComputedStyle(cell, "::before");
+                  return (
+                    ["actions", "asset", "title", "select"].includes(cell.dataset.column) ||
+                    (style.display !== "none" && style.content !== "none")
+                  );
+                }),
+              ),
             oldSurfaceVisible: Boolean(
               document.querySelector(".kl-kpis, .role-context-hint, .page-help-line, .asset-card"),
             ),
@@ -709,12 +726,16 @@ try {
               bodyText.includes("客户交付复盘") &&
               bodyText.includes("待确认知识") &&
               bodyText.includes("信息待确认"),
-            reviewReadonly: Boolean(readonlyReview && !readonlyReview.querySelector("button")),
+            reviewReadonly: Boolean(
+              readonlyReview && !readonlyReview.querySelector('td[data-column="actions"] button'),
+            ),
             accessSafe:
               bodyText.includes("客户访谈原文") &&
               bodyText.includes("待确认资产") &&
               bodyText.includes("信息待确认"),
-            accessTerminalReadonly: Boolean(terminalRow && !terminalRow.querySelector("button")),
+            accessTerminalReadonly: Boolean(
+              terminalRow && !terminalRow.querySelector('td[data-column="actions"] button'),
+            ),
             noAccessActions:
               !document.querySelector(".gw-access-table .gw-action.is-primary") &&
               !document.querySelector(".gw-access-table .gw-action.is-danger"),

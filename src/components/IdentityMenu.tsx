@@ -1,8 +1,9 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { ChevronDown, LogOut, UserRound, Building2, Check } from "lucide-react";
 import { ApiError } from "../api/http";
 import { ActiveCompanyRoleSyncError, login, logout, switchActiveCompanyRole } from "../api/auth";
+import { can } from "../auth/permissions";
 import { useAuth } from "../auth/AuthContext";
 import { startWecomOAuth } from "../api/admin";
 
@@ -30,7 +31,7 @@ export function wecomOAuthModeForUserAgent(userAgent: string): "client" | "web_q
  */
 export default function IdentityMenu() {
   // 身份来自全局 AuthProvider（与导航过滤、页面守卫共享同一份 /auth/me）。
-  const { authMe, status, setAuthMe, reload } = useAuth();
+  const { authMe, capabilities, status, setAuthMe, reload } = useAuth();
   const location = useLocation();
   const [open, setOpen] = useState(false);
   const [projectIndex, setProjectIndex] = useState(0);
@@ -274,6 +275,11 @@ export default function IdentityMenu() {
             <div className="idm-project idm-project-empty">无项目身份</div>
           ) : null}
 
+          {capabilities && can.viewWorkbuddy(capabilities) && (
+            <Link className="idm-utility-link" to="/my/workbuddy" onClick={() => setOpen(false)}>
+              个人工具接入
+            </Link>
+          )}
           <div className="idm-divider" />
 
           <div className="idm-auth">

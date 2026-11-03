@@ -1,0 +1,160 @@
+.workspace-shell .project-module-frame .project-workspace-nav {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.workspace-shell .project-module-frame .project-workspace-nav > a {
+  display: block;
+  padding: 12px 10px;
+  border: 0;
+  border-radius: 5px;
+  font-size: 13px;
+  color: #646a73;
+  background: transparent;
+}
+.workspace-shell .project-module-frame .project-workspace-nav > a[aria-current="page"] {
+  color: #3370ff;
+  background: #edf3ff;
+  font-weight: 600;
+}
+.workspace-shell .project-module-frame .project78-page {
+  gap: 20px;
+}
+.project-work-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 200px;
+  gap: 24px;
+}
+.project-work-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.project-work-context {
+  min-width: 0;
+  border-left: 1px solid #e5e6eb;
+  padding-left: 20px;
+}
+.workspace-shell .project-work-main > .product-section {
+  border: 0;
+  box-shadow: none;
+  border-radius: 0;
+  background: white;
+  padding: 0;
+}
+.workspace-shell .project-work-main > .product-section > .product-section-header {
+  padding: 0 0 12px;
+  margin: 0;
+  border-bottom: 1px solid #e5e6eb;
+}
+.workspace-shell .project-work-main > .product-section > .product-section-body {
+  padding: 0;
+}
+.project-work-queue {
+  margin: 0;
+}
+.project-work-queue > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid #f0f1f3;
+  font-size: 13px;
+}
+.project-work-queue dt {
+  color: #646a73;
+}
+.project-work-queue dd {
+  margin: 0;
+  font-weight: 600;
+}
+.project-work-queue a {
+  margin-left: auto;
+  color: #3370ff;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+}
+.workspace-shell .project-module-frame .project-work-context .project78-facts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+  padding: 0 0 20px;
+  margin: 0;
+  border: 0;
+  background: white;
+}
+.workspace-shell .project-module-frame .project-work-context .project78-facts > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0;
+  font-size: 13px;
+}
+.workspace-shell .project-module-frame .project-work-context .project78-facts dd {
+  font-size: 14px;
+  margin: 0;
+}
+.workspace-shell .project-module-frame .project-work-context .project78-members {
+  border: 0;
+  border-top: 1px solid #e5e6eb;
+  border-radius: 0;
+  padding: 16px 0;
+}
+.workspace-shell .project-module-frame .project-work-context .project78-members summary {
+  padding: 0;
+  font-size: 13px;
+}
+.workspace-shell .project-module-frame .project-work-context .project78-members > ul {
+  margin: 12px 0 0;
+  padding: 0;
+}
+.project-work-context > .btn {
+  white-space: normal;
+  font-size: 12px;
+}
+.project-work-main .product-section-header a {
+  color: #3370ff;
+  font-size: 13px;
+  text-decoration: none;
+}
+.workspace-shell .project-module-frame .project78-header-actions {
+  flex-wrap: wrap;
+  gap: 10px;
+}
+@media (max-width: 1000px) {
+  .project-work-layout {
+    grid-template-columns: 1fr;
+  }
+  .project-work-context {
+    border-left: 0;
+    border-top: 1px solid #e5e6eb;
+    padding: 20px 0 0;
+  }
+}
+@media (max-width: 860px) {
+  .workspace-shell .project-module-frame .project-workspace-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin: 0 0 12px;
+  }
+  .workspace-shell .project-module-frame .project-workspace-nav > a {
+    padding: 10px 0;
+    border-radius: 0;
+    border-bottom: 2px solid transparent;
+    font-size: 12px;
+  }
+  .workspace-shell .project-module-frame .project-workspace-nav > a[aria-current="page"] {
+    border-bottom-color: #3370ff;
+    background: transparent;
+  }
+  .project-work-shortcuts {
+    grid-template-columns: 1fr;
+  }
+}

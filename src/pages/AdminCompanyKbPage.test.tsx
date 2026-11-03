@@ -1,3 +1,4 @@
+import { MemoryRouter } from "react-router-dom";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -5,7 +6,7 @@ import {
   deleteCompanyKnowledgeBase,
   fetchCompanyKnowledgeBase,
 } from "../api/admin";
-import AdminCompanyKbPage from "./AdminCompanyKbPage";
+import { CompanyKnowledgeBaseSettings as AdminCompanyKbPage } from "./AdminCompanyKbPage";
 
 const capabilities = {
   isAdmin: false,
@@ -43,11 +44,15 @@ describe("AdminCompanyKbPage compact lifecycle state", () => {
   });
 
   it("renders a compact semantic empty card with a content-width create action", async () => {
-    const { container } = render(<AdminCompanyKbPage />);
+    const { container } = render(
+      <MemoryRouter>
+        <AdminCompanyKbPage />
+      </MemoryRouter>,
+    );
     expect(await screen.findByText("尚未创建")).toBeInTheDocument();
     expect(container.querySelector(".ckb-empty-card .ckb-empty-icon svg")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "创建公司知识库" })).toBeInTheDocument();
-    expect(container.querySelector(".pp-support-section")).toHaveClass("is-empty");
+    expect(screen.getByRole("region", { name: "公司知识库状态" })).toHaveTextContent("尚未创建");
     expect(container.querySelector(".ckb-actions")).not.toBeInTheDocument();
   });
 
@@ -61,7 +66,11 @@ describe("AdminCompanyKbPage compact lifecycle state", () => {
       available: true,
       availability_summary: "公司知识库可用",
     });
-    render(<AdminCompanyKbPage />);
+    render(
+      <MemoryRouter>
+        <AdminCompanyKbPage />
+      </MemoryRouter>,
+    );
     fireEvent.click(await screen.findByRole("button", { name: "创建公司知识库" }));
     fireEvent.click(
       within(screen.getByRole("dialog")).getByRole("button", { name: "创建公司知识库" }),

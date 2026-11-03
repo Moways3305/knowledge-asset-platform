@@ -1,0 +1,301 @@
+/* Ingest operations use the same compact workspace at every task stage. */
+.workspace-shell .ingest-workspace .ingest-state-summary dl {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.workspace-shell .ingest-workspace .ingest-state-summary dl > div {
+  padding: 12px 16px;
+}
+.workspace-shell .ingest-workspace .ingest-state-summary dd {
+  font-size: 22px;
+  margin-top: 4px;
+}
+.ingest-workspace .ao84-text-action {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--color-primary);
+  cursor: pointer;
+  font: inherit;
+}
+.ingest-workspace .ingest-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--color-border);
+}
+.ingest-workspace .ingest-recovery-actions > details {
+  flex: 1 1 280px;
+}
+.ingest-workspace .ao84-action-options,
+.ingest-workspace .ao84-action-buttons,
+.ingest-workspace .ingest-record-filters,
+.ingest-workspace .ingest-record-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+}
+.ingest-workspace .ao84-action-options label,
+.ingest-workspace .ingest-record-filters label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+.ingest-workspace .ingest-record-filters :is(select, input),
+.ingest-workspace .ao84-action-options select {
+  width: auto;
+  min-height: 34px;
+  max-width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: white;
+  color: var(--color-text);
+  font: inherit;
+}
+.ingest-workspace .ingest-record-toolbar {
+  padding: 16px;
+}
+.ingest-workspace .ingest-mobile-filter-toggle {
+  display: none;
+}
+.ingest-workspace .ingest-record-hint {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 12px 0 0;
+}
+.workspace-shell .ingest-workspace .ao84-jobs {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+.ingest-workspace .ingest-batch-scope {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.ingest-workspace .ingest-job-result {
+  display: grid;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.ingest-workspace .ingest-job-result small {
+  color: var(--color-text-secondary);
+}
+.ingest-workspace .ingest-record-pagination {
+  padding: 12px 16px;
+  justify-content: flex-end;
+  border-top: 1px solid var(--color-border);
+  font-size: 13px;
+}
+.ingest-workspace .ingest-record-pagination span {
+  margin-right: auto;
+}
+.ingest-workspace .ingest-job-table {
+  min-width: 740px;
+}
+.ingest-workspace .ingest-job-table td[data-column="action"] {
+  width: 100px;
+}
+.workspace-shell .ingest-workspace .irc-runtime-details {
+  display: grid;
+  gap: 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.workspace-shell .ingest-workspace .irc-runtime-details > * {
+  margin: 0;
+  padding: 16px 18px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  box-shadow: none;
+  background: white;
+}
+.ingest-workspace .ao85-runtime {
+  margin: 0;
+  border: 0;
+}
+.ingest-workspace .ingest-disclosure > summary {
+  cursor: pointer;
+  color: var(--color-text-heading);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 8px 0;
+}
+.ingest-workspace .ingest-disclosure[open] > summary {
+  margin-bottom: 12px;
+}
+.ingest-workspace .ao84-action-explanation {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.ingest-workspace .ingest-diagnostic-checks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.ingest-workspace .ingest-diagnostic-checks > div {
+  flex: 1;
+}
+.ingest-workspace .ingest-diagnostic-checks h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.ingest-workspace .ingest-diagnostic-checks p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+.ingest-workspace .ingest-diagnostic-checks > p {
+  flex-basis: 100%;
+}
+.ingest-workspace .ingest-preflight {
+  padding: 12px;
+  background: var(--color-bg-muted);
+  font-size: 13px;
+  line-height: 1.7;
+  margin-bottom: 12px;
+}
+.ingest-workspace .ingest-preflight ul {
+  margin: 0;
+  padding-left: 20px;
+}
+.ingest-workspace .ingest-job-times {
+  display: grid;
+  gap: 10px;
+  font-size: 13px;
+}
+.ingest-workspace .ingest-job-times > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.ingest-workspace .ingest-job-times dt {
+  color: var(--color-text-secondary);
+}
+.ingest-workspace .ingest-job-times dd {
+  margin: 0;
+}
+@media (max-width: 700px) {
+  .workspace-shell .ingest-workspace.ao84-page > .product-page-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 12px;
+  }
+  .workspace-shell .ingest-workspace.ao84-page > .product-page-header .product-page-actions {
+    width: auto;
+    margin: 0;
+  }
+  .ingest-workspace .ingest-mobile-filter-toggle {
+    display: inline-flex;
+  }
+  .ingest-workspace .ingest-record-filters:not(.is-open) {
+    display: none;
+  }
+  .ingest-workspace .ingest-record-filters.is-open {
+    margin-top: 14px;
+  }
+  .workspace-shell .ingest-workspace .ingest-state-summary dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .workspace-shell .ingest-workspace .ingest-state-summary dl > div {
+    border-bottom: 1px solid var(--color-border);
+  }
+  .workspace-shell .ingest-workspace .ingest-state-summary dl > div:last-child {
+    grid-column: 1 / -1;
+    border-bottom: 0;
+  }
+  .ingest-workspace .ingest-record-filters {
+    align-items: stretch;
+  }
+  .ingest-workspace .ingest-record-filters label {
+    flex: 1 1 100%;
+    justify-content: space-between;
+  }
+  .ingest-workspace .ingest-record-filters :is(input, select) {
+    width: 65%;
+    min-width: 0;
+  }
+  .ingest-workspace .ao84-action-buttons {
+    width: 100%;
+  }
+  .ingest-workspace .ao84-action-buttons button {
+    flex: 1;
+  }
+  .ingest-workspace .ao84-refresh-actions {
+    flex-wrap: wrap;
+  }
+  .ingest-workspace .ao85-runtime-head {
+    flex-wrap: wrap;
+    padding-bottom: 12px;
+  }
+  .workspace-shell .ingest-workspace.ao84-page .ingest-job-table {
+    min-width: 0;
+  }
+  .workspace-shell .ingest-workspace.ao84-page .ingest-job-table thead {
+    display: none;
+  }
+  .workspace-shell .ingest-workspace.ao84-page .ingest-job-table tbody tr {
+    display: grid;
+    padding: 12px;
+    gap: 4px;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .workspace-shell .ingest-workspace.ao84-page .ingest-job-table td[data-column] {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 8px;
+    width: auto;
+    height: auto;
+    min-height: 0;
+    padding: 6px 0;
+    border: 0;
+    white-space: normal;
+  }
+  .workspace-shell .ingest-workspace.ao84-page .ingest-job-table td[data-column]::before {
+    content: attr(data-label);
+    display: block;
+    margin: 0;
+    color: var(--color-text-secondary);
+    font-size: 12px;
+  }
+  .workspace-shell .ingest-workspace.ao84-page .ingest-job-table td[data-column="action"] button {
+    justify-self: start;
+  }
+  .workspace-shell .ingest-workspace.ao84-page .ingest-job-table .ao84-status {
+    justify-self: start;
+  }
+}
+
+.ingest-workspace .operation-status-counts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.ingest-workspace .operation-status-counts > div:first-child {
+  grid-column: 1 / -1;
+}
+@media (max-width: 700px) {
+  .workspace-shell .ingest-workspace.ao84-page .ingest-job-table td[data-column="operation"] {
+    display: block;
+    padding-bottom: 10px;
+  }
+  .workspace-shell
+    .ingest-workspace.ao84-page
+    .ingest-job-table
+    td[data-column="operation"]::before {
+    display: none;
+  }
+}

@@ -28,16 +28,21 @@ const MAX_ENTRIES = 20;
 const SafeNavigationContext = createContext<SafeNavigationValue | null>(null);
 
 const staticRoutes: Array<[RegExp, (capabilities: Capabilities) => boolean]> = [
+  [/^\/projects$/, can.viewProject],
   [/^\/$/, can.viewHome],
   [/^\/help$/, can.viewHelp],
   [/^\/release-notes$/, can.viewReleaseNotes],
   [/^\/admin\/release-notes$/, can.manageReleaseNotes],
   [/^\/knowledge$/, can.viewKnowledge],
+  [/^\/knowledge-maintenance$/, can.viewKnowledge],
+  [/^\/company-governance$/, can.viewCompanyKnowledge],
   [/^\/my\/knowledge$/, can.viewMyKnowledge],
+  [/^\/my\/workbuddy$/, can.viewWorkbuddy],
   [/^\/upload$/, can.viewUpload],
   [/^\/review$/, can.viewReview],
   [/^\/review\/completed$/, can.viewReview],
   [/^\/original-access$/, can.viewOriginalAccess],
+  [/^\/original-access\/grants$/, can.viewOriginalAccess],
   [/^\/admin\/ingest$/, can.viewIngestAdmin],
   [/^\/admin\/wecom-scan$/, can.viewWecomScan],
   [/^\/admin\/weknora-models$/, can.viewModels],
@@ -46,6 +51,7 @@ const staticRoutes: Array<[RegExp, (capabilities: Capabilities) => boolean]> = [
   [/^\/admin\/alert-settings$/, can.viewAlerts],
   [/^\/admin\/people$/, can.viewPeople],
   [/^\/admin\/company-kb$/, can.viewCompanyKnowledge],
+  [/^\/admin\/naming-rules$/, can.viewNamingRules],
   [/^\/admin\/permissions$/, can.viewPermissions],
 ];
 
@@ -124,6 +130,7 @@ export function SafeNavigationProvider({ children }: { children: ReactNode }) {
   const navigationType = useNavigationType();
   const { capabilities, status } = useAuth();
   const historyRef = useRef<SafeHistoryEntry[]>(readHistory());
+  const previousLocationRef = useRef<SafeHistoryEntry | null>(null);
 
   useEffect(() => {
     if (status !== "authenticated") return;
@@ -131,9 +138,25 @@ export function SafeNavigationProvider({ children }: { children: ReactNode }) {
       pathname: location.pathname,
       search: safeSearch(location.search) ?? "",
     };
+    const previousLocation = previousLocationRef.current;
+    previousLocationRef.current = entry;
     if (!isSyntacticallyAllowed(entry, capabilities)) return;
     const last = historyRef.current[historyRef.current.length - 1];
     if (last?.pathname === entry.pathname && last.search === entry.search) return;
+    // Replacing a query (for example closing a deep-linked drawer) replaces
+    // the current entry, rather than creating a Back destination that reopens it.
+    // goBack already trims the stack, so only replace an entry that still
+    // matches the route we just left.
+    if (
+      navigationType === "REPLACE" &&
+      previousLocation &&
+      last?.pathname === previousLocation.pathname &&
+      last.search === previousLocation.search
+    ) {
+      historyRef.current = [...historyRef.current.slice(0, -1), entry];
+      writeHistory(historyRef.current);
+      return;
+    }
     // A browser/client Back action must rewind our fallback stack as well.
     // Without this, a later in-app "返回" can jump to a page the user has
     // already left instead of the immediately preceding one.

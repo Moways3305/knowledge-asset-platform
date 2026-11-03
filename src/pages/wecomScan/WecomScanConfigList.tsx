@@ -18,6 +18,7 @@ interface Props {
 }
 
 function runSummary(record: WecomScanRecordDTO | null | undefined) {
+  if (record === undefined) return "记录未能读取";
   if (!record) return "暂无运行";
   const status = scanStatusLabel[record.scan_status] ?? "未知";
   return `${status} · 新增 ${record.new_count} · 失败 ${record.failed_count}`;
@@ -28,8 +29,10 @@ function issueSummary(config: WecomScanConfigDTO, record: WecomScanRecordDTO | n
   if (config.scan_space_status !== "ready") return "项目空间不可用";
   if (config.manager_access_status === "identity_link_required") return "项目经理需绑定企微身份";
   if (config.manager_access_status !== "ready") return "负责人权限未就绪";
+  if (record?.scan_status === "failed") return "最近扫描未完成";
   if ((record?.failed_count ?? 0) > 0) return `最近扫描失败 ${record?.failed_count} 项`;
-  return "无异常";
+  if (record === undefined) return "扫描状态待核对";
+  return record ? (scanStatusLabel[record.scan_status] ?? "扫描状态待核对") : "尚未扫描";
 }
 
 export default function WecomScanConfigList({
@@ -90,7 +93,8 @@ export default function WecomScanConfigList({
               config.enabled &&
               (config.scan_space_status !== "ready" ||
                 config.manager_access_status !== "ready" ||
-                (latest[config.id]?.failed_count ?? 0) > 0);
+                (latest[config.id]?.failed_count ?? 0) > 0 ||
+                latest[config.id]?.scan_status === "failed");
             return (
               <tr
                 key={config.id}
@@ -134,21 +138,21 @@ export default function WecomScanConfigList({
                         <button
                           className="btn-small"
                           onClick={() => onEdit(config)}
-                          disabled={busy}
+                          disabled={Boolean(busyId)}
                         >
                           编辑
                         </button>
                         <button
                           className="btn-small"
                           onClick={() => onToggle(config)}
-                          disabled={busy}
+                          disabled={Boolean(busyId)}
                         >
                           {config.enabled ? "停用" : "启用"}
                         </button>
                         <button
                           className="btn-small-primary"
                           onClick={() => onScan(config)}
-                          disabled={!config.enabled || busy}
+                          disabled={!config.enabled || Boolean(busyId)}
                         >
                           {busy ? "处理中…" : "扫描"}
                         </button>

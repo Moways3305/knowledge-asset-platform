@@ -246,6 +246,11 @@ describe("ProjectSettingsPage reference implementation", () => {
     projectApi.fetchProjectMembers.mockReturnValue(new Promise(() => undefined));
     renderPage();
     expect(screen.getByText("正在加载项目设置…")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "项目概览" })).toHaveAttribute(
+      "href",
+      `/project/${PROJECT_ID}`,
+    );
+    expect(screen.getByRole("link", { name: "项目设置" })).toHaveAttribute("aria-current", "page");
   });
 
   it("renders the two-column work page from real project data without identity leakage", async () => {
@@ -429,6 +434,10 @@ describe("ProjectSettingsPage reference implementation", () => {
     renderPage();
     expect(await screen.findByText("无法加载项目设置")).toBeInTheDocument();
     expect(screen.getByText("当前身份不是该项目成员")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "项目概览" })).toHaveAttribute(
+      "href",
+      `/project/${PROJECT_ID}`,
+    );
     expect(screen.queryByText(settings.name)).not.toBeInTheDocument();
   });
 

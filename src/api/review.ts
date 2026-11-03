@@ -6,6 +6,7 @@ import type {
   EvidenceInputDTO,
   ReviewActionResponseDTO,
   ReviewItemDTO,
+  ReviewDetailDTO,
   ReviewListResponseDTO,
 } from "../types/review";
 import type { BulkOperationResponseDTO } from "../types/bulk";
@@ -15,6 +16,10 @@ import type { NamingConfirmationDTO, NamingPreviewDTO } from "../types/naming";
 export interface CompanyUpgradeRequestDTO {
   confidentiality_level: string;
   naming: NamingConfirmationDTO;
+}
+
+export function fetchReview(reviewId: string): Promise<ReviewDetailDTO> {
+  return apiGet(`/api/v1/reviews/${encodeURIComponent(reviewId)}`);
 }
 
 export async function fetchReviews(

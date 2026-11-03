@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   fetchAgentRegistry,
@@ -79,7 +79,7 @@ describe("AdminPermissionsPage", () => {
   it("renders the rule-first workspace without internal fields", async () => {
     const { container } = render(<AdminPermissionsPage />);
     expect(await screen.findByText("原文访问有效期")).toBeInTheDocument();
-    expect(screen.getByText("外部助手白名单")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "外部助手白名单" })).toBeInTheDocument();
     expect(screen.getByText("语义检索")).toBeInTheDocument();
     expect(container.querySelector(".gp-governance-console")?.children).toHaveLength(1);
     expect(container.querySelector(".gp-summary-panel")).not.toBeInTheDocument();
@@ -101,6 +101,25 @@ describe("AdminPermissionsPage", () => {
     ])
       expect(container.innerHTML).not.toContain(secret);
   });
+
+  it.each([403, 503])(
+    "retains section navigation when the whitelist returns %s without exposing data",
+    async (status) => {
+      vi.mocked(fetchAgentRegistry).mockRejectedValueOnce(new ApiError(status, "private detail"));
+      render(<AdminPermissionsPage />);
+      await screen.findByText(
+        status === 403 ? "当前身份不能查看外部助手白名单。" : "外部助手白名单暂时无法加载。",
+      );
+      expect(screen.getByRole("link", { name: "外部助手白名单" })).toHaveAttribute(
+        "href",
+        "#permission-reference",
+      );
+      expect(screen.getByRole("heading", { name: "外部助手白名单" })).toBeInTheDocument();
+      expect(screen.queryByText("项目知识助手")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "停用" })).not.toBeInTheDocument();
+      expect(document.body).not.toHaveTextContent("private detail");
+    },
+  );
 
   it("updates only the active agent row for admin", async () => {
     render(<AdminPermissionsPage />);
@@ -195,5 +214,30 @@ describe("AdminPermissionsPage", () => {
     expect(screen.getByText("系统固定策略")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "启用" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "停用" })).not.toBeInTheDocument();
+  });
+  it("keeps rule editing isolated and prevents dismissal while a save is pending", async () => {
+    vi.mocked(fetchAuthMe).mockResolvedValue({ ...me, activeCompanyRole: "boss" });
+    vi.mocked(fetchPermissionRules).mockResolvedValue({
+      items: [rule, { ...rule, rule_id: "second", display_name: "自动通过时间" }],
+      total: 2,
+    });
+    let finish!: (value: PermissionRuleDTO) => void;
+    vi.mocked(updatePermissionRule).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    render(<AdminPermissionsPage />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "编辑" }))[0]);
+    expect(screen.getByRole("button", { name: "编辑" })).toBeDisabled();
+    expect(screen.getByLabelText("规则分组")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "刷新" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("原文访问有效期数值"), { target: { value: "9" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    expect(screen.getByRole("button", { name: "取消" })).toBeDisabled();
+    await act(async () => finish({ ...rule, value_number: 9 }));
+    expect(screen.getByText("9 天")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "编辑" })).toHaveLength(2);
   });
 });

@@ -1,7 +1,7 @@
 // 知识资产领域：列表 / 详情 / 语义检索 / 受控预览 / 删除 / 重试索引 / 运营洞察 /
 // 生命周期归档 / 原文访问申请与授权。所有响应均为后端经权限网关
 // 裁剪、脱敏后的安全字段，前端不构造、不展示任何内部标识（WeKnora id / storage 引用等）。
-import { apiGet, apiPost, apiPatch } from "./http";
+import { ApiError, apiGet, apiPost, apiPatch } from "./http";
 import type {
   AccessInfoDTO,
   AccessInfoVM,
@@ -113,6 +113,15 @@ function mapDetail(d: KnowledgeDetailDTO): KnowledgeDetailVM {
 }
 
 // ---- 列表 / 详情 ----
+export function createKnowledgeDirectory(body: {
+  scope: "company" | "project";
+  project_id: string | null | undefined;
+  parent_key: string;
+  display_name: string;
+}) {
+  return apiPost<{ directory_key: string }>("/api/v1/knowledge/directories", body);
+}
+
 export async function updateKnowledgeMetadata(id: string, body: Record<string, unknown>) {
   return apiPatch<{ asset_id: string; updated_at: string }>(
     `/api/v1/knowledge/${id}/metadata`,
@@ -149,10 +158,10 @@ export async function fetchKnowledgePage(
   }
   const finalQuery = qs.toString();
   const basePath = projectWorkspace
-    ? `/api/v1/projects/${encodeURIComponent(params.projectId!)}/knowledge`
+    ? (`/api/v1/projects/${encodeURIComponent(params.projectId!)}/knowledge` as const)
     : "/api/v1/knowledge";
   const data = await apiGet<KnowledgeListResponseDTO>(
-    `${basePath}${finalQuery ? `?${finalQuery}` : ""}`,
+    finalQuery ? `${basePath}?${finalQuery}` : basePath,
   );
   return {
     items: data.items.map(mapCard),
@@ -258,7 +267,14 @@ export async function issuePreview(assetId: string): Promise<PreviewIssueRespons
   return apiPost<PreviewIssueResponseDTO>(`/api/v1/knowledge/${assetId}/preview`, {});
 }
 
+function isPreviewEntryPath(value: string): value is `/api/v1/preview/${string}` {
+  return /^\/api\/v1\/preview\/[a-zA-Z0-9_-]+$/.test(value);
+}
+
 export async function fetchPreviewEntry(entryUrl: string): Promise<PreviewEntryVM> {
+  if (!isPreviewEntryPath(entryUrl)) {
+    throw new ApiError(400, "预览入口无效，请重新打开资料预览。");
+  }
   const data = await apiGet<Record<string, unknown>>(entryUrl);
   return {
     previewType: String(data.preview_type ?? ""),
@@ -373,4 +389,27 @@ export async function bulkOriginalAccessAction(input: {
         total_submitted: context.totalSubmitted,
       }),
   });
+}
+
+// Explicit operator tools; the server remains the permission authority.
+export function requestAssetReenable(
+  assetId: string,
+  reason: string,
+  target_status: "active" | "needs_update",
+) {
+  return apiPost<{ asset_id: string; review_task_id: string | null }>(
+    `/api/v1/knowledge/${encodeURIComponent(assetId)}/lifecycle/reenable-request`,
+    { reason, target_status },
+  );
+}
+
+export function confirmAssetReenable(
+  assetId: string,
+  reason: string,
+  target_status: "active" | "needs_update",
+) {
+  return apiPost<{ asset_id: string; asset_status: string }>(
+    `/api/v1/knowledge/${encodeURIComponent(assetId)}/lifecycle/reenable-confirm`,
+    { reason, target_status },
+  );
 }

@@ -1,0 +1,55 @@
+.workspace-tabs {
+  min-width: 0;
+}
+.workspace-tabs-nav {
+  display: flex;
+  gap: 24px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--color-border);
+  padding: 0 24px;
+  scrollbar-width: thin;
+}
+.workspace-tabs-nav > button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  min-height: 54px;
+  padding: 0 2px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.workspace-tabs-nav > button[aria-selected="true"] {
+  color: var(--color-primary);
+  border-bottom-color: currentColor;
+  font-weight: 600;
+}
+.workspace-tabs-nav > button:focus-visible,
+.workspace-tab-panel:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -3px;
+}
+.workspace-tab-panel[hidden] {
+  display: none;
+}
+.workspace-tab-panel {
+  min-width: 0;
+}
+@media (max-width: 700px) {
+  .workspace-tabs-nav {
+    gap: 20px;
+    padding-inline: 16px;
+  }
+  .workspace-tabs-nav > button {
+    min-height: 48px;
+    font-size: 13px;
+  }
+  .workspace-tabs-nav > button svg {
+    display: none;
+  }
+}

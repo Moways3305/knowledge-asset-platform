@@ -1,3 +1,4 @@
+import { fetchPreviewText } from "../../api/preview";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { PreviewEntryVM } from "../../types/preview";
@@ -277,10 +278,8 @@ function LightTextPreview({ entry }: { entry: PreviewEntryVM }) {
       return;
     }
     let active = true;
-    fetch(entry.fileUrl, { credentials: "include" })
-      .then(async (resp) => {
-        if (!resp.ok) throw new Error(String(resp.status));
-        const raw = await resp.text();
+    fetchPreviewText(entry.fileUrl)
+      .then((raw) => {
         if (active) setText(raw);
       })
       .catch(() => {

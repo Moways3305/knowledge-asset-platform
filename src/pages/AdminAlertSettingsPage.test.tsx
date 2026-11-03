@@ -25,7 +25,7 @@ describe("AdminAlertSettingsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(fetchAlertRules).mockResolvedValue({ items: [rule] });
-    vi.mocked(updateAlertRule).mockImplementation(async (_id, patch) => ({ ...rule, ...patch }));
+    vi.mocked(updateAlertRule).mockImplementation(async (id, patch) => ({ ...rule, id, ...patch }));
   });
 
   it("renders a focused rules workspace without a redundant notification log", async () => {
@@ -58,7 +58,7 @@ describe("AdminAlertSettingsPage", () => {
     );
   });
 
-  it("recovers the edited row after a safe update failure", async () => {
+  it("preserves the edited value after a safe update failure", async () => {
     vi.mocked(updateAlertRule).mockRejectedValueOnce(new ApiError(500, "raw webhook credential"));
     render(<AdminAlertSettingsPage />);
     fireEvent.click(await screen.findByRole("button", { name: "编辑连续登录失败阈值" }));
@@ -68,7 +68,7 @@ describe("AdminAlertSettingsPage", () => {
     expect(updateAlertRule).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "保存阈值" }));
     expect(await screen.findByText("保存失败，请重试。")).toBeInTheDocument();
-    expect(input).toHaveValue(5);
+    expect(input).toHaveValue(9);
     expect(document.body.innerHTML).not.toContain("raw webhook credential");
   });
 
@@ -99,7 +99,7 @@ describe("AdminAlertSettingsPage", () => {
     },
   );
 
-  it("keeps another row's draft when an earlier save resolves", async () => {
+  it("keeps the selected rule isolated until its explicit save finishes", async () => {
     const other = { ...rule, id: "second-rule", rule_name: "上传失败", threshold: 3 };
     vi.mocked(fetchAlertRules).mockResolvedValue({ items: [rule, other] });
     let finish!: (value: AlertRuleDTO) => void;
@@ -113,15 +113,17 @@ describe("AdminAlertSettingsPage", () => {
     fireEvent.click(await screen.findByRole("button", { name: "编辑连续登录失败阈值" }));
     const firstInput = screen.getByLabelText("连续登录失败阈值");
     fireEvent.change(firstInput, { target: { value: "8" } });
-    fireEvent.click(within(firstInput.closest("tr")!).getByRole("button", { name: "保存阈值" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存阈值" }));
+    expect(screen.getByRole("button", { name: "编辑上传失败阈值" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "取消" })).toBeDisabled();
+    await act(async () => finish({ ...rule, threshold: 8 }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "编辑上传失败阈值" }));
     const otherInput = screen.getByLabelText("上传失败阈值");
+    expect(otherInput).toHaveValue(3);
     fireEvent.change(otherInput, { target: { value: "9" } });
-    await act(async () => finish({ ...rule, threshold: 8 }));
-    expect(screen.getByLabelText("上传失败阈值")).toHaveValue(9);
-    expect(screen.queryByLabelText("连续登录失败阈值")).not.toBeInTheDocument();
     expect(updateAlertRule).toHaveBeenCalledTimes(1);
-    fireEvent.click(within(otherInput.closest("tr")!).getByRole("button", { name: "保存阈值" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存阈值" }));
     await waitFor(() =>
       expect(updateAlertRule).toHaveBeenLastCalledWith("second-rule", { threshold: 9 }),
     );

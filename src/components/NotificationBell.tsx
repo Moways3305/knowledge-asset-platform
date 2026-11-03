@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowRight, Bell, BellOff, CheckCheck, LoaderCircle, RefreshCw } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { readKnowledgeDetailSource } from "../routing/knowledgeDetailSource";
 import {
   fetchNotifications,
   markNotificationRead,
@@ -51,6 +52,7 @@ export default function NotificationBell() {
   const needsRefresh = useRef(false);
   const mutationIds = useRef(new Set<string>());
   const navigate = useNavigate();
+  const location = useLocation();
 
   const load = useCallback(
     async (nextPage = 1, append = false, quiet = false) => {
@@ -189,7 +191,27 @@ export default function NotificationBell() {
       return;
     }
     const route = routeTemplate.replace(":id", encodeURIComponent(item.target.resource_id));
-    navigate(`${route}?target_id=${encodeURIComponent(item.target.resource_id)}`);
+    const query = new URLSearchParams({ target_id: item.target.resource_id });
+    if (item.target.route_key === "original_access") {
+      query.set("box", item.event_type === "original_access.pending" ? "inbox" : "mine");
+    }
+    if (
+      item.target.route_key === "reviews" &&
+      ["completed", "cancelled", "rejected"].includes(item.task_status)
+    )
+      query.set("queue", "completed");
+    if (item.target.route_key === "upload") query.set("task_id", item.target.resource_id);
+    const target = `${route}?${query.toString()}`;
+    if (item.target.route_key === "knowledge_detail") {
+      const origin = location.pathname.startsWith("/knowledge/")
+        ? readKnowledgeDetailSource(location.state).backTo
+        : `${location.pathname}${location.search}${location.hash}`;
+      navigate(target, {
+        state: { backTo: origin, backLabel: "返回上一页", source: "notification" },
+      });
+    } else {
+      navigate(target);
+    }
     if (await markOne(item)) setOpen(false);
   };
 
@@ -226,34 +248,35 @@ export default function NotificationBell() {
       <button
         type="button"
         className={`notification-bell-trigger ${open ? "is-open" : ""}`}
-        aria-label={`通知中心，${pendingCount} 项待处理`}
+        aria-label={`通知中心，${pendingCount} 项待处理，${unread} 条未读`}
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen(true)}
       >
         <Bell size={17} strokeWidth={1.8} aria-hidden="true" />
-        {pendingCount > 0 && (
+        {unread > 0 && (
           <span className="notification-bell-badge" aria-hidden="true">
-            {pendingCount > 99 ? "99+" : pendingCount}
+            {unread > 99 ? "99+" : unread}
           </span>
         )}
       </button>
       <DetailDrawer
         open={open}
         title="通知中心"
-        description={`${unread} 条未读 · 已读仅代表你已查看，不代表任务完成`}
+        className="notification-center-drawer"
+        description={`${unread} 条未读 · ${pendingCount} 项需要处理`}
         onClose={() => setOpen(false)}
         busy={busy}
         footer={
           <div className="notification-center-footer">
-            <span>仅展示你当前有权查看的事项</span>
+            <span>已读不代表处理完成</span>
             <button
               type="button"
               disabled={busy || !items.some((item) => !item.is_read)}
               onClick={() => void markAll()}
             >
               <CheckCheck size={15} />
-              全部已读
+              当前列表已读
             </button>
           </div>
         }
@@ -276,9 +299,12 @@ export default function NotificationBell() {
               className={tab === "updates" ? "is-active" : ""}
               onClick={() => setTab("updates")}
             >
-              动态 <span>{unread}</span>
+              动态{tab === "updates" && <span>{total}</span>}
             </button>
           </div>
+          <button type="button" aria-label="刷新通知" disabled={busy} onClick={() => void load()}>
+            <RefreshCw size={16} aria-hidden="true" />
+          </button>
         </div>
         {mutationError && (
           <div className="notification-center-alert" role="alert">
@@ -316,13 +342,45 @@ export default function NotificationBell() {
                   </span>
                   <time>{formatBeijingTime(item.created_at)}</time>
                 </div>
-                <h3>{item.title}</h3>
-                <p>{item.summary}</p>
+                <h3>
+                  <button
+                    type="button"
+                    className="notification-title-link"
+                    onClick={() => void openItem(item)}
+                  >
+                    {item.title}
+                  </button>
+                </h3>
+                {item.summary &&
+                  item.summary !== item.title &&
+                  (item.summary.length > 90 ? (
+                    <details className="notification-summary">
+                      <summary>
+                        {item.summary.slice(0, 90)}… <span>展开内容</span>
+                      </summary>
+                      <p>{item.summary}</p>
+                    </details>
+                  ) : (
+                    <p>{item.summary}</p>
+                  ))}
                 {item.failure_reason && <p>失败原因：{item.failure_reason}</p>}
                 {item.recovery_suggestion && <p>恢复建议：{item.recovery_suggestion}</p>}
                 <div className="notification-center-context">
-                  <span>{item.project_name ?? item.object_name}</span>
-                  <span>{item.is_read ? "已读" : "未读"}</span>
+                  {item.project_name && <span>{item.project_name}</span>}
+                  {item.object_name &&
+                    !item.title.includes(item.object_name) &&
+                    item.object_name !== item.project_name && <span>{item.object_name}</span>}
+                  {item.is_read ? (
+                    <span className="notification-read-state">已读</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="notification-mark-read"
+                      onClick={() => void markOne(item)}
+                    >
+                      标为已读
+                    </button>
+                  )}
                 </div>
                 <button
                   type="button"

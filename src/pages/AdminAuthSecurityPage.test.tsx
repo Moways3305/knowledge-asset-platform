@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchAuthSecurityOverview, unlockAuthLockout } from "../api/admin";
 import { ApiError } from "../api/http";
@@ -102,5 +102,30 @@ describe("AdminAuthSecurityPage", () => {
     const { container } = render(<AdminAuthSecurityPage />);
     expect(await screen.findByText(expected)).toBeInTheDocument();
     expect(container.innerHTML).not.toMatch(/raw auth token|raw forbidden/);
+  });
+  it("keeps the newest time-range result when an earlier request arrives last", async () => {
+    let finish!: (value: AuthSecurityOverviewDTO) => void;
+    vi.mocked(fetchAuthSecurityOverview).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    render(<AdminAuthSecurityPage />);
+    fireEvent.change(screen.getByLabelText("时间范围"), { target: { value: "360" } });
+    await screen.findByText("李顾问");
+    await act(async () => finish({ ...overview, recent_events: [] }));
+    expect(screen.getByText("李顾问")).toBeInTheDocument();
+    expect(screen.queryByText("该时间范围内暂无登录尝试")).not.toBeInTheDocument();
+  });
+
+  it("does not describe successful login as a security failure when its reason is absent", async () => {
+    vi.mocked(fetchAuthSecurityOverview).mockResolvedValue({
+      ...overview,
+      recent_events: [{ ...overview.recent_events[1], reason_code: null }],
+    });
+    render(<AdminAuthSecurityPage />);
+    expect(await screen.findByText("登录成功")).toBeInTheDocument();
+    expect(screen.queryByText("安全校验未通过")).not.toBeInTheDocument();
   });
 });

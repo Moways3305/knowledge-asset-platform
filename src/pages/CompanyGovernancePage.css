@@ -2,7 +2,7 @@
   --cg-ink: #27314b;
   --cg-muted: #68718b;
   --cg-line: #e5e8f1;
-  --cg-purple: #6255cf;
+  --cg-purple: var(--color-primary);
   max-width: 1480px;
   margin: auto;
   padding: 28px;
@@ -277,14 +277,14 @@
   font-size: 13px;
 }
 .cg-primary {
-  background: #6255cf !important;
+  background: var(--color-primary) !important;
   color: white !important;
   border: 0 !important;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  border-radius: 9px;
+  border-radius: 6px;
   padding: 10px 15px;
   cursor: pointer;
   font: inherit;
@@ -311,7 +311,7 @@
 }
 .cg-page :focus-visible,
 .cg-confirm :focus-visible {
-  outline: 2px solid #6255cf;
+  outline: 2px solid var(--color-primary);
   outline-offset: 3px;
 }
 .cg-page input[type="checkbox"] {

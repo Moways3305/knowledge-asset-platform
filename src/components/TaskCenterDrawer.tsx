@@ -55,7 +55,11 @@ export default function TaskCenterDrawer({
     [items, selectedRef],
   );
   const routeDefinition = selected?.route_key ? ROUTES[selected.route_key] : undefined;
-  const route = routeDefinition?.allowed(capabilities) ? routeDefinition.path : undefined;
+  const allowedRoute = routeDefinition?.allowed(capabilities) ? routeDefinition.path : undefined;
+  const route =
+    allowedRoute && selected?.route_key === "original_access"
+      ? `${allowedRoute}?box=${selected.next_action_key === "decide_original_access" ? "inbox" : "mine"}`
+      : allowedRoute;
 
   useEffect(() => {
     if (!open) return;
@@ -67,7 +71,8 @@ export default function TaskCenterDrawer({
     <DetailDrawer
       open={open}
       title="任务中心"
-      description="同一份权限过滤数据，集中查看待办、作业进度与业务终态。"
+      className="task-center-drawer"
+      description="查看待办和处理进度，选择任务后继续办理。"
       onClose={onClose}
       footer={
         selected && route ? (
@@ -105,6 +110,7 @@ export default function TaskCenterDrawer({
               <button
                 key={item.task_ref}
                 type="button"
+                aria-pressed={selected?.task_ref === item.task_ref}
                 className={selected?.task_ref === item.task_ref ? "is-selected" : ""}
                 onClick={() => setSelectedRef(item.task_ref)}
               >
@@ -118,7 +124,7 @@ export default function TaskCenterDrawer({
             ))}
           </div>
           {selected && (
-            <article className="tc90-detail">
+            <article className="tc90-detail" aria-label="当前任务详情">
               <div className="tc90-detail-heading">
                 <span className={`tc90-priority is-${selected.priority}`}>
                   {taskPriorityLabel(selected.priority)}

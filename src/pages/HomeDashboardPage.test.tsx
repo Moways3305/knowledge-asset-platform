@@ -252,7 +252,7 @@ describe("HomeDashboardPage task-first workbench", () => {
       "/knowledge/asset-safe-1",
     );
     expect(screen.getByRole("link", { name: /交付复盘方法/ })).toHaveClass("material-source");
-    expect(container.querySelector(".workbench-layout")).toBeInTheDocument();
+    expect(container.querySelector(".work-dashboard-grid")).toBeInTheDocument();
     expect(screen.queryByText("今日任务调度")).not.toBeInTheDocument();
     expect(screen.queryByText("项目概览")).not.toBeInTheDocument();
     expect(screen.queryByText("资产运行概览")).not.toBeInTheDocument();
@@ -310,10 +310,11 @@ describe("HomeDashboardPage task-first workbench", () => {
     expect(screen.getByText(/重复跳过 ·/)).toBeInTheDocument();
   });
 
-  it("opens the priority task from the focus surface and uses one set of task tabs", async () => {
+  it("opens the selected task from the list and preserves task group switching", async () => {
     renderPage();
 
-    const focus = await screen.findByRole("button", { name: "打开今日焦点任务" });
+    expect(await screen.findByText("客户交付复盘审核")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "打开今日焦点任务" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("今日工作节奏")).not.toBeInTheDocument();
     const running = screen.getByRole("tab", { name: /进行中1/ });
 
@@ -321,7 +322,8 @@ describe("HomeDashboardPage task-first workbench", () => {
     expect(running).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText(/处理中 · 4\/10/)).toBeInTheDocument();
 
-    fireEvent.click(focus);
+    fireEvent.click(screen.getByRole("tab", { name: /待处理/ }));
+    fireEvent.click(screen.getByRole("button", { name: /客户交付复盘审核/ }));
     expect(screen.getByRole("heading", { name: "任务中心" })).toBeInTheDocument();
     expect(screen.getByText("客户交付复盘审核", { selector: "h3" })).toBeInTheDocument();
   });

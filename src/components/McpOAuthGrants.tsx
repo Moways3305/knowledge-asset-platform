@@ -1,16 +1,15 @@
 import { useEffect, useState } from "react";
-import { ApiError, apiDelete, apiGet } from "../api/http";
+import { ApiError } from "../api/http";
 import { PageSection } from "./ProductLayout";
 import "./McpOAuth.css";
 import Button from "./Button";
 import ConfirmDialog from "./ConfirmDialog";
 
-interface Grant {
-  id: string;
-  name: string;
-  operations_enabled: boolean;
-  expires_at: string;
-}
+import {
+  fetchMcpOAuthGrants,
+  revokeMcpOAuthGrant,
+  type McpOAuthGrant as Grant,
+} from "../api/mcpOAuth";
 
 export default function McpOAuthGrants() {
   const [items, setItems] = useState<Grant[]>([]);
@@ -20,7 +19,7 @@ export default function McpOAuthGrants() {
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     let active = true;
-    apiGet<{ items: Grant[] }>("/api/v1/auth/mcp-oauth/grants")
+    fetchMcpOAuthGrants()
       .then((data) => {
         if (active) {
           setItems(data.items);
@@ -42,7 +41,7 @@ export default function McpOAuthGrants() {
     setError("");
     setBusy(true);
     try {
-      await apiDelete(`/api/v1/auth/mcp-oauth/grants/${encodeURIComponent(id)}`);
+      await revokeMcpOAuthGrant(id);
       setItems((current) => current.filter((item) => item.id !== id));
       setRevokeTarget(null);
     } catch (e) {

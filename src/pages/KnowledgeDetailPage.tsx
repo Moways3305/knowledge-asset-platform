@@ -1,353 +1,108 @@
-import { useEffect, useRef, useState } from "react";
-import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { RestoreAssetButton } from "../components/operations/AssetTools";
 import {
   Archive,
   ArrowLeft,
   ChevronRight,
   Eye,
   FileText,
+  History,
   RefreshCw,
+  Settings2,
   ShieldCheck,
   Trash2,
 } from "lucide-react";
-import { ApiError } from "../api/http";
-import { summaryPendingLabel } from "../components/knowledgeSummaryState";
-import { useAuth } from "../auth/AuthContext";
+import { Link } from "react-router-dom";
 import AccessExplanationDrawer, { accessLabel } from "../components/AccessExplanationDrawer";
+import { ActionGroup } from "../components/ActionLayout";
+import KnowledgeMetadataEditor from "../components/KnowledgeMetadataEditor";
+import { summaryPendingLabel } from "../components/knowledgeSummaryState";
+import KnowledgeTrustPanel from "../components/KnowledgeTrustPanel";
+import KnowledgeVersionPanel from "../components/KnowledgeVersionPanel";
 import ProjectCompanyPublicationDialog, {
   getProjectCompanyPublicationEligibility,
 } from "../components/ProjectCompanyPublicationDialog";
-import { ActionGroup } from "../components/ActionLayout";
 import TaskModal from "../components/TaskModal";
-import KnowledgeMetadataEditor from "../components/KnowledgeMetadataEditor";
-import KnowledgeTrustPanel from "../components/KnowledgeTrustPanel";
-import KnowledgeVersionPanel from "../components/KnowledgeVersionPanel";
-import {
-  deleteKnowledgeAsset,
-  fetchKnowledgeDetail,
-  fetchLifecycleEvents,
-  fetchPreviewEntry,
-  issuePreview,
-  lifecycleArchiveConfirm,
-  lifecycleArchiveRequest,
-  requestOriginalAccess,
-  retryKnowledgeIndex,
-} from "../api/knowledge";
-import type { LifecycleEventDTO } from "../types/lifecycle";
-import type {
-  AiAccessLevel,
-  AssetStatus,
-  ConfidentialityLevel,
-  FrontVisibility,
-  KnowledgeDetailVM,
-} from "../types/knowledge";
-import type { PreviewEntryVM } from "../types/preview";
-import type { VersionHistory } from "../api/knowledgeVersions";
-import { formatBeijingTime } from "../utils/time";
-import { readKnowledgeDetailSource } from "../routing/knowledgeDetailSource";
+import WorkspaceTabs from "../components/WorkspaceTabs";
 import { HistoryBackButton } from "../routing/SafeNavigation";
+import { formatBeijingTime } from "../utils/time";
+import {
+  aiAccessLabelMap,
+  assetStatusCls,
+  assetStatusLabel,
+  confidentialityLabelMap,
+  hasText,
+  indexStatusLabel,
+  lifecycleEventLabel,
+  scopeLabel,
+  visibilityLabel,
+} from "./controllers/KnowledgeDetail/model";
+import { useKnowledgeDetail } from "./controllers/KnowledgeDetail/useKnowledgeDetail";
 import { OnlyOfficePreview } from "./knowledge/OnlyOfficePreview";
 import "./KnowledgeDetailPage.css";
-
 export { OnlyOfficePreview } from "./knowledge/OnlyOfficePreview";
-
-const visibilityLabel: Record<FrontVisibility, string> = {
-  public: "公开",
-  "project-only": "项目内",
-  confidential: "机密",
-};
-
-const confidentialityLabelMap: Record<ConfidentialityLevel, string> = {
-  L1: "L1 公开级",
-  L2: "L2 内部参考级",
-  L3: "L3 受限级",
-  L4: "L4 商业秘密级",
-  L5: "L5 严格商业秘密级",
-};
-
-const aiAccessLabelMap: Record<AiAccessLevel, string> = {
-  A1: "可用于问答",
-  A2: "保护后用于问答",
-  A3: "仅摘要可用",
-  A4: "不用于问答",
-};
-
-const assetStatusLabel: Record<AssetStatus, string> = {
-  active: "已入库",
-  needs_update: "需要处理",
-  deprecated: "已停用",
-  archived: "已归档",
-};
-
-const assetStatusCls: Record<AssetStatus, string> = {
-  active: "asset-status-active",
-  needs_update: "asset-status-needs-update",
-  deprecated: "asset-status-deprecated",
-  archived: "asset-status-archived",
-};
-
-const indexStatusLabel: Record<string, string> = {
-  indexed: "索引完成，可检索",
-  indexing: "索引处理中",
-  index_failed: "索引未完成，可恢复",
-  skipped: "此前未进入索引",
-  not_indexed: "已入库，等待索引",
-};
-
-const scopeLabel: Record<string, string> = {
-  personal: "个人范围",
-  project: "项目范围",
-  company: "公司范围",
-};
-
-const lifecycleEventLabel: Record<string, string> = {
-  archive_warning: "归档预警",
-  archive_candidate: "归档候选",
-  archived: "资产已归档",
-  reenable_requested: "申请重新启用",
-  reenabled: "资产已重新启用",
-  status_changed: "资产状态已变更",
-};
-
-const hasText = (value: string | null | undefined) => Boolean(value && value.trim());
-
-function safeActionError(error: unknown, fallback: string) {
-  return error instanceof ApiError ? error.message : fallback;
-}
-
 export default function KnowledgeDetailPage() {
-  const { authMe, capabilities } = useAuth();
-  const { id } = useParams<{ id: string }>();
-  const location = useLocation();
-  const navigate = useNavigate();
-  const requestRef = useRef(0);
-  const [asset, setAsset] = useState<KnowledgeDetailVM | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [notFound, setNotFound] = useState(false);
-  const [loadError, setLoadError] = useState(false);
-  const [loadAttempt, setLoadAttempt] = useState(0);
-  const [authorizedHistory, setAuthorizedHistory] = useState<VersionHistory | null>(null);
-
-  const [previewEntry, setPreviewEntry] = useState<PreviewEntryVM | null>(null);
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const [previewError, setPreviewError] = useState<string | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-
-  const [oaBusy, setOaBusy] = useState(false);
-  const [oaError, setOaError] = useState<string | null>(null);
-  const [oaNote, setOaNote] = useState<string | null>(null);
-  const [requestOpen, setRequestOpen] = useState(false);
-  const [requestReason, setRequestReason] = useState("");
-  const [explainOpen, setExplainOpen] = useState(false);
-
-  const [lcEvents, setLcEvents] = useState<LifecycleEventDTO[] | null>(null);
-  const [lcLoading, setLcLoading] = useState(false);
-  const [lcReason, setLcReason] = useState("");
-  const [lcMsg, setLcMsg] = useState<string | null>(null);
-  const [lcErr, setLcErr] = useState<string | null>(null);
-  const [lcBusy, setLcBusy] = useState(false);
-
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [deleteReason, setDeleteReason] = useState("");
-  const [deleteBusy, setDeleteBusy] = useState(false);
-  const [deleteErr, setDeleteErr] = useState<string | null>(null);
-
-  const [retryBusy, setRetryBusy] = useState(false);
-  const [retryNote, setRetryNote] = useState<string | null>(null);
-  const [retryErr, setRetryErr] = useState<string | null>(null);
-  const [publicationOpen, setPublicationOpen] = useState(false);
-  const [publicationNote, setPublicationNote] = useState<string | null>(null);
-  const detailSource = readKnowledgeDetailSource(location.state);
-  const backPath = detailSource.backTo;
-  const backLabel = detailSource.backLabel;
-
-  async function reloadAsset() {
-    if (!id) return;
-    try {
-      setAsset(await fetchKnowledgeDetail(id));
-    } catch {
-      // Keep the confirmed detail visible if an action refresh fails.
-    }
-  }
-
-  async function handlePreviewOriginal() {
-    if (!id) return;
-    const request = requestRef.current;
-    setPreviewLoading(true);
-    setPreviewError(null);
-    try {
-      const issued = await issuePreview(id);
-      if (request !== requestRef.current) return;
-      const entry = await fetchPreviewEntry(issued.preview_entry_url);
-      if (request !== requestRef.current) return;
-      setPreviewEntry(entry);
-      setPreviewOpen(true);
-    } catch (error) {
-      if (request !== requestRef.current) return;
-      setPreviewError(safeActionError(error, "原文预览暂时无法打开，请稍后再试。"));
-      if (error instanceof ApiError && [401, 403, 404].includes(error.status)) {
-        // Re-read current access instead of leaving a revoked grant marked as
-        // available. The normal loader also hides stale data if refresh fails.
-        setPreviewOpen(false);
-        setPreviewEntry(null);
-        setLoadAttempt((value) => value + 1);
-      }
-    } finally {
-      if (request === requestRef.current) setPreviewLoading(false);
-    }
-  }
-
-  async function handleRequestOriginal() {
-    if (!id) return;
-    setOaBusy(true);
-    setOaError(null);
-    setOaNote(null);
-    try {
-      const result = await requestOriginalAccess(id, requestReason.trim() || undefined);
-      const message: Record<string, string> = {
-        created: "原文访问申请已提交，待审批。",
-        pending_exists: "原文访问申请正在审批中。",
-        already_granted: "你已拥有该资产的原文访问权。",
-      };
-      setOaNote(message[result.status] ?? result.message);
-      await reloadAsset();
-      setRequestOpen(false);
-      setRequestReason("");
-    } catch (error) {
-      setOaError(safeActionError(error, "申请原文访问失败，请重试。"));
-    } finally {
-      setOaBusy(false);
-    }
-  }
-
-  async function loadLifecycleEvents() {
-    if (!id) return;
-    setLcLoading(true);
-    setLcErr(null);
-    try {
-      const result = await fetchLifecycleEvents(id);
-      setLcEvents(result.items);
-    } catch (error) {
-      setLcErr(safeActionError(error, "生命周期记录加载失败，请重试。"));
-    } finally {
-      setLcLoading(false);
-    }
-  }
-
-  async function handleArchiveRequest() {
-    if (!id) return;
-    if (!lcReason.trim()) {
-      setLcErr("请填写归档原因。");
-      return;
-    }
-    setLcBusy(true);
-    setLcMsg(null);
-    setLcErr(null);
-    try {
-      await lifecycleArchiveRequest(id, {
-        reason: lcReason.trim(),
-        candidate_source: "manual",
-      });
-      setLcMsg("归档候选已提交。");
-      await loadLifecycleEvents();
-    } catch (error) {
-      setLcErr(safeActionError(error, "发起归档失败，请重试。"));
-    } finally {
-      setLcBusy(false);
-    }
-  }
-
-  async function handleArchiveConfirm() {
-    if (!id) return;
-    if (!lcReason.trim()) {
-      setLcErr("请填写归档原因。");
-      return;
-    }
-    setLcBusy(true);
-    setLcMsg(null);
-    setLcErr(null);
-    try {
-      await lifecycleArchiveConfirm(id, { reason: lcReason.trim() });
-      setLcMsg("资产已归档。");
-      await reloadAsset();
-      await loadLifecycleEvents();
-    } catch (error) {
-      setLcErr(safeActionError(error, "确认归档失败，请重试。"));
-    } finally {
-      setLcBusy(false);
-    }
-  }
-
-  async function handleRetryIndex() {
-    if (!id) return;
-    setRetryBusy(true);
-    setRetryNote(null);
-    setRetryErr(null);
-    try {
-      const result = await retryKnowledgeIndex(id);
-      if (result.index_status === "indexed") setRetryNote("问答处理已完成。");
-      else if (result.index_status === "skipped") setRetryNote("资产已保留，暂未进入问答。");
-      else setRetryNote(result.index_error_message ?? "处理尚未完成，可稍后重试。");
-      await reloadAsset();
-    } catch (error) {
-      setRetryErr(safeActionError(error, "重新处理问答失败，请重试。"));
-    } finally {
-      setRetryBusy(false);
-    }
-  }
-
-  async function handleDelete() {
-    if (!id) return;
-    if (!deleteReason.trim()) {
-      setDeleteErr("请填写删除原因。");
-      return;
-    }
-    setDeleteBusy(true);
-    setDeleteErr(null);
-    try {
-      await deleteKnowledgeAsset(id, deleteReason.trim());
-      navigate(backPath);
-    } catch (error) {
-      setDeleteErr(safeActionError(error, "删除失败，请重试。"));
-      setDeleteBusy(false);
-    }
-  }
-
-  useEffect(() => {
-    setPreviewError(null);
-  }, [id]);
-
-  useEffect(() => {
-    if (!id) return;
-    const request = ++requestRef.current;
-    setPreviewOpen(false);
-    setPreviewEntry(null);
-    setPreviewLoading(false);
-    setLoading(true);
-    setNotFound(false);
-    setLoadError(false);
-    setAsset(null);
-    setAuthorizedHistory(null);
-    setLcEvents(null);
-    fetchKnowledgeDetail(id)
-      .then((detail) => {
-        if (request !== requestRef.current) return;
-        setAsset(detail);
-        setLoading(false);
-      })
-      .catch((error) => {
-        if (request !== requestRef.current) return;
-        if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
-          setNotFound(true);
-        } else {
-          setLoadError(true);
-        }
-        setLoading(false);
-      });
-    return () => {
-      requestRef.current += 1;
-    };
-  }, [id, loadAttempt]);
+  const {
+    loading,
+    backPath,
+    backLabel,
+    notFound,
+    asset,
+    loadError,
+    authorizedHistory,
+    id,
+    setAuthorizedHistory,
+    setLoadAttempt,
+    authMe,
+    handlePreviewOriginal,
+    previewLoading,
+    setRequestOpen,
+    oaBusy,
+    setPreviewOpen,
+    setPreviewEntry,
+    previewError,
+    oaError,
+    oaNote,
+    publicationNote,
+    detailView,
+    setDetailView,
+    setNotFound,
+    reloadAsset,
+    setPublicationNote,
+    setPublicationOpen,
+    lcEvents,
+    lcLoading,
+    loadLifecycleEvents,
+    lcErr,
+    lcReason,
+    setLcReason,
+    handleArchiveRequest,
+    lcBusy,
+    handleArchiveConfirm,
+    handleRetryIndex,
+    retryBusy,
+    confirmDelete,
+    setConfirmDelete,
+    deleteReason,
+    setDeleteReason,
+    handleDelete,
+    deleteBusy,
+    lcMsg,
+    retryNote,
+    retryErr,
+    deleteErr,
+    metadataExpanded,
+    setMetadataExpanded,
+    setExplainOpen,
+    publicationOpen,
+    previewOpen,
+    previewEntry,
+    explainOpen,
+    capabilities,
+    requestOpen,
+    setRequestReason,
+    handleRequestOriginal,
+    requestReason,
+  } = useKnowledgeDetail();
 
   if (loading) {
     return (
@@ -423,8 +178,8 @@ export default function KnowledgeDetailPage() {
   const hasOpsActions =
     !crossProjectSummary &&
     (asset.access.canRetryIndex ||
-      ((asset.access.canManageLifecycle || asset.access.canDelete) &&
-        asset.assetStatus !== "archived"));
+      asset.access.canManageLifecycle ||
+      (asset.access.canDelete && asset.assetStatus !== "archived"));
   const sharedFacts = [
     { label: "所属范围", value: scopeLabel[asset.scope] ?? asset.scope },
     { label: "所属项目", value: asset.projectName },
@@ -491,18 +246,14 @@ export default function KnowledgeDetailPage() {
               <time>更新于 {formatBeijingTime(asset.metadataUpdatedAt || asset.updatedAt)}</time>
             )}
           </div>
-          <h1>{asset.title}</h1>
+          <div className="kdetail-object-title">
+            <span className="workspace-file-mark" aria-hidden="true">
+              <FileText size={23} />
+            </span>
+            <h1>{asset.title}</h1>
+          </div>
           {!crossProjectSummary && asset.canonicalName && (
             <p className="kd-canonical-name">{asset.canonicalName}</p>
-          )}
-          {canSummary && (
-            <p className={hasText(asset.oneLiner) ? "" : "kdetail-summary-pending"}>
-              {hasText(asset.oneLiner)
-                ? asset.oneLiner
-                : hasSummaryBody
-                  ? ""
-                  : summaryPendingLabel(asset)}
-            </p>
           )}
         </div>
 
@@ -571,314 +322,382 @@ export default function KnowledgeDetailPage() {
 
       <div className="kdetail-layout">
         <div className="kdetail-main-column">
-          {(!canSummary || hasSummaryBody || !hasText(asset.oneLiner)) && (
-            <section className="kdetail-panel" aria-labelledby="summary-title">
-              <div className="kdetail-panel-heading">
-                <FileText size={17} aria-hidden="true" />
-                <h2 id="summary-title">内容摘要</h2>
-              </div>
-              {!canSummary ? (
-                <div className="kdetail-restricted">当前身份不可查看内容摘要。</div>
-              ) : !hasText(asset.oneLiner) && !hasSummaryBody ? (
-                <div className="kdetail-muted-state">{summaryPendingLabel(asset)}</div>
-              ) : (
-                <div className="kdetail-summary-body">
-                  {hasText(asset.detailed) && <p>{asset.detailed}</p>}
-                  {asset.keyPoints.length > 0 && (
-                    <div>
-                      <h3>关键知识点</h3>
-                      <ul>
-                        {asset.keyPoints.map((point) => (
-                          <li key={point}>{point}</li>
-                        ))}
-                      </ul>
+          <WorkspaceTabs
+            label="资料内容导航"
+            value={detailView}
+            onChange={setDetailView}
+            items={[
+              {
+                key: "content",
+                label: "内容摘要",
+                icon: <FileText size={16} aria-hidden="true" />,
+                content: (
+                  <>
+                    <section
+                      className="kdetail-panel kdetail-reading-surface"
+                      aria-labelledby="summary-title"
+                    >
+                      <div className="kdetail-panel-heading">
+                        <FileText size={17} aria-hidden="true" />
+                        <h2 id="summary-title">内容摘要</h2>
+                      </div>
+                      {!canSummary ? (
+                        <div className="kdetail-restricted">当前身份不可查看内容摘要。</div>
+                      ) : !hasText(asset.oneLiner) && !hasSummaryBody ? (
+                        <div className="kdetail-muted-state">{summaryPendingLabel(asset)}</div>
+                      ) : (
+                        <div className="kdetail-summary-body">
+                          {hasText(asset.oneLiner) && (
+                            <p className="kdetail-lead">{asset.oneLiner}</p>
+                          )}
+                          {hasText(asset.detailed) && <p>{asset.detailed}</p>}
+                          {asset.keyPoints.length > 0 && (
+                            <div>
+                              <h3>关键知识点</h3>
+                              <ul>
+                                {asset.keyPoints.map((point) => (
+                                  <li key={point}>{point}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </section>
+                  </>
+                ),
+              },
+              {
+                key: "versions",
+                label: "版本记录",
+                icon: <History size={16} aria-hidden="true" />,
+                content: (
+                  <>
+                    <div className="kdetail-view-intro">
+                      <h2>版本记录</h2>
+                      <p>查看资料版本，比较内容变化；可用操作以当前权限为准。</p>
                     </div>
-                  )}
+                    <div className="kdetail-version-area">
+                      <KnowledgeVersionPanel
+                        showOverview
+                        key={`${asset.id}:${asset.metadataUpdatedAt ?? ""}`}
+                        assetId={asset.id}
+                        onReplaced={() => setNotFound(true)}
+                      />
+                    </div>
+                  </>
+                ),
+              },
+              {
+                key: "manage",
+                label: "维护与发布",
+                icon: <Settings2 size={16} aria-hidden="true" />,
+                content: (
+                  <div className="kdetail-management-content">
+                    <section
+                      className="kdetail-panel kdetail-governance-panel"
+                      aria-labelledby="governance-title"
+                    >
+                      <div className="kdetail-panel-heading">
+                        <ShieldCheck size={17} aria-hidden="true" />
+                        <h2 id="governance-title">维护与发布</h2>
+                      </div>
+                      <ActionGroup label="资料治理操作">
+                        <KnowledgeTrustPanel
+                          assetId={asset.id}
+                          revision={asset.metadataUpdatedAt ?? undefined}
+                          onChanged={(result) => {
+                            if (result.freshness === "archived") setNotFound(true);
+                            else void reloadAsset();
+                          }}
+                        />
+                        {asset.scope === "project" && (
+                          <div className="kdetail-publication-action">
+                            {publicationEligibility.eligible ? (
+                              <button
+                                type="button"
+                                className="product-button is-secondary"
+                                onClick={() => {
+                                  setPublicationNote(null);
+                                  setPublicationOpen(true);
+                                }}
+                              >
+                                发布到公司知识库
+                              </button>
+                            ) : (
+                              <span className="kdetail-action-reason">
+                                {publicationEligibility.reason}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </ActionGroup>
+                    </section>
+
+                    {!crossProjectSummary && (
+                      <details
+                        className="kdetail-panel kdetail-disclosure"
+                        onToggle={(event) => {
+                          if (event.currentTarget.open && lcEvents === null && !lcLoading) {
+                            void loadLifecycleEvents();
+                          }
+                        }}
+                      >
+                        <summary>
+                          <span>生命周期</span>
+                          <ChevronRight size={17} aria-hidden="true" />
+                        </summary>
+                        <div className="kdetail-disclosure-body">
+                          {lcLoading ? (
+                            <div className="kdetail-muted-state">正在加载记录…</div>
+                          ) : lcErr && lcEvents === null ? (
+                            <div className="kdetail-retry-state" role="alert">
+                              <span>{lcErr}</span>
+                              <button
+                                type="button"
+                                className="btn-small"
+                                onClick={() => void loadLifecycleEvents()}
+                              >
+                                重试
+                              </button>
+                            </div>
+                          ) : lcEvents?.length ? (
+                            <ol className="kdetail-timeline">
+                              {lcEvents.map((event) => (
+                                <li key={event.event_id}>
+                                  <span className="kdetail-timeline-dot" aria-hidden="true" />
+                                  <div>
+                                    <strong>
+                                      {lifecycleEventLabel[event.event_type] ?? "生命周期事件"}
+                                    </strong>
+                                    <time>{formatBeijingTime(event.created_at)}</time>
+                                    {event.actor_display && <span>{event.actor_display}</span>}
+                                    {event.reason && <p>{event.reason}</p>}
+                                  </div>
+                                </li>
+                              ))}
+                            </ol>
+                          ) : (
+                            <div className="kdetail-muted-state">暂无生命周期记录</div>
+                          )}
+                        </div>
+                      </details>
+                    )}
+
+                    {hasOpsActions && (
+                      <details className="kdetail-panel kdetail-disclosure kdetail-ops">
+                        <summary>
+                          <span>更多操作</span>
+                          <ChevronRight size={17} aria-hidden="true" />
+                        </summary>
+                        <div className="kdetail-disclosure-body">
+                          {asset.access.canManageLifecycle && asset.assetStatus === "archived" && (
+                            <RestoreAssetButton
+                              assetId={asset.id}
+                              onChanged={() => void reloadAsset()}
+                            />
+                          )}
+                          {asset.access.canManageLifecycle && asset.assetStatus !== "archived" && (
+                            <div className="kdetail-ops-group">
+                              <label htmlFor="archive-reason">归档原因</label>
+                              <textarea
+                                id="archive-reason"
+                                rows={3}
+                                value={lcReason}
+                                onChange={(event) => setLcReason(event.target.value)}
+                              />
+                              <div className="kdetail-ops-buttons">
+                                <button
+                                  type="button"
+                                  className="btn-small"
+                                  onClick={() => void handleArchiveRequest()}
+                                  disabled={lcBusy}
+                                >
+                                  <Archive size={14} aria-hidden="true" /> 发起归档候选
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn-small"
+                                  onClick={() => void handleArchiveConfirm()}
+                                  disabled={lcBusy}
+                                >
+                                  确认归档
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {asset.access.canRetryIndex && (
+                            <button
+                              type="button"
+                              className="btn-small kdetail-full-action"
+                              onClick={() => void handleRetryIndex()}
+                              disabled={retryBusy}
+                            >
+                              <RefreshCw size={14} aria-hidden="true" />
+                              {retryBusy ? "处理中…" : "重新处理问答"}
+                            </button>
+                          )}
+
+                          {asset.access.canDelete && asset.assetStatus !== "archived" && (
+                            <div className="kdetail-danger-zone">
+                              {!confirmDelete ? (
+                                <button
+                                  type="button"
+                                  className="btn-small btn-small-danger"
+                                  onClick={() => setConfirmDelete(true)}
+                                >
+                                  <Trash2 size={14} aria-hidden="true" /> 删除资产
+                                </button>
+                              ) : (
+                                <div className="kdetail-delete-confirm">
+                                  <p>
+                                    删除后资产将退出列表、问答与原文预览，此操作会保留审计记录。
+                                  </p>
+                                  <label htmlFor="delete-reason">删除原因</label>
+                                  <textarea
+                                    id="delete-reason"
+                                    rows={3}
+                                    value={deleteReason}
+                                    onChange={(event) => setDeleteReason(event.target.value)}
+                                  />
+                                  <div className="kdetail-ops-buttons">
+                                    <button
+                                      type="button"
+                                      className="btn-small btn-small-danger"
+                                      onClick={() => void handleDelete()}
+                                      disabled={deleteBusy}
+                                    >
+                                      {deleteBusy ? "删除中…" : "确认删除"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="btn-small"
+                                      onClick={() => setConfirmDelete(false)}
+                                      disabled={deleteBusy}
+                                    >
+                                      取消
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {(lcMsg || lcErr || retryNote || retryErr || deleteErr) && (
+                            <div
+                              className={
+                                lcErr || retryErr || deleteErr
+                                  ? "kdetail-inline-error"
+                                  : "kdetail-inline-success"
+                              }
+                              role="status"
+                            >
+                              {lcErr || retryErr || deleteErr || lcMsg || retryNote}
+                            </div>
+                          )}
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                ),
+              },
+            ]}
+          />
+        </div>
+        <aside
+          className={`kdetail-side-column${metadataExpanded ? " is-expanded" : ""}`}
+          aria-label="访问与治理"
+        >
+          <button
+            className="kdetail-property-toggle"
+            type="button"
+            aria-expanded={metadataExpanded}
+            aria-controls="knowledge-detail-properties"
+            onClick={() => setMetadataExpanded((value) => !value)}
+          >
+            <ShieldCheck size={17} aria-hidden="true" /> 资料信息与访问权限{" "}
+            <ChevronRight size={16} aria-hidden="true" />
+          </button>
+          <div className="kdetail-properties" id="knowledge-detail-properties">
+            <section className="kdetail-panel kdetail-access-panel">
+              <div className="kdetail-panel-heading">
+                <ShieldCheck size={17} aria-hidden="true" />
+                <h2>访问与状态</h2>
+              </div>
+              <dl className="kdetail-access-list">
+                <div>
+                  <dt>访问层级</dt>
+                  <dd className={canOriginal ? "is-allowed" : "is-restricted"}>
+                    {accessLabel(asset)}
+                  </dd>
+                </div>
+                <div>
+                  <dt>内容摘要</dt>
+                  <dd className={canSummary ? "is-allowed" : "is-restricted"}>
+                    {canSummary ? "可访问" : "受限"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>原文</dt>
+                  <dd className={canOriginal ? "is-allowed" : "is-restricted"}>
+                    {canOriginal
+                      ? "可访问"
+                      : pendingOriginal
+                        ? "审批中"
+                        : asset.access.canRequestOriginal
+                          ? "需申请"
+                          : "不可访问"}
+                  </dd>
+                </div>
+                {asset.access.existingGrantExpiresAt && (
+                  <div>
+                    <dt>授权有效期</dt>
+                    <dd>{formatBeijingTime(asset.access.existingGrantExpiresAt)}</dd>
+                  </div>
+                )}
+              </dl>
+              <button
+                type="button"
+                className="kdetail-explain-action"
+                onClick={() => setExplainOpen(true)}
+              >
+                为什么是这个状态？
+              </button>
+            </section>
+
+            <section className="kdetail-panel" aria-labelledby="facts-title">
+              <div className="kdetail-panel-heading">
+                <ShieldCheck size={17} aria-hidden="true" />
+                <h2 id="facts-title">核心信息</h2>
+              </div>
+              <dl className="kdetail-facts">
+                {coreFacts.map((fact) => (
+                  <div key={fact.label}>
+                    <dt>{fact.label}</dt>
+                    <dd>{fact.value}</dd>
+                  </div>
+                ))}
+                {asset.tags.length > 0 && (
+                  <div className="kdetail-fact-tags">
+                    <dt>标签</dt>
+                    <dd>
+                      {asset.tags.map((tag) => (
+                        <span className="tag" key={tag}>
+                          {tag}
+                        </span>
+                      ))}
+                    </dd>
+                  </div>
+                )}
+              </dl>
+              {!crossProjectSummary && asset.indexStatus === "index_failed" && (
+                <div className="kdetail-inline-error" role="alert">
+                  {asset.indexErrorMessage ?? "资产已保留，但索引未完成；可在更多操作中恢复索引。"}
                 </div>
               )}
             </section>
-          )}
-
-          <section className="kdetail-panel" aria-labelledby="facts-title">
-            <div className="kdetail-panel-heading">
-              <ShieldCheck size={17} aria-hidden="true" />
-              <h2 id="facts-title">核心信息</h2>
-            </div>
-            <dl className="kdetail-facts">
-              {coreFacts.map((fact) => (
-                <div key={fact.label}>
-                  <dt>{fact.label}</dt>
-                  <dd>{fact.value}</dd>
-                </div>
-              ))}
-              {asset.tags.length > 0 && (
-                <div className="kdetail-fact-tags">
-                  <dt>标签</dt>
-                  <dd>
-                    {asset.tags.map((tag) => (
-                      <span className="tag" key={tag}>
-                        {tag}
-                      </span>
-                    ))}
-                  </dd>
-                </div>
-              )}
-            </dl>
-            {!crossProjectSummary && asset.indexStatus === "index_failed" && (
-              <div className="kdetail-inline-error" role="alert">
-                {asset.indexErrorMessage ?? "资产已保留，但索引未完成；可在更多操作中恢复索引。"}
-              </div>
-            )}
-          </section>
-          <div className="kdetail-version-area">
-            <KnowledgeVersionPanel
-              key={`${asset.id}:${asset.metadataUpdatedAt ?? ""}`}
-              assetId={asset.id}
-              onReplaced={() => setNotFound(true)}
-            />
           </div>
-        </div>
-
-        <aside className="kdetail-side-column" aria-label="访问与治理">
-          <section className="kdetail-panel kdetail-access-panel">
-            <div className="kdetail-panel-heading">
-              <ShieldCheck size={17} aria-hidden="true" />
-              <h2>访问与状态</h2>
-            </div>
-            <dl className="kdetail-access-list">
-              <div>
-                <dt>访问层级</dt>
-                <dd className={canOriginal ? "is-allowed" : "is-restricted"}>
-                  {accessLabel(asset)}
-                </dd>
-              </div>
-              <div>
-                <dt>内容摘要</dt>
-                <dd className={canSummary ? "is-allowed" : "is-restricted"}>
-                  {canSummary ? "可访问" : "受限"}
-                </dd>
-              </div>
-              <div>
-                <dt>原文</dt>
-                <dd className={canOriginal ? "is-allowed" : "is-restricted"}>
-                  {canOriginal
-                    ? "可访问"
-                    : pendingOriginal
-                      ? "审批中"
-                      : asset.access.canRequestOriginal
-                        ? "需申请"
-                        : "不可访问"}
-                </dd>
-              </div>
-              {asset.access.existingGrantExpiresAt && (
-                <div>
-                  <dt>授权有效期</dt>
-                  <dd>{formatBeijingTime(asset.access.existingGrantExpiresAt)}</dd>
-                </div>
-              )}
-            </dl>
-            <button
-              type="button"
-              className="kdetail-explain-action"
-              onClick={() => setExplainOpen(true)}
-            >
-              为什么是这个状态？
-            </button>
-          </section>
-
-          <section
-            className="kdetail-panel kdetail-governance-panel"
-            aria-labelledby="governance-title"
-          >
-            <div className="kdetail-panel-heading">
-              <ShieldCheck size={17} aria-hidden="true" />
-              <h2 id="governance-title">维护与发布</h2>
-            </div>
-            <ActionGroup label="资料治理操作">
-              <KnowledgeTrustPanel
-                assetId={asset.id}
-                revision={asset.metadataUpdatedAt ?? undefined}
-                onChanged={(result) => {
-                  if (result.freshness === "archived") setNotFound(true);
-                  else void reloadAsset();
-                }}
-              />
-              {asset.scope === "project" && (
-                <div className="kdetail-publication-action">
-                  {publicationEligibility.eligible ? (
-                    <button
-                      type="button"
-                      className="product-button is-secondary"
-                      onClick={() => {
-                        setPublicationNote(null);
-                        setPublicationOpen(true);
-                      }}
-                    >
-                      发布到公司知识库
-                    </button>
-                  ) : (
-                    <span className="kdetail-action-reason">{publicationEligibility.reason}</span>
-                  )}
-                </div>
-              )}
-            </ActionGroup>
-          </section>
-
-          {!crossProjectSummary && (
-            <details
-              className="kdetail-panel kdetail-disclosure"
-              onToggle={(event) => {
-                if (event.currentTarget.open && lcEvents === null && !lcLoading) {
-                  void loadLifecycleEvents();
-                }
-              }}
-            >
-              <summary>
-                <span>生命周期</span>
-                <ChevronRight size={17} aria-hidden="true" />
-              </summary>
-              <div className="kdetail-disclosure-body">
-                {lcLoading ? (
-                  <div className="kdetail-muted-state">正在加载记录…</div>
-                ) : lcErr && lcEvents === null ? (
-                  <div className="kdetail-retry-state" role="alert">
-                    <span>{lcErr}</span>
-                    <button
-                      type="button"
-                      className="btn-small"
-                      onClick={() => void loadLifecycleEvents()}
-                    >
-                      重试
-                    </button>
-                  </div>
-                ) : lcEvents?.length ? (
-                  <ol className="kdetail-timeline">
-                    {lcEvents.map((event) => (
-                      <li key={event.event_id}>
-                        <span className="kdetail-timeline-dot" aria-hidden="true" />
-                        <div>
-                          <strong>{lifecycleEventLabel[event.event_type] ?? "生命周期事件"}</strong>
-                          <time>{formatBeijingTime(event.created_at)}</time>
-                          {event.actor_display && <span>{event.actor_display}</span>}
-                          {event.reason && <p>{event.reason}</p>}
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
-                ) : (
-                  <div className="kdetail-muted-state">暂无生命周期记录</div>
-                )}
-              </div>
-            </details>
-          )}
-
-          {hasOpsActions && (
-            <details className="kdetail-panel kdetail-disclosure kdetail-ops">
-              <summary>
-                <span>更多操作</span>
-                <ChevronRight size={17} aria-hidden="true" />
-              </summary>
-              <div className="kdetail-disclosure-body">
-                {asset.access.canManageLifecycle && asset.assetStatus !== "archived" && (
-                  <div className="kdetail-ops-group">
-                    <label htmlFor="archive-reason">归档原因</label>
-                    <textarea
-                      id="archive-reason"
-                      rows={3}
-                      value={lcReason}
-                      onChange={(event) => setLcReason(event.target.value)}
-                    />
-                    <div className="kdetail-ops-buttons">
-                      <button
-                        type="button"
-                        className="btn-small"
-                        onClick={() => void handleArchiveRequest()}
-                        disabled={lcBusy}
-                      >
-                        <Archive size={14} aria-hidden="true" /> 发起归档候选
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-small"
-                        onClick={() => void handleArchiveConfirm()}
-                        disabled={lcBusy}
-                      >
-                        确认归档
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {asset.access.canRetryIndex && (
-                  <button
-                    type="button"
-                    className="btn-small kdetail-full-action"
-                    onClick={() => void handleRetryIndex()}
-                    disabled={retryBusy}
-                  >
-                    <RefreshCw size={14} aria-hidden="true" />
-                    {retryBusy ? "处理中…" : "重新处理问答"}
-                  </button>
-                )}
-
-                {asset.access.canDelete && asset.assetStatus !== "archived" && (
-                  <div className="kdetail-danger-zone">
-                    {!confirmDelete ? (
-                      <button
-                        type="button"
-                        className="btn-small btn-small-danger"
-                        onClick={() => setConfirmDelete(true)}
-                      >
-                        <Trash2 size={14} aria-hidden="true" /> 删除资产
-                      </button>
-                    ) : (
-                      <div className="kdetail-delete-confirm">
-                        <p>删除后资产将退出列表、问答与原文预览，此操作会保留审计记录。</p>
-                        <label htmlFor="delete-reason">删除原因</label>
-                        <textarea
-                          id="delete-reason"
-                          rows={3}
-                          value={deleteReason}
-                          onChange={(event) => setDeleteReason(event.target.value)}
-                        />
-                        <div className="kdetail-ops-buttons">
-                          <button
-                            type="button"
-                            className="btn-small btn-small-danger"
-                            onClick={() => void handleDelete()}
-                            disabled={deleteBusy}
-                          >
-                            {deleteBusy ? "删除中…" : "确认删除"}
-                          </button>
-                          <button
-                            type="button"
-                            className="btn-small"
-                            onClick={() => setConfirmDelete(false)}
-                            disabled={deleteBusy}
-                          >
-                            取消
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {(lcMsg || lcErr || retryNote || retryErr || deleteErr) && (
-                  <div
-                    className={
-                      lcErr || retryErr || deleteErr
-                        ? "kdetail-inline-error"
-                        : "kdetail-inline-success"
-                    }
-                    role="status"
-                  >
-                    {lcErr || retryErr || deleteErr || lcMsg || retryNote}
-                  </div>
-                )}
-              </div>
-            </details>
-          )}
         </aside>
       </div>
 

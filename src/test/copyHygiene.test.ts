@@ -1,3 +1,4 @@
+import { HELP_GUIDES } from "../content/helpGuides";
 import { describe, expect, it } from "vitest";
 
 const sourceModules = import.meta.glob("../{pages,components,layouts}/**/*.{ts,tsx}", {
@@ -80,7 +81,8 @@ describe("ordinary user copy hygiene", () => {
     const source = sourceModules["../pages/HelpPage.tsx"];
     expect(source, "HelpPage should be included in the copy hygiene scan").toBeDefined();
 
-    const ids = Array.from(source.matchAll(/id:\s*"([^"]+)"/g), (match) => match[1]);
+    const ids = HELP_GUIDES.map((guide) => guide.id);
+    expect(ids.length).toBeGreaterThan(0);
     expect(new Set(ids).size).toBe(ids.length);
   });
 });

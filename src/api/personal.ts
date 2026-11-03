@@ -38,7 +38,7 @@ export async function fetchMyKnowledge(
   if (query.personalState) params.set("personal_state", query.personalState);
   if (query.sortBy) params.set("sort_by", query.sortBy);
   if (query.sortDirection) params.set("sort_direction", query.sortDirection);
-  const suffix = params.size ? `?${params.toString()}` : "";
+  const suffix: "" | `?${string}` = params.size ? `?${params.toString()}` : "";
   const data = await apiGet<PersonalKnowledgeListDTO>(`/api/v1/my/knowledge${suffix}`);
   return {
     items: data.items.map(mapPersonalItem),

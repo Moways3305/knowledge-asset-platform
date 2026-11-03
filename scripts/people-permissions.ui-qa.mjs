@@ -33,7 +33,7 @@ const targets = [
   {
     name: "company-kb",
     path: "/admin/company-kb",
-    root: ".company-kb-page",
+    root: ".company-kb-settings",
     table: ".ckb-empty-card",
     scenarios: ["normal"],
   },
@@ -365,7 +365,9 @@ try {
               compactCompanyKb:
                 target.name !== "company-kb" ||
                 Boolean(
-                  pageRoot?.querySelector(".pp-support-section.is-empty") &&
+                  window.location.pathname === "/company-governance" &&
+                  window.location.search === "?settings=knowledge-base" &&
+                  pageRoot?.closest('[role="dialog"]') &&
                   pageRoot.querySelector(".ckb-empty-card")?.getBoundingClientRect().width <= 680 &&
                   pageRoot.querySelector(".ckb-empty-card button")?.getBoundingClientRect().width <
                     220,

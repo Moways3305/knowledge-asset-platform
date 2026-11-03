@@ -1,0 +1,108 @@
+.operation-drawer {
+  width: min(640px, 100vw);
+}
+.operation-content,
+.operation-form {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.operation-lock,
+fieldset.operation-form {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.operation-form label {
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+}
+.operation-form input:not([type="checkbox"]),
+.operation-form select,
+.operation-form textarea {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+  border: 1px solid #d8dee9;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit;
+  background: #fff;
+  color: inherit;
+}
+.operation-form label.operation-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.operation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.operation-actions > .btn-small {
+  flex: 0 0 auto;
+}
+.operation-card {
+  border: 1px solid #e2e6ee;
+  border-radius: 8px;
+  padding: 14px;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.operation-card p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.operation-card small {
+  color: #667085;
+}
+.operation-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+.operation-facts > div {
+  padding: 10px;
+  background: #f6f8fb;
+  border-radius: 6px;
+}
+.operation-facts dt {
+  color: #667085;
+  font-size: 13px;
+}
+.operation-facts dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+.operation-content [role="alert"],
+.operation-form [role="alert"] {
+  color: #b42318;
+}
+.operation-content [role="status"],
+.operation-form [role="status"] {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  .operation-content .btn-small,
+  .operation-form input:not([type="checkbox"]),
+  .operation-form select {
+    min-height: 44px;
+  }
+  .operation-drawer {
+    width: 100%;
+    max-width: 100%;
+  }
+  .operation-facts {
+    grid-template-columns: 1fr;
+  }
+  .operation-actions {
+    row-gap: 10px;
+  }
+}

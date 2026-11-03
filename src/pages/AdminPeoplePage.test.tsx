@@ -462,4 +462,15 @@ describe("AdminPeoplePage governance controls", () => {
       "/project/project-ref/settings",
     );
   });
+  it("traps focus in personnel details and closes with Escape", async () => {
+    await renderDetail();
+    const dialog = screen.getByRole("dialog", { name: "人员治理详情" });
+    const close = screen.getByRole("button", { name: "关闭人员详情" });
+    expect(close).toHaveFocus();
+    fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
+    expect(dialog).toContainElement(document.activeElement as HTMLElement);
+    expect(close).not.toHaveFocus();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "人员治理详情" })).not.toBeInTheDocument();
+  });
 });

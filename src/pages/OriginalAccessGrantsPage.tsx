@@ -1,3 +1,4 @@
+import PagePagination from "../components/PagePagination";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiError } from "../api/http";
@@ -97,7 +98,14 @@ export default function OriginalAccessGrantsPage() {
       key: "asset",
       header: "资料",
       render: (item) => (
-        <Link to={`/knowledge/${encodeURIComponent(item.asset_id)}`}>
+        <Link
+          to={`/knowledge/${encodeURIComponent(item.asset_id)}`}
+          state={{
+            backTo: "/original-access/grants",
+            backLabel: "返回授权记录",
+            source: "original-access",
+          }}
+        >
           {item.asset_title || "待确认资料"}
         </Link>
       ),
@@ -186,7 +194,9 @@ export default function OriginalAccessGrantsPage() {
         </label>
         <span className="gw-total">共 {total} 条</span>
       </div>
-      <p>仅显示当前身份可查看的本人授权及可管理授权。撤销不改变人员角色或资料归属。</p>
+      <p className="gw-scope-note">
+        仅显示当前身份可查看的本人授权及可管理授权。撤销不改变人员角色或资料归属。
+      </p>
       {feedback && (
         <div className="gw-feedback" role="status">
           {feedback}
@@ -207,25 +217,14 @@ export default function OriginalAccessGrantsPage() {
         tableClassName="gw-table"
         emptyText={loadError || "暂无当前身份可查看的授权记录。"}
       />
-      <div className="gw-toolbar" aria-label="授权记录分页">
-        <button
-          className="product-button is-secondary is-small"
-          type="button"
-          disabled={loading || busy || offset === 0}
-          onClick={() => setOffset(Math.max(0, offset - 20))}
-        >
-          上一页
-        </button>
-        <span>第 {Math.floor(offset / 20) + 1} 页</span>
-        <button
-          className="product-button is-secondary is-small"
-          type="button"
-          disabled={loading || busy || offset + 20 >= total}
-          onClick={() => setOffset(offset + 20)}
-        >
-          下一页
-        </button>
-      </div>
+      <PagePagination
+        ariaLabel="授权记录分页"
+        page={Math.floor(offset / 20) + 1}
+        totalPages={Math.ceil(total / 20)}
+        disabled={loading || busy}
+        onPageChange={(page) => setOffset((page - 1) * 20)}
+        summary={`共 ${total} 条`}
+      />
       <ConfirmDialog
         open={target !== null}
         title="撤销原文授权"

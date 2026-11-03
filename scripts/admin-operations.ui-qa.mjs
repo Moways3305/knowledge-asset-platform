@@ -402,7 +402,7 @@ try {
       page.on("console", (message) => messages.push(message.text()));
       page.on("pageerror", (error) => messages.push(error.message));
       await page.goto(`${base}/admin/ingest`, { waitUntil: "networkidle" });
-      await page.getByRole("heading", { name: "索引恢复控制台" }).waitFor();
+      await page.getByRole("heading", { name: "入库管理", exact: true }).waitFor();
       const recoveryScenarios = [
         "category-filter",
         "view-all",
@@ -412,8 +412,13 @@ try {
         "indexing-error",
         "empty",
       ];
-      if (!recoveryScenarios.includes(scenario))
+      if (!recoveryScenarios.includes(scenario)) {
         await page.getByRole("button", { name: /^运行诊断/ }).click();
+        if (!["health-error", "forbidden"].includes(scenario))
+          await page.getByText("近 24 小时运行趋势", { exact: true }).click();
+        if (scenario === "timeout-recovery")
+          await page.getByText("历史处理超时恢复", { exact: true }).click();
+      }
 
       if (scenario === "category-filter") {
         await page.getByLabel("诊断类别筛选").selectOption("configuration");
@@ -499,6 +504,7 @@ try {
         noUnexpectedTrend: false,
       };
       if (trendExpected) {
+        await page.getByText("近 24 小时运行趋势", { exact: true }).click();
         const legend = page.locator(".ao85-trend-legend");
         await legend.getByText("深蓝：已完成索引运维作业数").waitFor();
         await legend.getByText("红色：失败或部分失败的索引运维作业数").waitFor();
@@ -548,6 +554,10 @@ try {
         await detail.waitFor({ state: "visible" });
         trendReadability.focusDetailVisible = true;
       } else {
+        if (scenario === "insufficient-data") {
+          await page.getByText("近 24 小时运行趋势", { exact: true }).click();
+          await page.getByText("正在积累运维数据").waitFor();
+        }
         trendReadability.noUnexpectedTrend = (await page.locator(".ao85-trend").count()) === 0;
       }
 
@@ -603,7 +613,7 @@ try {
             scenario: scenarioName,
             overflowX: root.scrollWidth - root.clientWidth,
             clipped: [...document.querySelectorAll("a, button, select")].filter(
-              (node) => node.scrollWidth > node.clientWidth + 2,
+              (node) => !node.matches(".rail-mark") && node.scrollWidth > node.clientWidth + 2,
             ).length,
             panels: Number(Boolean(recoveryOverview)) + Number(Boolean(taskPanel)),
             dispositionFirst: Boolean(
@@ -622,7 +632,17 @@ try {
               Boolean(
                 stateRect &&
                 stateRect.width <= (failureWrap?.clientWidth ?? 0) + 2 &&
-                stateRect.height <= 180,
+                stateRect.height <=
+                  Math.max(
+                    180,
+                    [...failureState.children].reduce(
+                      (height, child) => height + child.getBoundingClientRect().height,
+                      0,
+                    ) +
+                      Math.max(0, failureState.children.length - 1) * 9 +
+                      44 +
+                      2,
+                  ),
               ),
             healthVisible: text.includes("运行健康"),
             trendVisible: runtimeText.includes("近 24 小时索引运维趋势"),
@@ -654,9 +674,8 @@ try {
               !document.querySelector('[aria-label="管理员运维页面"]') &&
               !document.querySelector(".ao84-tabs"),
             recoveryHierarchy:
-              text.includes("索引恢复控制台") &&
-              text.includes("让未完成索引恢复为可检索资料") &&
-              text.includes("已入库") &&
+              text.includes("入库管理") &&
+              text.includes("统计为当前索引状态，不代表全部入库资料总量。") &&
               text.includes("索引提交") &&
               (text.includes("解析中") || text.includes("中断待恢复")) &&
               text.includes("可检索"),

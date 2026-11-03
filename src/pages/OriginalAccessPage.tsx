@@ -1,5 +1,6 @@
+import DetailDrawer from "../components/DetailDrawer";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { ControlledBulkRequestError } from "../api/bulk";
 import { ApiError } from "../api/http";
 import {
@@ -43,7 +44,7 @@ const scopeLabel: Record<string, string> = {
 };
 
 type Box = "inbox" | "mine";
-type Feedback = { tone: "success" | "error"; text: string } | null;
+type Feedback = { tone: "success" | "error" | "info"; text: string } | null;
 
 function isForbidden(error: unknown) {
   return error instanceof ApiError && error.status === 403;
@@ -54,9 +55,15 @@ function safeTitle(item: OriginalAccessRequestDTO) {
 }
 
 export default function OriginalAccessPage() {
+  const [detailId, setDetailId] = useState<string | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
+  const noticeTargetId = searchParams.get("target_id");
+  const locationKey = useLocation().key;
+  useEffect(() => setDetailId(noticeTargetId), [noticeTargetId, locationKey]);
   const [box, setBox] = useState<Box>(searchParams.get("box") === "inbox" ? "inbox" : "mine");
-  const [items, setItems] = useState<OriginalAccessRequestDTO[]>([]);
+  const [availableItems, setItems] = useState<OriginalAccessRequestDTO[]>([]);
+  const projectId = searchParams.get("project_id");
+  const items = availableItems.filter((item) => !projectId || item.project_id === projectId);
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -85,10 +92,12 @@ export default function OriginalAccessPage() {
       const next = await fetchOriginalAccessRequests(box);
       if (requestId !== requestRef.current) return;
       setItems(next.items);
+      return true;
     } catch (error) {
       if (requestId !== requestRef.current) return;
       setForbidden(isForbidden(error));
       setLoadFailed(!isForbidden(error));
+      return false;
     } finally {
       if (requestId === requestRef.current) setLoading(false);
     }
@@ -111,10 +120,11 @@ export default function OriginalAccessPage() {
       } else {
         await rejectOriginalAccess(item.request_id);
       }
-      await load();
+      const refreshed = await load();
+      if (refreshed === undefined) return;
       setFeedback({
-        tone: "success",
-        text: kind === "approve" ? "原文访问申请已通过。" : "原文访问申请已拒绝。",
+        tone: refreshed ? "success" : "info",
+        text: `已${kind === "approve" ? "通过" : "拒绝"}${item.requester_name?.trim() || "申请人"}对《${safeTitle(item)}》的原文访问申请。${refreshed ? "" : "列表刷新失败，请刷新列表核对，无需重复审批。"}`,
       });
     } catch {
       setFeedback({ tone: "error", text: "操作未完成，请稍后重试。" });
@@ -206,7 +216,15 @@ export default function OriginalAccessPage() {
       header: "资产标题",
       className: "gw-title-cell",
       headerClassName: "gw-col-access-title",
-      render: safeTitle,
+      render: (item) => (
+        <button
+          type="button"
+          className="workspace-object-link"
+          onClick={() => setDetailId(item.request_id)}
+        >
+          {safeTitle(item)}
+        </button>
+      ),
     },
     {
       key: "scope",
@@ -227,7 +245,11 @@ export default function OriginalAccessPage() {
       header: "申请理由",
       className: "gw-reason",
       headerClassName: "gw-col-access-reason",
-      render: (item) => item.reason?.trim() || "未填写",
+      render: (item) => (
+        <span className="gw-reason-text" title={item.reason?.trim() || undefined}>
+          {item.reason?.trim() || "未填写"}
+        </span>
+      ),
     },
     {
       key: "status",
@@ -318,6 +340,8 @@ export default function OriginalAccessPage() {
         },
   ];
 
+  const detail = items.find((item) => item.request_id === detailId);
+
   const state = forbidden
     ? { title: "无原文访问权限", description: "当前账号无法查看原文访问申请。" }
     : loadFailed
@@ -328,6 +352,32 @@ export default function OriginalAccessPage() {
 
   return (
     <GovernanceWorkspace active="original-access" loading={loading} onRefresh={() => void load()}>
+      {projectId && (
+        <div className="gw-feedback is-info" role="status">
+          正在查看当前项目的原文申请。
+          <button
+            type="button"
+            onClick={() =>
+              setSearchParams((previous) => {
+                const next = new URLSearchParams(previous);
+                next.delete("project_id");
+                return next;
+              })
+            }
+          >
+            查看全部申请
+          </button>
+        </div>
+      )}
+      {noticeTargetId &&
+        !loading &&
+        !forbidden &&
+        !loadFailed &&
+        !items.some((item) => item.request_id === noticeTargetId) && (
+          <div className="gw-feedback is-info" role="status">
+            该申请已不可用或不在当前身份的可见范围，请查看当前申请列表。
+          </div>
+        )}
       <div className="gw-toolbar" aria-label="原文访问队列">
         <div className="gw-box-switch" role="group" aria-label="申请范围">
           <button
@@ -425,6 +475,88 @@ export default function OriginalAccessPage() {
           if (!bulkBusy) setBulkAction(null);
         }}
       />
+      <DetailDrawer
+        portal
+        open={Boolean(detail)}
+        title={detail ? safeTitle(detail) : "原文访问申请"}
+        description="原文访问申请"
+        className="approval-detail-drawer"
+        onClose={() => setDetailId(null)}
+        busy={Boolean(busyId)}
+        footer={
+          detail && box === "inbox" && detail.status === "pending" ? (
+            <div className="gw-actions">
+              <button
+                className="gw-action is-danger"
+                disabled={Boolean(busyId)}
+                onClick={() => void act(detail, "reject")}
+              >
+                拒绝
+              </button>
+              <button
+                className="gw-action is-primary"
+                disabled={Boolean(busyId)}
+                onClick={() => void act(detail, "approve")}
+              >
+                通过
+              </button>
+            </div>
+          ) : undefined
+        }
+      >
+        {detail && (
+          <div className="approval-detail-layout">
+            <section className="approval-detail-material">
+              <h3>申请信息</h3>
+              <dl>
+                <div>
+                  <dt>申请人</dt>
+                  <dd>{detail.requester_name?.trim() || "未提供"}</dd>
+                </div>
+                <div>
+                  <dt>资料范围</dt>
+                  <dd>{scopeLabel[detail.scope ?? ""] ?? SAFE_FALLBACK}</dd>
+                </div>
+                <div>
+                  <dt>提交时间</dt>
+                  <dd>{formatBeijingTime(detail.created_at)}</dd>
+                </div>
+              </dl>
+              <h3>申请理由</h3>
+              <p>{detail.reason?.trim() || "未填写"}</p>
+              <Link
+                className="product-button is-secondary"
+                to={`/knowledge/${encodeURIComponent(detail.asset_id)}`}
+                state={{
+                  backTo: `/original-access?box=${box}`,
+                  backLabel: "返回原文访问申请",
+                  source: "original-access",
+                }}
+              >
+                查看资料与摘要
+              </Link>
+            </section>
+            <aside className="approval-detail-progress">
+              <h3>审批进度</h3>
+              <span className={`gw-status ${statusTone[detail.status] ?? "is-neutral"}`}>
+                {statusLabel[detail.status] ?? SAFE_FALLBACK}
+              </span>
+              {detail.reviewer_name && <p>审批人：{detail.reviewer_name}</p>}
+              {detail.reviewed_at && <p>处理于 {formatBeijingTime(detail.reviewed_at)}</p>}
+              {detail.review_note && <p>审批意见：{detail.review_note}</p>}
+              {detail.grant_status && <p>{grantLabel[detail.grant_status] ?? "授权状态已变化"}</p>}
+              {detail.grant_status === "active" && detail.grant_expires_at && (
+                <p>有效期至 {formatBeijingTime(detail.grant_expires_at)}</p>
+              )}
+            </aside>
+            {feedback && (
+              <p className={`gw-feedback is-${feedback.tone}`} role="status">
+                {feedback.text}
+              </p>
+            )}
+          </div>
+        )}
+      </DetailDrawer>
     </GovernanceWorkspace>
   );
 }

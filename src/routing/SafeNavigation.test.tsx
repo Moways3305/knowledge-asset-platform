@@ -1,5 +1,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { BrowserRouter, MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import {
+  BrowserRouter,
+  MemoryRouter,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SafeNavigationProvider, useSafeNavigation } from "./SafeNavigation";
 
@@ -30,9 +37,11 @@ vi.mock("../auth/AuthContext", () => ({
 
 function Harness() {
   const { goBack } = useSafeNavigation();
+  const navigate = useNavigate();
   const location = useLocation();
   return (
     <>
+      <button onClick={() => navigate("/knowledge/asset", { replace: true })}>关闭维护弹窗</button>
       <button onClick={() => void goBack()} type="button">
         返回
       </button>
@@ -82,10 +91,57 @@ describe("SafeNavigationProvider", () => {
     await waitFor(() => expect(screen.getByText("/knowledge?scope=project")).toBeInTheDocument());
   });
 
+  it("replaces a closed drawer entry instead of reopening it on Back", async () => {
+    sessionStorage.setItem(
+      "kap.safe-navigation.v1",
+      JSON.stringify([
+        { pathname: "/help", search: "" },
+        { pathname: "/knowledge-maintenance", search: "?type=review" },
+      ]),
+    );
+    render(
+      <MemoryRouter initialEntries={["/knowledge/asset?maintenance=review"]}>
+        <SafeNavigationProvider>
+          <Harness />
+        </SafeNavigationProvider>
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "关闭维护弹窗" }));
+    await screen.findByText("/knowledge/asset");
+    fireEvent.click(screen.getByRole("button", { name: "返回" }));
+    await screen.findByText("/knowledge-maintenance?type=review");
+    fireEvent.click(screen.getByRole("button", { name: "返回" }));
+    await screen.findByText("/help");
+  });
+
   it("recognizes the guarded completed review route", async () => {
     renderHistory([{ pathname: "/review/completed" }]);
     fireEvent.click(screen.getByRole("button", { name: "返回" }));
     await waitFor(() => expect(screen.getByText("/review/completed")).toBeInTheDocument());
+  });
+
+  it.each([
+    "/knowledge-maintenance",
+    "/company-governance",
+    "/original-access/grants",
+    "/admin/naming-rules",
+    "/my/workbuddy",
+  ])("returns to the originating workspace %s with its filters", async (pathname) => {
+    renderHistory([{ pathname: "/help" }, { pathname, search: "?page=2" }]);
+    fireEvent.click(screen.getByRole("button", { name: "返回" }));
+    await waitFor(() => expect(screen.getByText(`${pathname}?page=2`)).toBeInTheDocument());
+  });
+
+  it("does not return to directory governance after governance access is removed", async () => {
+    auth.capabilities = {
+      ...auth.capabilities,
+      isBoss: false,
+      isConsultingDirector: false,
+      isGovernance: false,
+    };
+    renderHistory([{ pathname: "/help" }, { pathname: "/admin/naming-rules" }]);
+    fireEvent.click(screen.getByRole("button", { name: "返回" }));
+    await waitFor(() => expect(screen.getByText("/help")).toBeInTheDocument());
   });
 
   it("skips a deleted dynamic page and continues to an older valid page", async () => {

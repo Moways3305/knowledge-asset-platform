@@ -33,10 +33,12 @@ export default function KnowledgeVersionPanel({
   assetId,
   onReplaced,
   onHistoryLoaded,
+  showOverview = false,
 }: {
   assetId: string;
   onReplaced?: () => void;
   onHistoryLoaded?: (history: VersionHistory) => void;
+  showOverview?: boolean;
 }) {
   const historyLoadedRef = useRef(onHistoryLoaded);
   historyLoadedRef.current = onHistoryLoaded;
@@ -101,7 +103,7 @@ export default function KnowledgeVersionPanel({
     ) : null;
   return (
     <section className="knowledge-versions" aria-label="资料版本管理">
-      <h2>版本管理</h2>
+      {!showOverview && <h2>版本管理</h2>}
       {state.current_asset_id && state.current_asset_id !== assetId && (
         <p className="knowledge-version-replaced">
           此版本不是当前已确认使用的版本。
@@ -135,6 +137,32 @@ export default function KnowledgeVersionPanel({
           版本历史与差异
         </button>
       </ActionGroup>
+      {showOverview && (
+        <div className="knowledge-version-overview">
+          {state.truncated && <p role="status">历史较多，本次显示部分记录。</p>}
+          {state.items.length ? (
+            <ol aria-label="可见版本记录">
+              {state.items.map((item) => (
+                <li key={item.version_id}>
+                  <span className="knowledge-version-dot" aria-hidden="true" />
+                  <div>
+                    <div className="knowledge-version-overview-heading">
+                      <strong>{item.version}</strong>
+                      <span className={item.is_current ? "is-current" : ""}>
+                        {item.is_current ? "当前版本" : (statusLabel[item.status] ?? item.status)}
+                      </span>
+                    </div>
+                    <p>{item.title}</p>
+                    <time dateTime={item.created_at}>{formatBeijingTime(item.created_at)}</time>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p>当前身份暂无可展示的版本记录。</p>
+          )}
+        </div>
+      )}
       <TaskModal
         open={open === "upload"}
         title="更新这份资料"

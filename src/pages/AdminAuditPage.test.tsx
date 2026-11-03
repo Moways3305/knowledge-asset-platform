@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchAudit, markAuditProcessed } from "../api/admin";
 import { ApiError } from "../api/http";
@@ -185,5 +185,31 @@ describe("AdminAuditPage", () => {
     const { container } = render(<AdminAuditPage />);
     expect(await screen.findByText(expected)).toBeInTheDocument();
     expect(container.innerHTML).not.toMatch(/raw server token|raw forbidden|raw_reason/);
+  });
+  it("ignores an outdated exception result after switching to operations", async () => {
+    let finish!: (value: AuditListResponseDTO) => void;
+    vi.mocked(fetchAudit).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    render(<AdminAuditPage />);
+    fireEvent.click(screen.getByRole("tab", { name: "操作" }));
+    await screen.findByText("创建项目知识库");
+    await act(async () => finish(makeResponse([exceptionItem])));
+    expect(screen.getByText("创建项目知识库")).toBeInTheDocument();
+    expect(screen.queryByText("预览被拒")).not.toBeInTheDocument();
+  });
+
+  it("reloads the server-filtered queue after marking an exception", async () => {
+    vi.mocked(fetchAudit)
+      .mockResolvedValueOnce(makeResponse([exceptionItem]))
+      .mockResolvedValue(makeResponse([]));
+    render(<AdminAuditPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "标记已处理" }));
+    await screen.findByText("异常记录已标记为已处理。");
+    expect(await screen.findByText("暂无符合条件的异常记录")).toBeInTheDocument();
+    expect(screen.queryByText("预览被拒")).not.toBeInTheDocument();
   });
 });

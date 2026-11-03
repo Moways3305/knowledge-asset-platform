@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
-import { Clock3, RefreshCw, ShieldCheck } from "lucide-react";
+import { SessionTools } from "../components/operations/SessionTools";
+import CollectionWorkspace from "../components/CollectionWorkspace";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Clock3, RefreshCw } from "lucide-react";
 import { fetchAuthSecurityOverview, unlockAuthLockout } from "../api/admin";
 import { ApiError } from "../api/http";
 import { PageHeader, PageToolbar, ProductPage } from "../components/ProductLayout";
@@ -35,13 +37,18 @@ export default function AdminAuthSecurityPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [unlocking, setUnlocking] = useState<string | null>(null);
+  const listRequest = useRef(0);
 
   const load = useCallback(async () => {
+    const request = ++listRequest.current;
     setLoading(true);
     setError(null);
     try {
-      setData(await fetchAuthSecurityOverview({ windowMinutes, limit: 50 }));
+      const result = await fetchAuthSecurityOverview({ windowMinutes, limit: 50 });
+      if (request !== listRequest.current) return;
+      setData(result);
     } catch (reason) {
+      if (request !== listRequest.current) return;
       setData(null);
       setError(
         reason instanceof ApiError && reason.status === 403
@@ -49,14 +56,20 @@ export default function AdminAuthSecurityPage() {
           : "登录安全状态暂时无法加载，请稍后重试。",
       );
     } finally {
-      setLoading(false);
+      if (request === listRequest.current) setLoading(false);
     }
   }, [windowMinutes]);
 
-  useEffect(() => void load(), [load]);
+  useEffect(() => {
+    void load();
+    return () => {
+      listRequest.current += 1;
+    };
+  }, [load]);
 
   const onUnlock = useCallback(
     async (event: AuthSecurityEventDTO) => {
+      if (unlocking || loading) return;
       if (!UNLOCKABLE.has(event.result) || (!event.user_id && !event.identifier_hash_prefix))
         return;
       setUnlocking(event.attempt_id);
@@ -80,12 +93,16 @@ export default function AdminAuthSecurityPage() {
         setUnlocking(null);
       }
     },
-    [load],
+    [load, unlocking, loading],
   );
 
   return (
     <ProductPage className="secops-page auth-security-page admin-control-page">
-      <PageHeader eyebrow="安全运营" title="登录安全" />
+      <PageHeader
+        title="登录安全"
+        actions={<SessionTools />}
+        description="核查最近登录尝试，处理符合条件的账号解锁。"
+      />
       <div className="secops-console">
         <main className="secops-main-workspace">
           {error && (
@@ -99,113 +116,124 @@ export default function AdminAuthSecurityPage() {
             </div>
           )}
           <section className="secops-workspace" aria-label="最近登录尝试">
-            <div className="secops-workspace-heading">
-              <span className="secops-workspace-heading-icon">
-                <ShieldCheck size={16} />
-              </span>
-              <div>
-                <strong>最近登录尝试</strong>
-                <span>核查结果并处理可解锁账号</span>
-              </div>
-            </div>
-            <PageToolbar
-              className="secops-toolbar"
-              start={
-                <label className="secops-window">
-                  <Clock3 size={14} aria-hidden="true" />
-                  时间范围
-                  <select
-                    aria-label="时间范围"
-                    value={windowMinutes}
-                    onChange={(event) => setWindowMinutes(Number(event.target.value))}
-                  >
-                    <option value={30}>最近 30 分钟</option>
-                    <option value={60}>最近 1 小时</option>
-                    <option value={360}>最近 6 小时</option>
-                    <option value={1440}>最近 24 小时</option>
-                    <option value={10080}>最近 7 天</option>
-                  </select>
-                </label>
-              }
-              end={
-                <div className="secops-toolbar-actions">
-                  <span className="secops-count">
-                    最近登录尝试 {data?.recent_events.length ?? 0} 条
-                  </span>
-                  <button className="btn-small" onClick={() => void load()} disabled={loading}>
-                    <RefreshCw size={13} aria-hidden="true" /> {loading ? "刷新中…" : "刷新"}
-                  </button>
-                </div>
-              }
-            />
-            <div className="secops-table-wrap">
-              <table className="secops-table">
-                <thead>
-                  <tr>
-                    <th>时间</th>
-                    <th>结果</th>
-                    <th className="secops-col-secondary">原因</th>
-                    <th>用户</th>
-                    <th>账号状态</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...(data?.recent_events ?? [])]
-                    .sort(
-                      (left, right) =>
-                        Number(!UNLOCKABLE.has(left.result)) -
-                        Number(!UNLOCKABLE.has(right.result)),
-                    )
-                    .map((event) => (
-                      <tr
-                        key={event.attempt_id}
-                        className={UNLOCKABLE.has(event.result) ? "is-actionable" : ""}
+            <CollectionWorkspace
+              filters={
+                <PageToolbar
+                  className="secops-toolbar"
+                  start={
+                    <label className="secops-window">
+                      <Clock3 size={14} aria-hidden="true" />
+                      时间范围（北京时间）
+                      <select
+                        aria-label="时间范围"
+                        disabled={Boolean(unlocking)}
+                        value={windowMinutes}
+                        onChange={(event) => setWindowMinutes(Number(event.target.value))}
                       >
-                        <td className="secops-time">{formatBeijingTime(event.created_at)}</td>
-                        <td>
-                          <span className={`secops-pill result-${event.result}`}>
-                            {resultLabel[event.result] ?? "其他结果"}
-                          </span>
-                        </td>
-                        <td className="secops-col-secondary">
-                          {reasonLabel[event.reason_code ?? ""] ?? "安全校验未通过"}
-                        </td>
-                        <td className="secops-primary">{event.user_name ?? "未识别账号"}</td>
-                        <td>{userStatusLabel[event.user_status ?? ""] ?? "状态未知"}</td>
-                        <td>
-                          {UNLOCKABLE.has(event.result) &&
-                          (event.user_id || event.identifier_hash_prefix) ? (
-                            <button
-                              className="btn-small"
-                              disabled={unlocking === event.attempt_id}
-                              onClick={() => void onUnlock(event)}
-                            >
-                              {unlocking === event.attempt_id ? "解锁中…" : "解除锁定"}
-                            </button>
-                          ) : (
-                            <span className="secops-muted">无需操作</span>
-                          )}
+                        <option value={30}>最近 30 分钟</option>
+                        <option value={60}>最近 1 小时</option>
+                        <option value={360}>最近 6 小时</option>
+                        <option value={1440}>最近 24 小时</option>
+                        <option value={10080}>最近 7 天</option>
+                      </select>
+                    </label>
+                  }
+                  end={
+                    <div className="secops-toolbar-actions">
+                      <span className="secops-count">
+                        最近登录尝试 {data?.recent_events.length ?? 0} 条
+                      </span>
+                      <button className="btn-small" onClick={() => void load()} disabled={loading}>
+                        <RefreshCw size={13} aria-hidden="true" /> {loading ? "刷新中…" : "刷新"}
+                      </button>
+                    </div>
+                  }
+                />
+              }
+            >
+              <p className="admin-list-context">
+                显示所选时间范围内最近 50 条尝试。失败记录是历史结果，不代表账号当前仍被锁定。
+              </p>
+              <div className="secops-table-wrap">
+                <table data-responsive-table className="secops-table">
+                  <thead>
+                    <tr>
+                      <th>时间</th>
+                      <th>结果</th>
+                      <th>原因</th>
+                      <th>用户</th>
+                      <th>账号状态</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...(data?.recent_events ?? [])]
+                      .sort(
+                        (left, right) =>
+                          Number(!UNLOCKABLE.has(left.result)) -
+                          Number(!UNLOCKABLE.has(right.result)),
+                      )
+                      .map((event) => (
+                        <tr
+                          key={event.attempt_id}
+                          className={UNLOCKABLE.has(event.result) ? "is-actionable" : ""}
+                        >
+                          <td data-label="时间" className="secops-time">
+                            {formatBeijingTime(event.created_at)}
+                          </td>
+                          <td data-label="结果">
+                            <span className={`secops-pill result-${event.result}`}>
+                              {resultLabel[event.result] ?? "其他结果"}
+                            </span>
+                          </td>
+                          <td data-label="原因">
+                            {reasonLabel[event.reason_code ?? ""] ??
+                              (event.result === "success"
+                                ? "登录成功"
+                                : event.result === "unlocked"
+                                  ? "已解除锁定"
+                                  : "未提供原因")}
+                          </td>
+                          <td data-label="用户" className="secops-primary">
+                            {event.user_name ?? "未识别账号"}
+                          </td>
+                          <td data-label="账号状态">
+                            {userStatusLabel[event.user_status ?? ""] ?? "状态未知"}
+                          </td>
+                          <td data-label="操作">
+                            {UNLOCKABLE.has(event.result) &&
+                            (event.user_id || event.identifier_hash_prefix) ? (
+                              <button
+                                className="btn-small"
+                                disabled={Boolean(unlocking) || loading}
+                                onClick={() => void onUnlock(event)}
+                              >
+                                {unlocking === event.attempt_id ? "解锁中…" : "解除锁定"}
+                              </button>
+                            ) : (
+                              <span className="secops-muted">无需操作</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    {!loading && data && data.recent_events.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="secops-empty">
+                          该时间范围内暂无登录尝试
                         </td>
                       </tr>
-                    ))}
-                  {!loading && data && data.recent_events.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="secops-empty">
-                        该时间范围内暂无登录尝试
-                      </td>
-                    </tr>
-                  )}
-                  {loading && (
-                    <tr>
-                      <td colSpan={6} className="secops-empty">
-                        正在加载登录安全状态…
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    )}
+                    {loading && (
+                      <tr>
+                        <td colSpan={6} className="secops-empty">
+                          正在加载登录安全状态…
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CollectionWorkspace>
           </section>
         </main>
       </div>

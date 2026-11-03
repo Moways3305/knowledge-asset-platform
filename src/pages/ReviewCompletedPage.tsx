@@ -147,7 +147,6 @@ export default function ReviewCompletedPage() {
 
   return (
     <GovernanceWorkspace active="review-completed" loading={loading} onRefresh={() => void load()}>
-      <h2>已完成审核任务</h2>
       <div className="gw-toolbar" role="search" aria-label="已完成审核筛选">
         <div className="gw-toolbar-fields">
           <label className="gw-filter-label">

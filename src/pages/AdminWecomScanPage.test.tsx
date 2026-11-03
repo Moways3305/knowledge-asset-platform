@@ -152,4 +152,28 @@ describe("AdminWecomScanPage project scan spaces", () => {
     expect(await screen.findByText("Alpha 项目资料")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "新增扫描配置" })).not.toBeInTheDocument();
   });
+  it("does not label an empty or failed configuration list as connected", async () => {
+    vi.mocked(fetchWecomScanConfigs).mockResolvedValueOnce({ items: [] });
+    render(<AdminWecomScanPage />);
+    await screen.findByText("尚未配置微盘扫描");
+    expect(screen.getByRole("link", { name: "扫描记录" })).toHaveAttribute("href", "#scan-records");
+    expect(screen.getByText("尚无扫描配置，暂时没有可查看的记录。")).toBeInTheDocument();
+    expect(screen.getByText("尚未配置")).toBeInTheDocument();
+    expect(screen.queryByText("连接可用")).not.toBeInTheDocument();
+    vi.mocked(fetchWecomScanConfigs).mockRejectedValueOnce(new Error("offline"));
+    fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+    await screen.findByText("配置读取失败");
+    expect(screen.getByRole("link", { name: "扫描记录" })).toHaveAttribute("href", "#scan-records");
+    expect(screen.getByText("扫描配置加载失败，请在扫描配置中重试。")).toBeInTheDocument();
+    expect(screen.queryByText("当前连接均可用")).not.toBeInTheDocument();
+  });
+
+  it("refreshes selected configuration history without requiring selection to change", async () => {
+    render(<AdminWecomScanPage />);
+    await screen.findByText(/最近扫描记录/);
+    await waitFor(() => expect(screen.getByRole("button", { name: "刷新" })).toBeEnabled());
+    vi.mocked(fetchWecomScanRecords).mockResolvedValue({ items: [] });
+    fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+    expect(await screen.findByText("尚未运行")).toBeInTheDocument();
+  });
 });

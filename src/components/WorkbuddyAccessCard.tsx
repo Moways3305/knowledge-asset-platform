@@ -167,14 +167,8 @@ export default function WorkbuddyAccessCard() {
     <section className="wb-card" aria-label="MCP 接入">
       <header className="wb-hero">
         <div>
-          <span className="wb-kicker">KAP MCP</span>
-          <h2>把你的 KAP 权限，安全地带进智能体</h2>
+          <h2>连接智能体</h2>
           <p>无需安装连接器。短期凭证只显示一次，服务端仅保存摘要，撤销后立即失效。</p>
-        </div>
-        <div className="wb-signal" aria-label="KAP 到 MCP 客户端的加密连接">
-          <span>KAP /mcp</span>
-          <i>TLS</i>
-          <span>MCP 客户端</span>
         </div>
       </header>
       <div className="wb-status-row">

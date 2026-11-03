@@ -294,6 +294,14 @@ for (const scenario of scenarios) {
       const memberActionControls = document
         .querySelector(".ps74-member-action-controls")
         ?.getBoundingClientRect();
+      // Column width is determined by the widest row, not the first manager's read-only text.
+      const widestMemberControls = Math.max(
+        0,
+        ...[...document.querySelectorAll(".ps74-member-action-controls")].map(
+          (element) => element.getBoundingClientRect().width,
+        ),
+      );
+      const mobileMemberRows = [...document.querySelectorAll(".ps74-members-table tbody tr")];
       const memberRow = document
         .querySelector(".ps74-members-table tbody tr")
         ?.getBoundingClientRect();
@@ -353,13 +361,22 @@ for (const scenario of scenarios) {
         memberActionColumnWaste:
           memberActionCell && memberActionControls && memberActionCellStyle
             ? memberActionCell.width -
-              memberActionControls.width -
+              widestMemberControls -
               Number.parseFloat(memberActionCellStyle.paddingLeft) -
               Number.parseFloat(memberActionCellStyle.paddingRight) -
               Number.parseFloat(memberActionCellStyle.borderLeftWidth) -
               Number.parseFloat(memberActionCellStyle.borderRightWidth)
             : null,
         memberRowHeight: memberRow?.height ?? null,
+        mobileMemberFieldsComplete:
+          mobileMemberRows.length > 0 &&
+          mobileMemberRows.every((row) =>
+            ["成员", "项目内角色", "成员状态", "加入时间", "操作"].every((label) => {
+              const cell = row.querySelector(`td[data-label="${label}"]`);
+              const rect = cell?.getBoundingClientRect();
+              return rect && rect.width > 0 && rect.height > 0 && cell.textContent.trim();
+            }),
+          ),
         memberActionButtonsClipped,
         memberActionColumnFullyVisible:
           memberTableViewport && memberActionCell && memberActionControls
@@ -474,10 +491,17 @@ for (const scenario of scenarios) {
       collapsedMetrics = await page.evaluate(() => {
         const rail = document.querySelector(".rail")?.getBoundingClientRect();
         const button = document.querySelector(".rail-collapse")?.getBoundingClientRect();
-        const projectLink = document.querySelector('a[aria-label="项目设置"]');
+        const projectLink = document.querySelector('.rail a[aria-label="项目空间"]');
         return {
-          collapsedBoundaryOffset:
-            rail && button ? Math.abs(button.left + button.width / 2 - rail.right) : 999,
+          collapsedButtonInsideRail: Boolean(
+            rail &&
+            button &&
+            button.width > 0 &&
+            button.left >= rail.left &&
+            button.right <= rail.right &&
+            button.top >= rail.top &&
+            button.bottom <= rail.bottom,
+          ),
           collapsedButtonName:
             document.querySelector(".rail-collapse")?.getAttribute("aria-label") ?? "",
           collapsedProjectTooltip: projectLink?.getAttribute("title") ?? "",
@@ -507,10 +531,10 @@ for (const result of results) {
     result.moduleTitle !== "项目设置" ||
     result.internalIdentityVisible ||
     result.uncontractedHeaderAction ||
-    (typeof result.collapsedBoundaryOffset === "number" &&
-      (result.collapsedBoundaryOffset > 2 ||
+    (typeof result.collapsedButtonInsideRail === "boolean" &&
+      (!result.collapsedButtonInsideRail ||
         result.collapsedButtonName !== "展开主导航" ||
-        result.collapsedProjectTooltip !== "项目设置")) ||
+        result.collapsedProjectTooltip !== "项目空间")) ||
     result.clippedButtons > 0 ||
     result.lifecycleGateCount !== 0 ||
     (result.scenario === "delete-ready" && !result.deleteButtonVisible) ||
@@ -520,11 +544,11 @@ for (const result of results) {
         !result.memberActionRowCentered ||
         !result.memberDividerVisible ||
         result.memberActionColumnWaste === null ||
-        // Chromium table-width rounding differs between local Windows and CI Linux.
-        // A 24px residual is still smaller than a control gap and does not create a blank column.
-        result.memberActionColumnWaste > 24 ||
+        // Desktop remains a compact table; mobile is a labeled multi-line record.
+        (result.viewport !== "390" && result.memberActionColumnWaste > 24) ||
         result.memberRowHeight === null ||
-        result.memberRowHeight > 64 ||
+        (result.viewport !== "390" && result.memberRowHeight > 64) ||
+        (result.viewport === "390" && !result.mobileMemberFieldsComplete) ||
         result.memberActionButtonsClipped > 0 ||
         !result.memberActionColumnFullyVisible ||
         result.memberFormCenterDelta === null ||
