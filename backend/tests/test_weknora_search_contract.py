@@ -1,4 +1,4 @@
-"""Wire-contract regressions against WeKnora v0.8.3, not live-server tests.
+"""Wire-contract regressions against WeKnora v0.8.3/v0.9.0, not live-server tests.
 
 Reference: Tencent/WeKnora 3e22822c1d2397be730c458c7539d0eb8c113a24
 internal/handler/session/types.go; internal/types/search.go; routes_knowledge.go.
@@ -29,6 +29,17 @@ def wire(monkeypatch):
 
     def handle(request):
         requests.append(request)
+        if request.url.path == "/api/v1/knowledge/batch" and status[0] == 200:
+            return httpx.Response(
+                200,
+                json={
+                    "success": True,
+                    "data": [
+                        {"id": doc, "knowledge_base_id": "kb-a"}
+                        for doc in request.url.params.get_list("ids")
+                    ],
+                },
+            )
         return httpx.Response(status[0], json=response)
 
     @asynccontextmanager
@@ -44,7 +55,9 @@ def wire(monkeypatch):
 @pytest.mark.parametrize("count", [1, 20, 100])
 @pytest.mark.parametrize("knowledge_ids", [None, ["doc-a", "doc-b"]])
 async def test_search_083_wire_count_and_scopes(wire, count, knowledge_ids):
-    client, requests, _, _ = wire
+    client, requests, response, _ = wire
+    if knowledge_ids is not None:
+        response["data"][0]["knowledge_id"] = "doc-a"
     result = await client.search(
         query="generic query",
         kb_ids=["kb-a", "kb-b"],
@@ -52,21 +65,23 @@ async def test_search_083_wire_count_and_scopes(wire, count, knowledge_ids):
         top_k=count,
         trace_id="trace-fixture",
     )
-    assert len(requests) == 1
-    request = requests[0]
+    assert len(requests) == (1 if knowledge_ids is None else 2)
+    request = requests[-1]
     assert request.method == "POST"
     assert request.url.path == "/api/v1/knowledge-search"
     expected = {
         "query": "generic query",
-        "knowledge_base_ids": ["kb-a", "kb-b"],
         "match_count": count,
     }
     if knowledge_ids is not None:
         expected["knowledge_ids"] = knowledge_ids
+        assert requests[0].url.params.get_list("ids") == knowledge_ids
+    else:
+        expected["knowledge_base_ids"] = ["kb-a", "kb-b"]
     assert json.loads(request.content) == expected
     assert request.headers["X-Request-ID"] == "trace-fixture"
     assert request.headers["X-API-Key"] == "sk-synthetic-test"
-    assert result[0]["knowledge_id"] == "doc-fixture"
+    assert result[0]["knowledge_id"] == ("doc-fixture" if knowledge_ids is None else "doc-a")
     assert "private-fixture" not in json.dumps(result)
 
 

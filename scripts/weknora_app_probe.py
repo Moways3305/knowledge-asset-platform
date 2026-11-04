@@ -126,33 +126,32 @@ async def probe(data):
     check("existing_data_reads", checked_docs > 0, libraries_with_documents=checked_docs)
     check("pagination_exercised", pagination)
     recalled = []
-    for query in ["项目", "知识", "验收"]:
-        payload = {
-            "query": query,
-            "knowledge_base_ids": kb_ids,
-            "match_count": 5,
-            "disable_vector_match": True,
-            "rerank": {"enabled": False},
-        }
-        raw = await client._call(
-            "POST", "/knowledge-search", json=payload, trace_id="isolated-keyword-rehearsal"
+    for attempt, query in enumerate(["项目", "知识", "验收"] * 3, 1):
+        recalled = await client.search(
+            query=query,
+            kb_ids=kb_ids,
+            top_k=5,
+            keyword_only=True,
+            trace_id="isolated-keyword-rehearsal",
         )
-        recalled = client._normalize_chunks(raw)
+        check("repeated_keyword_recall", bool(recalled), attempt=attempt)
         if recalled:
             check(
                 "keyword_response_normalization",
                 len(recalled) <= 5 and all(r["content"] and r["knowledge_id"] for r in recalled),
             )
-            chosen = recalled[0]["knowledge_id"]
-            payload["knowledge_ids"] = [chosen]
-            restricted = client._normalize_chunks(
-                await client._call("POST", "/knowledge-search", json=payload)
+            chosen = recalled[-1]["knowledge_id"]
+            restricted = await client.search(
+                query=query,
+                kb_ids=kb_ids,
+                knowledge_ids=[chosen],
+                top_k=5,
+                keyword_only=True,
             )
             check(
                 "knowledge_id_search_scope",
                 bool(restricted) and all(r["knowledge_id"] == chosen for r in restricted),
             )
-            break
     check("keyword_recall_nonempty", bool(recalled))
     # Writes are limited to a newly created empty fixture KB in this disposable database.
     fixture = None

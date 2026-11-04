@@ -5,6 +5,7 @@ internal/handler/knowledge.go DeleteKnowledge. Not a live-container test.
 """
 
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -70,6 +71,16 @@ async def test_reparse_does_not_upload_after_delete_failure(monkeypatch, status)
 
 
 async def test_reparse_delete_timeout_never_uploads(monkeypatch):
+    # Windows timer resolution can wake sleep slightly before the deadline.
+    # Advance a local clock deterministically; do not patch asyncio's own clock.
+    now = 0.0
+
+    async def sleep(seconds):
+        nonlocal now
+        now += seconds
+
+    monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: now))
+    monkeypatch.setattr(module, "asyncio", SimpleNamespace(sleep=sleep))
     client, requests = client_for(
         monkeypatch,
         [
@@ -81,6 +92,7 @@ async def test_reparse_delete_timeout_never_uploads(monkeypatch):
     with pytest.raises(WeKnoraError) as exc:
         await reparse(client)
     assert exc.value.code == "weknora_delete_pending"
+    assert [r.method for r in requests] == ["DELETE", "GET"]
     assert all(r.method != "POST" for r in requests)
 
 
@@ -110,3 +122,84 @@ async def test_reparse_supports_synchronous_old_provider_and_missing_doc(monkeyp
     )
     assert (await reparse(client))["id"] == "new-doc"
     assert [r.method for r in requests] == ["DELETE", "GET", "POST"]
+
+
+async def test_document_search_intersects_kbs_before_sending_document_only_scope(monkeypatch):
+    client, requests = client_for(
+        monkeypatch,
+        [
+            (
+                200,
+                {
+                    "success": True,
+                    "data": [
+                        {"id": "selected", "knowledge_base_id": "kb-allowed"},
+                        {"id": "wrong-kb", "knowledge_base_id": "kb-outside"},
+                        {"id": "not-requested", "knowledge_base_id": "kb-allowed"},
+                    ],
+                },
+            ),
+            (
+                200,
+                {
+                    "success": True,
+                    "data": [
+                        {"knowledge_id": "selected", "content": "selected body"},
+                        {"knowledge_id": "wrong-kb", "content": "must not escape"},
+                        {"knowledge_id": "not-requested", "content": "must not escape"},
+                    ],
+                },
+            ),
+        ],
+    )
+    result = await client.search(
+        query="fixture",
+        kb_ids=["kb-allowed"],
+        knowledge_ids=["selected", "wrong-kb", "missing"],
+        keyword_only=True,
+    )
+    assert requests[0].url.params.get_list("ids") == ["selected", "wrong-kb", "missing"]
+    import json
+
+    assert json.loads(requests[1].content) == {
+        "query": "fixture",
+        "knowledge_ids": ["selected"],
+        "match_count": 20,
+        "disable_vector_match": True,
+        "rerank": {"enabled": False},
+    }
+    assert [r["knowledge_id"] for r in result] == ["selected"]
+
+
+@pytest.mark.parametrize(
+    "rows", [[], [{"id": "selected", "knowledge_base_id": "outside"}], [{"id": "selected"}]]
+)
+async def test_unconfirmed_document_membership_never_searches_whole_kb(monkeypatch, rows):
+    client, requests = client_for(monkeypatch, [(200, {"success": True, "data": rows})])
+    assert await client.search(query="fixture", kb_ids=["kb"], knowledge_ids=["selected"]) == []
+    assert [r.method for r in requests] == ["GET"]
+
+
+async def test_document_scope_batches_metadata_without_broadening(monkeypatch):
+    docs = [f"doc-{i}" for i in range(205)]
+    replies = [
+        (
+            200,
+            {
+                "success": True,
+                "data": [
+                    {"id": doc, "knowledge_base_id": "kb"} for doc in docs[start : start + 100]
+                ],
+            },
+        )
+        for start in range(0, len(docs), 100)
+    ]
+    replies.append((200, {"success": True, "data": []}))
+    client, requests = client_for(monkeypatch, replies)
+    assert await client.search(query="fixture", kb_ids=["kb"], knowledge_ids=docs) == []
+    assert [len(r.url.params.get_list("ids")) for r in requests[:-1]] == [100, 100, 5]
+    import json
+
+    payload = json.loads(requests[-1].content)
+    assert payload["knowledge_ids"] == docs
+    assert "knowledge_base_ids" not in payload

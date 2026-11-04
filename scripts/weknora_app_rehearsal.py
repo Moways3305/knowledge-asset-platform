@@ -107,9 +107,37 @@ def production_fingerprint():
     return result
 
 
+def patched_image(build_stage, run, original_image):
+    stage = build_stage.resolve(strict=True)
+    pg.require(
+        stage.parent == run and stage.name.startswith("keyword-build-"), "unexpected build stage"
+    )
+    pg.require((stage / "PASS-BUILD").is_file(), "patched build has not passed")
+    manifest = json.loads((stage / "build-manifest.json").read_text())
+    pg.require(manifest["base_image"] == original_image, "patched runtime base changed")
+    patch = Path(__file__).resolve().parents[1] / "patches/weknora-v0.9.0-keyword.patch"
+    pg.require(
+        manifest["patch_sha256"] == hashlib.sha256(patch.read_bytes()).hexdigest(),
+        "patched image was built from a different patch",
+    )
+    pg.require(
+        manifest["upstream"] == "f17ee8a8da901bd658a4cb25f40b5fd41adbfdd7", "unexpected upstream"
+    )
+    item = json.loads(pg.docker("image", "inspect", manifest["image_id"]))[0]
+    pg.require(item["Id"] == manifest["image_id"], "patched image ID changed")
+    labels = item["Config"].get("Labels") or {}
+    pg.require(
+        labels.get("kap.weknora.keyword.patch") == manifest["patch_sha256"], "patch label mismatch"
+    )
+    pg.require(labels.get("kap.weknora.keyword.base") == original_image, "base label mismatch")
+    pg.require(labels.get(pg.LABEL) == str(run), "image rehearsal label mismatch")
+    return item["Id"]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rehearsal-dir", required=True, type=Path)
+    parser.add_argument("--patched-build-stage", type=Path)
     args = parser.parse_args()
     import fcntl
 
@@ -150,6 +178,10 @@ def main():
         print("演练记录：" + str(stage), flush=True)
         resources = json.loads((source / "resources.json").read_text())
         images = json.loads((source / "images.json").read_text())
+        if args.patched_build_stage:
+            images["app_original"] = images["app"]
+            images["app"] = patched_image(args.patched_build_stage, run, images["app"])
+            images["patched_build_stage"] = str(args.patched_build_stage.resolve())
         source_name, source_volume = resources["container"], resources["volume"]
         pg.require(
             source_name.startswith("wk-schema090-") and source_volume == source_name + "-data",
@@ -391,7 +423,7 @@ def main():
             )
         )
         (stage / "probe-private.json").chmod(0o600)
-        pg.docker(
+        probe_command = [
             "run",
             "--rm",
             "--name",
@@ -416,7 +448,8 @@ def main():
             f"type=bind,src={stage},dst=/evidence",
             kap["Image"],
             "/probe/scripts/weknora_app_probe.py",
-        )
+        ]
+        pg.docker(*probe_command)
         report = json.loads((stage / "api-report.json").read_text())
         pg.require(report.get("passed") is True, "API report did not pass")
         print(json.dumps(report, ensure_ascii=False), flush=True)
@@ -444,6 +477,12 @@ def main():
             time.sleep(2)
         else:
             raise RuntimeError("app restart health timeout")
+        print("重启后再次核验实际客户端接口。", flush=True)
+        shutil.copyfile(stage / "api-report.json", stage / "api-report-before-restart.json")
+        pg.docker(*probe_command)
+        restart_report = json.loads((stage / "api-report.json").read_text())
+        pg.require(restart_report.get("passed") is True, "post-restart API report did not pass")
+        print(json.dumps(restart_report, ensure_ascii=False), flush=True)
         pg.require(
             pg.sql(name, "SELECT version,dirty FROM schema_migrations;") == "134|f",
             "schema changed unexpectedly",
