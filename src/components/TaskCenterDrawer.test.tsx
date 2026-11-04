@@ -117,7 +117,7 @@ describe("TaskCenterDrawer", () => {
   it("shows safe task context and keeps long groups inside the drawer", () => {
     const onClose = vi.fn();
     const { container } = render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter>
         <TaskCenterDrawer
           open
           groups={{
@@ -151,7 +151,7 @@ describe("TaskCenterDrawer", () => {
       priority: "internal_priority" as WorkbenchTaskItemDTO["priority"],
     };
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter>
         <TaskCenterDrawer
           open
           groups={{

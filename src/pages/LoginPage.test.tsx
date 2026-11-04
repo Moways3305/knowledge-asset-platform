@@ -22,10 +22,7 @@ function Protected() {
 }
 function setup(path = "/upload?page=3") {
   return render(
-    <MemoryRouter
-      initialEntries={[path]}
-      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-    >
+    <MemoryRouter initialEntries={[path]}>
       <LoginGate>
         <Protected />
       </LoginGate>
@@ -101,7 +98,7 @@ describe("login page", () => {
     expect(screen.queryByLabelText("密码")).not.toBeInTheDocument();
     auth.status = "error";
     view.rerender(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter>
         <LoginGate>
           <Protected />
         </LoginGate>

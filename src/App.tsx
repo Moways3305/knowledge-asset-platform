@@ -42,7 +42,7 @@ const McpAuthorizePage = lazy(() => import("./pages/McpAuthorizePage"));
 
 export default function App() {
   return (
-    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <BrowserRouter>
       {/* 全局兜底：捕获连 AppLayout 外壳在内的渲染崩溃。内层另有针对内容区的 ErrorBoundary。 */}
       <ErrorBoundary>
         <Routes>

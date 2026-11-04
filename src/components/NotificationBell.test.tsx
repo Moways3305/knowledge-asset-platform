@@ -46,10 +46,7 @@ function renderBell(entry = "/", state?: unknown) {
     );
   }
   return render(
-    <MemoryRouter
-      initialEntries={[{ pathname: entry, state }]}
-      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-    >
+    <MemoryRouter initialEntries={[{ pathname: entry, state }]}>
       <NotificationBell />
       <LocationProbe />
     </MemoryRouter>,

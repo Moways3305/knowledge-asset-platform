@@ -56,10 +56,7 @@ function renderHistory(entries: Array<{ pathname: string; search?: string }>) {
     JSON.stringify(entries.map((entry) => ({ search: "", ...entry }))),
   );
   render(
-    <MemoryRouter
-      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-      initialEntries={["/missing"]}
-    >
+    <MemoryRouter initialEntries={["/missing"]}>
       <SafeNavigationProvider>
         <Routes>
           <Route path="*" element={<Harness />} />
@@ -190,7 +187,7 @@ describe("SafeNavigationProvider", () => {
     );
 
     render(
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <BrowserRouter>
         <SafeNavigationProvider>
           <Routes>
             <Route path="*" element={<Harness />} />

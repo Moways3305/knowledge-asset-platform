@@ -37,10 +37,7 @@ vi.mock("./upload/UploadConfirmPanel", () => ({
 
 function renderPage(entry = "/upload") {
   return render(
-    <MemoryRouter
-      initialEntries={[entry]}
-      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-    >
+    <MemoryRouter initialEntries={[entry]}>
       <UploadPage />
       <NavigationProbe />
     </MemoryRouter>,

@@ -8,14 +8,16 @@ vi.mock("../api/workbuddy", () => ({ fetchWorkbuddyToken: vi.fn() }));
 
 function renderPanel() {
   return render(
-    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter>
       <WorkbuddyStatusPanel />
     </MemoryRouter>,
   );
 }
 
 describe("WorkbuddyStatusPanel", () => {
-  beforeEach(() => vi.mocked(fetchWorkbuddyToken).mockReset());
+  beforeEach(() => {
+    vi.mocked(fetchWorkbuddyToken).mockReset();
+  });
 
   it("shows the disabled state from enabled=false", async () => {
     vi.mocked(fetchWorkbuddyToken).mockResolvedValue({

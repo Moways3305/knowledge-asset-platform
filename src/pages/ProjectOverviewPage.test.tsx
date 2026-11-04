@@ -147,10 +147,7 @@ function CitationDestination() {
 
 function renderPage(path = `/project/${PROJECT_A}?view=qa`) {
   return render(
-    <MemoryRouter
-      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-      initialEntries={[path]}
-    >
+    <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route path="/projects" element={<ProjectOverviewPage />} />
         <Route path="/project/:id" element={<ProjectOverviewPage />} />

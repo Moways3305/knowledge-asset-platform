@@ -37,11 +37,7 @@ const list = (items: api.ReleaseNote[], total = items.length): api.ReleaseList =
   page_size: 10,
 });
 function mount(ui: React.ReactNode) {
-  return render(
-    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-      {ui}
-    </MemoryRouter>,
-  );
+  return render(<MemoryRouter>{ui}</MemoryRouter>);
 }
 async function openDraft() {
   mount(<AdminReleaseNotesPage />);

@@ -46,7 +46,9 @@ function Probe() {
 }
 
 describe("WorkbenchProvider refresh contract", () => {
-  beforeEach(() => vi.mocked(fetchWorkbenchOverview).mockReset());
+  beforeEach(() => {
+    vi.mocked(fetchWorkbenchOverview).mockReset();
+  });
   afterEach(() => vi.restoreAllMocks());
 
   it.each(["resolve", "reject"])(
@@ -63,7 +65,7 @@ describe("WorkbenchProvider refresh contract", () => {
         .mockReturnValueOnce(old.promise)
         .mockResolvedValue(overview(2));
       const view = render(
-        <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <MemoryRouter>
           <WorkbenchProvider>
             <Probe />
           </WorkbenchProvider>
@@ -106,7 +108,7 @@ describe("WorkbenchProvider refresh contract", () => {
       .mockReturnValueOnce(latest.promise);
 
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter>
         <WorkbenchProvider>
           <Probe />
         </WorkbenchProvider>
