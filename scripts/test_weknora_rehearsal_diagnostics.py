@@ -5,6 +5,11 @@ from weknora_rehearsal_diagnostics import classify
 
 
 class DiagnosticTests(unittest.TestCase):
+    def test_query_shape_error_does_not_get_misclassified_as_transport(self):
+        result = classify("WeKnoraError: 1007: ERROR: Unsupported query shape (SQLSTATE XX000)")
+        self.assertEqual(result["signals"], ["unsupported_query_shape"])
+        self.assertEqual(result["sqlstates"], ["XX000"])
+
     def test_reports_http_database_category_without_raw_error(self):
         result = classify(
             'app.services.weknora_client.WeKnoraError: 1007: column "private_doc_title" does not exist (SQLSTATE 42703)'

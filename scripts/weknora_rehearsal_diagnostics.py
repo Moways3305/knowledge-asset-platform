@@ -38,6 +38,15 @@ UPSTREAM_CODES = {
     "2201": "vector_store_unavailable",
 }
 SIGNALS = {
+    "unsupported_query_shape": ("unsupported query shape",),
+    "shared_memory_error": (
+        "could not resize shared memory",
+        "could not map dynamic shared memory",
+    ),
+    "disk_full": ("no space left on device",),
+    "out_of_memory": ("out of memory", "memory allocation failed"),
+    "index_rebuild_required": ("reindex", "index format", "incompatible index"),
+    "parallel_worker_failure": ("parallel worker", "parallel context"),
     "timeout": ("timed out", "timeout", "deadline exceeded"),
     "network_unreachable": ("network is unreachable", "no route to host"),
     "dns_failure": ("no such host", "name resolution", "name or service not known"),
