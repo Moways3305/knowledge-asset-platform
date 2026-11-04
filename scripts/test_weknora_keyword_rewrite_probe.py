@@ -135,6 +135,22 @@ class KeywordRewriteTests(unittest.TestCase):
         rows[3] = {"mode": "force_custom_plan"}
         self.assertFalse(check())
 
+    def test_guard_parses_multiline_postgres_json_aggregates(self):
+        actual = [
+            {"id": 1, "score": 5, "content": "line1\nline2 [text]"},
+            {"id": 2, "score": 4, "content": 'quoted "text"'},
+        ]
+        references = {"项目": (actual, [{"id": 1}, {"id": 2}])}
+        # json_agg(composite) separates records with comma, newline, space.
+        aggregate = "[" + ", \n ".join(json.dumps(r) for r in actual) + "]"
+        output = " \n" + aggregate + '\n{"mode":"auto"}\n{"custom":1,"generic":0}\n'
+        self.assertTrue(evaluate_session(output, ["项目"], references, 500, "auto")["passed"])
+
+    def test_guard_does_not_skip_truncated_or_non_json_output(self):
+        for output in ('[{"id":1}', "NOTICE: not JSON\n[]", '[]\n{"mode":"auto"}\ncorrupt'):
+            with self.subTest(output=output), self.assertRaises(json.JSONDecodeError):
+                evaluate_session(output, ["项目"], {"项目": ([], [])}, 500, "auto")
+
 
 if __name__ == "__main__":
     unittest.main()

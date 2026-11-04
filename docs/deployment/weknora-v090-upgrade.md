@@ -71,6 +71,8 @@ v0.9.0 提供原生 `POST /knowledge/:id/reparse`，但该接口重用底座现�
 
 下一步 `--verify-plan-guard` 保留未保护 generic_plan 为诊断对照，使用 verbose PostgreSQL 日志仅输出白名单分类。同时验证事务内 `SET LOCAL plan_cache_mode=force_custom_plan`：同一预编译语句/连接在 auto 和 force_generic_plan 两种会话基线下各执行 9 次，交替 COMMIT/ROLLBACK，核对每次结果、模式恢复以及 custom/generic 计划计数。该设置尚未写入应用；通过只代表这个明确受保护的 SQL 路径可用，不表示未保护通用计划兼容，也不是 KAP API 验收。依据：[PostgreSQL PREPARE](https://www.postgresql.org/docs/17/sql-prepare.html)、[SET LOCAL 的事务范围](https://www.postgresql.org/docs/17/sql-set.html)。
 
+事务保护首轮回传：非空组在输出校验时出现 `invalid_json`，空组连续执行与设置恢复通过；未保护非空对照仍报 XX000。已本地复现探针缺陷：`json_agg(composite)` 在记录之间插入换行，旧解析器把每个物理行当成完整 JSON。修正为逐个解码完整 JSON 值，仍拒绝截断/混杂文本，保留原有结果与计划计数断言。新增多行聚合回归先复现失败、修复后通过。修复后待服务器重新核验，不能将旧的解析失败记成数据库执行失败或跳过非空验收。
+
 此轮故意不连接真实模型、不启动 DocReader。即使离线脚本退出码为 0，也不能记作向量 API、上传解析、文档异步删除/重传或 KAP 三身份业务闭环验收通过。完整联调还需对模型服务设置受控出站并核对这些路径。
 
 ## 上游依据

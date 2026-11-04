@@ -157,7 +157,18 @@ def guarded_session(role, ids, excluded, limit, baseline):
 
 
 def evaluate_session(output, keywords, references, limit, baseline):
-    rows = [json.loads(line) for line in output.splitlines() if line.strip()]
+    # psql's unaligned rows are not JSONL: json_agg(composite) itself inserts
+    # physical newlines between records. Decode whole JSON values sequentially.
+    rows = []
+    decoder = json.JSONDecoder()
+    offset = 0
+    while offset < len(output):
+        while offset < len(output) and output[offset] in " \t\r\n":
+            offset += 1
+        if offset == len(output):
+            break
+        value, offset = decoder.raw_decode(output, offset)
+        rows.append(value)
     pg.require(len(rows) == len(keywords) * 2 + 1, "unexpected session output")
     checks = [
         compare_results(*references[keyword], rows[index * 2], limit)
@@ -229,19 +240,35 @@ def run_plan_guard(name, prefix, role, libraries, scopes, config, stage):
             pg.PRIVATE.flush()
             offset = (stage / "private.log").stat().st_size
             started = time.monotonic()
+            phase = "execute_sql"
             try:
                 sql, keywords = guarded_session(role, ids, excluded, limit, baseline)
                 output = pg.sql(name, sql)
+                case["sql_executed"] = True
+                phase = "validate_probe_output"
+                # Retain private output for offline revalidation if the probe
+                # parser fails; never print raw rows or copy them to the repo.
+                (stage / f"{label}-{baseline}-private.jsonstream").write_text(
+                    output, encoding="utf-8"
+                )
                 case.update(evaluate_session(output, keywords, references, limit, baseline))
-            except Exception:
+            except Exception as exc:
+                pg.PRIVATE.flush()
+                error = classify(
+                    (stage / "private.log").read_bytes()[offset:].decode(errors="replace")
+                )
+                if phase == "validate_probe_output":
+                    error = {
+                        "exception_type": type(exc).__name__,
+                        "signals": ["probe_output_validation_error"],
+                    }
                 pg.PRIVATE.write(traceback.format_exc().encode())
                 pg.PRIVATE.flush()
                 case.update(
                     {
                         "passed": False,
-                        "error": classify(
-                            (stage / "private.log").read_bytes()[offset:].decode(errors="replace")
-                        ),
+                        "failure_phase": phase,
+                        "error": error,
                     }
                 )
             case["elapsed_seconds"] = round(time.monotonic() - started, 3)
