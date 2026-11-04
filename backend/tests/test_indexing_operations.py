@@ -857,6 +857,37 @@ async def test_batch_retry_does_not_select_indexed(client, db_session, monkeypat
 # ---------------------------------------------------------------------------
 # 显式 reparse
 # ---------------------------------------------------------------------------
+async def test_retry_cancelled_parse_replaces_existing_document(client, db_session, monkeypatch):
+    asset_id = await _make_indexed(
+        client, monkeypatch, USER_CONSULTANT, content=b"cancelled parse retry fixture"
+    )
+    version = (
+        await db_session.execute(
+            select(KnowledgeAssetVersion).where(
+                KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id)
+            )
+        )
+    ).scalar_one()
+    old_doc = version.weknora_doc_id
+    from app.services.indexing import _apply_parse_state
+
+    _apply_parse_state(version, "cancelled")
+    await db_session.commit()
+    ok = FakeWK()
+    _enable(monkeypatch, ok)
+    response = await client.post(
+        RETRY,
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"scope": "all", "statuses": ["index_failed"], "limit": 50},
+    )
+    assert response.status_code == 202, response.text
+    assert response.json()["failed_count"] == 0
+    assert old_doc in ok.deleted
+    await db_session.refresh(version)
+    assert version.weknora_parse_status == "processing"
+    assert version.index_status == "indexing"
+
+
 async def test_reparse_refreshes_parse_status(client, db_session, monkeypatch):
     indexed = await _make_indexed(
         client, monkeypatch, USER_CONSULTANT, content=b"reparse target body"

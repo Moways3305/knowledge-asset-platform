@@ -33,6 +33,7 @@ from app.services.ingest_review_state import effective_status
 from app.services.llm_client import LLMClient, NullLLMClient, safe_llm_diagnostic
 from app.services.storage import LocalFileStorage
 from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient
+from app.services.weknora_parse_state import FAILED_PARSE_STATUSES, parse_error_code
 from app.worker.enqueue import enqueue_ingest_processing
 
 _logger = logging.getLogger(__name__)
@@ -127,6 +128,10 @@ _SAFE_ERRORS = {
     "indexing_skipped": (
         "资产已保存，但当前未进入知识底座索引。",
         "底座可用后可由具备权限的人员重试索引。",
+    ),
+    "weknora_parse_cancelled": (
+        "资产已保存，但知识底座的解析已取消。",
+        "可重新解析；原资料无需重复上传。",
     ),
     "weknora_parse_failed": (
         "资产已进入知识底座，但正文解析失败。",
@@ -412,7 +417,17 @@ def _response(
             next_action = _action("replace_file", "upload")
     elif task_status == IngestStatus.completed.value:
         can_retry_index = bool(asset and knowledge_service.can_retry_index(caller, asset))
-        if version is None or version.index_status in {"not_indexed", "indexing"}:
+        if (
+            version is not None
+            and version.weknora_parse_status in FAILED_PARSE_STATUSES
+            and version.weknora_doc_id is not None
+        ):
+            stage = IngestTaskStage.failed
+            status = IngestTaskWorkflowStatus.failed
+            retryable = can_retry_index
+            error = _safe_error(parse_error_code(version.weknora_parse_status))
+            next_action = _action("reparse", "ingest_task_retry", enabled=retryable)
+        elif version is None or version.index_status in {"not_indexed", "indexing"}:
             stage = (
                 IngestTaskStage.indexing_queued
                 if version is None or version.index_status == "not_indexed"
@@ -420,12 +435,6 @@ def _response(
             )
             status = IngestTaskWorkflowStatus.processing
             next_action = _action("wait", None, enabled=False)
-        elif version.weknora_parse_status == "failed" and version.weknora_doc_id is not None:
-            stage = IngestTaskStage.failed
-            status = IngestTaskWorkflowStatus.failed
-            retryable = can_retry_index
-            error = _safe_error("weknora_parse_failed")
-            next_action = _action("reparse", "ingest_task_retry", enabled=retryable)
         elif version.index_status == "index_failed":
             stage = IngestTaskStage.failed
             status = IngestTaskWorkflowStatus.failed
@@ -446,7 +455,7 @@ def _response(
             stage = IngestTaskStage.indexing_queued
             status = IngestTaskWorkflowStatus.processing
             next_action = _action("wait", None, enabled=False)
-        elif version.weknora_parse_status == "processing":
+        elif version.weknora_parse_status in {"processing", "finalizing"}:
             stage = IngestTaskStage.indexing_in_progress
             status = IngestTaskWorkflowStatus.processing
             next_action = _action("wait", None, enabled=False)
@@ -840,7 +849,10 @@ async def retry_task(
             task.error_message = "入库处理失败（详见审计）"
             await session.commit()
     elif ctx.asset is not None and ctx.version is not None:
-        if ctx.version.weknora_parse_status == "failed" and ctx.version.weknora_doc_id is not None:
+        if (
+            ctx.version.weknora_parse_status in FAILED_PARSE_STATUSES
+            and ctx.version.weknora_doc_id is not None
+        ):
             try:
                 from app.services.canonical_markdown import ensure_version_markdown
 

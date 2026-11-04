@@ -203,16 +203,23 @@ describe("asset and ingestion operations", () => {
     expect(changed).not.toHaveBeenCalled();
   });
 
-  it("does not call state synchronization a successful reparse", async () => {
-    vi.mocked(operations.refreshIngestParse).mockResolvedValue({
-      task_id: "task-a",
-      result_asset_id: "asset-a",
-      parse_status: "failed",
-    });
-    render(<RefreshParseButton taskId="task-a" />);
-    fireEvent.click(screen.getByRole("button", { name: "同步解析状态" }));
-    expect(await screen.findByRole("status")).toHaveTextContent("当前解析状态：解析失败");
-  });
+  it.each([
+    ["failed", "解析失败"],
+    ["cancelled", "解析已取消"],
+    ["finalizing", "解析收尾中"],
+  ])(
+    "displays provider state %s without claiming a successful reparse",
+    async (parseStatus, label) => {
+      vi.mocked(operations.refreshIngestParse).mockResolvedValue({
+        task_id: "task-a",
+        result_asset_id: "asset-a",
+        parse_status: parseStatus,
+      });
+      render(<RefreshParseButton taskId="task-a" />);
+      fireEvent.click(screen.getByRole("button", { name: "同步解析状态" }));
+      expect(await screen.findByRole("status")).toHaveTextContent(`当前解析状态：${label}`);
+    },
+  );
 
   it("confirms a bounded backfill and keeps system summary admin-only", async () => {
     vi.mocked(fetchAuthMe).mockResolvedValue({ activeCompanyRole: "boss" } as Awaited<

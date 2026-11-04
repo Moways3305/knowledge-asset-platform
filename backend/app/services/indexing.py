@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,6 +34,7 @@ from app.services.weknora_client import (
 )
 from app.services.weknora_kb import resolve_or_create_kb
 from app.services.weknora_model_selection import resolve_models_for_kb
+from app.services.weknora_parse_state import FAILED_PARSE_STATUSES, parse_error_code
 
 _logger = logging.getLogger(__name__)
 
@@ -83,11 +85,11 @@ def _apply_parse_state(version: KnowledgeAssetVersion, parse_status: str) -> str
         version.indexed_at = utc_now()
         version.index_error_code = None
         version.index_error_message = None
-    elif parse_status == "failed":
+    elif parse_status in FAILED_PARSE_STATUSES:
         version.index_status = "index_failed"
         version.indexed_at = None
-        version.index_error_code = "weknora_parse_failed"
-        version.index_error_message = error_catalog.user_message("weknora_parse_failed")
+        version.index_error_code = parse_error_code(parse_status)
+        version.index_error_message = error_catalog.user_message(version.index_error_code)
     else:
         version.index_status = "indexing"
         version.indexed_at = None
@@ -222,7 +224,21 @@ async def index_asset_version(
         content, upload_name, upload_mime, governance_text = _governance_upload(
             file_bytes, source_file_name, source_file_mime
         )
-        data = await weknora.upload_file(
+        current_version = await _load_version(session, version_id)
+        retry_existing = bool(
+            current_version is not None
+            and current_version.weknora_doc_id
+            and current_version.weknora_kb_id == kb_id
+            and current_version.weknora_parse_status in FAILED_PARSE_STATUSES
+        )
+        upload = weknora.reparse_knowledge if retry_existing else weknora.upload_file
+        retry_args: dict[str, Any] = (
+            {"knowledge_id": current_version.weknora_doc_id}
+            if retry_existing and current_version is not None
+            else {}
+        )
+        data = await upload(
+            **retry_args,
             kb_id=kb_id,
             content=content,
             file_name=upload_name,
@@ -256,7 +272,7 @@ async def index_asset_version(
         return IndexOutcome(
             index_status,
             parse_status,
-            "weknora_parse_failed" if index_status == "index_failed" else None,
+            parse_error_code(parse_status) if index_status == "index_failed" else None,
             False,
         )
     except WeKnoraDuplicateError as dup:
@@ -298,10 +314,9 @@ async def reparse_asset_version(
 ) -> IndexOutcome:
     """显式 reparse：对**已进底座但解析异常**的 version 强制刷新底座解析。
 
-    WeKnora 无独立 reparse 端点，封装为「受控重传」（`weknora.reparse_knowledge`：删旧 doc +
-    重传原文），**会更新 `weknora_doc_id` 为新 doc**。已绑定 kb 时复用其 kb_id，否则按 scope
-    resolve/create。成功 → index_status 保持 indexed + 新 parse_status；失败 → index_failed
-    （可再试）。**绝不回滚业务资产**，回写 / 返回不外泄 kb_id / doc_id / api_key / storage_ref。
+    使用当前规范 Markdown 受控重传。底座确认旧文档删除完成后才上传，
+    避免 v0.9.0 异步删除与去重之间的竞态；解析完成前保持处理中。
+    不回滚业务资产，不外泄底座标识与凭据。
     """
     version = await _load_version(session, version_id)
     kb_id = version.weknora_kb_id if version is not None else None
@@ -362,7 +377,7 @@ async def reparse_asset_version(
         return IndexOutcome(
             index_status,
             parse_status,
-            "weknora_parse_failed" if index_status == "index_failed" else None,
+            parse_error_code(parse_status) if index_status == "index_failed" else None,
             False,
         )
     except WeKnoraDuplicateError as dup:

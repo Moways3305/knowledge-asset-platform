@@ -94,6 +94,12 @@ _CATALOG: dict[str, ErrorInfo] = {
         remediation_hint="核对文件格式和完整性后重跑补齐；不要把原件直接投递到底座。",
         severity="error",
     ),
+    "weknora_parse_cancelled": ErrorInfo(
+        user_message="资产已保存，但知识底座解析已取消，可重新解析。",
+        operator_message="WeKnora 返回取消解析终态。",
+        remediation_hint="核对取消原因后显式重试解析；不要重复上传原件。",
+        severity="error",
+    ),
     "weknora_parse_failed": ErrorInfo(
         user_message="规范文本已提交，但知识底座解析失败，可重新解析。",
         operator_message="WeKnora 对规范 Markdown 的异步解析失败。",
@@ -159,6 +165,7 @@ _DIAGNOSTIC_CATEGORIES: dict[str, str] = {
     "canonical_markdown_source_missing": "source_content",
     "canonical_markdown_extraction_failed": "source_content",
     "weknora_parse_failed": "external_service",
+    "weknora_parse_cancelled": "external_service",
     "index_unexpected_error": "platform",
     "index_interrupted": "external_service",
     "index_submission_interrupted": "platform",

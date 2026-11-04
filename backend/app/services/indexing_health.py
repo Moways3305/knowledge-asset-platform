@@ -20,6 +20,7 @@ from app.schemas.indexing_ops import (
     RuntimeHealth,
 )
 from app.services.index_recovery import INTERRUPTED_ERROR_CODE, SUBMISSION_INTERRUPTED_ERROR_CODE
+from app.services.weknora_parse_state import FAILED_PARSE_STATUSES, PENDING_PARSE_STATUSES
 
 HEARTBEAT_STALE_SECONDS = 180
 QUEUE_DEGRADED_SECONDS = 300
@@ -69,7 +70,7 @@ async def indexing_counts(session: AsyncSession, *, now: datetime | None = None)
         "parse_in_progress": await count(
             versions(
                 KnowledgeAssetVersion.weknora_doc_id.is_not(None),
-                KnowledgeAssetVersion.weknora_parse_status.in_(("pending", "processing")),
+                KnowledgeAssetVersion.weknora_parse_status.in_(PENDING_PARSE_STATUSES),
             )
         ),
         "not_indexed": await count(versions(KnowledgeAssetVersion.index_status == "not_indexed")),
@@ -78,7 +79,7 @@ async def indexing_counts(session: AsyncSession, *, now: datetime | None = None)
             versions(KnowledgeAssetVersion.weknora_parse_status == "pending")
         ),
         "parse_processing": await count(
-            versions(KnowledgeAssetVersion.weknora_parse_status == "processing")
+            versions(KnowledgeAssetVersion.weknora_parse_status.in_(("processing", "finalizing")))
         ),
         "parse_stalled": await count(
             versions(
@@ -93,7 +94,7 @@ async def indexing_counts(session: AsyncSession, *, now: datetime | None = None)
             )
         ),
         "parse_failed": await count(
-            versions(KnowledgeAssetVersion.weknora_parse_status == "failed")
+            versions(KnowledgeAssetVersion.weknora_parse_status.in_(FAILED_PARSE_STATUSES))
         ),
         "kb_init_failed": await count(
             select(func.count())

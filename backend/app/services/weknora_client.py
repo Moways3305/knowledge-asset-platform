@@ -16,6 +16,7 @@ dev/降级：`WEKNORA_BASE_URL` 或 `WEKNORA_API_KEY` 未配置 → `weknora_ena
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -329,31 +330,61 @@ class WeKnoraClient:
         channel: str | None = None,
         trace_id: str | None = None,
     ) -> dict[str, Any]:
-        """显式 reparse：WeKnora **无独立 reparse 端点**，本方法封装为「受控重传」——
-        先删除已有 doc（若有），再重新上传同一原文触发底座重新解析，返回**新 doc** data
-        （含 id=新 knowledge id、parse_status、file_hash）。
+        """Re-upload canonical content only after the old document is gone.
 
-        与 retry-index 的差异：retry-index 用于尚未进底座的资产（建库 + 首次上传）；reparse
-        用于**已进底座但解析状态异常**的资产，强制刷新解析（会更新 weknora_doc_id 为新 doc）。
-        删除失败（doc 可能已不存在）不阻断重传。异常经 `_unwrap` 不带 api_key / 内部 id。
+        v0.9.0 DELETE acknowledges an asynchronous task. It must not be treated
+        as completed deletion: uploading immediately can deduplicate against a
+        document that the worker will subsequently remove. Retrying via the
+        provider's native reparse API would reuse potentially obsolete content,
+        whereas KAP must submit the current canonical Markdown passed here.
         """
         if knowledge_id:
             try:
                 await self.delete_knowledge(knowledge_id, trace_id=trace_id)
-            except WeKnoraError:
-                # doc 可能已不存在 / 底座删除失败：不阻断重传，继续上传新 doc。
-                _logger.warning(
-                    "weknora_reparse_delete_failed",
-                    exc_info=True,
-                )
-        return await self.upload_file(
-            kb_id=kb_id,
-            content=content,
-            file_name=file_name,
-            mime=mime,
-            metadata=metadata,
-            channel=channel,
-            trace_id=trace_id,
+            except WeKnoraError as exc:
+                if exc.status_code != 404:
+                    raise
+            await self._wait_knowledge_deleted(knowledge_id, trace_id=trace_id)
+        try:
+            return await self.upload_file(
+                kb_id=kb_id,
+                content=content,
+                file_name=file_name,
+                mime=mime,
+                metadata=metadata,
+                channel=channel,
+                trace_id=trace_id,
+            )
+        except WeKnoraDuplicateError as exc:
+            # A duplicate acknowledgment proves neither parsing completion nor
+            # that the competing document will survive another pending delete.
+            raise WeKnoraError(
+                "weknora_reparse_duplicate",
+                "重新解析遇到重复文档，尚未确认解析完成，请核对底座状态后重试。",
+            ) from exc
+
+    async def _wait_knowledge_deleted(self, knowledge_id: str, *, trace_id: str | None) -> None:
+        deadline = time.monotonic() + min(self._timeout, 30.0)
+        async with pooled_http_client(timeout=self._timeout) as client:
+            while (remaining := deadline - time.monotonic()) > 0:
+                try:
+                    resp = await client.get(
+                        f"{self._base}/knowledge/{knowledge_id}",
+                        headers=self._headers(trace_id),
+                        timeout=min(self._timeout, remaining),
+                    )
+                except httpx.RequestError as exc:
+                    raise WeKnoraError(
+                        "weknora_delete_unconfirmed",
+                        "无法确认旧索引文档是否已删除，尚未重传，请稍后重试解析。",
+                    ) from exc
+                if resp.status_code == 404:
+                    return
+                self._unwrap(resp)
+                await asyncio.sleep(min(0.5, max(0.0, deadline - time.monotonic())))
+        raise WeKnoraError(
+            "weknora_delete_pending",
+            "旧索引文档仍在删除中，尚未重传，请稍后重试解析。",
         )
 
     @staticmethod

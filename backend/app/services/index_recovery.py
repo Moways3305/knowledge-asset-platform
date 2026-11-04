@@ -20,6 +20,7 @@ from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.schemas.enums import AssetStatus, AuditAction, AuditLogType, VersionStatus
 from app.services import audit as audit_service
 from app.services import error_catalog
+from app.services.weknora_parse_state import PENDING_PARSE_STATUSES
 
 INTERRUPTED_ERROR_CODE = "index_interrupted"
 SUBMISSION_INTERRUPTED_ERROR_CODE = "index_submission_interrupted"
@@ -60,7 +61,7 @@ def should_mark_submission_interrupted(version: KnowledgeAssetVersion, *, now: d
 def should_mark_interrupted(version: KnowledgeAssetVersion, *, now: datetime) -> bool:
     return (
         version.index_status == "indexing"
-        and version.weknora_parse_status in {"pending", "processing"}
+        and version.weknora_parse_status in PENDING_PARSE_STATUSES
         and is_old_enough(version, now=now)
         and version.index_reconcile_failure_count >= required_failure_count()
     )
