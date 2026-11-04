@@ -69,7 +69,7 @@ def sql(name, query, db="WeKnora"):
     )
 
 
-def wait(name):
+def wait(name, db="wk_restore_control"):
     for _ in range(180):
         result = subprocess.run(
             [
@@ -82,7 +82,7 @@ def wait(name):
                 "-U",
                 OWNER,
                 "-d",
-                "wk_restore_control",
+                db,
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
