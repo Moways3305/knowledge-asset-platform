@@ -220,6 +220,7 @@ def main():
     try:
         print("构建记录：" + str(stage), flush=True)
         before = production_fingerprint()
+        (stage / "production-before.json").write_text(json.dumps(before, indent=2))
         resources = json.loads((app_stage / "resources.json").read_text())
         for key in ("container", "app", "redis"):
             item = pg.inspect(resources[key])
@@ -335,7 +336,10 @@ def main():
             "rust_mirror": "https://rsproxy.cn",
         }
         (stage / "build-manifest.json").write_text(json.dumps(manifest, indent=2))
-        pg.compare(before, production_fingerprint())
+        phase = "production_guard"
+        after = production_fingerprint()
+        (stage / "production-after.json").write_text(json.dumps(after, indent=2))
+        pg.compare(before, after)
         (stage / "PASS-BUILD").write_text(
             "Go package tests and anydoc application build passed; not API acceptance.\n"
         )
@@ -357,7 +361,10 @@ def main():
     except Exception:
         pg.PRIVATE.write(traceback.format_exc().encode())
         print("已停止，阶段：" + phase + "。生产未切换。", flush=True)
-        print("源码/编译错误可检查 build.log；不要粘贴 private 文件。", flush=True)
+        if phase == "production_guard":
+            print("镜像已构建，但生产一致性检查未通过；不要重建或手工写通过标记。", flush=True)
+        else:
+            print("源码/编译错误可检查 build.log；不要粘贴 private 文件。", flush=True)
     finally:
         lock.close()
         (stage / "exit-code").write_text(str(code) + "\n")

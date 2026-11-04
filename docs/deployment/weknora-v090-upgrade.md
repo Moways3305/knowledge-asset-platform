@@ -99,6 +99,10 @@ HTTP 对照还发现 KAP 的范围假设不符合上游：v0.9.0 `buildSearchTar
 
 服务器 `keyword-build-8115fba3e9` 已通过系统依赖、Go 模块下载及 PostgreSQL 检索包测试，停在 Rust 工具链组件下载，日志为 `CANCELED / context canceled`，没有 Rust/Go 源码编译错误。构建脚本改按 [RsProxy 配置](https://rsproxy.cn/) 在临时 builder 内设置 Rustup 和 Cargo sparse 镜像，固定使用此前本地完整镜像构建已通过的 Rust 1.99.1；保留 Cargo.lock 校验、上游 anydoc 构建和 `WITH_ANYDOC=1`。安装脚本下载有连接/总时限，工具链安装限 20 分钟、anydoc 构建限 30 分钟，两步分层缓存，失败停止而不跳过解析器。41 项脚本测试、实际固定 ZIP 的 Dockerfile 生成及 Linux Shell 语法检查通过；本轮镜像尚未重新构建，服务器镜像与接口结果待续跑。
 
+服务器 `keyword-build-0c63f6866a` 已生成构建清单，但在构建后生产指纹检查停止。只读复核确认生产应用仍 healthy、容器 ID/镜像/Config 与原备份相同，6 次 inspect 的 Mounts 内容一致但顺序变化。原指纹直接哈希列表，误把 Docker 的挂载顺序变化视为配置变化。现仅规范化 Mounts 外层顺序，保留全部字段和重复项，真实配置/挂载变化仍拦截；后续构建另存规范化前后指纹，并正确报告 `production_guard` 阶段。
+
+`scripts/weknora_resume_keyword_app.py --build-stage <该构建目录>` 可复用本次产物：必须存在完成构建后写出的清单、原失败退出码和比较错误，校验前序 SQL 结果、源码清单、anydoc/Rust 记录、补丁、基础镜像与实际镜像标签，再按原备份及当前稳定性核对生产。旧脚本未保存构建前指纹，因此续验报告明确记录采用原备份对照，不声称重建了旧时点证据。通过后写构建通过标记并启动新隔离应用演练；不重新编译、不操作生产容器，原失败记录保留，续验另记日志与退出码。44 项脚本测试通过；服务器接口复验仍待执行。
+
 ## 上游依据
 
 - [v0.9.0 发布](https://github.com/Tencent/WeKnora/releases/tag/v0.9.0)

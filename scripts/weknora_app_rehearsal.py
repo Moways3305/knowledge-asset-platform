@@ -95,16 +95,19 @@ def guard_child(name, parent, parent_id, run):
     return item
 
 
+def container_fingerprint(item):
+    content = {key: item[key] for key in ["Id", "Image", "Config", "Mounts"]}
+    # Docker emits Mounts from an unordered collection. Keep every field and
+    # duplicate entry, but ignore only the order of the outer mount list.
+    content["Mounts"] = sorted(content["Mounts"], key=lambda m: json.dumps(m, sort_keys=True))
+    return hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()
+
+
 def production_fingerprint():
-    result = {}
-    for name in ["WeKnora-app", "WeKnora-postgres", "WeKnora-redis", "kap-backend-1"]:
-        item = pg.inspect(name)
-        result[name] = hashlib.sha256(
-            json.dumps(
-                {key: item[key] for key in ["Id", "Image", "Config", "Mounts"]}, sort_keys=True
-            ).encode()
-        ).hexdigest()
-    return result
+    return {
+        name: container_fingerprint(pg.inspect(name))
+        for name in ["WeKnora-app", "WeKnora-postgres", "WeKnora-redis", "kap-backend-1"]
+    }
 
 
 def patched_image(build_stage, run, original_image):
@@ -113,6 +116,11 @@ def patched_image(build_stage, run, original_image):
         stage.parent == run and stage.name.startswith("keyword-build-"), "unexpected build stage"
     )
     pg.require((stage / "PASS-BUILD").is_file(), "patched build has not passed")
+    return verify_built_image(stage, run, original_image)
+
+
+def verify_built_image(stage, run, original_image):
+    """Verify immutable build identity; caller must separately gate acceptance."""
     manifest = json.loads((stage / "build-manifest.json").read_text())
     pg.require(manifest["base_image"] == original_image, "patched runtime base changed")
     patch = Path(__file__).resolve().parents[1] / "patches/weknora-v0.9.0-keyword.patch"
