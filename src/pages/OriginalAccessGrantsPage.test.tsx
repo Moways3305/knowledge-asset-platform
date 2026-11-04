@@ -36,7 +36,7 @@ const result = (items = [grant], total = items.length): GrantsListResponseDTO =>
 });
 function mount() {
   return render(
-    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter>
       <OriginalAccessGrantsPage />
     </MemoryRouter>,
   );

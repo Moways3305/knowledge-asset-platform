@@ -36,10 +36,7 @@ const pending: OriginalAccessRequestDTO = {
 
 function renderPage(path = "/original-access?box=inbox") {
   return render(
-    <MemoryRouter
-      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-      initialEntries={[path]}
-    >
+    <MemoryRouter initialEntries={[path]}>
       <Link to={path}>通知入口</Link>
       <Routes>
         <Route path="/original-access" element={<OriginalAccessPage />} />

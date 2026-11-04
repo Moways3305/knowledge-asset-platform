@@ -56,10 +56,7 @@ const approved: ReviewActionResponseDTO = {
 
 function renderPage(entry = "/review") {
   return render(
-    <MemoryRouter
-      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-      initialEntries={[entry]}
-    >
+    <MemoryRouter initialEntries={[entry]}>
       <Link to={entry}>通知入口</Link>
       <Routes>
         <Route path="/review" element={<ReviewPage />} />
@@ -71,10 +68,7 @@ function renderPage(entry = "/review") {
 
 function renderCompletedPage() {
   return render(
-    <MemoryRouter
-      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-      initialEntries={["/review/completed"]}
-    >
+    <MemoryRouter initialEntries={["/review/completed"]}>
       <Routes>
         <Route path="/review/completed" element={<ReviewCompletedPage />} />
       </Routes>

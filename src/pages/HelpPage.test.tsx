@@ -9,10 +9,7 @@ const capabilities = deriveCapabilities(null);
 vi.mock("../auth/AuthContext", () => ({ useAuth: () => ({ capabilities }) }));
 const open = (url = "/help") =>
   render(
-    <MemoryRouter
-      initialEntries={[url]}
-      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-    >
+    <MemoryRouter initialEntries={[url]}>
       <HelpPage />
     </MemoryRouter>,
   );

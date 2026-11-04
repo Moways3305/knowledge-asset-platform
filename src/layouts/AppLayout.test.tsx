@@ -77,10 +77,7 @@ vi.mock("../workbench/WorkbenchContext", () => ({
 
 function renderLayout(path = "/") {
   return render(
-    <MemoryRouter
-      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-      initialEntries={[path]}
-    >
+    <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route element={<AppLayout />}>
           <Route index element={<div>home</div>} />

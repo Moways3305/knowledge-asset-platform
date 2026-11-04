@@ -79,7 +79,7 @@ describe("GlobalTaskStatus", () => {
 
   it("keeps the badge and default drawer group synchronized with needs_action", () => {
     const view = render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter>
         <GlobalTaskStatus />
       </MemoryRouter>,
     );
@@ -94,7 +94,7 @@ describe("GlobalTaskStatus", () => {
 
     state.overview = overview(0);
     view.rerender(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter>
         <GlobalTaskStatus />
       </MemoryRouter>,
     );

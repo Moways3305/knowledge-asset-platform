@@ -214,10 +214,7 @@ const directories: KnowledgeDirectoryDTO[] = [
 
 function renderPage(entry = "/knowledge?scope=company&directory_key=company.methodology") {
   return render(
-    <MemoryRouter
-      initialEntries={[entry]}
-      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-    >
+    <MemoryRouter initialEntries={[entry]}>
       <KnowledgeListPage />
     </MemoryRouter>,
   );
@@ -353,10 +350,7 @@ describe("KnowledgeListPage reference implementation", () => {
     vi.mocked(fetchKnowledgeLibraryProjects).mockRejectedValueOnce(new Error("offline"));
     const entry = `/knowledge?scope=project&project_id=${PROJECT_B}&directory_key=project.deliverables`;
     render(
-      <MemoryRouter
-        initialEntries={[entry]}
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-      >
+      <MemoryRouter initialEntries={[entry]}>
         <KnowledgeListPage />
         <CatalogHistoryProbe />
       </MemoryRouter>,
@@ -490,10 +484,7 @@ describe("KnowledgeListPage reference implementation", () => {
         new ApiError(503, "upstream detail"),
       );
       render(
-        <MemoryRouter
-          initialEntries={[entry]}
-          future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-        >
+        <MemoryRouter initialEntries={[entry]}>
           <KnowledgeListPage />
           <CatalogHistoryProbe />
         </MemoryRouter>,
@@ -526,7 +517,6 @@ describe("KnowledgeListPage reference implementation", () => {
       render(
         <MemoryRouter
           initialEntries={["/knowledge?scope=company&directory_key=company.methodology"]}
-          future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
         >
           <KnowledgeListPage />
           <CatalogHistoryProbe />
@@ -834,10 +824,7 @@ describe("KnowledgeListPage reference implementation", () => {
 
   it("keeps project and directory navigation stable across browser back and forward", async () => {
     render(
-      <MemoryRouter
-        initialEntries={["/knowledge"]}
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-      >
+      <MemoryRouter initialEntries={["/knowledge"]}>
         <KnowledgeListPage />
         <CatalogHistoryProbe />
       </MemoryRouter>,
@@ -926,10 +913,7 @@ describe("KnowledgeListPage reference implementation", () => {
       access: { ...crossProjectDetail.access, original: true },
     });
     render(
-      <MemoryRouter
-        initialEntries={["/knowledge?scope=company&directory_key=company.methodology"]}
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-      >
+      <MemoryRouter initialEntries={["/knowledge?scope=company&directory_key=company.methodology"]}>
         <Routes>
           <Route path="/knowledge" element={<KnowledgeListPage />} />
           <Route path="/knowledge/:assetId" element={<LocationStateProbe />} />

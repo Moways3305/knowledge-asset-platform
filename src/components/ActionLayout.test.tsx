@@ -107,7 +107,7 @@ describe("ActionMenu", () => {
       return <output>{useLocation().pathname}</output>;
     }
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter>
         <ActionMenu>
           <Link to="/records">查看记录</Link>
         </ActionMenu>

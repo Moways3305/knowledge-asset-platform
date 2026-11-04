@@ -7,7 +7,9 @@ const ingestApi = vi.hoisted(() => ({ fetchMyUploads: vi.fn() }));
 vi.mock("../api/ingest", () => ingestApi);
 
 describe("MyUploadsPanel", () => {
-  beforeEach(() => ingestApi.fetchMyUploads.mockReset());
+  beforeEach(() => {
+    ingestApi.fetchMyUploads.mockReset();
+  });
 
   it("shows rejected history and its review comment without claiming ongoing processing", async () => {
     ingestApi.fetchMyUploads.mockResolvedValue([

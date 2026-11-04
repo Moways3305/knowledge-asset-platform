@@ -11,10 +11,7 @@ vi.mock("../routing/SafeNavigation", () => ({
 describe("NotFoundPage", () => {
   it("提供安全说明和两个真实恢复动作", () => {
     const { container } = render(
-      <MemoryRouter
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-        initialEntries={["/private/token-should-not-render"]}
-      >
+      <MemoryRouter initialEntries={["/private/token-should-not-render"]}>
         <NotFoundPage />
       </MemoryRouter>,
     );
@@ -29,10 +26,7 @@ describe("NotFoundPage", () => {
   it("返回上一页委托统一安全返回路由", () => {
     safeNavigation.goBack.mockReset().mockResolvedValue(undefined);
     render(
-      <MemoryRouter
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-        initialEntries={["/missing"]}
-      >
+      <MemoryRouter initialEntries={["/missing"]}>
         <NotFoundPage />
       </MemoryRouter>,
     );

@@ -28,7 +28,7 @@ vi.mock("./AuthContext", () => ({
 
 function renderGuard(cap: (c: Capabilities) => boolean) {
   return render(
-    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter>
       <RouteGuard cap={cap}>
         <div>受保护内容</div>
       </RouteGuard>
@@ -94,7 +94,7 @@ describe("RouteGuard", () => {
       );
     }
     const page = () => (
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter>
         <RouteGuard cap={can.viewProject}>
           <ProjectSession />
         </RouteGuard>
