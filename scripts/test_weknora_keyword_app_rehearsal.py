@@ -4,12 +4,52 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import json
+import zipfile
 
 import weknora_keyword_app_rehearsal as build
 import weknora_app_rehearsal as app
 
 
 class KeywordAppTests(unittest.TestCase):
+    def test_local_zip_verifies_content_before_extracting(self):
+        data = b"#!/bin/sh\necho fixture\n"
+        blob = hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
+        manifest = hashlib.sha256(b"run.sh\0" + b"100755\0" + blob.encode() + b"\n").hexdigest()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / "source.zip"
+            destination = root / "source"
+            destination.mkdir()
+
+            def write_zip(commit=build.UPSTREAM, name="run.sh", content=data, mode=0o100755):
+                with zipfile.ZipFile(archive, "w") as z:
+                    z.comment = commit.encode()
+                    item = zipfile.ZipInfo("WeKnora-" + build.UPSTREAM + "/" + name)
+                    item.external_attr = mode << 16
+                    z.writestr(item, content)
+
+            with patch.object(build, "SOURCE_MANIFEST_SHA", manifest):
+                for kwargs in (
+                    {"commit": "main"},
+                    {"name": "../outside"},
+                    {"name": "/outside"},
+                    {"name": ".git/config"},
+                    {"mode": 0o120777},
+                    {"content": b"tampered"},
+                    {"mode": 0o100644},
+                ):
+                    with self.subTest(kwargs=kwargs):
+                        write_zip(**kwargs)
+                        with self.assertRaises(RuntimeError):
+                            build.extract_source_zip(archive, destination)
+                        self.assertEqual(list(destination.iterdir()), [])
+                write_zip()
+                result = build.extract_source_zip(archive, destination)
+                self.assertEqual(result["files"], 1)
+                self.assertEqual((destination / "run.sh").read_bytes(), data)
+                with self.assertRaises(RuntimeError):
+                    build.extract_source_zip(archive, destination)
+
     def test_patch_integrity_and_scope(self):
         target = Path(__file__).resolve().parents[1] / "patches/weknora-v0.9.0-keyword.patch"
         data = target.read_bytes()

@@ -11,12 +11,65 @@ import subprocess
 import time
 import traceback
 import uuid
+import zipfile
 
 import weknora_pg_upgrade_rehearsal as pg
 from weknora_app_rehearsal import production_fingerprint
 
 UPSTREAM = "f17ee8a8da901bd658a4cb25f40b5fd41adbfdd7"
 PATCH_SHA = "6323a4d74fd42ad921668121e3e21a227875fd436529fc7036c777f6be55f100"
+# SHA256 of sorted path/NUL/git-mode/NUL/git-blob-SHA/newline records from
+# git ls-tree -rz UPSTREAM. Verify every file, not just the editable ZIP comment.
+SOURCE_MANIFEST_SHA = "8a4b09b6bf0d6456420f83d63bae524c4d69deecae13f59baf11491e4d652ec1"
+
+
+def extract_source_zip(archive, destination):
+    pg.require(not any(destination.iterdir()), "source destination must be empty")
+    prefix = "WeKnora-" + UPSTREAM + "/"
+    rows, files, seen = [], [], set()
+    with zipfile.ZipFile(archive) as bundle:
+        pg.require(bundle.comment.decode("ascii") == UPSTREAM, "ZIP commit mismatch")
+        entries = bundle.infolist()
+        pg.require(len(entries) < 20000, "too many source entries")
+        pg.require(sum(i.file_size for i in entries) < 2 * 1024**3, "source ZIP too large")
+        for item in entries:
+            pg.require(item.filename.startswith(prefix), "ZIP root mismatch")
+            name = item.filename[len(prefix) :]
+            if not name:
+                pg.require(item.is_dir(), "invalid ZIP root")
+                continue
+            parts = name.rstrip("/").split("/")
+            pg.require(
+                all(p not in ("", ".", "..", ".git") for p in parts)
+                and "\\" not in name
+                and ":" not in name,
+                "unsafe ZIP path",
+            )
+            mode = item.external_attr >> 16
+            pg.require(mode & 0o170000 in (0, 0o040000, 0o100000), "ZIP links not allowed")
+            if item.is_dir():
+                continue
+            pg.require(name not in seen, "duplicate ZIP file")
+            seen.add(name)
+            digest = hashlib.sha1(b"blob " + str(item.file_size).encode() + b"\0")
+            with bundle.open(item) as stream:
+                for block in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(block)
+            git_mode = b"100755" if mode & 0o111 else b"100644"
+            rows.append(
+                name.encode() + b"\0" + git_mode + b"\0" + digest.hexdigest().encode() + b"\n"
+            )
+            files.append((item, name, git_mode))
+        manifest = hashlib.sha256(b"".join(sorted(rows))).hexdigest()
+        pg.require(manifest == SOURCE_MANIFEST_SHA, "ZIP contents differ from pinned source")
+        # No filesystem writes until all paths, contents and modes are verified.
+        for item, name, mode in files:
+            target = destination / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with bundle.open(item) as stream, target.open("xb") as output:
+                shutil.copyfileobj(stream, output)
+            target.chmod(0o755 if mode == b"100755" else 0o644)
+    return {"method": "local_zip", "source_manifest_sha256": manifest, "files": len(files)}
 
 
 def dockerfile(upstream):
@@ -92,6 +145,9 @@ def execute(args, cwd, log, timeout=600):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sql-stage", required=True, type=Path)
+    parser.add_argument(
+        "--source-zip", type=Path, help="Official ZIP of the pinned upstream commit"
+    )
     args = parser.parse_args()
     import fcntl
 
@@ -150,22 +206,39 @@ def main():
         with (stage / "build.log").open("ab", buffering=0) as log:
             phase = "source"
             print("=== 1/3 获取固定上游源码并应用检索补丁 ===", flush=True)
-            execute(["git", "init", "-q"], source, log)
-            execute(
-                ["git", "remote", "add", "origin", "https://github.com/Tencent/WeKnora.git"],
-                source,
-                log,
-            )
-            execute(
-                ["git", "-c", "credential.helper=", "fetch", "--depth=1", "origin", UPSTREAM],
-                source,
-                log,
-            )
-            execute(["git", "checkout", "--detach", "FETCH_HEAD"], source, log)
-            revision = subprocess.check_output(
-                ["git", "rev-parse", "HEAD"], cwd=source, text=True
-            ).strip()
-            pg.require(revision == UPSTREAM, "source revision mismatch")
+            if args.source_zip:
+                print("校验本地 ZIP 的提交及全部源码文件，跳过 GitHub 源码拉取。", flush=True)
+                source_record = extract_source_zip(args.source_zip.resolve(strict=True), source)
+                execute(["git", "init", "-q"], source, log)
+            else:
+                source_record = {"method": "git", "commit": UPSTREAM}
+                execute(["git", "init", "-q"], source, log)
+                execute(
+                    ["git", "remote", "add", "origin", "https://github.com/Tencent/WeKnora.git"],
+                    source,
+                    log,
+                )
+                print("正在拉取固定上游提交（最多 600 秒）。", flush=True)
+                execute(
+                    [
+                        "git",
+                        "-c",
+                        "credential.helper=",
+                        "fetch",
+                        "--progress",
+                        "--depth=1",
+                        "origin",
+                        UPSTREAM,
+                    ],
+                    source,
+                    log,
+                )
+                execute(["git", "checkout", "--detach", "FETCH_HEAD"], source, log)
+                revision = subprocess.check_output(
+                    ["git", "rev-parse", "HEAD"], cwd=source, text=True
+                ).strip()
+                pg.require(revision == UPSTREAM, "source revision mismatch")
+            (stage / "source-manifest.json").write_text(json.dumps(source_record, indent=2))
             execute(["git", "apply", "--check", str(patch)], source, log)
             execute(["git", "apply", str(patch)], source, log)
             (source / "Dockerfile.kap-keyword").write_text(
@@ -220,6 +293,7 @@ def main():
             "builder_digest": builder_digest,
             "sql_stage": str(sql_stage),
             "anydoc": True,
+            "source": source_record,
         }
         (stage / "build-manifest.json").write_text(json.dumps(manifest, indent=2))
         pg.compare(before, production_fingerprint())
