@@ -2,6 +2,8 @@ import copy
 import io
 from pathlib import Path
 import socket
+import subprocess
+import sys
 import threading
 import unittest
 from unittest.mock import patch
@@ -14,6 +16,36 @@ import weknora_live_rehearsal as live
 
 
 class LiveTests(unittest.TestCase):
+    def test_gateway_requires_no_host_source_or_secret_mount(self):
+        source = Path(egress.__file__).read_text()
+        args = live.gateway_runtime_args("fixed-image", source)
+        self.assertNotIn("--mount", args)
+        self.assertNotIn("--user", args)
+        self.assertIn("--read-only", args)
+        self.assertEqual(args[args.index("fixed-image") + 1 :], ["-u", "-c", source])
+        compile(source, "gateway", "exec")
+
+    def test_gateway_exit_fails_before_attempting_readiness(self):
+        with (
+            patch.object(live.pg, "inspect", return_value={"State": {"Running": False}}),
+            patch.object(live.subprocess, "run") as execute,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "gateway exited"):
+                live.wait_gateway("synthetic-gateway")
+            execute.assert_not_called()
+
+    def test_gateway_unhealthy_is_bounded_and_never_accepted(self):
+        with (
+            patch.object(live.pg, "inspect", return_value={"State": {"Running": True}}),
+            patch.object(
+                live.subprocess, "run", return_value=subprocess.CompletedProcess([], 1)
+            ) as execute,
+            patch.object(live.time, "sleep"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "readiness timeout"):
+                live.wait_gateway("synthetic-gateway")
+            self.assertEqual(execute.call_count, 20)
+
     def test_only_exact_approved_tls_targets(self):
         for host in egress.ALLOWED:
             self.assertEqual(egress.target(host + ":443"), host)
@@ -75,6 +107,12 @@ class LiveTests(unittest.TestCase):
         thread.start()
         outbound, echo = socket.socketpair()
         try:
+            readiness = subprocess.run(
+                [sys.executable, "-c", live.GATEWAY_CHECK, *map(str, server.server_address)],
+                capture_output=True,
+                timeout=5,
+            )
+            self.assertEqual(readiness.returncode, 0, readiness.stderr)
             with socket.create_connection(server.server_address, timeout=3) as client:
                 client.sendall(
                     b"CONNECT forbidden.invalid:443 HTTP/1.1\r\nHost: forbidden.invalid\r\n\r\n"

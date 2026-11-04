@@ -14,6 +14,40 @@ import weknora_app_rehearsal as app
 import weknora_pg_upgrade_rehearsal as pg
 
 
+GATEWAY_CHECK = """import http.client, sys
+connection = http.client.HTTPConnection(sys.argv[1], int(sys.argv[2]), timeout=2)
+try:
+    connection.request('CONNECT', 'forbidden.invalid:443')
+    response = connection.getresponse()
+    if response.status != 403:
+        raise SystemExit(1)
+finally:
+    connection.close()
+"""
+
+
+def gateway_runtime_args(image, source):
+    # git archive under umask 077 is unreadable by the image's non-root user.
+    # This standalone, public script needs neither a host mount nor credentials.
+    return ["--read-only", "--entrypoint", "python", image, "-u", "-c", source]
+
+
+def wait_gateway(name):
+    for _ in range(20):
+        state = pg.inspect(name)["State"]
+        pg.require(state.get("Running") is True, "egress gateway exited before readiness")
+        result = subprocess.run(
+            ["docker", "exec", name, "python", "-c", GATEWAY_CHECK, "127.0.0.1", "18080"],
+            stdout=pg.PRIVATE,
+            stderr=pg.PRIVATE,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return
+        time.sleep(0.5)
+    raise RuntimeError("egress gateway readiness timeout")
+
+
 def assert_network(item, expected, run):
     pg.require(
         item["Config"].get("Labels", {}).get(pg.LABEL) == str(run), "resource label mismatch"
@@ -180,17 +214,16 @@ def main():
             "256m",
             "--cpus",
             "1",
-            "--read-only",
-            "--entrypoint",
-            "python",
-            "--mount",
-            f"type=bind,src={repo},dst=/probe,readonly",
-            kap["Image"],
-            "/probe/scripts/weknora_live_egress.py",
+            *gateway_runtime_args(
+                kap["Image"], (repo / "scripts/weknora_live_egress.py").read_text()
+            ),
         )
         pg.docker("network", "connect", outside, gateway)
         pg.docker("start", gateway)
         assert_network(pg.inspect(gateway), [internal, outside], run)
+        print("检查隔离网关启动及非白名单拦截。", flush=True)
+        wait_gateway(gateway)
+        print("隔离网关已就绪。", flush=True)
         create(
             database,
             "--network",

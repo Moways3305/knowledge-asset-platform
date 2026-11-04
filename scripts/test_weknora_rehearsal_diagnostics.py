@@ -5,6 +5,15 @@ from weknora_rehearsal_diagnostics import classify
 
 
 class DiagnosticTests(unittest.TestCase):
+    def test_script_start_failure_redacts_path_and_preserves_permission_category(self):
+        result = classify("python: can't open file '/private/secret.py': [Errno 13] Permission denied")
+        self.assertIn("script_permission_denied", result["signals"])
+        self.assertNotIn("/private", json.dumps(result))
+        self.assertIn(
+            "gateway_not_ready",
+            classify("RuntimeError: egress gateway exited before readiness")["signals"],
+        )
+
     def test_verbose_psql_code_and_parameter_error_remain_allow_listed(self):
         result = classify("ERROR: XX000: no value found for parameter $7 secret-value")
         self.assertEqual(result["sqlstates"], ["XX000"])

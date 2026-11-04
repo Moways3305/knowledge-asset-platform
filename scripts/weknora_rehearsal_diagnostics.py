@@ -12,6 +12,7 @@ EXCEPTIONS = (
     "PoolTimeout",
     "WriteTimeout",
     "ConnectError",
+    "ProxyError",
     "ReadError",
     "RemoteProtocolError",
     "HTTPStatusError",
@@ -70,6 +71,9 @@ SIGNALS = {
     "network_unreachable": ("network is unreachable", "no route to host"),
     "dns_failure": ("no such host", "name resolution", "name or service not known"),
     "connection_refused": ("connection refused",),
+    "script_permission_denied": ("[errno 13] permission denied",),
+    "script_open_failed": ("can't open file", "cannot open file"),
+    "gateway_not_ready": ("egress gateway exited", "egress gateway readiness timeout"),
     "embedding_failure": ("embedding model", "get embedding", "query embedding", "failed to embed"),
     "rerank_failure": ("rerank model", "reranking failed"),
     "no_keyword_fallback": ("no keyword fallback",),
@@ -147,7 +151,7 @@ def main():
     app_stage = stage.parent if stage.name.startswith("search-plan-") else stage
     if app_stage.parent.parent != Path(
         "/data/weknora/upgrade-rehearsals"
-    ) or not app_stage.name.startswith("app090-"):
+    ) or not app_stage.name.startswith(("app090-", "live090-")):
         raise SystemExit("Unexpected rehearsal directory")
     result = {"read_only": True, "raw_logs_included": False, "logs": {}}
     for name in ["probe-private.log", "private.log"]:
