@@ -16,14 +16,75 @@ def literal(value):
     return "E'" + str(value).replace("\\", "\\\\").replace("'", "''") + "'"
 
 
-def query(ids):
-    scope = "knowledge_base_id IN (" + ",".join(literal(v) for v in ids) + ") AND " if ids else ""
-    return (
+def disabled_question_ids(libraries):
+    # v0.9.0: a nil config is off; FAQ similar questions must remain searchable.
+    return [
+        k["id"]
+        for k in libraries
+        if k.get("type") != "faq"
+        and not (k.get("question_generation_config") or {}).get("enabled", False)
+    ]
+
+
+def retrieval_limit(config, library_count):
+    pg.require(library_count > 0, "empty search scope")
+    depth = int((config or {}).get("embedding_top_k") or 0)
+    depth = depth if depth > 0 else 50
+    # Probe requests match_count=5, rerank disabled. Mirror service over-retrieval.
+    return min(max(max(depth, 5) * 5, 50) * library_count, 500)
+
+
+def query_parts(ids, excluded=(), limit=20, prepared=False):
+    pg.require(ids and 1 <= limit <= 500, "invalid bounded search")
+    pg.require(set(excluded).issubset(ids), "exclusion outside permitted scope")
+    values = []
+
+    def bind(value):
+        values.append(value)
+        return "$" + str(len(values)) if prepared else sql_value(value)
+
+    scope = '"knowledge_base_id" IN (' + ",".join(bind(v) for v in ids) + ") AND "
+    sql = (
         "SELECT paradedb.score(id) AS score,id,content,source_id,source_type,chunk_id,"
-        "knowledge_id,knowledge_base_id,tag_id FROM embeddings WHERE "
+        'knowledge_id,knowledge_base_id,tag_id FROM "embeddings" WHERE '
         + scope
-        + "content ||| '项目' AND (is_enabled IS NULL OR is_enabled=true) ORDER BY score DESC LIMIT 20"
+        + "content ||| "
+        + bind("项目")
+        + " AND (is_enabled IS NULL OR is_enabled = "
+        + bind(True)
+        + ")"
     )
+    if excluded:
+        sql += (
+            " AND NOT (knowledge_base_id IN ("
+            + ",".join(bind(v) for v in excluded)
+            + ") AND source_type = 0 AND chunk_id <> '' AND source_id <> chunk_id"
+            " AND substr(source_id, 1, length(chunk_id) + 1) = chunk_id || '-')"
+        )
+    sql += ' ORDER BY "score" DESC LIMIT ' + bind(limit)
+    return sql, values
+
+
+def sql_value(value):
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    return literal(value)
+
+
+def query(ids):
+    return query_parts(ids)[0]
+
+
+def statements(ids, excluded, limit, prepared=False):
+    sql, values = query_parts(ids, excluded, limit, prepared)
+    if not prepared:
+        return "", sql
+    # SQL PREPARE compares server plan modes; it is not a pgx wire-protocol test.
+    setup = "PREPARE kap_search_probe AS " + sql + "; "
+    execute = "EXECUTE kap_search_probe(" + ",".join(sql_value(v) for v in values) + ")"
+    return setup, execute
 
 
 def plan_summary(value):
@@ -163,7 +224,7 @@ def main():
         libraries = json.loads(
             pg.sql(
                 name,
-                "SELECT COALESCE(json_agg(k),'[]'::json) FROM (SELECT id,embedding_model_id FROM knowledge_bases WHERE deleted_at IS NULL AND tenant_id="
+                "SELECT COALESCE(json_agg(k),'[]'::json) FROM (SELECT id,embedding_model_id,type,question_generation_config FROM knowledge_bases WHERE deleted_at IS NULL AND tenant_id="
                 + str(int(bound["tenant_id"]))
                 + " ORDER BY id) k;",
             )
@@ -174,38 +235,86 @@ def main():
                 allowed = json.loads(allowed)
             libraries = [k for k in libraries if k["id"] in allowed]
         pg.require(libraries, "no permitted libraries")
+        configs = json.loads(
+            pg.sql(
+                name,
+                "SELECT COALESCE(json_agg(t),'[]'::json) FROM (SELECT retrieval_config FROM tenants WHERE id="
+                + str(int(bound["tenant_id"]))
+                + ") t;",
+            )
+        )
+        pg.require(len(configs) == 1, "tenant retrieval settings missing")
+        config = configs[0]["retrieval_config"]
+        disabled = set(disabled_question_ids(libraries))
         groups = {}
         for library in libraries:
             groups.setdefault(library.get("embedding_model_id") or "", []).append(library["id"])
+        # Model IDs approximate the app's model/endpoint/dimension grouping.
         scopes = [
-            ("all_allowed", [k["id"] for k in libraries]),
-            ("single_allowed", [libraries[0]["id"]]),
-        ]
-        scopes += [
             ("model_group_" + str(i), ids) for i, ids in enumerate(list(groups.values())[:4], 1)
         ]
-        variants = {
-            "default": "",
-            "no_parallel": "SET LOCAL max_parallel_workers_per_gather=0;",
-            "no_regular_index_scans": "SET LOCAL enable_indexscan=off; SET LOCAL enable_bitmapscan=off;",
-        }
+        result["grouping"] = "embedding_model_id; at most four groups"
+        result["prepared_scope"] = "server SQL PREPARE; not pgx wire protocol"
         prefix = (
             "BEGIN READ ONLY; SET LOCAL ROLE "
             + pg.ident(role)
             + "; SET LOCAL statement_timeout='15s'; "
         )
         for label, ids in scopes:
-            for variant, settings in variants.items():
-                case = {"scope": label, "library_count": len(ids), "variant": variant}
-                sql = query(ids)
+            excluded = [v for v in ids if v in disabled]
+            topk = retrieval_limit(config, len(ids))
+            variants = [
+                ("plain_20", (), 20, False, ""),
+                ("exclusion_20", excluded, 20, False, ""),
+                ("plain_actual_limit", (), topk, False, ""),
+                ("full_literal", excluded, topk, False, ""),
+                (
+                    "full_custom_plan",
+                    excluded,
+                    topk,
+                    True,
+                    "SET LOCAL plan_cache_mode=force_custom_plan;",
+                ),
+                (
+                    "full_generic_plan",
+                    excluded,
+                    topk,
+                    True,
+                    "SET LOCAL plan_cache_mode=force_generic_plan;",
+                ),
+                (
+                    "full_no_parallel",
+                    excluded,
+                    topk,
+                    False,
+                    "SET LOCAL max_parallel_workers_per_gather=0;",
+                ),
+                (
+                    "full_no_regular_index_scans",
+                    excluded,
+                    topk,
+                    False,
+                    "SET LOCAL enable_indexscan=off; SET LOCAL enable_bitmapscan=off;",
+                ),
+            ]
+            for variant, exclusions, limit, prepared, settings in variants:
+                case = {
+                    "scope": label,
+                    "library_count": len(ids),
+                    "variant": variant,
+                    "excluded_question_libraries": len(exclusions),
+                    "limit": limit,
+                }
+                setup, sql = statements(ids, exclusions, limit, prepared)
                 pg.PRIVATE.flush()
                 offset = (stage / "private.log").stat().st_size
                 try:
                     plan = pg.sql(
-                        name, prefix + settings + "EXPLAIN (FORMAT JSON) " + sql + "; ROLLBACK;"
+                        name,
+                        prefix + settings + setup + "EXPLAIN (FORMAT JSON) " + sql + "; ROLLBACK;",
                     )
                     case["plan"] = plan_summary(json.loads(plan))
-                    output = pg.sql(name, prefix + settings + sql + "; ROLLBACK;")
+                    output = pg.sql(name, prefix + settings + setup + sql + "; ROLLBACK;")
                     case.update(
                         {
                             "executed": True,
