@@ -1,10 +1,62 @@
 import json
+from pathlib import Path
+import subprocess
+import tempfile
 import unittest
+from unittest.mock import patch
 
-from weknora_rehearsal_diagnostics import classify
+from weknora_rehearsal_diagnostics import classify, isolated_logs
 
 
 class DiagnosticTests(unittest.TestCase):
+    def test_model_response_classification_preserves_no_raw_payload(self):
+        result = classify(
+            "调用Embedding失败: status code: 401 invalid_api_key sk-secret https://private.invalid"
+        )
+        self.assertEqual(result["upstream_http_statuses"], [401])
+        self.assertIn("model_credentials_rejected", result["signals"])
+        self.assertNotIn("sk-secret", json.dumps(result))
+        self.assertNotIn("private.invalid", json.dumps(result))
+        self.assertEqual(classify("request id 401 status code: 999")["upstream_http_statuses"], [])
+
+    def test_container_logs_require_matching_name_and_rehearsal_label(self):
+        with tempfile.TemporaryDirectory() as temp:
+            stage = Path(temp) / "live090-0123456789"
+            stage.mkdir()
+            resources = {"app": "production-app", "gateway": "wk-live-0123456789-egress"}
+            (stage / "resources.json").write_text(json.dumps(resources))
+            with patch("weknora_rehearsal_diagnostics.subprocess.run") as execute:
+                with self.assertRaisesRegex(ValueError, "container name"):
+                    isolated_logs(stage)
+                execute.assert_not_called()
+            resources["app"] = "wk-live-0123456789-app"
+            (stage / "resources.json").write_text(json.dumps(resources))
+            item = {"Config": {"Labels": {}}, "State": {"Status": "exited"}}
+            response = subprocess.CompletedProcess([], 0, json.dumps([item]), "")
+            with patch(
+                "weknora_rehearsal_diagnostics.subprocess.run", return_value=response
+            ) as execute:
+                with self.assertRaisesRegex(ValueError, "label mismatch"):
+                    isolated_logs(stage)
+                self.assertEqual(execute.call_count, 1)
+            item["Config"]["Labels"]["kap.weknora.rehearsal"] = str(stage.parent)
+            item["Config"]["Env"] = ["SECRET=sk-private"]
+            inspection = subprocess.CompletedProcess([], 0, json.dumps([item]), "")
+            logs = subprocess.CompletedProcess(
+                [],
+                0,
+                "Failed to call embedder dial tcp secret.invalid:443: network is unreachable sk-private",
+                "",
+            )
+            with patch(
+                "weknora_rehearsal_diagnostics.subprocess.run",
+                side_effect=[inspection, logs, inspection, logs],
+            ):
+                result = isolated_logs(stage)
+            self.assertIn("network_unreachable", result["app"]["signals"])
+            self.assertNotIn("secret.invalid", json.dumps(result))
+            self.assertNotIn("sk-private", json.dumps(result))
+
     def test_model_dns_failure_does_not_expose_url_or_credentials(self):
         result = classify(
             "WeKnoraError: 1000: SSRF validation failed: DNS resolution failed for hostname secret.invalid sk-private"

@@ -192,7 +192,14 @@ async def run(data):
             "rerank": client.check_rerank_model,
         }[slot]
         result = await method(**kwargs)
-        check("live_" + slot + "_model", result.get("available") is True)
+        available = result.get("available") is True
+        facts = {}
+        if not available:
+            private_result = Path("/evidence") / ("model-check-" + slot + "-private.json")
+            private_result.write_text(json.dumps(result, ensure_ascii=False))
+            private_result.chmod(0o600)
+            facts["diagnostic"] = classify(str(result.get("message", "")))
+        check("live_" + slot + "_model", available, **facts)
         if slot == "embedding":
             check(
                 "embedding_vector_dimension",
