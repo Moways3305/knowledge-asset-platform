@@ -1,9 +1,11 @@
 """CONNECT-only gateway for disposable model tests; never log request data."""
 
 import ipaddress
+import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import select
 import socket
+import sys
 import time
 
 ALLOWED = {"api.deepseek.com", "dashscope.aliyuncs.com"}
@@ -16,10 +18,43 @@ def target(authority):
     return host
 
 
-def connect_public(host):
-    addresses = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
-    if not addresses or any(not ipaddress.ip_address(row[4][0]).is_global for row in addresses):
+def public_address(value):
+    address = ipaddress.ip_address(value)
+    if "%" in value or not address.is_global or address.is_multicast or address.is_reserved:
         raise ValueError("nonpublic destination denied")
+    return str(address)
+
+
+def resolve_public(host):
+    if host not in ALLOWED:
+        raise ValueError("destination denied")
+    addresses = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+    if not addresses:
+        raise ValueError("model DNS answer empty")
+    for row in addresses:
+        public_address(row[4][0])
+    return addresses
+
+
+def validate_model_hosts(mapping):
+    if not isinstance(mapping, dict) or set(mapping) != ALLOWED:
+        raise ValueError("model DNS hosts differ from allowlist")
+    result = {}
+    for host, addresses in mapping.items():
+        if not isinstance(addresses, list) or not 1 <= len(addresses) <= 128:
+            raise ValueError("model DNS answers invalid")
+        result[host] = sorted({public_address(address) for address in addresses})
+    return result
+
+
+def resolve_model_hosts():
+    return validate_model_hosts(
+        {host: sorted({row[4][0] for row in resolve_public(host)}) for host in sorted(ALLOWED)}
+    )
+
+
+def connect_public(host):
+    addresses = resolve_public(host)
     for family, kind, protocol, _, address in addresses:
         connection = socket.socket(family, kind, protocol)
         connection.settimeout(10)
@@ -70,4 +105,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    ThreadingHTTPServer(("0.0.0.0", 18080), Handler).serve_forever()
+    if sys.argv[1:] == ["--resolve-model-hosts"]:
+        print(json.dumps(resolve_model_hosts()))
+    elif not sys.argv[1:]:
+        ThreadingHTTPServer(("0.0.0.0", 18080), Handler).serve_forever()
+    else:
+        raise SystemExit("unknown gateway command")

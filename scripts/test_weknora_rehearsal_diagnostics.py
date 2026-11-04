@@ -5,8 +5,18 @@ from weknora_rehearsal_diagnostics import classify
 
 
 class DiagnosticTests(unittest.TestCase):
+    def test_model_dns_failure_does_not_expose_url_or_credentials(self):
+        result = classify(
+            "WeKnoraError: 1000: SSRF validation failed: DNS resolution failed for hostname secret.invalid sk-private"
+        )
+        self.assertEqual(result["signals"], ["dns_failure", "ssrf_validation_failed"])
+        self.assertNotIn("secret.invalid", json.dumps(result))
+        self.assertNotIn("sk-private", json.dumps(result))
+
     def test_script_start_failure_redacts_path_and_preserves_permission_category(self):
-        result = classify("python: can't open file '/private/secret.py': [Errno 13] Permission denied")
+        result = classify(
+            "python: can't open file '/private/secret.py': [Errno 13] Permission denied"
+        )
         self.assertIn("script_permission_denied", result["signals"])
         self.assertNotIn("/private", json.dumps(result))
         self.assertIn(

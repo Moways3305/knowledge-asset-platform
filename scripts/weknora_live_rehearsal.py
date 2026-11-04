@@ -11,6 +11,7 @@ import traceback
 import uuid
 
 import weknora_app_rehearsal as app
+import weknora_live_egress as egress
 import weknora_pg_upgrade_rehearsal as pg
 
 
@@ -46,6 +47,21 @@ def wait_gateway(name):
             return
         time.sleep(0.5)
     raise RuntimeError("egress gateway readiness timeout")
+
+
+def model_host_args(mapping):
+    result = []
+    for host, addresses in sorted(egress.validate_model_hosts(mapping).items()):
+        for address in addresses:
+            result.extend(["--add-host", host + ":" + address])
+    return result
+
+
+def assert_shared_hosts(child, parent):
+    pg.require(
+        parent.get("HostsPath") and child.get("HostsPath") == parent["HostsPath"],
+        "isolated child does not share model hosts mapping",
+    )
 
 
 def assert_network(item, expected, run):
@@ -224,6 +240,24 @@ def main():
         print("检查隔离网关启动及非白名单拦截。", flush=True)
         wait_gateway(gateway)
         print("隔离网关已就绪。", flush=True)
+        resolved = subprocess.run(
+            [
+                "docker",
+                "exec",
+                gateway,
+                "python",
+                "-c",
+                (repo / "scripts/weknora_live_egress.py").read_text(),
+                "--resolve-model-hosts",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=pg.PRIVATE,
+            timeout=30,
+            check=True,
+        )
+        model_hosts = egress.validate_model_hosts(json.loads(resolved.stdout))
+        (stage / "model-hosts.json").write_text(json.dumps(model_hosts))
+        print("两家模型域名的公网地址已校验，仅供本轮隔离容器解析。", flush=True)
         create(
             database,
             "--network",
@@ -236,6 +270,7 @@ def main():
             "512m",
             "--env-file",
             str(stage / "db-private.env"),
+            *model_host_args(model_hosts),
             "--mount",
             f"type=volume,src={data_volume},dst=/var/lib/postgresql/data",
             images["database"],
@@ -286,6 +321,7 @@ def main():
             images["app"],
         )
         pg.docker("start", application)
+        assert_shared_hosts(pg.inspect(application), pg.inspect(database))
         for _ in range(120):
             state = app.guard_child(application, database, parent_id, run)
             pg.require(state["State"]["Running"], "fresh application exited")
@@ -353,6 +389,7 @@ def main():
             check=True,
         )
         pg.require(pg.inspect(tester)["State"]["ExitCode"] == 0, "live probe failed")
+        assert_shared_hosts(pg.inspect(tester), pg.inspect(database))
         report = json.loads((stage / "live-report.json").read_text())
         pg.require(report.get("passed") is True, "live report failed")
         print(json.dumps(report, ensure_ascii=False), flush=True)

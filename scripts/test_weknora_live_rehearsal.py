@@ -16,6 +16,53 @@ import weknora_live_rehearsal as live
 
 
 class LiveTests(unittest.TestCase):
+    def test_model_dns_resolution_is_allowlisted_and_deduplicated(self):
+        answers = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("1.1.1.1", 443)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("1.1.1.1", 443)),
+            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2606:4700::1111", 443, 0, 0)),
+        ]
+        with patch.object(egress.socket, "getaddrinfo", return_value=answers) as lookup:
+            result = egress.resolve_model_hosts()
+            self.assertEqual(set(result), egress.ALLOWED)
+            self.assertEqual(result["api.deepseek.com"], ["1.1.1.1", "2606:4700::1111"])
+            self.assertEqual({call.args[0] for call in lookup.call_args_list}, egress.ALLOWED)
+            lookup.reset_mock()
+            with self.assertRaises(ValueError):
+                egress.resolve_public("forbidden.invalid")
+            lookup.assert_not_called()
+
+    def test_only_verified_public_model_hosts_become_docker_arguments(self):
+        valid = {host: ["1.1.1.1"] for host in egress.ALLOWED}
+        args = live.model_host_args(valid)
+        self.assertEqual(args.count("--add-host"), 2)
+        invalid = [
+            {},
+            {**valid, "extra.invalid": ["1.1.1.1"]},
+            {**valid, "api.deepseek.com": []},
+        ]
+        for address in (
+            "127.0.0.1",
+            "10.0.0.1",
+            "169.254.169.254",
+            "224.0.0.1",
+            "::1",
+            "ff02::1",
+            "host-gateway",
+            "1.1.1.1\nother",
+            "2606:4700::1111%eth0",
+        ):
+            invalid.append({**valid, "api.deepseek.com": ["1.1.1.1", address]})
+        for mapping in invalid:
+            with self.subTest(mapping=mapping), self.assertRaises(ValueError):
+                live.model_host_args(mapping)
+
+    def test_child_hosts_must_actually_share_parent_file(self):
+        live.assert_shared_hosts({"HostsPath": "/fixture/hosts"}, {"HostsPath": "/fixture/hosts"})
+        for child, parent in (({}, {}), ({"HostsPath": "/other"}, {"HostsPath": "/fixture"})):
+            with self.assertRaises(RuntimeError):
+                live.assert_shared_hosts(child, parent)
+
     def test_gateway_requires_no_host_source_or_secret_mount(self):
         source = Path(egress.__file__).read_text()
         args = live.gateway_runtime_args("fixed-image", source)

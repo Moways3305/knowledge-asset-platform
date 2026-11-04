@@ -8,6 +8,7 @@ import logging
 import os
 from pathlib import Path
 import secrets
+import socket
 import sys
 import time
 import traceback
@@ -16,6 +17,8 @@ import zipfile
 
 import httpx
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from weknora_live_egress import validate_model_hosts
+from weknora_rehearsal_diagnostics import classify
 
 sys.path.insert(0, "/probe/backend")
 ALLOWED = {"api.deepseek.com", "dashscope.aliyuncs.com"}
@@ -107,6 +110,13 @@ async def run(data):
     from app.services.weknora_client import WeKnoraClient
     from app.services.llm_client import LLMClient
 
+    expected_hosts = validate_model_hosts(
+        json.loads(Path("/evidence/model-hosts.json").read_text())
+    )
+    for host, expected in expected_hosts.items():
+        actual = {row[4][0] for row in socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)}
+        check("model_host_resolution", bool(actual) and actual == set(expected), host=host)
+
     # Fail before credentials are used if the egress boundary is not effective.
     async with httpx.AsyncClient(timeout=5, trust_env=False) as http:
         direct_blocked = False
@@ -166,6 +176,7 @@ async def run(data):
             }
         )
         model_id = str(model["id"])
+        check("synthetic_model_registered", bool(model_id), usage=slot)
         created_models[slot] = model_id
         kwargs = {
             "model_id": model_id,
@@ -325,7 +336,9 @@ def main():
         asyncio.run(run(json.loads((root / "live-private.json").read_text())))
         ok = True
     except Exception:
-        (root / "probe-private.log").write_text(traceback.format_exc())
+        failure = traceback.format_exc()
+        (root / "probe-private.log").write_text(failure)
+        REPORT["failure"] = classify(failure)
     REPORT["passed"] = ok
     (root / "live-report.json").write_text(json.dumps(REPORT, ensure_ascii=False, indent=2))
     print(json.dumps(REPORT, ensure_ascii=False), flush=True)
