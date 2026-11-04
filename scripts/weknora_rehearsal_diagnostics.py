@@ -38,6 +38,25 @@ UPSTREAM_CODES = {
     "2201": "vector_store_unavailable",
 }
 SIGNALS = {
+    "parameter_execution_error": (
+        "no value found for parameter",
+        "no parameter",
+        "parameter has no value",
+        "unresolved parameter",
+        "could not evaluate",
+        "cannot evaluate",
+        "param node",
+        "paramkind",
+        "param_extern",
+    ),
+    "generic_plan_error": (
+        "generic plan",
+        "generic prepared",
+    ),
+    "score_execution_error": (
+        "must be evaluated by a paradedb scan",
+        "score function",
+    ),
     "unsupported_query_shape": ("unsupported query shape",),
     "shared_memory_error": (
         "could not resize shared memory",
@@ -108,7 +127,11 @@ def classify(text):
             {UPSTREAM_CODES[c] for c in codes if c in UPSTREAM_CODES}
         ),
         "sqlstates": sorted(
-            {c for c in re.findall(r"SQLSTATE\s+([A-Z0-9]{5})", text) if c in SQLSTATES}
+            {
+                c
+                for c in re.findall(r"(?:SQLSTATE\s+|ERROR:\s+)([A-Z0-9]{5})(?:\b|:)", text)
+                if c in SQLSTATES
+            }
         ),
         "signals": sorted(
             label for label, patterns in SIGNALS.items() if any(p in lowered for p in patterns)
@@ -121,9 +144,10 @@ def main():
     parser.add_argument("--stage", required=True, type=Path)
     args = parser.parse_args()
     stage = args.stage.resolve(strict=True)
-    if stage.parent.parent != Path("/data/weknora/upgrade-rehearsals") or not stage.name.startswith(
-        "app090-"
-    ):
+    app_stage = stage.parent if stage.name.startswith("search-plan-") else stage
+    if app_stage.parent.parent != Path(
+        "/data/weknora/upgrade-rehearsals"
+    ) or not app_stage.name.startswith("app090-"):
         raise SystemExit("Unexpected rehearsal directory")
     result = {"read_only": True, "raw_logs_included": False, "logs": {}}
     for name in ["probe-private.log", "private.log"]:

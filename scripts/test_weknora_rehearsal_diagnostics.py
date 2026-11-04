@@ -5,6 +5,13 @@ from weknora_rehearsal_diagnostics import classify
 
 
 class DiagnosticTests(unittest.TestCase):
+    def test_verbose_psql_code_and_parameter_error_remain_allow_listed(self):
+        result = classify("ERROR: XX000: no value found for parameter $7 secret-value")
+        self.assertEqual(result["sqlstates"], ["XX000"])
+        self.assertEqual(result["signals"], ["parameter_execution_error"])
+        self.assertNotIn("secret-value", json.dumps(result))
+        self.assertNotIn("$7", json.dumps(result))
+
     def test_query_shape_error_does_not_get_misclassified_as_transport(self):
         result = classify("WeKnoraError: 1007: ERROR: Unsupported query shape (SQLSTATE XX000)")
         self.assertEqual(result["signals"], ["unsupported_query_shape"])

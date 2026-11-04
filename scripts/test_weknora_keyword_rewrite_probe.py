@@ -3,7 +3,13 @@ import re
 import sqlite3
 import unittest
 
-from weknora_keyword_rewrite_probe import REFERENCE_CAP, build_sql, compare_results
+from weknora_keyword_rewrite_probe import (
+    REFERENCE_CAP,
+    build_sql,
+    compare_results,
+    evaluate_session,
+    guarded_session,
+)
 
 
 class KeywordRewriteTests(unittest.TestCase):
@@ -90,6 +96,44 @@ class KeywordRewriteTests(unittest.TestCase):
             [int(n) for n in re.findall(r"\$(\d+)", sql)], list(range(1, len(values) + 1))
         )
         self.assertEqual(values, [secret, "b", "doc1", "doc2", "tag", secret, True, secret, 500])
+
+    def test_guard_reuses_prepared_query_across_transactions_and_restores_modes(self):
+        sql, keywords = guarded_session('app"role', ["kb"], ["kb"], 500, "force_generic_plan")
+        self.assertEqual(len(keywords), 9)
+        self.assertEqual(sql.count("PREPARE kap_guard_probe AS"), 1)
+        self.assertEqual(sql.count("BEGIN READ ONLY;"), 9)
+        self.assertEqual(sql.count("SET LOCAL plan_cache_mode=force_custom_plan;"), 9)
+        self.assertEqual(sql.count("COMMIT;"), 5)
+        self.assertEqual(sql.count("ROLLBACK;"), 4)
+        self.assertIn('SET ROLE "app""role";', sql)
+        self.assertNotIn("SET plan_cache_mode=force_custom_plan", sql)
+        with self.assertRaises(RuntimeError):
+            guarded_session("role", ["kb"], ["kb"], 500, "invalid")
+
+    def test_guard_report_rejects_leaked_settings_or_generic_execution(self):
+        keywords = ["项目"] * 9
+        actual = [{"id": 1, "score": 5}]
+        references = {"项目": (actual, [{"id": 1}])}
+        rows = []
+        for _ in keywords:
+            rows.extend([actual, {"mode": "force_generic_plan"}])
+        rows.append({"custom": 9, "generic": 0})
+
+        def check():
+            return evaluate_session(
+                "\n".join(json.dumps(r) for r in rows),
+                keywords,
+                references,
+                500,
+                "force_generic_plan",
+            )["passed"]
+
+        self.assertTrue(check())
+        rows[-1] = {"custom": 8, "generic": 1}
+        self.assertFalse(check())
+        rows[-1] = {"custom": 9, "generic": 0}
+        rows[3] = {"mode": "force_custom_plan"}
+        self.assertFalse(check())
 
 
 if __name__ == "__main__":

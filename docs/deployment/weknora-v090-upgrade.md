@@ -67,6 +67,10 @@ v0.9.0 提供原生 `POST /knowledge/:id/reparse`，但该接口重用底座现�
 
 上游 [PR #4944](https://github.com/Tencent/WeKnora/pull/4944) 描述了相同的跨列过滤触发问题，但已关闭且未合并，不能当作官方发布修复直接套用。当前候选使用 MATERIALIZED CTE 隔开评分和跨列排除，保留范围/启用过滤，排除后才施加最终 LIMIT，避免固定扩大内层 LIMIT 仍造成漏召回。`weknora_search_plan_rehearsal.py --verify-rewrite` 仅验证隔离 SQL：对照无评分的原过滤查询与不含跨列排除的评分查询，检查结果资格、数量、分数和 TopK；允许同分记录顺序不同。参考最多读取 100000 行，超限不记通过，每条 SQL 15 秒超时。该候选尚待服务器验证，未安装到应用；可能需要进一步评估物化全部命中的成本，不能将 SQL 通过等同于 API 验收。
 
+第三轮服务器结果：物化候选的 18 项中 15 项通过；三个关键词在非空组的 literal/custom_plan 均保留正确 TopK、数量与过滤结果（合格候选分别为 43516、4764、2162）。同组 generic_plan 三项执行失败，已有摘要未识别具体错误；不能假定是原有 query-shape 错误或直接认定修复完成。空命中组的 generic_plan 通过不覆盖该故障。
+
+下一步 `--verify-plan-guard` 保留未保护 generic_plan 为诊断对照，使用 verbose PostgreSQL 日志仅输出白名单分类。同时验证事务内 `SET LOCAL plan_cache_mode=force_custom_plan`：同一预编译语句/连接在 auto 和 force_generic_plan 两种会话基线下各执行 9 次，交替 COMMIT/ROLLBACK，核对每次结果、模式恢复以及 custom/generic 计划计数。该设置尚未写入应用；通过只代表这个明确受保护的 SQL 路径可用，不表示未保护通用计划兼容，也不是 KAP API 验收。依据：[PostgreSQL PREPARE](https://www.postgresql.org/docs/17/sql-prepare.html)、[SET LOCAL 的事务范围](https://www.postgresql.org/docs/17/sql-set.html)。
+
 此轮故意不连接真实模型、不启动 DocReader。即使离线脚本退出码为 0，也不能记作向量 API、上传解析、文档异步删除/重传或 KAP 三身份业务闭环验收通过。完整联调还需对模型服务设置受控出站并核对这些路径。
 
 ## 上游依据

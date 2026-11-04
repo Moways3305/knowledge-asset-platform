@@ -125,6 +125,140 @@ def json_query(sql):
     return "SELECT COALESCE(json_agg(probe_row),'[]'::json) FROM (" + sql + ") probe_row"
 
 
+def guarded_session(role, ids, excluded, limit, baseline):
+    pg.require(baseline in {"auto", "force_generic_plan"}, "invalid plan baseline")
+    keywords = ("项目", "知识", "验收") * 3
+    sql, _ = build_sql(ids, excluded, keywords[0], limit, prepared=True)
+    parts = [
+        "\\set VERBOSITY verbose\n",
+        "SET ROLE " + pg.ident(role) + ";",
+        "SET statement_timeout='15s';",
+        "SET plan_cache_mode=" + baseline + ";",
+        "PREPARE kap_guard_probe AS " + json_query(sql) + ";",
+    ]
+    for index, keyword in enumerate(keywords):
+        repeated_sql, values = build_sql(ids, excluded, keyword, limit, prepared=True)
+        pg.require(repeated_sql == sql, "prepared query shape changed")
+        parts.extend(
+            [
+                "BEGIN READ ONLY;",
+                "SET LOCAL plan_cache_mode=force_custom_plan;",
+                "EXECUTE kap_guard_probe(" + ",".join(sql_value(v) for v in values) + ");",
+                "COMMIT;" if index % 2 == 0 else "ROLLBACK;",
+                "SELECT json_build_object('mode',current_setting('plan_cache_mode'));",
+            ]
+        )
+    parts.append(
+        "SELECT json_build_object('custom',custom_plans,'generic',generic_plans) "
+        "FROM pg_prepared_statements WHERE name='kap_guard_probe';"
+    )
+    parts.append("DEALLOCATE kap_guard_probe;")
+    return "\n".join(parts), keywords
+
+
+def evaluate_session(output, keywords, references, limit, baseline):
+    rows = [json.loads(line) for line in output.splitlines() if line.strip()]
+    pg.require(len(rows) == len(keywords) * 2 + 1, "unexpected session output")
+    checks = [
+        compare_results(*references[keyword], rows[index * 2], limit)
+        for index, keyword in enumerate(keywords)
+    ]
+    restored = all(rows[index * 2 + 1] == {"mode": baseline} for index in range(len(keywords)))
+    custom_only = rows[-1] == {"custom": len(keywords), "generic": 0}
+    return {
+        "passed": all(c["passed"] for c in checks) and restored and custom_only,
+        "executions": len(keywords),
+        "all_result_checks_passed": all(c["passed"] for c in checks),
+        "setting_restored_after_each_transaction": restored,
+        "custom_plans_only": custom_only,
+        "positive_result_observed": any(c["returned_count"] > 0 for c in checks),
+    }
+
+
+def run_plan_guard(name, prefix, role, libraries, scopes, config, stage):
+    disabled = set(disabled_question_ids(libraries))
+    cases, controls = [], []
+    for label, ids in scopes:
+        excluded = [v for v in ids if v in disabled]
+        limit = retrieval_limit(config, len(ids))
+        references = {}
+        for keyword in ("项目", "知识", "验收"):
+            reference = []
+            for mode in ("scores", "eligible"):
+                sql, _ = build_sql(ids, excluded, keyword, limit, mode)
+                reference.append(json.loads(pg.sql(name, prefix + json_query(sql) + "; ROLLBACK;")))
+            references[keyword] = reference
+        # Keep the failing, unguarded path visible. Verbose PostgreSQL errors
+        # stay private; only allow-listed diagnostic labels leave the server.
+        sql, values = build_sql(ids, excluded, "项目", limit, prepared=True)
+        unguarded = (
+            "\\set VERBOSITY verbose\n"
+            + prefix
+            + "SET LOCAL plan_cache_mode=force_generic_plan; PREPARE kap_control AS "
+            + json_query(sql)
+            + "; EXECUTE kap_control("
+            + ",".join(sql_value(v) for v in values)
+            + "); ROLLBACK;"
+        )
+        control = {"scope": label, "case": "unguarded_generic_control", "acceptance_case": False}
+        pg.PRIVATE.flush()
+        offset = (stage / "private.log").stat().st_size
+        try:
+            output = json.loads(pg.sql(name, unguarded))
+            control["executed"] = True
+            control["results_match"] = compare_results(*references["项目"], output, limit)["passed"]
+        except Exception:
+            pg.PRIVATE.flush()
+            control.update(
+                {
+                    "executed": False,
+                    "error": classify(
+                        (stage / "private.log").read_bytes()[offset:].decode(errors="replace")
+                    ),
+                }
+            )
+        controls.append(control)
+        print(json.dumps(control, ensure_ascii=False), flush=True)
+        for baseline in ("auto", "force_generic_plan"):
+            case = {
+                "scope": label,
+                "case": "transaction_local_custom_plan",
+                "session_baseline": baseline,
+                "excluded_question_libraries": len(excluded),
+            }
+            pg.PRIVATE.flush()
+            offset = (stage / "private.log").stat().st_size
+            started = time.monotonic()
+            try:
+                sql, keywords = guarded_session(role, ids, excluded, limit, baseline)
+                output = pg.sql(name, sql)
+                case.update(evaluate_session(output, keywords, references, limit, baseline))
+            except Exception:
+                pg.PRIVATE.write(traceback.format_exc().encode())
+                pg.PRIVATE.flush()
+                case.update(
+                    {
+                        "passed": False,
+                        "error": classify(
+                            (stage / "private.log").read_bytes()[offset:].decode(errors="replace")
+                        ),
+                    }
+                )
+            case["elapsed_seconds"] = round(time.monotonic() - started, 3)
+            cases.append(case)
+            print(json.dumps(case, ensure_ascii=False), flush=True)
+    return {
+        "passed": bool(cases)
+        and all(c["passed"] for c in cases)
+        and any(
+            c.get("positive_result_observed") and c["excluded_question_libraries"] for c in cases
+        ),
+        "cases": cases,
+        "unguarded_controls": controls,
+        "scope": "SQL plan guard only; unguarded generic compatibility not claimed; app not patched",
+    }
+
+
 def run(name, prefix, libraries, scopes, config, stage):
     disabled = set(disabled_question_ids(libraries))
     cases = []

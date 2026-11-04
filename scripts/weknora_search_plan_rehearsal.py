@@ -136,7 +136,9 @@ def plan_summary(value):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--stage", type=Path, required=True)
-    parser.add_argument("--verify-rewrite", action="store_true")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--verify-rewrite", action="store_true")
+    modes.add_argument("--verify-plan-guard", action="store_true")
     args = parser.parse_args()
     import fcntl
 
@@ -270,6 +272,13 @@ def main():
                 name, prefix, libraries, scopes, config, stage
             )
             scopes = []
+        if args.verify_plan_guard:
+            from weknora_keyword_rewrite_probe import run_plan_guard
+
+            result["plan_guard_verification"] = run_plan_guard(
+                name, prefix, role, libraries, scopes, config, stage
+            )
+            scopes = []
         for label, ids in scopes:
             excluded = [v for v in ids if v in disabled]
             topk = retrieval_limit(config, len(ids))
@@ -345,6 +354,8 @@ def main():
                 result["probes"].append(case)
                 print(json.dumps(case, ensure_ascii=False), flush=True)
         code = 0 if not args.verify_rewrite or result["rewrite_verification"]["passed"] else 1
+        if args.verify_plan_guard:
+            code = 0 if result["plan_guard_verification"]["passed"] else 1
     except Exception:
         pg.PRIVATE.write(traceback.format_exc().encode())
         print("诊断未完成，保留私密日志；请勿粘贴私密日志。", flush=True)
@@ -365,6 +376,9 @@ def main():
                     "original_failure": result.get("original_failure"),
                     "diagnostic_completed": code == 0,
                     "rewrite_sql_passed": result.get("rewrite_verification", {}).get("passed"),
+                    "guarded_rewrite_sql_passed": result.get("plan_guard_verification", {}).get(
+                        "passed"
+                    ),
                 },
                 ensure_ascii=False,
             ),
