@@ -18,6 +18,7 @@ from weknora_app_rehearsal import production_fingerprint
 
 UPSTREAM = "f17ee8a8da901bd658a4cb25f40b5fd41adbfdd7"
 PATCH_SHA = "6323a4d74fd42ad921668121e3e21a227875fd436529fc7036c777f6be55f100"
+PROXY_PATCH_SHA = "d78d945bd52b9b163b44a611c55adf17dbb9b5f51a02df4e3408241358f8cb1e"
 # SHA256 of sorted path/NUL/git-mode/NUL/git-blob-SHA/newline records from
 # git ls-tree -rz UPSTREAM. Verify every file, not just the editable ZIP comment.
 SOURCE_MANIFEST_SHA = "8a4b09b6bf0d6456420f83d63bae524c4d69deecae13f59baf11491e4d652ec1"
@@ -129,7 +130,8 @@ def dockerfile(upstream):
         "internal/application/repository/retriever/postgres/keyword_plan_test.go "
         "internal/application/repository/retriever/postgres/keyword_score_test.go "
         "internal/application/repository/retriever/postgres/repository.go && "
-        "go test ./internal/application/repository/retriever/postgres/ -count=1\n"
+        "go test ./internal/application/repository/retriever/postgres/ "
+        "./internal/models/embedding/ ./internal/models/rerank/ -count=1\n"
     )
     builder = builder.replace(
         "# Link the anydoc parser engine", tests + "\n# Link the anydoc parser engine", 1
@@ -179,11 +181,31 @@ def execute(args, cwd, log, timeout=600):
                 proc.wait()
 
 
+def passed_offline_for_build(run, stage):
+    candidates = []
+    for candidate in run.glob("app090-*"):
+        if candidate.is_symlink() or not (candidate / "PASS-OFFLINE").is_file():
+            continue
+        record = json.loads((candidate / "images.json").read_text())
+        if (
+            record.get("patched_build_stage") == str(stage)
+            and (candidate / "exit-code").read_text().strip() == "0"
+        ):
+            candidates.append(candidate)
+    pg.require(len(candidates) == 1, "expected one passed offline stage for this exact build")
+    return candidates[0]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sql-stage", required=True, type=Path)
     parser.add_argument(
         "--source-zip", type=Path, help="Official ZIP of the pinned upstream commit"
+    )
+    parser.add_argument(
+        "--live-after-offline",
+        action="store_true",
+        help="Run synthetic live tests only after offline acceptance passes",
     )
     args = parser.parse_args()
     import fcntl
@@ -208,6 +230,11 @@ def main():
     repo = Path(__file__).resolve().parents[1]
     patch = repo / "patches/weknora-v0.9.0-keyword.patch"
     pg.require(hashlib.sha256(patch.read_bytes()).hexdigest() == PATCH_SHA, "patch digest mismatch")
+    proxy_patch = repo / "patches/weknora-v0.9.0-model-proxy.patch"
+    pg.require(
+        hashlib.sha256(proxy_patch.read_bytes()).hexdigest() == PROXY_PATCH_SHA,
+        "proxy patch digest mismatch",
+    )
     pg.require(shutil.disk_usage(run).free > 30 * 1024**3, "less than 30 GiB free disk")
     lock = (Path.home() / ".weknora-rehearsal.lock").open("a")
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -279,6 +306,8 @@ def main():
             (stage / "source-manifest.json").write_text(json.dumps(source_record, indent=2))
             execute(["git", "apply", "--check", str(patch)], source, log)
             execute(["git", "apply", str(patch)], source, log)
+            execute(["git", "apply", "--check", str(proxy_patch)], source, log)
+            execute(["git", "apply", str(proxy_patch)], source, log)
             (source / "Dockerfile.kap-keyword").write_text(
                 dockerfile((source / "docker/Dockerfile.app").read_text()), encoding="utf-8"
             )
@@ -308,13 +337,15 @@ def main():
                 "--build-arg",
                 "WITH_ANYDOC=1",
                 "--build-arg",
-                "VERSION_ARG=v0.9.0-kap.keyword.1",
+                "VERSION_ARG=v0.9.0-kap.compat.2",
                 "--build-arg",
-                "COMMIT_ID_ARG=" + UPSTREAM + "+" + PATCH_SHA[:12],
+                "COMMIT_ID_ARG=" + UPSTREAM + "+" + PATCH_SHA[:12] + "+" + PROXY_PATCH_SHA[:12],
                 "--label",
                 pg.LABEL + "=" + str(run),
                 "--label",
                 "kap.weknora.keyword.patch=" + PATCH_SHA,
+                "--label",
+                "kap.weknora.model-proxy.patch=" + PROXY_PATCH_SHA,
                 "--label",
                 "kap.weknora.keyword.base=" + original_image,
                 ".",
@@ -324,6 +355,7 @@ def main():
         manifest = {
             "upstream": UPSTREAM,
             "patch_sha256": PATCH_SHA,
+            "model_proxy_patch_sha256": PROXY_PATCH_SHA,
             "image_id": built["Id"],
             "image_tag": output_tag,
             "base_image": original_image,
@@ -358,7 +390,22 @@ def main():
             check=False,
         )
         code = child.returncode
+        if code == 0 and args.live_after_offline:
+            phase = "live_rehearsal"
+            offline_stage = passed_offline_for_build(run, stage)
+            print("=== 追加联网验收：仅使用本次新镜像及已通过离线记录 ===", flush=True)
+            code = subprocess.run(
+                [
+                    "python3",
+                    "-u",
+                    str(repo / "scripts/weknora_live_rehearsal.py"),
+                    "--offline-stage",
+                    str(offline_stage),
+                ],
+                check=False,
+            ).returncode
     except Exception:
+        code = 1
         pg.PRIVATE.write(traceback.format_exc().encode())
         print("已停止，阶段：" + phase + "。生产未切换。", flush=True)
         if phase == "production_guard":

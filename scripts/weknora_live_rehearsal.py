@@ -1,6 +1,7 @@
 """Fresh synthetic database with a two-domain egress gateway; never switches production."""
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -118,6 +119,14 @@ def main():
         pg.require(
             app.patched_image(build_stage, run, images["app_original"]) == images["app"],
             "offline image changed",
+        )
+        manifest = json.loads((build_stage / "build-manifest.json").read_text())
+        pg.require(
+            manifest.get("model_proxy_patch_sha256")
+            == hashlib.sha256(
+                (repo / "patches/weknora-v0.9.0-model-proxy.patch").read_bytes()
+            ).hexdigest(),
+            "live rehearsal requires the verified model proxy build and a new offline pass",
         )
         print("=== 1/4 只读取得当前模型选择，准备全新空库 ===", flush=True)
         kap = pg.inspect("kap-backend-1")

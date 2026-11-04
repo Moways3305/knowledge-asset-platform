@@ -87,6 +87,7 @@ class KeywordAppTests(unittest.TestCase):
         self.assertIn("FROM ${KAP_RUNTIME_IMAGE}", dockerfile)
         self.assertIn("GO_BUILD_TAGS=anydoc", dockerfile)
         self.assertLess(dockerfile.index("go test "), dockerfile.index("make build-prod"))
+        self.assertIn("./internal/models/embedding/ ./internal/models/rerank/ -count=1", dockerfile)
         self.assertIn("GOMAXPROCS=2 GOFLAGS=-p=2 CARGO_BUILD_JOBS=2", dockerfile)
         self.assertNotIn("https://sh.rustup.rs", dockerfile)
         self.assertNotIn("--default-toolchain stable", dockerfile)
@@ -103,6 +104,49 @@ class KeywordAppTests(unittest.TestCase):
             )
         with self.assertRaises(RuntimeError):
             build.dockerfile("unexpected layout")
+
+    def test_proxy_patch_integrity_and_narrow_scope(self):
+        target = Path(__file__).resolve().parents[1] / "patches/weknora-v0.9.0-model-proxy.patch"
+        data = target.read_bytes()
+        self.assertEqual(hashlib.sha256(data).hexdigest(), build.PROXY_PATCH_SHA)
+        paths = {
+            line.split()[2][2:]
+            for line in data.decode().splitlines()
+            if line.startswith("diff --git ")
+        }
+        self.assertEqual(
+            paths,
+            {
+                f"internal/models/{package}/{filename}"
+                for package in ("embedding", "rerank")
+                for filename in ("transport.go", "kap_proxy_test.go")
+            },
+        )
+
+    def test_live_continuation_requires_exact_build_and_offline_success(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run = Path(directory)
+            build_stage = run / "keyword-build-new"
+
+            def make(name, linked_build, code="0"):
+                stage = run / name
+                stage.mkdir()
+                (stage / "PASS-OFFLINE").write_text("fixture")
+                (stage / "images.json").write_text(
+                    json.dumps({"patched_build_stage": str(linked_build)})
+                )
+                (stage / "exit-code").write_text(code)
+                return stage
+
+            make("app090-old", run / "keyword-build-old")
+            failed = make("app090-failed", build_stage, "1")
+            with self.assertRaises(RuntimeError):
+                build.passed_offline_for_build(run, build_stage)
+            good = make("app090-good", build_stage)
+            self.assertEqual(build.passed_offline_for_build(run, build_stage), good)
+            (failed / "exit-code").write_text("0")
+            with self.assertRaises(RuntimeError):
+                build.passed_offline_for_build(run, build_stage)
 
     def test_runtime_cannot_be_swapped_without_pass_marker_and_matching_labels(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -131,6 +175,18 @@ class KeywordAppTests(unittest.TestCase):
             }
             with patch.object(app.pg, "docker", side_effect=lambda *args: json.dumps([item])):
                 self.assertEqual(app.patched_image(stage, run, "original"), "patched")
+                manifest["model_proxy_patch_sha256"] = build.PROXY_PATCH_SHA
+                (stage / "build-manifest.json").write_text(json.dumps(manifest))
+                with self.assertRaisesRegex(RuntimeError, "proxy patch identity"):
+                    app.patched_image(stage, run, "original")
+                item["Config"]["Labels"]["kap.weknora.model-proxy.patch"] = build.PROXY_PATCH_SHA
+                self.assertEqual(app.patched_image(stage, run, "original"), "patched")
+                manifest["model_proxy_patch_sha256"] = "stale"
+                (stage / "build-manifest.json").write_text(json.dumps(manifest))
+                with self.assertRaisesRegex(RuntimeError, "proxy patch identity"):
+                    app.patched_image(stage, run, "original")
+                manifest["model_proxy_patch_sha256"] = build.PROXY_PATCH_SHA
+                (stage / "build-manifest.json").write_text(json.dumps(manifest))
                 with self.assertRaises(RuntimeError):
                     app.patched_image(stage, run, "different-runtime")
                 manifest["patch_sha256"] = "stale-patch"

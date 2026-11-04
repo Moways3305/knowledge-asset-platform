@@ -131,6 +131,12 @@ HTTP 对照还发现 KAP 的范围假设不符合上游：v0.9.0 `buildSearchTar
 
 固定上游源码显示 embedding、rerank 共用的 `NewSSRFSafeTransport` 未设置 `Proxy`，而 API 传输层设置了 `http.ProxyFromEnvironment`。这是当前受限代理场景下的重要候选原因，仍需与服务器应用错误类别对照；本次仅补诊断，不放开网络、不修改上游补丁、不将失败验收记为通过。
 
+`live090-c20b525ab5` 的隔离应用日志随后确认嵌入调用出现 `network_unreachable`、`outbound_dial` 和超时，没有上游 HTTP 响应；与上述未走代理的传输层行为吻合。新增独立补丁 `patches/weknora-v0.9.0-model-proxy.patch`（SHA256 `d78d945bd52b9b163b44a611c55adf17dbb9b5f51a02df4e3408241358f8cb1e`），只在 embedding/rerank 的共享传输层启用标准 `http.ProxyFromEnvironment`，保留原 SSRF dialer、请求/重定向校验和 TLS 默认验证。原关键词补丁及其摘要不变；未改变所有通用 HTTP 客户端或放宽演练网络。
+
+已用 Linux Go 1.26.0 验证完整 PostgreSQL 检索、embedding、rerank 三个包测试。新增测试在独立子进程校验 HTTP/HTTPS 代理、NO_PROXY、未配置代理时的直连选择；实际经本地 CONNECT 隧道传送 HTTPS，校验可信证书成功、不可信证书报 UnknownAuthorityError、元数据地址在进入代理前被拦截。恢复原两处 transport 的反向对照均按预期失败，再恢复修复代码。62 项 Python 演练脚本测试、Ruff 和固定源码补丁适用检查通过。Go 下载仅用于本机测试并核验官方 SHA256，临时工具链、依赖及测试日志均不入库；本机 Docker 引擎不可用，未声称完成整镜像/真实模型复验。
+
+构建脚本现在同时校验并应用两份补丁，三个 Go 包的回归通过后才构建保留 anydoc 的应用，版本标识为 `v0.9.0-kap.compat.2`。构建清单及镜像标签额外记录模型代理补丁摘要，联网脚本强制核对它；旧离线通过记录保留，但不能代替新镜像验收。`weknora_keyword_app_rehearsal.py --sql-stage <原已通过 SQL 目录> --source-zip <原固定源码 ZIP> --live-after-offline` 会先构建、再对数据库新副本做离线回归；只从与本次 build-stage 精确对应且退出 0 的唯一离线记录续跑全新虚构空库联网验收。任何一步失败停止，不重写旧通过记录、不切换生产。本次必须重新生成应用二进制，尽量使用现有构建缓存，不承诺无需重编译原生解析器。
+
 ## 上游参考链接
 
 - [v0.9.0 发布](https://github.com/Tencent/WeKnora/releases/tag/v0.9.0)

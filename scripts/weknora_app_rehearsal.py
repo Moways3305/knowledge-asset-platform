@@ -134,6 +134,14 @@ def verify_built_image(stage, run, original_image):
     item = json.loads(pg.docker("image", "inspect", manifest["image_id"]))[0]
     pg.require(item["Id"] == manifest["image_id"], "patched image ID changed")
     labels = item["Config"].get("Labels") or {}
+    proxy_sha = manifest.get("model_proxy_patch_sha256")
+    if proxy_sha is not None or "kap.weknora.model-proxy.patch" in labels:
+        proxy_patch = patch.with_name("weknora-v0.9.0-model-proxy.patch")
+        pg.require(
+            proxy_sha == hashlib.sha256(proxy_patch.read_bytes()).hexdigest()
+            and labels.get("kap.weknora.model-proxy.patch") == proxy_sha,
+            "model proxy patch identity mismatch",
+        )
     pg.require(
         labels.get("kap.weknora.keyword.patch") == manifest["patch_sha256"], "patch label mismatch"
     )
