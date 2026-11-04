@@ -97,6 +97,8 @@ HTTP 对照还发现 KAP 的范围假设不符合上游：v0.9.0 `buildSearchTar
 
 本地已用实际官方 ZIP 验证全部 5870 个文件，补丁检查、应用及 Dockerfile 生成通过；41 项演练脚本测试通过，包括错误版本、路径穿越、链接、内容和权限篡改拒绝。服务器应用演练仍待执行，不能用本地源码校验代替接口验收。
 
+服务器 `keyword-build-8115fba3e9` 已通过系统依赖、Go 模块下载及 PostgreSQL 检索包测试，停在 Rust 工具链组件下载，日志为 `CANCELED / context canceled`，没有 Rust/Go 源码编译错误。构建脚本改按 [RsProxy 配置](https://rsproxy.cn/) 在临时 builder 内设置 Rustup 和 Cargo sparse 镜像，固定使用此前本地完整镜像构建已通过的 Rust 1.99.1；保留 Cargo.lock 校验、上游 anydoc 构建和 `WITH_ANYDOC=1`。安装脚本下载有连接/总时限，工具链安装限 20 分钟、anydoc 构建限 30 分钟，两步分层缓存，失败停止而不跳过解析器。41 项脚本测试、实际固定 ZIP 的 Dockerfile 生成及 Linux Shell 语法检查通过；本轮镜像尚未重新构建，服务器镜像与接口结果待续跑。
+
 ## 上游依据
 
 - [v0.9.0 发布](https://github.com/Tencent/WeKnora/releases/tag/v0.9.0)

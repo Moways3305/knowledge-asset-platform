@@ -21,6 +21,32 @@ PATCH_SHA = "6323a4d74fd42ad921668121e3e21a227875fd436529fc7036c777f6be55f100"
 # SHA256 of sorted path/NUL/git-mode/NUL/git-blob-SHA/newline records from
 # git ls-tree -rz UPSTREAM. Verify every file, not just the editable ZIP comment.
 SOURCE_MANIFEST_SHA = "8a4b09b6bf0d6456420f83d63bae524c4d69deecae13f59baf11491e4d652ec1"
+RUST_TOOLCHAIN = "1.99.1"
+
+
+def rust_build_steps():
+    # Configure only the disposable builder. Retain Cargo.lock checksum checks
+    # and the upstream anydoc source/patch/build script.
+    return (
+        "ENV RUSTUP_DIST_SERVER=https://rsproxy.cn RUSTUP_UPDATE_ROOT=https://rsproxy.cn/rustup\n"
+        "ENV CARGO_HTTP_TIMEOUT=60 CARGO_NET_RETRY=2\n"
+        'RUN if [ "$WITH_ANYDOC" = "1" ]; then \\\n'
+        "    curl --proto '=https' --tlsv1.2 -fsSL --connect-timeout 15 --max-time 120 "
+        "--retry 2 https://rsproxy.cn/rustup-init.sh -o /tmp/kap-rustup-init.sh && \\\n"
+        "    timeout --signal=TERM --kill-after=15s 1200s "
+        "sh /tmp/kap-rustup-init.sh -y --profile minimal --default-toolchain "
+        + RUST_TOOLCHAIN
+        + " && \\\n"
+        "    rustc --version && cargo --version && \\\n"
+        "    printf '%s\\n' '[source.crates-io]' \"replace-with = 'rsproxy-sparse'\" "
+        "'[source.rsproxy-sparse]' \"registry = 'sparse+https://rsproxy.cn/index/'\" "
+        '> "$CARGO_HOME/config.toml"; fi\n'
+        "RUN --mount=type=cache,target=/usr/local/cargo/registry \\\n"
+        "    --mount=type=cache,target=/usr/local/cargo/git \\\n"
+        '    if [ "$WITH_ANYDOC" = "1" ]; then \\\n'
+        "        timeout --signal=TERM --kill-after=15s 1800s ./scripts/build-anydoc-lib.sh; \\\n"
+        "    fi\n"
+    )
 
 
 def extract_source_zip(archive, destination):
@@ -108,6 +134,17 @@ def dockerfile(upstream):
     builder = builder.replace(
         "# Link the anydoc parser engine", tests + "\n# Link the anydoc parser engine", 1
     )
+    old_rust = (
+        "RUN --mount=type=cache,target=/usr/local/cargo/registry \\\n"
+        "    --mount=type=cache,target=/usr/local/cargo/git \\\n"
+        '    if [ "$WITH_ANYDOC" = "1" ]; then \\\n'
+        "        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \\\n"
+        "            | sh -s -- -y --profile minimal --default-toolchain stable && \\\n"
+        "        ./scripts/build-anydoc-lib.sh; \\\n"
+        "    fi\n"
+    )
+    pg.require(builder.count(old_rust) == 1, "upstream Rust build step changed")
+    builder = builder.replace(old_rust, rust_build_steps())
     return (
         "# syntax=docker/dockerfile:1\nARG KAP_RUNTIME_IMAGE\nARG KAP_BUILDER_IMAGE\n"
         + builder
@@ -294,6 +331,8 @@ def main():
             "sql_stage": str(sql_stage),
             "anydoc": True,
             "source": source_record,
+            "rust_toolchain": RUST_TOOLCHAIN,
+            "rust_mirror": "https://rsproxy.cn",
         }
         (stage / "build-manifest.json").write_text(json.dumps(manifest, indent=2))
         pg.compare(before, production_fingerprint())

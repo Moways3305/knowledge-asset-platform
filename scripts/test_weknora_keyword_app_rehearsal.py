@@ -71,7 +71,14 @@ class KeywordAppTests(unittest.TestCase):
             "COPY cmd/download cmd/download\nRUN go run cmd/download/duckdb/duckdb.go\n"
             "RUN --mount=type=cache,target=/go/pkg/mod bash ./scripts/copy-licenses.sh /license-bundle\n"
             "RUN --mount=type=cache,target=/go/pkg/mod cp -r /go/pkg/mod/github.com/yanyiwu/ /app/yanyiwu/\n"
-            "# Link the anydoc parser engine\nARG WITH_ANYDOC=1\nRUN make build-prod GO_BUILD_TAGS=anydoc\n"
+            "# Link the anydoc parser engine\nARG WITH_ANYDOC=1\n"
+            "RUN --mount=type=cache,target=/usr/local/cargo/registry \\\n"
+            "    --mount=type=cache,target=/usr/local/cargo/git \\\n"
+            '    if [ "$WITH_ANYDOC" = "1" ]; then \\\n'
+            "        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \\\n"
+            "            | sh -s -- -y --profile minimal --default-toolchain stable && \\\n"
+            "        ./scripts/build-anydoc-lib.sh; \\\n"
+            "    fi\nRUN make build-prod GO_BUILD_TAGS=anydoc\n"
             "# Final stage\nFROM ignored\n"
         )
         dockerfile = build.dockerfile(upstream)
@@ -81,6 +88,19 @@ class KeywordAppTests(unittest.TestCase):
         self.assertIn("GO_BUILD_TAGS=anydoc", dockerfile)
         self.assertLess(dockerfile.index("go test "), dockerfile.index("make build-prod"))
         self.assertIn("GOMAXPROCS=2 GOFLAGS=-p=2 CARGO_BUILD_JOBS=2", dockerfile)
+        self.assertNotIn("https://sh.rustup.rs", dockerfile)
+        self.assertNotIn("--default-toolchain stable", dockerfile)
+        self.assertIn("--default-toolchain " + build.RUST_TOOLCHAIN, dockerfile)
+        self.assertIn("RUSTUP_DIST_SERVER=https://rsproxy.cn", dockerfile)
+        self.assertIn("sparse+https://rsproxy.cn/index/", dockerfile)
+        self.assertIn("--max-time 120", dockerfile)
+        self.assertIn("1200s sh /tmp/kap-rustup-init.sh", dockerfile)
+        self.assertIn("1800s ./scripts/build-anydoc-lib.sh", dockerfile)
+        self.assertNotIn("--insecure", dockerfile)
+        with self.assertRaisesRegex(RuntimeError, "Rust build step changed"):
+            build.dockerfile(
+                upstream.replace("--default-toolchain stable", "--default-toolchain other")
+            )
         with self.assertRaises(RuntimeError):
             build.dockerfile("unexpected layout")
 
