@@ -113,6 +113,8 @@ def plan_summary(value):
                 "Hash Join",
                 "Merge Join",
                 "Materialize",
+                "CTE Scan",
+                "Subquery Scan",
             }:
                 nodes.add(node)
             provider = item.get("Custom Plan Provider", "")
@@ -134,6 +136,7 @@ def plan_summary(value):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--stage", type=Path, required=True)
+    parser.add_argument("--verify-rewrite", action="store_true")
     args = parser.parse_args()
     import fcntl
 
@@ -260,6 +263,13 @@ def main():
             + pg.ident(role)
             + "; SET LOCAL statement_timeout='15s'; "
         )
+        if args.verify_rewrite:
+            from weknora_keyword_rewrite_probe import run as verify_rewrite
+
+            result["rewrite_verification"] = verify_rewrite(
+                name, prefix, libraries, scopes, config, stage
+            )
+            scopes = []
         for label, ids in scopes:
             excluded = [v for v in ids if v in disabled]
             topk = retrieval_limit(config, len(ids))
@@ -334,7 +344,7 @@ def main():
                     )
                 result["probes"].append(case)
                 print(json.dumps(case, ensure_ascii=False), flush=True)
-        code = 0
+        code = 0 if not args.verify_rewrite or result["rewrite_verification"]["passed"] else 1
     except Exception:
         pg.PRIVATE.write(traceback.format_exc().encode())
         print("诊断未完成，保留私密日志；请勿粘贴私密日志。", flush=True)
@@ -354,6 +364,7 @@ def main():
                 {
                     "original_failure": result.get("original_failure"),
                     "diagnostic_completed": code == 0,
+                    "rewrite_sql_passed": result.get("rewrite_verification", {}).get("passed"),
                 },
                 ensure_ascii=False,
             ),
