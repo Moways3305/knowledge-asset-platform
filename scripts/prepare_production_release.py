@@ -224,6 +224,110 @@ def dump_databases(runner, name, item, stage):
     return entries
 
 
+def build_candidates(
+    r, stage, source, manifest, report, *, debian_mirror="", security_mirror="", timeout=3600
+):
+    """Build unique candidate tags and verify baked identities without starting services."""
+    token = stage.name
+    services = ("backend", "worker", "ocr_worker", "beat", "frontend", "migrate")
+    tags = {s: "kap-candidate:" + token + "-" + s.replace("_", "-") for s in services}
+    overlay = stage / "candidate-images.json"
+    expected_overlay = {"services": {s: {"image": tag} for s, tag in tags.items()}}
+    if overlay.exists():
+        require(json.loads(overlay.read_text()) == expected_overlay, "候选镜像标签记录发生变化")
+    else:
+        overlay.write_text(json.dumps(expected_overlay))
+    compose = [
+        "docker",
+        "compose",
+        "-p",
+        "kap",
+        "-f",
+        str(source / "docker-compose.yml"),
+        "-f",
+        str(source / "docker-compose.prod.yml"),
+        "-f",
+        str(overlay),
+    ]
+    encoded = base64.b64encode(json.dumps(manifest, ensure_ascii=False).encode()).decode()
+    require(len(encoded) <= 24000, "发布说明过长，停止构建")
+    mirror_args = []
+    require(bool(debian_mirror) == bool(security_mirror), "必须同时设置主仓库和安全更新镜像源")
+    if debian_mirror:
+        mirror_args = [
+            "--build-arg",
+            "KAP_DEBIAN_MIRROR=" + debian_mirror,
+            "--build-arg",
+            "KAP_DEBIAN_SECURITY_MIRROR=" + security_mirror,
+        ]
+    for service in services:
+        print("构建：" + service, flush=True)
+        r.execute(
+            [
+                *compose,
+                "build",
+                "--build-arg",
+                "KAP_RELEASE_MANIFEST_B64=" + encoded,
+                *mirror_args,
+                service,
+            ],
+            cwd=source,
+            timeout=timeout,
+        )
+    images = {s: json.loads(r.docker("image", "inspect", tag))[0]["Id"] for s, tag in tags.items()}
+    for service, image_id in images.items():
+        entry = (
+            ["cat", "/usr/share/nginx/html/release-identity.json"]
+            if service == "frontend"
+            else [
+                "python",
+                "-c",
+                "import json; print(json.dumps(json.load(open('/app/release-manifest.json'))))",
+            ]
+        )
+        actual = json.loads(
+            r.docker(
+                "run",
+                "--rm",
+                "--network",
+                "none",
+                "--label",
+                "com.docker.compose.project=kap-release-artifact-check",
+                "--entrypoint",
+                entry[0],
+                image_id,
+                *entry[1:],
+            )
+        )
+        expected = (
+            {k: manifest[k] for k in ("version", "commit")} if service == "frontend" else manifest
+        )
+        require(actual == expected, "构建镜像版本身份不一致")
+    head = r.docker(
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--label",
+        "com.docker.compose.project=kap-release-artifact-check",
+        "--entrypoint",
+        "python",
+        images["migrate"],
+        "-m",
+        "alembic",
+        "heads",
+    )
+    require(head == "0083_model_registry (head)", "候选数据库迁移图与本轮发布不一致")
+    report["migration_target"] = "0083_model_registry"
+    report["image_release_identities_verified"] = True
+    (stage / "candidate-image-ids.json").write_text(json.dumps(images, indent=2))
+    require(
+        not r.capture("git", "-C", str(source), "status", "--porcelain"),
+        "候选工作区发生变化",
+    )
+    return images
+
+
 def main():
     import fcntl
 
@@ -486,93 +590,7 @@ except urllib.error.HTTPError as exc:
             (stage / "release-manifest.json").write_text(json.dumps(manifest, ensure_ascii=False))
 
             print("=== 4/4 构建 KAP 六个发布镜像，保持生产服务运行 ===", flush=True)
-            services = ("backend", "worker", "ocr_worker", "beat", "frontend", "migrate")
-            tags = {s: "kap-candidate:" + token + "-" + s.replace("_", "-") for s in services}
-            overlay = stage / "candidate-images.json"
-            overlay.write_text(
-                json.dumps({"services": {s: {"image": tag} for s, tag in tags.items()}})
-            )
-            compose = [
-                "docker",
-                "compose",
-                "-p",
-                "kap",
-                "-f",
-                str(source / "docker-compose.yml"),
-                "-f",
-                str(source / "docker-compose.prod.yml"),
-                "-f",
-                str(overlay),
-            ]
-            encoded = base64.b64encode(json.dumps(manifest, ensure_ascii=False).encode()).decode()
-            require(len(encoded) <= 24000, "发布说明过长，停止构建")
-            for service in services:
-                print("构建：" + service, flush=True)
-                r.execute(
-                    [
-                        *compose,
-                        "build",
-                        "--build-arg",
-                        "KAP_RELEASE_MANIFEST_B64=" + encoded,
-                        service,
-                    ],
-                    cwd=source,
-                )
-            images = {
-                s: json.loads(r.docker("image", "inspect", tag))[0]["Id"] for s, tag in tags.items()
-            }
-            for service, image_id in images.items():
-                entry = (
-                    ["cat", "/usr/share/nginx/html/release-identity.json"]
-                    if service == "frontend"
-                    else [
-                        "python",
-                        "-c",
-                        "import json; print(json.dumps(json.load(open('/app/release-manifest.json'))))",
-                    ]
-                )
-                actual = json.loads(
-                    r.docker(
-                        "run",
-                        "--rm",
-                        "--network",
-                        "none",
-                        "--label",
-                        "com.docker.compose.project=kap-release-artifact-check",
-                        "--entrypoint",
-                        entry[0],
-                        image_id,
-                        *entry[1:],
-                    )
-                )
-                expected = (
-                    {k: manifest[k] for k in ("version", "commit")}
-                    if service == "frontend"
-                    else manifest
-                )
-                require(actual == expected, "构建镜像版本身份不一致")
-            head = r.docker(
-                "run",
-                "--rm",
-                "--network",
-                "none",
-                "--label",
-                "com.docker.compose.project=kap-release-artifact-check",
-                "--entrypoint",
-                "python",
-                images["migrate"],
-                "-m",
-                "alembic",
-                "heads",
-            )
-            require(head == "0083_model_registry (head)", "候选数据库迁移图与本轮发布不一致")
-            report["migration_target"] = "0083_model_registry"
-            report["image_release_identities_verified"] = True
-            (stage / "candidate-image-ids.json").write_text(json.dumps(images, indent=2))
-            require(
-                not r.capture("git", "-C", str(source), "status", "--porcelain"),
-                "候选工作区发生变化",
-            )
+            images = build_candidates(r, stage, source, manifest, report)
             for name, digest in before.items():
                 require(fingerprint(r.inspect(name)) == digest, "构建期间生产配置发生变化")
             report.update(
