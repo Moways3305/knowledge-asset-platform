@@ -97,6 +97,63 @@ class LiveTests(unittest.TestCase):
         self.assertEqual(migrated["rerank"]["parameters"]["api_key"], "enc:v1:synthetic-secret")
         self.assertEqual(migrated["chat"], original["chat"])
 
+    def test_workspace_rerank_key_reuse_is_explicit_and_preserves_snapshot(self):
+        for json_params in (False, True):
+            with self.subTest(json_params=json_params):
+                original = self.workspace_models()
+                if json_params:
+                    for model in original.values():
+                        model["parameters"] = json.dumps(model["parameters"])
+                baseline = copy.deepcopy(original)
+                default, _ = live.prepare_fixture_models(original, workspace_id="ws-test123")
+                migrated, adjustments = live.prepare_fixture_models(
+                    original, workspace_id="ws-test123", rerank_use_embedding_key=True
+                )
+                expected = copy.deepcopy(default)
+                expected["rerank"]["parameters"]["api_key"] = expected["embedding"]["parameters"][
+                    "api_key"
+                ]
+                self.assertEqual(migrated, expected)
+                self.assertEqual(original, baseline)
+                self.assertEqual(
+                    migrated["rerank"]["parameters"]["api_key"], "enc:v1:embedding-secret"
+                )
+                rerank_adjustment = next(a for a in adjustments if a["usage"] == "rerank")
+                self.assertTrue(rerank_adjustment["credentials_changed"])
+                self.assertEqual(rerank_adjustment["credential_source"], "embedding")
+                self.assertTrue(all(not a["production_configuration_changed"] for a in adjustments))
+                report = {"not_verified": []}
+                probe.record_configuration_adjustments(
+                    {"configuration_adjustments": adjustments}, report
+                )
+                self.assertIn(
+                    "production rerank credential correction and validation", report["not_verified"]
+                )
+                self.assertNotIn("secret", json.dumps(report))
+
+    def test_rerank_key_reuse_requires_workspace_and_embedding_key(self):
+        with self.assertRaisesRegex(RuntimeError, "explicit Aliyun workspace"):
+            live.prepare_fixture_models(self.workspace_models(), rerank_use_embedding_key=True)
+        for key in (None, "", "  ", {}, 123):
+            with self.subTest(key=key):
+                original = self.workspace_models()
+                original["embedding"]["parameters"]["api_key"] = key
+                with self.assertRaisesRegex(RuntimeError, "stored embedding API key"):
+                    live.prepare_fixture_models(
+                        original, workspace_id="ws-test123", rerank_use_embedding_key=True
+                    )
+
+    def test_rerank_key_reuse_rejects_custom_authorization(self):
+        for slot in ("embedding", "rerank"):
+            original = self.workspace_models()
+            original[slot]["parameters"]["custom_headers"] = {"aUtHoRiZaTiOn": "private-value"}
+            baseline = copy.deepcopy(original)
+            with self.assertRaisesRegex(RuntimeError, "custom authorization headers"):
+                live.prepare_fixture_models(
+                    original, workspace_id="ws-test123", rerank_use_embedding_key=True
+                )
+            self.assertEqual(original, baseline)
+
     def test_workspace_id_cannot_expand_gateway_allowlist(self):
         for value in (
             "",

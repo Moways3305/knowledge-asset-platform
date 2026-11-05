@@ -91,11 +91,17 @@ def assert_network(item, expected, run):
     )
 
 
-def prepare_fixture_models(model_rows, *, correct_rerank_endpoint=False, workspace_id=""):
+def prepare_fixture_models(
+    model_rows, *, correct_rerank_endpoint=False, workspace_id="", rerank_use_embedding_key=False
+):
     """Explicit, narrow correction in synthetic records only; never mutate the snapshot."""
     models = copy.deepcopy(model_rows)
     adjustments = []
     pg.require(not (correct_rerank_endpoint and workspace_id), "choose one fixture adjustment mode")
+    pg.require(
+        not rerank_use_embedding_key or bool(workspace_id),
+        "fixture rerank key reuse requires an explicit Aliyun workspace",
+    )
     if workspace_id:
         host = egress.workspace_host(workspace_id)
         old_root = "https://dashscope.aliyuncs.com"
@@ -136,6 +142,26 @@ def prepare_fixture_models(model_rows, *, correct_rerank_endpoint=False, workspa
                     "credentials_changed": False,
                 }
             )
+        if rerank_use_embedding_key:
+            embedding_params = models["embedding"]["parameters"]
+            rerank_params = models["rerank"]["parameters"]
+            key = embedding_params.get("api_key")
+            pg.require(
+                isinstance(key, str) and bool(key.strip()),
+                "fixture rerank key reuse requires a stored embedding API key",
+            )
+            for params in (embedding_params, rerank_params):
+                headers = params.get("custom_headers") or {}
+                pg.require(
+                    isinstance(headers, dict)
+                    and not any(str(name).lower() == "authorization" for name in headers),
+                    "fixture rerank key reuse does not allow custom authorization headers",
+                )
+            # Keep the stored ciphertext; the probe decrypts both with the same snapshot key.
+            rerank_params["api_key"] = key
+            for adjustment in adjustments:
+                if adjustment["usage"] == "rerank":
+                    adjustment.update(credentials_changed=True, credential_source="embedding")
     if correct_rerank_endpoint:
         model = models["rerank"]
         params = model.get("parameters") or {}
@@ -189,7 +215,14 @@ def main():
         default="",
         help="Use this Beijing workspace for synthetic embedding/rerank models and exact egress allowlist",
     )
+    parser.add_argument(
+        "--fixture-rerank-use-embedding-key",
+        action="store_true",
+        help="Use the stored embedding API key for synthetic rerank only; requires --aliyun-workspace-id",
+    )
     args = parser.parse_args()
+    if args.fixture_rerank_use_embedding_key and not args.aliyun_workspace_id:
+        parser.error("--fixture-rerank-use-embedding-key requires --aliyun-workspace-id")
     allowed = egress.allowed_hosts(args.aliyun_workspace_id)
     os.umask(0o077)
     if args.build_stage:
@@ -281,9 +314,12 @@ def main():
             model_rows,
             correct_rerank_endpoint=args.correct_fixture_rerank_endpoint,
             workspace_id=args.aliyun_workspace_id,
+            rerank_use_embedding_key=args.fixture_rerank_use_embedding_key,
         )
         if adjustments:
-            print("仅调整本轮虚构模型的地址；生产配置未修改，须后续单独验收。", flush=True)
+            print("仅调整本轮虚构模型配置；生产配置未修改，须后续单独验收。", flush=True)
+        if args.fixture_rerank_use_embedding_key:
+            print("本轮虚构重排模型使用嵌入模型的 API Key；生产密钥配置未修改。", flush=True)
         (stage / "live-private.json").write_text(
             json.dumps(
                 {

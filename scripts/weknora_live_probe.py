@@ -56,6 +56,8 @@ def record_configuration_adjustments(data, report):
         report["not_verified"].append("production rerank endpoint correction and validation")
     if any(a.get("usage") == "embedding" for a in adjustments):
         report["not_verified"].append("production embedding workspace endpoint and key ownership")
+    if any(a.get("usage") == "rerank" and a.get("credentials_changed") for a in adjustments):
+        report["not_verified"].append("production rerank credential correction and validation")
 
 
 def decrypt(value, key):
