@@ -1,9 +1,10 @@
 """Server-owned protocol templates. Model names remain user supplied, never treated as entitlement."""
 
 import re
+from typing import TypedDict
 from urllib.parse import urlsplit
 
-from app.schemas.model_registry import ConnectionInput
+from app.schemas.model_registry import Capability, ConnectionInput
 
 
 class RegistryError(Exception):
@@ -12,8 +13,19 @@ class RegistryError(Exception):
         super().__init__(code)
 
 
+class ProviderFields(TypedDict):
+    id: str
+    name: str
+    base: str
+    capabilities: list[Capability]
+
+
+class ProviderTemplate(ProviderFields, total=False):
+    workspace: bool
+
+
 # Only capabilities supported by both the adapter and the current runtime are advertised.
-CATALOG = [
+CATALOG: list[ProviderTemplate] = [
     {
         "id": "aliyun",
         "name": "阿里云百炼",
@@ -91,6 +103,7 @@ def validate_url(value: str) -> str:
 
 
 def endpoints_for(body: ConnectionInput) -> dict:
+    result: dict[str, dict[str, str]]
     provider = next((p for p in CATALOG if p["id"] == body.provider), None)
     if not provider:
         raise RegistryError("unsupported_provider", "请选择支持的供应商或自定义兼容服务。")

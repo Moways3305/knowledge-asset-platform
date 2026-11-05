@@ -123,6 +123,23 @@ describe("ModelOnboarding", () => {
       credential_version: 2,
     });
   });
+  it.each([401, 403, 502])("hides raw %s error bodies during registry loading", async (status) => {
+    vi.mocked(api.fetchRegistry).mockRejectedValueOnce(
+      new ApiError(status, "SECRET_UPSTREAM_BODY"),
+    );
+    const ref = createRef<ModelOnboardingHandle>();
+    render(
+      <ModelOnboarding
+        managementRef={ref}
+        onInventory={inventoryChanged}
+        onChanged={runtimeChanged}
+        refreshSignal={0}
+        canEdit={true}
+      />,
+    );
+    expect(await screen.findByRole("alert")).not.toHaveTextContent("SECRET_UPSTREAM_BODY");
+    expect(screen.getByRole("button", { name: "重新加载接入配置" })).toBeInTheDocument();
+  });
   it("saves a draft without testing or binding it", async () => {
     const ref = await setup();
     await fillModel(ref);
@@ -209,7 +226,7 @@ describe("ModelOnboarding", () => {
     const ref = await setup();
     await fillModel(ref);
     fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
-    expect(await screen.findByText("暂时不可用")).toBeInTheDocument();
+    expect(await screen.findByText("模型配置服务暂时不可用，请稍后刷新重试。")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("button", { name: "保存草稿" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
     await waitFor(() => expect(api.createRegisteredModel).toHaveBeenCalledTimes(2));

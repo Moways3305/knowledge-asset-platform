@@ -104,7 +104,7 @@ async def post_probe(url: str, key: str, payload: dict) -> dict:
             timeout=20,
             trust_env=False,
             follow_redirects=False,
-            **({"proxy": proxy} if proxy else {}),
+            proxy=proxy or None,
         ) as client:
             async with client.stream(
                 "POST", target, headers=headers, json=payload, extensions={"sni_hostname": host}
@@ -123,6 +123,8 @@ async def post_probe(url: str, key: str, payload: dict) -> dict:
                 if not 200 <= response.status_code < 300:
                     code = error_code(response.status_code, body)
                     raise RegistryError(code, message(code))
+                if not isinstance(body, dict):
+                    raise RegistryError("invalid_response", message("invalid_response"))
                 return body
     except (httpx.TimeoutException, asyncio.TimeoutError):
         raise RegistryError("timeout", message("timeout")) from None

@@ -50,8 +50,15 @@ const blankModel = (): RegistryModelInput => ({
   dimension: null,
   usages: ["business"],
 });
-const safeError = (error: unknown) =>
-  error instanceof ApiError ? error.message : "操作未完成，请刷新配置后重试。";
+const safeError = (error: unknown) => {
+  if (error instanceof ApiError) {
+    if (error.status === 401) return "登录已失效，请重新登录后重试。";
+    if (error.status === 403) return "当前身份无权管理模型接入，请联系管理员。";
+    if (error.status >= 500) return "模型配置服务暂时不可用，请稍后刷新重试。";
+    return error.message;
+  }
+  return "操作未完成，请刷新配置后重试。";
+};
 
 export default function ModelOnboarding({
   managementRef,

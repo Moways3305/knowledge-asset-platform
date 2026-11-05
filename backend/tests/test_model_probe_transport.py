@@ -1,6 +1,7 @@
 """Network guard tests without DNS queries, vendor calls or real credentials."""
 
 import asyncio
+import json
 from types import SimpleNamespace
 
 import httpx
@@ -32,7 +33,7 @@ def network(monkeypatch, *, addresses, response, allowed="", proxy=""):
 
     def client(**kwargs):
         assert kwargs["trust_env"] is False and kwargs["follow_redirects"] is False
-        assert kwargs.pop("proxy", "") == proxy
+        assert (kwargs.pop("proxy", None) or "") == proxy
         return original(transport=httpx.MockTransport(handle), **kwargs)
 
     monkeypatch.setattr(model_probe.httpx, "AsyncClient", client)
@@ -127,3 +128,15 @@ async def test_malformed_embedding_returns_safe_diagnostic(monkeypatch):
             "embedding",
             3,
         )
+
+
+@pytest.mark.parametrize("body", [[], ["private-provider-detail"], None, "not-an-object"])
+async def test_non_object_response_returns_safe_diagnostic(monkeypatch, body):
+    network(
+        monkeypatch,
+        addresses=["8.8.8.8"],
+        response=httpx.Response(200, content=json.dumps(body)),
+    )
+    with pytest.raises(RegistryError, match="invalid_response") as caught:
+        await model_probe.post_probe("https://models.example.test/v1", "synthetic", {})
+    assert "private-provider-detail" not in str(caught.value)

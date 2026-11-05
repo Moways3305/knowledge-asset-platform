@@ -17,7 +17,18 @@ const emptyUsages = {
 const browser = await chromium.launch();
 let postCount = 0;
 let postedPayload = null;
-let connections = [];
+const original = {
+  model_ref: "safe-created-ref",
+  display_name: "Existing connection",
+  capability_type: "chat",
+  provider: "deepseek",
+  model_name: "deepseek-chat",
+  enabled: true,
+  health_status: "configured",
+  available_usages: ["content_generation", "project_qa"],
+  legacy_adapter: false,
+};
+let connections = [{ ...original }];
 
 async function prepareContext(viewport) {
   const context = await browser.newContext({ viewport });
@@ -41,8 +52,9 @@ async function prepareContext(viewport) {
   await context.route("**/api/v1/admin/model-connections/usages/current", (route) =>
     json(route, emptyUsages),
   );
-  await context.route("**/api/v1/admin/model-connections", async (route) => {
-    if (route.request().method() === "POST") {
+  await context.route("**/api/v1/admin/model-connections**", async (route) => {
+    if (route.request().url().endsWith("/usages/current")) return json(route, emptyUsages);
+    if (route.request().method() === "PUT") {
       postCount += 1;
       postedPayload = route.request().postDataJSON();
       const created = {
@@ -61,26 +73,28 @@ async function prepareContext(viewport) {
     }
     return json(route, { items: connections, total: connections.length, warning: null });
   });
+  await context.route("**/api/v1/admin/model-registry", (route) =>
+    json(route, { connections: [], models: [] }),
+  );
+  await context.route("**/api/v1/admin/model-registry/catalog", (route) =>
+    json(route, { providers: [] }),
+  );
+  await context.route("**/api/v1/admin/weknora/**", (route) => json(route, { items: [] }));
   return context;
 }
 
-async function openCreateForm(page) {
-  const drawer = page.getByRole("region", { name: "管理外部 LLM" });
-  if (!(await drawer.isVisible())) {
-    await page.getByRole("button", { name: "管理外部 LLM", exact: true }).click();
-    await drawer.waitFor();
-  }
-  await drawer.getByRole("button", { name: "新增外部 LLM", exact: true }).first().click();
+async function openEditForm(page) {
   await page
-    .getByRole("dialog", { name: "新增外部 LLM" })
-    .locator('[data-model-field="display_name"]')
-    .waitFor();
+    .getByRole("row", { name: /connection（/ })
+    .getByRole("button", { name: "编辑", exact: true })
+    .click();
+  await page.locator('[data-model-field="display_name"]').waitFor();
 }
 
 const desktop = await prepareContext({ width: 1440, height: 900 });
 const page = await desktop.newPage();
 await page.goto(`${base}/admin/weknora-models`, { waitUntil: "networkidle" });
-await openCreateForm(page);
+await openEditForm(page);
 
 await page.evaluate(() => {
   const values = {
@@ -106,28 +120,34 @@ const reconciled = await page.evaluate(() =>
     ]),
   ),
 );
-assert(reconciled.display_name === "", "externally injected display name remained visible");
-assert(reconciled.model_name === "", "externally injected model name remained visible");
+assert(
+  reconciled.display_name === original.display_name,
+  "externally injected display name remained visible",
+);
+assert(
+  reconciled.model_name === original.model_name,
+  "externally injected model name remained visible",
+);
 assert(reconciled.base_url === "", "externally injected endpoint remained visible");
 assert(reconciled.api_key === "", "externally injected API key remained visible");
 assert(reconciled.capability_type === "chat", "capability did not return to controlled state");
 assert(reconciled.provider === "deepseek", "Provider did not return to controlled state");
 assert(reconciled.enabled === "enabled", "enabled state did not return to controlled state");
-assert(postCount === 0, "external autofill caused a POST");
-await page.screenshot({ path: `${outDir}/desktop-new-reconciled.png`, fullPage: true });
+assert(postCount === 0, "external autofill caused a write");
+await page.screenshot({ path: `${outDir}/desktop-edit-reconciled.png`, fullPage: true });
 
 await page.getByLabel("显示名称").fill("Reviewed connection");
-await page.getByLabel("Provider").selectOption("deepseek");
+await page.getByLabel("模型供应商").selectOption("deepseek");
 await page.getByLabel("模型名称").fill("deepseek-chat");
 await page.getByLabel("API 地址").fill("https://api.example.com/v1");
 await page.getByLabel("API key").fill("reviewed-secret");
-await page.getByLabel("启用状态").selectOption("enabled");
+await page.locator('[data-model-field="enabled"]').selectOption("enabled");
 await page
   .locator(".mf-connection-editor")
-  .getByRole("button", { name: /^保存外部 LLM/ })
+  .getByRole("button", { name: "保存模型", exact: true })
   .click();
 await page.waitForTimeout(250);
-assert(postCount === 1, `manual create sent ${postCount} POST requests`);
+assert(postCount === 1, `manual edit sent ${postCount} PUT requests`);
 assert(
   JSON.stringify(postedPayload) ===
     JSON.stringify({
@@ -139,7 +159,7 @@ assert(
       api_key: "reviewed-secret",
       enabled: true,
     }),
-  "manual create payload did not match reviewed state",
+  "manual edit payload did not match reviewed state",
 );
 
 await page.getByRole("button", { name: "编辑", exact: true }).click();
@@ -149,18 +169,24 @@ assert((await page.getByLabel("API key").inputValue()) === "", "edit form expose
 await page.screenshot({ path: `${outDir}/desktop-edit-secure.png`, fullPage: true });
 
 await page.getByRole("button", { name: "关闭" }).last().click();
-await openCreateForm(page);
-assert((await page.getByLabel("显示名称").inputValue()) === "", "new form retained display name");
-assert((await page.getByLabel("模型名称").inputValue()) === "", "new form retained model name");
+await openEditForm(page);
+assert(
+  (await page.getByLabel("显示名称").inputValue()) === "Reviewed connection",
+  "edit did not read saved display name",
+);
+assert(
+  (await page.getByLabel("模型名称").inputValue()) === "deepseek-chat",
+  "edit did not read saved model name",
+);
 assert((await page.getByLabel("API 地址").inputValue()) === "", "new form retained endpoint");
 assert((await page.getByLabel("API key").inputValue()) === "", "new form retained API key");
 await desktop.close();
 
-connections = [];
+connections = [{ ...original }];
 const mobile = await prepareContext({ width: 390, height: 844 });
 const mobilePage = await mobile.newPage();
 await mobilePage.goto(`${base}/admin/weknora-models`, { waitUntil: "networkidle" });
-await openCreateForm(mobilePage);
+await openEditForm(mobilePage);
 const mobileMetrics = await mobilePage.evaluate(() => ({
   overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
   decoys: document.querySelectorAll(".form-decoy").length,
@@ -169,7 +195,7 @@ const mobileMetrics = await mobilePage.evaluate(() => ({
 assert(mobileMetrics.overflowX === 0, "mobile form has horizontal overflow");
 assert(mobileMetrics.decoys === 0, "mobile form still contains autofill decoys");
 assert(mobileMetrics.fields === 7, "mobile form does not contain seven business fields");
-await mobilePage.screenshot({ path: `${outDir}/mobile-new.png`, fullPage: true });
+await mobilePage.screenshot({ path: `${outDir}/mobile-edit.png`, fullPage: true });
 await mobile.close();
 await browser.close();
 

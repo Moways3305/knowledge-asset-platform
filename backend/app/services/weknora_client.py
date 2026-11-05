@@ -107,6 +107,12 @@ class WeKnoraClient:
         data = body.get("data")
         return {} if data is None else data
 
+    def _unwrap_object(self, resp: httpx.Response) -> dict[str, Any]:
+        data = self._unwrap(resp)
+        if not isinstance(data, dict):
+            raise WeKnoraError("invalid_response", "WeKnora 响应数据应为对象")
+        return data
+
     async def create_kb(
         self,
         *,
@@ -147,7 +153,7 @@ class WeKnoraClient:
             resp = await client.get(
                 f"{self._base}/knowledge-bases/{kb_id}", headers=self._headers(trace_id)
             )
-        return self._unwrap(resp)
+        return self._unwrap_object(resp)
 
     async def update_kb(
         self,
@@ -173,7 +179,7 @@ class WeKnoraClient:
                 json=payload,
                 headers=self._headers(trace_id),
             )
-        return self._unwrap(resp)
+        return self._unwrap_object(resp)
 
     async def get_initialization_config(
         self, kb_id: str, *, trace_id: str | None = None
@@ -187,7 +193,7 @@ class WeKnoraClient:
             resp = await client.get(
                 f"{self._base}/initialization/config/{kb_id}", headers=self._headers(trace_id)
             )
-        return self._unwrap(resp)
+        return self._unwrap_object(resp)
 
     async def initialize_kb(
         self,
@@ -279,7 +285,7 @@ class WeKnoraClient:
                 "latency_ms": round((time.perf_counter() - start) * 1000, 1),
             },
         )
-        return self._unwrap(resp)
+        return self._unwrap_object(resp)
 
     async def get_knowledge(
         self, knowledge_id: str, *, trace_id: str | None = None
@@ -288,7 +294,7 @@ class WeKnoraClient:
             resp = await client.get(
                 f"{self._base}/knowledge/{knowledge_id}", headers=self._headers(trace_id)
             )
-        return self._unwrap(resp)
+        return self._unwrap_object(resp)
 
     async def list_knowledge_in_kb(
         self,
