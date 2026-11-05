@@ -1,4 +1,9 @@
-import { RefreshCw } from "lucide-react";
+import { useRef, useState } from "react";
+import { Plus, Settings2, RefreshCw } from "lucide-react";
+import ModelRegistryTable from "../components/ModelRegistryTable";
+import { emptyManagementState, type ModelManagementHandle } from "../components/modelManagement";
+import type { ModelConnectionDTO } from "../types/modelConnections";
+import type { ModelDTO } from "../types/weknoraAdmin";
 import { Link } from "react-router-dom";
 import { ActionGroup, ActionMenu, FormActions } from "../components/ActionLayout";
 import DetailDrawer from "../components/DetailDrawer";
@@ -33,8 +38,6 @@ export default function AdminWeKnoraModelsPage() {
     canEdit,
     drawer,
     setDrawer,
-    externalIssues,
-    modelIssues,
     counts,
     isGlobalOperator,
     setDefaultsModal,
@@ -74,10 +77,18 @@ export default function AdminWeKnoraModelsPage() {
     setMigrationResult,
   } = useAdminWeKnoraModels();
 
+  const externalManager = useRef<ModelManagementHandle<ModelConnectionDTO>>(null);
+  const knowledgeManager = useRef<ModelManagementHandle<ModelDTO>>(null);
+  const [externalState, setExternalState] = useState(emptyManagementState);
+  const [knowledgeState, setKnowledgeState] = useState(emptyManagementState);
+  const [entry, setEntry] = useState<"create" | "settings" | null>(null);
+  const editable = canEdit && isGlobalOperator;
+
   return (
-    <ProductPage className="ws-page mf-page mf-overview-page admin-control-page">
+    <ProductPage className="ws-page mf-page mf-overview-page admin-control-page model-registry-page">
       <PageHeader
-        title="模型配置"
+        title="模型管理"
+        description="管理可用模型，为内容生成、项目问答和知识检索选择合适的模型。"
         status={
           <StatusBadge
             tone={error || connectionIssues ? "danger" : notConfigured ? "neutral" : "info"}
@@ -106,6 +117,26 @@ export default function AdminWeKnoraModelsPage() {
             >
               <RefreshCw size={14} aria-hidden="true" />
             </button>
+            {editable && (
+              <>
+                <button
+                  className="btn-small"
+                  disabled={loading || busy}
+                  onClick={() => setEntry("settings")}
+                >
+                  <Settings2 size={16} aria-hidden="true" />
+                  模型设置
+                </button>
+                <button
+                  className="btn-small-primary"
+                  disabled={loading || busy || (!externalState.ready && !knowledgeState.ready)}
+                  onClick={() => setEntry("create")}
+                >
+                  <Plus size={16} aria-hidden="true" />
+                  接入模型
+                </button>
+              </>
+            )}
           </div>
         }
       />
@@ -129,94 +160,72 @@ export default function AdminWeKnoraModelsPage() {
         <div className="mf-inline-message">当前身份为只读视图，修改与迁移动作已隐藏。</div>
       )}
 
-      <div className="model-settings-layout">
-        <section className="mf-connection-workspace admin-workspace-panel" aria-label="连接管理">
-          <div className="mf-workspace-tabs" role="group" aria-label="模型配置工作区">
+      <div className="model-registry-layout">
+        <section className="model-registry-navigation" aria-label="模型管理导航">
+          <div className="model-registry-tabs" role="group" aria-label="模型管理导航">
+            {isGlobalOperator && (
+              <button
+                type="button"
+                aria-pressed={drawer !== "knowledge" && drawer !== "migration"}
+                onClick={() => setDrawer("external")}
+              >
+                模型列表
+              </button>
+            )}
             <button
-              className="btn-small"
-              aria-pressed={drawer === "external"}
-              aria-label="管理外部 LLM"
-              disabled={loading || busy}
-              onClick={() => setDrawer("external")}
-            >
-              外部 LLM{externalIssues > 0 ? `（${externalIssues} 项异常）` : ""}
-            </button>
-            <button
-              className="btn-small"
-              aria-pressed={drawer === "weknora"}
-              aria-label="管理 WeKnora 模型"
-              disabled={loading || busy}
-              onClick={() => setDrawer("weknora")}
-            >
-              WeKnora 底座{modelIssues > 0 ? `（${modelIssues} 项异常）` : ""}
-            </button>
-            <button
-              className="btn-small"
+              type="button"
               aria-pressed={drawer === "knowledge" || drawer === "migration"}
               aria-label="管理知识库配置"
-              disabled={loading || busy}
               onClick={() => setDrawer("knowledge")}
             >
               知识库配置{counts.anomalies > 0 ? `（${counts.anomalies} 项异常）` : ""}
             </button>
           </div>
         </section>
-        <div className="model-settings-content">
-          {notConfigured && drawer !== "knowledge" && (
+        <div className="model-registry-content">
+          {notConfigured && (
             <div className="mf-overview-empty">
-              <strong>WeKnora 尚未配置</strong>
-              <span>外部 LLM 仍可独立管理；完成底座部署后刷新即可。</span>
+              <strong>知识库模型服务尚未配置</strong>
+              <span>内容生成与项目问答模型仍可独立管理。</span>
             </div>
           )}
-          <p className="mf-kb-footnote">
-            索引失败资产仍在 <Link to="/admin/ingest">入库管理</Link> 或资产详情中重试。
-          </p>
-
-          {drawer === "external" && (
-            <section className="mf-inline-workspace" aria-label="管理外部 LLM" role="region">
-              {canEdit && isGlobalOperator && (
-                <div className="mf-drawer-secondary-actions">
-                  <button
-                    className="btn-small"
-                    disabled={loading || busy}
-                    onClick={() => setDefaultsModal("external")}
-                  >
-                    编辑默认用途
-                  </button>
-                </div>
-              )}
+          {isGlobalOperator && drawer !== "knowledge" && drawer !== "migration" && (
+            <ModelRegistryTable
+              connections={externalConnections}
+              models={models}
+              externalState={externalState}
+              knowledgeState={knowledgeState}
+              canEdit={editable}
+              loading={loading}
+              onExternalAction={(action, model) => externalManager.current?.[action]?.(model)}
+              onKnowledgeAction={(action, model) => knowledgeManager.current?.[action]?.(model)}
+            />
+          )}
+          {isGlobalOperator && (
+            <>
               <UnifiedModelConnectionsSection
-                canEdit={canEdit && isGlobalOperator}
+                managementRef={externalManager}
+                onManagementState={setExternalState}
+                canEdit={editable}
                 refreshSignal={refreshSignal}
                 onChanged={load}
                 showUsageControls={false}
               />
-            </section>
-          )}
-
-          {drawer === "weknora" && (
-            <section className="mf-inline-workspace" aria-label="管理 WeKnora 模型" role="region">
-              {canEdit && isGlobalOperator && (
-                <div className="mf-drawer-secondary-actions">
-                  <button
-                    className="btn-small"
-                    disabled={loading || busy}
-                    onClick={openFoundationDefaults}
-                  >
-                    编辑默认底座
-                  </button>
-                </div>
-              )}
               <WeknoraModelsSection
-                canEdit={canEdit && isGlobalOperator}
+                managementRef={knowledgeManager}
+                onManagementState={setKnowledgeState}
+                canEdit={editable}
                 refreshSignal={refreshSignal}
                 onChanged={load}
               />
-            </section>
+            </>
           )}
-
           {drawer === "knowledge" && (
             <section className="mf-inline-workspace" aria-label="管理知识库配置" role="region">
+              <p className="mf-kb-footnote">
+                这里管理各知识库的模型绑定。索引失败请前往 <Link to="/admin/ingest">入库管理</Link>{" "}
+                处理。
+              </p>
               <div className="mf-drawer-filters">
                 <input
                   aria-label="搜索知识库"
@@ -326,9 +335,67 @@ export default function AdminWeKnoraModelsPage() {
         </div>
       </div>
       <TaskModal
+        open={entry !== null && editable}
+        title={entry === "create" ? "接入模型" : "模型设置"}
+        onClose={() => setEntry(null)}
+        description={
+          entry === "create"
+            ? "选择模型的使用场景，再填写供应商和连接信息。"
+            : "按用途设置默认模型；已有知识库保留各自的模型绑定。"
+        }
+      >
+        <div className="model-entry-options">
+          {entry === "create" ? (
+            <>
+              <button
+                disabled={!externalState.ready || externalState.busy}
+                onClick={() => {
+                  setEntry(null);
+                  externalManager.current?.create();
+                }}
+              >
+                <strong>内容生成与项目问答</strong>
+                <span>接入对话模型，用于资料摘要、内容生成及项目问答。</span>
+              </button>
+              <button
+                disabled={!knowledgeState.ready || knowledgeState.busy}
+                onClick={() => {
+                  setEntry(null);
+                  knowledgeManager.current?.create();
+                }}
+              >
+                <strong>知识库检索与解析</strong>
+                <span>接入嵌入、重排、对话或多模态模型，供知识库使用。</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => {
+                  setEntry(null);
+                  setDefaultsModal("external");
+                }}
+              >
+                <strong>内容生成与项目问答</strong>
+                <span>设置内容生成和默认项目问答共同使用的对话模型。</span>
+              </button>
+              <button
+                onClick={() => {
+                  setEntry(null);
+                  openFoundationDefaults();
+                }}
+              >
+                <strong>新建知识库的默认模型</strong>
+                <span>设置嵌入、重排、对话和多模态模型，不更改已有知识库。</span>
+              </button>
+            </>
+          )}
+        </div>
+      </TaskModal>
+      <TaskModal
         open={defaultsModal === "external"}
-        title="编辑默认用途"
-        description="内容生成与默认项目问答使用同一条 KAP 直连连接。"
+        title="默认对话模型"
+        description="内容生成与默认项目问答使用同一个对话模型。"
         onClose={() => !busy && setDefaultsModal(null)}
         busy={busy}
         footer={
@@ -347,7 +414,7 @@ export default function AdminWeKnoraModelsPage() {
         }
       >
         <label className="ws-form-field">
-          <span className="ws-form-label">默认外部 LLM</span>
+          <span className="ws-form-label">默认对话模型</span>
           <select
             value={externalDefaultRef}
             onChange={(event) => setExternalDefaultRef(event.target.value)}
@@ -366,7 +433,7 @@ export default function AdminWeKnoraModelsPage() {
 
       <TaskModal
         open={defaultsModal === "foundation"}
-        title="编辑默认底座"
+        title="知识库默认模型"
         description="只影响新建知识库；已有知识库继续使用各自绑定。"
         onClose={() => !busy && setDefaultsModal(null)}
         busy={busy}

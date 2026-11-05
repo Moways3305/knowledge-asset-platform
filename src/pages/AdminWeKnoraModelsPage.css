@@ -687,11 +687,285 @@
   }
 }
 
-/* Stable overview: growing inventories live in drawers, never in the page flow. */
+/* Shared colors for model and knowledge-base settings. */
 .mf-overview-page {
   --mf-ink: #17324d;
   --mf-cyan: #1f7891;
   --mf-line: rgba(28, 74, 103, 0.14);
+}
+
+/* Model inventory: a quiet, aligned table with explicit actions. */
+.model-registry-layout,
+.model-registry-content {
+  min-width: 0;
+}
+.model-registry-navigation {
+  border-bottom: 1px solid var(--color-border);
+}
+.model-registry-page .mf-page-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.model-registry-page .mf-page-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  white-space: nowrap;
+}
+.model-registry-page .mf-connection-workspace {
+  border-top: 0;
+  background: transparent;
+}
+.model-registry-tabs {
+  display: flex;
+  gap: 28px;
+}
+.model-registry-tabs button {
+  padding: 13px 2px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.model-registry-tabs button[aria-pressed="true"] {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+  font-weight: 600;
+}
+.model-registry {
+  min-width: 0;
+  padding-top: 18px;
+}
+.model-registry-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.model-registry-toolbar input {
+  width: min(300px, 100%);
+}
+.model-registry-toolbar select {
+  min-width: 120px;
+}
+.model-registry-toolbar :is(input, select) {
+  min-height: 36px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg-surface);
+  padding: 7px 10px;
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: 13px;
+}
+.model-registry-count {
+  margin-left: auto;
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+}
+.model-registry-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.model-registry-table {
+  width: 100%;
+  min-width: 960px;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+}
+.model-registry-table th {
+  padding: 13px 12px;
+  border-bottom: 1px solid var(--color-border);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-surface);
+  white-space: nowrap;
+}
+.model-registry-table td {
+  padding: 19px 12px;
+  border-bottom: 1px solid var(--color-border-light);
+  color: var(--color-text-primary);
+  vertical-align: middle;
+}
+.model-registry-table th:first-child,
+.model-registry-table td:first-child {
+  padding-left: 4px;
+  width: 23%;
+}
+.model-registry-table tbody tr:hover {
+  background: color-mix(in srgb, var(--color-primary) 3%, var(--color-bg-surface));
+}
+.model-registry-name {
+  font-size: 14px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.model-registry-table small {
+  display: block;
+  margin-top: 5px;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.model-enabled {
+  display: inline-block;
+  padding: 3px 7px;
+  border-radius: 4px;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-page);
+  white-space: nowrap;
+  font-size: 12px;
+}
+.model-enabled.is-enabled {
+  color: #237442;
+  background: #e9f5ec;
+}
+.model-provider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.model-registry-usage {
+  display: block;
+  max-width: 145px;
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+}
+.model-test-state {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.model-test-state.is-success {
+  color: #237442;
+}
+.model-test-state.is-danger {
+  color: var(--color-danger);
+}
+.model-test-state.is-busy {
+  color: var(--color-primary);
+}
+.model-test-message {
+  max-width: 220px;
+  overflow-wrap: anywhere;
+}
+.model-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  white-space: nowrap;
+}
+.model-text-action {
+  background: transparent;
+  border: 0;
+  padding: 5px 0;
+  color: var(--color-primary);
+  font: inherit;
+  cursor: pointer;
+}
+.model-text-action:disabled {
+  color: var(--color-text-tertiary);
+  cursor: not-allowed;
+}
+.model-registry-table .action-menu-trigger {
+  border: 0;
+  background: transparent;
+}
+.model-registry-hint {
+  margin: 16px 0;
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.model-registry-empty {
+  height: 200px;
+  text-align: center;
+}
+.model-registry-empty strong,
+.model-registry-empty span {
+  display: block;
+  margin: 8px 0;
+}
+.model-registry-empty span {
+  color: var(--color-text-secondary);
+}
+.model-entry-options {
+  display: grid;
+  gap: 12px;
+}
+.model-entry-options button {
+  display: grid;
+  gap: 7px;
+  padding: 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-surface);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.model-entry-options button:hover:not(:disabled) {
+  border-color: var(--color-primary);
+}
+.model-entry-options button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.model-entry-options strong {
+  font-size: 14px;
+  color: var(--color-text-heading);
+}
+.model-entry-options span {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--color-text-secondary);
+}
+.model-registry :focus-visible,
+.model-registry-tabs :focus-visible,
+.model-entry-options :focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+}
+@media (max-width: 760px) {
+  .workspace-shell
+    .page-workspace.admin-control-page.mf-page.model-registry-page
+    > .product-page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .workspace-shell
+    .page-workspace.admin-control-page.mf-page.model-registry-page
+    .product-page-heading,
+  .workspace-shell
+    .page-workspace.admin-control-page.mf-page.model-registry-page
+    .product-page-actions {
+    flex: none;
+    width: 100%;
+  }
+  .model-registry-page .mf-page-actions {
+    flex-wrap: wrap;
+  }
+  .model-registry-toolbar input {
+    width: 100%;
+  }
+  .model-registry-toolbar select {
+    flex: 1;
+    min-width: 0;
+  }
+  .model-registry-count {
+    width: 100%;
+  }
+  .model-registry-table {
+    min-width: 900px;
+  }
 }
 
 .mf-overview-empty {
