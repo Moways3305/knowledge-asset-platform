@@ -10,7 +10,7 @@ from app.services import model_probe
 from app.services.model_provider_catalog import RegistryError
 
 
-def network(monkeypatch, *, addresses, response, allowed=""):
+def network(monkeypatch, *, addresses, response, allowed="", proxy=""):
     calls = []
 
     async def resolve(*args, **kwargs):
@@ -18,7 +18,11 @@ def network(monkeypatch, *, addresses, response, allowed=""):
 
     monkeypatch.setattr(asyncio.get_running_loop(), "getaddrinfo", resolve)
     monkeypatch.setattr(
-        model_probe, "get_settings", lambda: SimpleNamespace(model_registry_private_hosts=allowed)
+        model_probe,
+        "get_settings",
+        lambda: SimpleNamespace(
+            model_registry_private_hosts=allowed, model_registry_proxy_url=proxy
+        ),
     )
     original = httpx.AsyncClient
 
@@ -28,6 +32,7 @@ def network(monkeypatch, *, addresses, response, allowed=""):
 
     def client(**kwargs):
         assert kwargs["trust_env"] is False and kwargs["follow_redirects"] is False
+        assert kwargs.pop("proxy", "") == proxy
         return original(transport=httpx.MockTransport(handle), **kwargs)
 
     monkeypatch.setattr(model_probe.httpx, "AsyncClient", client)
@@ -52,6 +57,29 @@ async def test_public_request_pins_ip_and_preserves_tls_name(monkeypatch):
     assert calls[0].url.host == "8.8.8.8"
     assert calls[0].headers["Host"] == "models.example.test"
     assert calls[0].extensions["sni_hostname"] == "models.example.test"
+
+
+async def test_explicit_gateway_preserves_hostname_for_connect_allowlist(monkeypatch):
+    calls = network(
+        monkeypatch,
+        addresses=["8.8.8.8"],
+        response=httpx.Response(200, json={}),
+        proxy="http://approved-gateway:18080",
+    )
+    await model_probe.post_probe("https://models.example.test/v1", "synthetic", {})
+    assert calls[0].url.host == calls[0].headers["Host"] == "models.example.test"
+
+
+async def test_gateway_mode_still_blocks_private_target_dns(monkeypatch):
+    calls = network(
+        monkeypatch,
+        addresses=["10.0.0.1"],
+        response=httpx.Response(200, json={}),
+        proxy="http://approved-gateway:18080",
+    )
+    with pytest.raises(RegistryError, match="endpoint_blocked"):
+        await model_probe.post_probe("https://models.example.test/v1", "synthetic", {})
+    assert not calls
 
 
 async def test_redirect_does_not_forward_credentials(monkeypatch):

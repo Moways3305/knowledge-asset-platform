@@ -161,7 +161,11 @@ async def list_providers(
 
 
 async def list_models(
-    client: _CheckClient, *, model_type: str | None, trace_id: str | None
+    client: _CheckClient,
+    *,
+    model_type: str | None,
+    trace_id: str | None,
+    approved_names: dict[str, str] | None = None,
 ) -> list[ModelOut]:
     raw = await client.list_models(trace_id=trace_id)
     out: list[ModelOut] = []
@@ -171,7 +175,10 @@ async def list_models(
         item = _to_model_out(m)
         if model_type and item.type != model_type:
             continue
-        if not _is_valid_model_name(item.name):
+        if (
+            not _is_valid_model_name(item.name)
+            and (approved_names or {}).get(str(m["id"])) != item.name
+        ):
             continue
         out.append(item)
     return out
@@ -707,8 +714,12 @@ async def update_kb_init(
     provided = {k: v for k, v in refs.items() if v}
     if not provided:
         raise _denied(422, "no_model_selected", "至少选择一个模型")
-    from app.services.model_registry_availability import filter_knowledge_runtime
+    from app.services.model_registry_availability import (
+        approved_knowledge_names,
+        filter_knowledge_runtime,
+    )
 
+    approved_names = await approved_knowledge_names(session)
     raw_models = await filter_knowledge_runtime(
         session, await client.list_models(trace_id=trace_id)
     )
@@ -722,7 +733,8 @@ async def update_kb_init(
         model = ref_map.get(ref)
         if model is None:
             raise _denied(404, "weknora_model_not_found", "所选模型不存在")
-        _validate_model_name(str(model.get("name") or ""), context="配置知识库模型")
+        if approved_names.get(str(model["id"])) != str(model.get("name") or ""):
+            _validate_model_name(str(model.get("name") or ""), context="配置知识库模型")
         if _alias(model.get("type")) != slot:
             raise _denied(422, "weknora_model_type_mismatch", "所选模型类型与配置项不匹配")
         resolved[slot] = str(model["id"])
@@ -797,10 +809,19 @@ async def list_model_options(
     embedding / rerank 的 model_ref 精确匹配标注；其它模型（含 disabled / 伪造）不会被误标。
     default_missing 反映初始化必需的默认 embedding 或 KnowledgeQA 是否未配置（前端据此禁用提交）。
     """
-    from app.services.model_registry_availability import filter_knowledge_options
+    from app.services.model_registry_availability import (
+        approved_knowledge_names,
+        filter_knowledge_options,
+    )
 
     models = await filter_knowledge_options(
-        session, await list_models(client, model_type=model_type, trace_id=trace_id)
+        session,
+        await list_models(
+            client,
+            model_type=model_type,
+            trace_id=trace_id,
+            approved_names=await approved_knowledge_names(session),
+        ),
     )
     defaults = await weknora_defaults.get_defaults(session)
     emb_default = (defaults.default_embedding_model_id if defaults else None) or None
@@ -844,8 +865,12 @@ async def set_default_models(
     - 校验通过后存 server-only id；返回安全视图（只含 model_ref，绝不回真实 id）。
     """
     # 一次列模型，建 ref → (server-only id, 前端类型别名, 模型名称)。
-    from app.services.model_registry_availability import filter_knowledge_runtime
+    from app.services.model_registry_availability import (
+        approved_knowledge_names,
+        filter_knowledge_runtime,
+    )
 
+    approved_names = await approved_knowledge_names(session)
     raw = await filter_knowledge_runtime(session, await client.list_models(trace_id=trace_id))
     entries: dict[str, tuple[str, str, str]] = {}
     for m in raw:
@@ -860,7 +885,8 @@ async def set_default_models(
         if entry is None:
             raise _denied(404, "weknora_model_not_found", "所选模型不存在")
         mid, alias, name = entry
-        _validate_model_name(name, context="配置默认模型")
+        if approved_names.get(mid) != name:
+            _validate_model_name(name, context="配置默认模型")
         expected = _DEFAULT_SLOT_TYPES[slot]
         if alias != expected:
             raise _denied(422, "weknora_model_type_mismatch", "所选模型类型与该默认槽位不匹配")

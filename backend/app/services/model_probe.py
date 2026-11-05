@@ -67,10 +67,12 @@ async def post_probe(url: str, key: str, payload: dict) -> dict:
     url = validate_url(url)
     parts = urlsplit(url)
     host = parts.hostname
+    settings = get_settings()
+    proxy = getattr(settings, "model_registry_proxy_url", "")
+    if proxy:
+        proxy = validate_url(proxy)
     allowed = {
-        h.strip().lower()
-        for h in get_settings().model_registry_private_hosts.split(",")
-        if h.strip()
+        h.strip().lower() for h in settings.model_registry_private_hosts.split(",") if h.strip()
     }
     if parts.scheme != "https" and host not in allowed:
         raise RegistryError("https_required", "公网模型接口必须使用 HTTPS。")
@@ -89,13 +91,21 @@ async def post_probe(url: str, key: str, payload: dict) -> dict:
         ):
             raise RegistryError("endpoint_blocked", "该接口地址不在允许访问的网络范围。")
         # Pin the validated address for the request, while preserving TLS SNI and Host.
-        target = httpx.URL(url).copy_with(host=addresses[0])
+        # An explicit CONNECT gateway receives the validated hostname so its own
+        # exact-domain allowlist and DNS/IP checks remain effective. Direct calls
+        # pin the validated IP here. Neither mode reads ambient proxy variables.
+        target = httpx.URL(url) if proxy else httpx.URL(url).copy_with(host=addresses[0])
         headers = {
             "Host": parts.netloc,
             "Authorization": f"Bearer {key}",
             "Content-Type": "application/json",
         }
-        async with httpx.AsyncClient(timeout=20, trust_env=False, follow_redirects=False) as client:
+        async with httpx.AsyncClient(
+            timeout=20,
+            trust_env=False,
+            follow_redirects=False,
+            **({"proxy": proxy} if proxy else {}),
+        ) as client:
             async with client.stream(
                 "POST", target, headers=headers, json=payload, extensions={"sni_hostname": host}
             ) as response:

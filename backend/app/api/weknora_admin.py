@@ -215,9 +215,14 @@ async def list_models(
 ) -> ModelListResponse:
     _kb_config_project_scope(caller)
     _require_enabled()
+    from app.services.model_registry_availability import approved_knowledge_names
+
     try:
         items = await weknora_models.list_models(
-            weknora, model_type=type, trace_id=get_trace_id(request)
+            weknora,
+            model_type=type,
+            trace_id=get_trace_id(request),
+            approved_names=await approved_knowledge_names(session),
         )
     except WeKnoraError as exc:
         raise _wrap_weknora(exc) from exc

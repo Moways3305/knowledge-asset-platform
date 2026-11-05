@@ -5,6 +5,16 @@ from sqlalchemy import select
 from app.models.model_registry import RegisteredModel
 
 
+async def approved_knowledge_names(session):
+    """Only locally journalled successful bindings may bypass legacy name-prefix rules."""
+    registered = list((await session.scalars(select(RegisteredModel))).all())
+    return {
+        model.weknora_id: model.model_name
+        for model in registered
+        if model.weknora_id and model.bindings.get("knowledge", {}).get("status") == "ready"
+    }
+
+
 async def filter_knowledge_runtime(session, models):
     registered = list((await session.scalars(select(RegisteredModel))).all())
     by_id = {m.weknora_id: m for m in registered if m.weknora_id}

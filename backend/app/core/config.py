@@ -172,6 +172,8 @@ class Settings(BaseSettings):
     generation_model_encryption_key: str = ""
     # Explicit internal model gateways; empty by default. Never enables general private egress.
     model_registry_private_hosts: str = ""
+    # Explicit administrator-controlled CONNECT gateway; never inferred from ambient proxy variables.
+    model_registry_proxy_url: str = ""
 
     # 入库 OCR：只调用容器内 Tesseract，不把原文发往外部视觉模型。
     ocr_enabled: bool = True

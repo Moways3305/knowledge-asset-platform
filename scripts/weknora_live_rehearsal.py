@@ -230,7 +230,21 @@ def main():
         action="store_true",
         help="Extend --kap-role-flows with asynchronous Markdown upload and reviewed project publication",
     )
+    parser.add_argument(
+        "--kap-model-registry",
+        action="store_true",
+        help="Verify new KAP shared connections with live models only, without repeating file/role flows",
+    )
     args = parser.parse_args()
+    if args.kap_model_registry and (
+        args.kap_role_flows
+        or args.kap_upload_flow
+        or not args.aliyun_workspace_id
+        or not args.fixture_rerank_use_embedding_key
+    ):
+        parser.error(
+            "--kap-model-registry requires workspace/shared embedding key and excludes role/upload flows"
+        )
     if args.kap_upload_flow and not args.kap_role_flows:
         parser.error("--kap-upload-flow requires --kap-role-flows")
     if args.fixture_rerank_use_embedding_key and not args.aliyun_workspace_id:
@@ -342,11 +356,12 @@ def main():
                     "configuration_adjustments": adjustments,
                     "kap_role_flows": args.kap_role_flows,
                     "kap_upload_flow": args.kap_upload_flow,
+                    "kap_model_registry": args.kap_model_registry,
                     "kap_database_url": (
                         "postgresql+asyncpg://wkfixture:"
                         + password
                         + "@127.0.0.1:5432/kap_role_fixture"
-                        if args.kap_role_flows
+                        if args.kap_role_flows or args.kap_model_registry
                         else None
                     ),
                 }
@@ -478,12 +493,12 @@ def main():
             == "0",
             "database was not empty",
         )
-        if args.kap_role_flows:
+        if args.kap_role_flows or args.kap_model_registry:
             # ParadeDB's default template includes PostGIS/statistics relations in
             # public. KAP needs a pristine schema, just as in its PostgreSQL tests.
             # Keep assert_empty_database strict instead of ignoring inherited tables.
             pg.sql(database, "CREATE DATABASE kap_role_fixture TEMPLATE template0;")
-            print("本轮另建空白 KAP 测试库，使用真实密码会话验收三角色权限。", flush=True)
+            print("本轮另建空白 KAP 测试库，使用真实密码会话进行隔离验收。", flush=True)
         parent_id = pg.inspect(database)["Id"]
         create(
             redis,
@@ -550,7 +565,12 @@ def main():
             pg.sql(database, "SELECT count(*) FROM knowledges;") == "0",
             "test database contains documents before probe",
         )
-        print("=== 3/4 虚构资料：真实模型、纯向量召回、上传、删除及重新解析 ===", flush=True)
+        print(
+            "=== 3/4 新模型接入：共用凭据、真实能力验证及用途接入 ==="
+            if args.kap_model_registry
+            else "=== 3/4 虚构资料：真实模型、纯向量召回、上传、删除及重新解析 ===",
+            flush=True,
+        )
         create(
             tester,
             "--network",
@@ -577,7 +597,9 @@ def main():
             "--mount",
             f"type=bind,src={stage},dst=/evidence",
             kap["Image"],
-            "/probe/scripts/weknora_live_probe.py",
+            "/probe/scripts/weknora_model_registry_probe.py"
+            if args.kap_model_registry
+            else "/probe/scripts/weknora_live_probe.py",
         )
         subprocess.run(
             ["docker", "start", "-a", tester],
@@ -630,9 +652,14 @@ def main():
             except Exception:
                 code = 1
         if code == 0:
-            (stage / "PASS-LIVE").write_text(
-                "Synthetic model/file lifecycle passed. See live-report.json for exact scope and exclusions.\n"
-            )
+            if args.kap_model_registry:
+                (stage / "PASS-KAP-MODEL-REGISTRY").write_text(
+                    "Live shared-connection onboarding passed; production unchanged; see live-report.json.\n"
+                )
+            else:
+                (stage / "PASS-LIVE").write_text(
+                    "Synthetic model/file lifecycle passed. See live-report.json for exact scope and exclusions.\n"
+                )
             if args.kap_role_flows:
                 (stage / "PASS-KAP-ROLES").write_text(
                     "HTTPS three-role authorization passed; see kap-role-report.json for exclusions.\n"

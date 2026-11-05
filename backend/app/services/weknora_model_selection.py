@@ -81,11 +81,15 @@ def _require_model(
     model_id: str,
     *,
     expected_type: str,
+    approved_names: dict[str, str] | None = None,
 ) -> ModelInitMeta:
     meta = models_by_id.get(model_id)
     if meta is None:
         raise WeKnoraError("weknora_model_not_found", "所选模型不存在")
-    if not _is_valid_model_name(meta.model_name):
+    if (
+        not _is_valid_model_name(meta.model_name)
+        and (approved_names or {}).get(model_id) != meta.model_name
+    ):
         raise WeKnoraError("weknora_model_name_invalid", "所选模型名称不属于允许的模型家族")
     if meta.type != expected_type:
         raise WeKnoraError("weknora_model_type_mismatch", "所选模型类型与用途不匹配")
@@ -117,8 +121,12 @@ async def resolve_models_for_kb(
             "尚未配置平台默认问答模型，请联系管理员在模型配置中设置",
         )
 
-    from app.services.model_registry_availability import filter_knowledge_runtime
+    from app.services.model_registry_availability import (
+        approved_knowledge_names,
+        filter_knowledge_runtime,
+    )
 
+    approved_names = await approved_knowledge_names(session)
     raw_models = await filter_knowledge_runtime(
         session, await client.list_models(trace_id=trace_id)
     )
@@ -135,8 +143,15 @@ async def resolve_models_for_kb(
         embedding_id = _resolve_ref(ref_map, embedding_model_ref)
     else:
         embedding_id = default_embedding_id
-    embedding = _require_model(discovered_models_by_id, embedding_id, expected_type="embedding")
-    chat = _require_model(discovered_models_by_id, chat_id, expected_type="chat")
+    embedding = _require_model(
+        discovered_models_by_id,
+        embedding_id,
+        expected_type="embedding",
+        approved_names=approved_names,
+    )
+    chat = _require_model(
+        discovered_models_by_id, chat_id, expected_type="chat", approved_names=approved_names
+    )
 
     rerank_id: str | None = None
     if rerank_model_ref:
@@ -144,16 +159,26 @@ async def resolve_models_for_kb(
     else:
         rerank_id = (defaults.default_rerank_model_id if defaults else None) or None
     if rerank_id:
-        _require_model(discovered_models_by_id, rerank_id, expected_type="rerank")
+        _require_model(
+            discovered_models_by_id,
+            rerank_id,
+            expected_type="rerank",
+            approved_names=approved_names,
+        )
 
     multimodal_id = (defaults.default_multimodal_model_id if defaults else None) or None
     if multimodal_id:
-        _require_model(discovered_models_by_id, multimodal_id, expected_type="vllm")
+        _require_model(
+            discovered_models_by_id,
+            multimodal_id,
+            expected_type="vllm",
+            approved_names=approved_names,
+        )
 
     approved_models_by_id = {
         model_id: meta
         for model_id, meta in discovered_models_by_id.items()
-        if _is_valid_model_name(meta.model_name)
+        if _is_valid_model_name(meta.model_name) or approved_names.get(model_id) == meta.model_name
     }
 
     return ResolvedModels(
