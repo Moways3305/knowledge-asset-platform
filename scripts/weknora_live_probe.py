@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import secrets
 import socket
+import subprocess
 import sys
 import time
 import traceback
@@ -343,6 +344,31 @@ async def run(data):
     check("async_delete_completed", not remaining and total == 0)
     check("deleted_content_not_recalled", not await client.search(query="星舟", kb_ids=[kb]))
     await client.delete_kb(kb)
+    if data.get("kap_role_flows"):
+        role_input = {
+            "database_url": data["kap_database_url"],
+            "weknora_base_url": "http://127.0.0.1:8080",
+            "weknora_api_key": api_key,
+            "models": created_models,
+            "generation": generation,
+        }
+        role_path = Path("/evidence/kap-role-private.json")
+        role_path.write_text(json.dumps(role_input))
+        role_path.chmod(0o600)
+        result = subprocess.run(
+            [sys.executable, "/probe/scripts/weknora_kap_role_probe.py"],
+            timeout=1800,
+        )
+        report_path = Path("/evidence/kap-role-report.json")
+        if report_path.is_file():
+            REPORT["kap_role_authorization"] = json.loads(report_path.read_text())
+        check(
+            "kap_three_role_authorization",
+            result.returncode == 0
+            and REPORT.get("kap_role_authorization", {}).get("passed") is True,
+        )
+        REPORT["not_verified"].remove("KAP three-role end-to-end authorization")
+        REPORT["not_verified"].extend(["browser UI", "KAP upload-confirm-publish workflow"])
 
 
 def main():

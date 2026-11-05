@@ -330,7 +330,7 @@ def main():
     ) or not app_stage.name.startswith(("app090-", "live090-")):
         raise SystemExit("Unexpected rehearsal directory")
     result = {"read_only": True, "raw_logs_included": False, "stage": stage.name, "logs": {}}
-    for name in ["probe-private.log", "private.log"]:
+    for name in ["probe-private.log", "private.log", "kap-role-private.log"]:
         path = stage / name
         if not path.is_file():
             result["logs"][name] = {"present": False}

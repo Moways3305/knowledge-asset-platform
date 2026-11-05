@@ -220,6 +220,11 @@ def main():
         action="store_true",
         help="Use the stored embedding API key for synthetic rerank only; requires --aliyun-workspace-id",
     )
+    parser.add_argument(
+        "--kap-role-flows",
+        action="store_true",
+        help="Also run real KAP HTTPS role authorization in a separate fresh fixture database",
+    )
     args = parser.parse_args()
     if args.fixture_rerank_use_embedding_key and not args.aliyun_workspace_id:
         parser.error("--fixture-rerank-use-embedding-key requires --aliyun-workspace-id")
@@ -320,6 +325,7 @@ def main():
             print("仅调整本轮虚构模型配置；生产配置未修改，须后续单独验收。", flush=True)
         if args.fixture_rerank_use_embedding_key:
             print("本轮虚构重排模型使用嵌入模型的 API Key；生产密钥配置未修改。", flush=True)
+        password = secrets.token_urlsafe(32)
         (stage / "live-private.json").write_text(
             json.dumps(
                 {
@@ -327,10 +333,17 @@ def main():
                     "aes_key": snapshot["aes_key"],
                     "generation": picked["generation"],
                     "configuration_adjustments": adjustments,
+                    "kap_role_flows": args.kap_role_flows,
+                    "kap_database_url": (
+                        "postgresql+asyncpg://wkfixture:"
+                        + password
+                        + "@127.0.0.1:5432/kap_role_fixture"
+                        if args.kap_role_flows
+                        else None
+                    ),
                 }
             )
         )
-        password = secrets.token_urlsafe(32)
         pg.OWNER = "wkfixture"
         app.write_env(
             stage / "db-private.env",
@@ -457,6 +470,9 @@ def main():
             == "0",
             "database was not empty",
         )
+        if args.kap_role_flows:
+            pg.sql(database, "CREATE DATABASE kap_role_fixture;")
+            print("本轮另建空白 KAP 测试库，使用真实密码会话验收三角色权限。", flush=True)
         parent_id = pg.inspect(database)["Id"]
         create(
             redis,
@@ -556,7 +572,7 @@ def main():
             ["docker", "start", "-a", tester],
             stdout=pg.PRIVATE,
             stderr=pg.PRIVATE,
-            timeout=1800,
+            timeout=3600 if args.kap_role_flows else 1800,
             check=True,
         )
         pg.require(pg.inspect(tester)["State"]["ExitCode"] == 0, "live probe failed")
@@ -599,8 +615,12 @@ def main():
                 code = 1
         if code == 0:
             (stage / "PASS-LIVE").write_text(
-                "Synthetic model/file lifecycle passed; role flows, multimodal and PDF/OCR NOT accepted.\n"
+                "Synthetic model/file lifecycle passed. See live-report.json for exact scope and exclusions.\n"
             )
+            if args.kap_role_flows:
+                (stage / "PASS-KAP-ROLES").write_text(
+                    "HTTPS three-role authorization passed; see kap-role-report.json for exclusions.\n"
+                )
         (stage / "exit-code").write_text(str(code) + "\n")
         lock.close()
         pg.PRIVATE.close()
