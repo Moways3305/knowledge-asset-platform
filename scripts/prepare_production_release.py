@@ -36,6 +36,50 @@ def require(condition, message):
         raise RuntimeError(message)
 
 
+def preserve_rollback_image(runner, name, item, token, *, allow_completed_migrate=False):
+    image_id = item.get("Image", "")
+    require(re.fullmatch(r"sha256:[a-f0-9]{64}", image_id), "生产镜像 ID 格式不正确")
+    identity = runner.image_identity(image_id)
+    if identity is None:
+        state = item.get("State") or {}
+        labels = item.get("Config", {}).get("Labels") or {}
+        restart = item.get("HostConfig", {}).get("RestartPolicy", {}).get("Name")
+        completed_migrate = (
+            name == "kap-migrate-1"
+            and item.get("Name") == "/kap-migrate-1"
+            and state.get("Status") == "exited"
+            and state.get("Running") is False
+            and state.get("ExitCode") == 0
+            and not state.get("Dead")
+            and not state.get("Restarting")
+            and restart in {"no", ""}
+            and labels.get("com.docker.compose.project") == "kap"
+            and labels.get("com.docker.compose.service") == "migrate"
+            and not labels.get(REHEARSAL_LABEL)
+        )
+        require(
+            allow_completed_migrate and completed_migrate,
+            "回滚镜像缺失；仅允许显式豁免已成功结束且不自动重启的历史迁移容器",
+        )
+        return {
+            "image_id": image_id,
+            "tag": None,
+            "status": "completed_job_image_missing",
+            "container_preserved": True,
+            "recreate_on_rollback": False,
+        }
+    require(identity == image_id, "生产镜像身份不匹配")
+    tag = "kap-rollback:" + token + "-" + name.lower().replace("_", "-")
+    runner.docker("tag", image_id, tag)
+    require(runner.image_identity(tag) == image_id, "回滚标签镜像身份不匹配")
+    return {
+        "image_id": image_id,
+        "tag": tag,
+        "status": "preserved",
+        "recreate_on_rollback": name != "kap-migrate-1",
+    }
+
+
 def fingerprint(item):
     data = {k: item[k] for k in ("Id", "Image", "Config", "HostConfig")}
     data["Mounts"] = sorted(item.get("Mounts", []), key=lambda m: json.dumps(m, sort_keys=True))
@@ -81,6 +125,23 @@ class Runner:
 
     def inspect(self, name):
         return json.loads(self.docker("inspect", name))[0]
+
+    def image_identity(self, reference):
+        result = subprocess.run(
+            ["docker", "image", "inspect", "--format", "{{.Id}}", reference],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=60,
+        )
+        if result.stderr:
+            self.log.write(result.stderr)
+        if result.returncode:
+            if b"no such image" in result.stderr.lower():
+                return None
+            raise RuntimeError("镜像检查失败；详见 private.log，不得按镜像缺失跳过")
+        identity = result.stdout.decode().strip()
+        require(re.fullmatch(r"sha256:[a-f0-9]{64}", identity), "镜像检查返回无效 ID")
+        return identity
 
     def execute(self, args, *, cwd=None, timeout=3600):
         started = time.monotonic()
@@ -170,6 +231,11 @@ def main():
     parser.add_argument("--revision", required=True)
     parser.add_argument("--build-stage", required=True, type=Path)
     parser.add_argument("--version", default="1.0.0")
+    parser.add_argument(
+        "--allow-missing-completed-migrate-image",
+        action="store_true",
+        help="仅允许已成功结束的 kap-migrate-1 缺失原镜像；保留容器且禁止将其作为回滚重建目标",
+    )
     args = parser.parse_args()
     require(re.fullmatch(r"[a-f0-9]{40}", args.revision), "必须固定完整提交")
     os.umask(0o077)
@@ -269,9 +335,19 @@ def main():
             rollback = {}
             config_paths = {repo / ".env", repo / "backend/.env"}
             for name, item in originals.items():
-                tag = "kap-rollback:" + token + "-" + name.lower().replace("_", "-")
-                r.docker("tag", item["Image"], tag)
-                rollback[name] = {"image_id": item["Image"], "tag": tag}
+                rollback[name] = preserve_rollback_image(
+                    r,
+                    name,
+                    item,
+                    token,
+                    allow_completed_migrate=args.allow_missing_completed_migrate_image,
+                )
+                (stage / "rollback-images.json").write_text(json.dumps(rollback, indent=2))
+                if rollback[name]["status"] == "completed_job_image_missing":
+                    report.setdefault("rollback_excluded_completed_jobs", []).append(name)
+                    print(
+                        "保留已成功结束的历史迁移容器；其原镜像缺失，不用于回滚重建。", flush=True
+                    )
                 labels = item["Config"].get("Labels") or {}
                 workdir = Path(labels["com.docker.compose.project.working_dir"])
                 config_paths.add(workdir / ".env")
@@ -283,6 +359,11 @@ def main():
                         and mount["Destination"] == "/app/config/config.yaml"
                     ):
                         config_paths.add(Path(mount["Source"]))
+            report["running_service_rollback_images_preserved"] = all(
+                rollback[name]["status"] == "preserved"
+                for name, item in originals.items()
+                if item["State"]["Running"]
+            )
             saved_configs = {}
             for path in sorted(config_paths):
                 if path.is_file():

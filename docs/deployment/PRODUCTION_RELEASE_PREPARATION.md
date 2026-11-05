@@ -12,3 +12,10 @@
 只有上述全部完成才写 `PREPARED` 和 `prepare-report.json` 的 `passed=true`。这不是部署成功标记，不执行生产迁移、不切换镜像、不更改模型、不发布更新公告。异常只输出受控摘要，私密日志不得回传。
 
 后续正式切换必须使用本次准备目录记录的不可变镜像，先停写并备份当前生产数据库与文件，保留旧数据卷；按已演练的顺序升级 WeKnora PostgreSQL 扩展与 schema，然后迁移并部署 KAP、修正已指定的模型地址及共享凭据，核对健康与发布身份。生产恢复不能仅把旧 ParadeDB 镜像接回已升级的数据卷；版本登记仍通过 `deploy_release.py --sync-only --apply` 完成，公告保持待审核。
+
+
+历史一次性迁移容器的镜像缺失时，可显式传入 `--allow-missing-completed-migrate-image`。
+该例外只适用于名称、Compose 项目/服务均匹配的 `kap-migrate-1`，且其状态为 exited、退出码为 0、没有自动重启策略。
+其他容器缺失镜像、Docker 检查错误或镜像身份不一致仍然停止准备。不会删除、重建或启动历史迁移容器，也不会用已漂移的原标签冒充旧镜像。
+`rollback-images.json` 将该历史任务标记为 `completed_job_image_missing`、`tag=null`、`recreate_on_rollback=false`；这不表示原镜像已恢复。
+所有运行服务仍须保留并核验原镜像标签。后续回滚只恢复服务与一致性备份，不应重新运行已完成的历史迁移容器；新版本迁移使用本次构建并核验的候选迁移镜像。
