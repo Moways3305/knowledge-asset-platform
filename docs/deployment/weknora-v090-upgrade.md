@@ -153,6 +153,16 @@ HTTP 对照还发现 KAP 的范围假设不符合上游：v0.9.0 `buildSearchTar
 
 修正仅将独立 KAP 夹具库创建语句改为 `CREATE DATABASE kap_role_fixture TEMPLATE template0`，不忽略任何已有表，不删除服务器失败记录，不改 WeKnora 库及生产库。相同 ParadeDB 镜像下验证 public 表/视图数为 0，完整迁移及 HTTPS 权限流程本地替身预跑 110 项通过，81 项脚本测试通过。真实服务器角色验收仍待重跑。
 
+服务器续验 `run-eDkLxh7B/live090-8711776be2` 已回传退出 0：空库与完整迁移、110 个三角色权限检查点全部通过，真实模型与文件生命周期复验同时通过。生产指纹核对和测试容器收尾成功。此记录作为本次隔离三角色 API 验收依据，不扩大到浏览器或业务入库发布流程。
+
+### KAP 异步入库与项目发布续验
+
+新增显式选项 `--kap-upload-flow`（要求同时启用 `--kap-role-flows`）。独立 KAP 测试服务设置 `CELERY_TASK_ALWAYS_EAGER=false`，使用隔离 Redis 的 DB 5 与独立 prefork worker，消费 default/ocr 队列。验收需要 worker 实际响应，再通过真实 HTTPS API 上传虚构 Markdown、轮询内容生成、人工确认到个人资料、等到底座解析完成、确认个人资产、预览规范命名、提交到独立虚构项目并由项目经理审核。项目经理使用虚构 boss 账号在该新项目的有效成员身份，不改变先前三角色矩阵中跨项目边界的含义。
+
+待验证资产、版本、任务、审核及底座索引均由正常 API 和 worker 创建；夹具 SQL 只准备项目、成员及默认命名规则。检查纯管理员上传/审批拒绝、提交者自审拒绝、重复确认拒绝、发布幂等、独立项目版本与索引、个人源版本不变、两份原文件预览字节一致、底座文档内容与 KAP 召回、项目问答引用范围。解析对账通过 broker 投递正常 `weknora.parse_reconcile` 任务，不直接写成功状态；这不验证生产 beat 的周期调度或多 worker 拓扑。
+
+仅所有检查、生产指纹和容器收尾均成功才新增 `PASS-KAP-UPLOAD`。此前 `live090-8711776be2` 的通过记录保持不变。该轮范围限于 Markdown 个人入库到项目审核发布；其他 KAP 上传格式、公司升格、浏览器 UI、多模态、PDF/OCR 及生产配置修正继续明确未验。服务器真实联网结果仍待执行，本地协议替身结果不能替代。
+
 ## 上游参考链接
 
 - [v0.9.0 发布](https://github.com/Tencent/WeKnora/releases/tag/v0.9.0)

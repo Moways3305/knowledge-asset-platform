@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import signal
 import ssl
 import subprocess
 import sys
@@ -84,7 +85,7 @@ def isolated_env(data, root=ROOT, backend=BACKEND):
         SESSION_COOKIE_SECURE="true",
         STORAGE_ROOT=str(root / "kap-role-storage"),
         REDIS_URL="redis://127.0.0.1:6379/5",
-        CELERY_TASK_ALWAYS_EAGER="true",
+        CELERY_TASK_ALWAYS_EAGER="false" if data.get("kap_upload_flow") else "true",
         WECOM_NOTIFY_ENABLED="false",
         ONLYOFFICE_ENABLED="false",
         NO_PROXY="127.0.0.1,localhost",
@@ -339,7 +340,7 @@ def assert_safe(body, fixtures, allowed_markers=()):
         raise RuntimeError("role response exposed forbidden fixture information")
 
 
-async def exercise(users, fixtures, cert_path, process):
+async def exercise(users, fixtures, cert_path, process, *, upload_flow=False):
     base = "https://127.0.0.1:18443"
     verify = ssl.create_default_context(cafile=str(cert_path))
     async with AsyncExitStack() as stack:
@@ -577,6 +578,19 @@ async def exercise(users, fixtures, cert_path, process):
                 role=role,
             )
             assert_safe(body, fixtures, {own})
+        if upload_flow:
+            from weknora_kap_upload_probe import run as run_upload
+
+            await run_upload(clients, users, check)
+            REPORT["upload_workflow_passed"] = True
+            REPORT["not_verified"].remove("KAP upload-confirm-publish workflow")
+            REPORT["not_verified"].extend(
+                [
+                    "KAP upload formats other than Markdown",
+                    "company promotion workflow",
+                    "production worker topology and periodic scheduling",
+                ]
+            )
         for role, http in clients.items():
             prior_cookie = http.cookies.get("kap_session")
             logout = await http.post("/api/v1/auth/logout")
@@ -627,12 +641,17 @@ async def audit_check(users):
 def main():
     os.umask(0o077)
     process = None
+    worker = None
     ok = False
     runtime = ROOT / "kap-role-runtime"
     runtime.mkdir()
     with (ROOT / "kap-role-private.log").open("w") as log:
         try:
             data = json.loads((ROOT / "kap-role-private.json").read_text())
+            if data.get("kap_upload_flow"):
+                REPORT["scope"] += (
+                    "; asynchronous Markdown intake, personal confirmation and reviewed project publication"
+                )
             env = isolated_env(data)
             os.environ.clear()
             os.environ.update(env)
@@ -651,6 +670,40 @@ def main():
             check("kap_fresh_migrations", True)
             users, fixtures = asyncio.run(seed(data))
             cert, key = tls_files(runtime)
+            if data.get("kap_upload_flow"):
+                worker = subprocess.Popen(
+                    [
+                        sys.executable,
+                        "-m",
+                        "celery",
+                        "-A",
+                        "app.worker.celery_app:celery_app",
+                        "worker",
+                        "--concurrency=1",
+                        "--pool=prefork",
+                        "-Q",
+                        "default,ocr",
+                        "--hostname=kap-rehearsal@fixture",
+                        "--without-gossip",
+                        "--without-mingle",
+                        "--without-heartbeat",
+                        "--loglevel=WARNING",
+                    ],
+                    env=env,
+                    stdout=log,
+                    stderr=log,
+                    start_new_session=True,
+                )
+                from app.worker.celery_app import celery_app
+
+                worker_ready = False
+                for _ in range(30):
+                    if worker.poll() is not None:
+                        break
+                    if celery_app.control.ping(destination=["kap-rehearsal@fixture"], timeout=1):
+                        worker_ready = True
+                        break
+                check("kap_async_worker_ready", worker_ready)
             process = subprocess.Popen(
                 [
                     sys.executable,
@@ -671,7 +724,11 @@ def main():
                 stdout=log,
                 stderr=log,
             )
-            asyncio.run(exercise(users, fixtures, cert, process))
+            asyncio.run(
+                exercise(
+                    users, fixtures, cert, process, upload_flow=data.get("kap_upload_flow", False)
+                )
+            )
             asyncio.run(audit_check(users))
             ok = True
         except Exception:
@@ -679,6 +736,16 @@ def main():
             log.write(failure)
             REPORT["failure"] = classify(failure)
         finally:
+            if worker is not None:
+                try:
+                    worker.terminate()
+                except ProcessLookupError:
+                    pass
+                try:
+                    worker.wait(timeout=20)
+                except subprocess.TimeoutExpired:
+                    os.killpg(worker.pid, signal.SIGKILL)
+                    worker.wait(timeout=10)
             if process is not None:
                 process.terminate()
                 try:

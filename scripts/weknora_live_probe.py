@@ -351,13 +351,14 @@ async def run(data):
             "weknora_api_key": api_key,
             "models": created_models,
             "generation": generation,
+            "kap_upload_flow": data.get("kap_upload_flow", False),
         }
         role_path = Path("/evidence/kap-role-private.json")
         role_path.write_text(json.dumps(role_input))
         role_path.chmod(0o600)
         result = subprocess.run(
             [sys.executable, "/probe/scripts/weknora_kap_role_probe.py"],
-            timeout=1800,
+            timeout=3000 if data.get("kap_upload_flow") else 1800,
         )
         report_path = Path("/evidence/kap-role-report.json")
         if report_path.is_file():
@@ -369,6 +370,19 @@ async def run(data):
         )
         REPORT["not_verified"].remove("KAP three-role end-to-end authorization")
         REPORT["not_verified"].extend(["browser UI", "KAP upload-confirm-publish workflow"])
+        if data.get("kap_upload_flow"):
+            check(
+                "kap_upload_workflow",
+                REPORT["kap_role_authorization"].get("upload_workflow_passed") is True,
+            )
+            REPORT["not_verified"].remove("KAP upload-confirm-publish workflow")
+            REPORT["not_verified"].extend(
+                [
+                    "KAP upload formats other than Markdown",
+                    "company promotion workflow",
+                    "production worker topology and periodic scheduling",
+                ]
+            )
 
 
 def main():

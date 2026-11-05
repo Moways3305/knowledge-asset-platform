@@ -225,7 +225,14 @@ def main():
         action="store_true",
         help="Also run real KAP HTTPS role authorization in a separate fresh fixture database",
     )
+    parser.add_argument(
+        "--kap-upload-flow",
+        action="store_true",
+        help="Extend --kap-role-flows with asynchronous Markdown upload and reviewed project publication",
+    )
     args = parser.parse_args()
+    if args.kap_upload_flow and not args.kap_role_flows:
+        parser.error("--kap-upload-flow requires --kap-role-flows")
     if args.fixture_rerank_use_embedding_key and not args.aliyun_workspace_id:
         parser.error("--fixture-rerank-use-embedding-key requires --aliyun-workspace-id")
     allowed = egress.allowed_hosts(args.aliyun_workspace_id)
@@ -334,6 +341,7 @@ def main():
                     "generation": picked["generation"],
                     "configuration_adjustments": adjustments,
                     "kap_role_flows": args.kap_role_flows,
+                    "kap_upload_flow": args.kap_upload_flow,
                     "kap_database_url": (
                         "postgresql+asyncpg://wkfixture:"
                         + password
@@ -548,7 +556,7 @@ def main():
             "--network",
             "container:" + database,
             "--memory",
-            "1g",
+            "2g" if args.kap_upload_flow else "1g",
             "--cpus",
             "1",
             "--user",
@@ -582,6 +590,11 @@ def main():
         assert_shared_hosts(pg.inspect(tester), pg.inspect(database))
         report = json.loads((stage / "live-report.json").read_text())
         pg.require(report.get("passed") is True, "live report failed")
+        if args.kap_upload_flow:
+            pg.require(
+                report.get("kap_role_authorization", {}).get("upload_workflow_passed") is True,
+                "KAP upload workflow not passed",
+            )
         print(json.dumps(report, ensure_ascii=False), flush=True)
         assert_network(pg.inspect(database), [internal], run)
         assert_network(pg.inspect(gateway), [internal, outside], run)
@@ -623,6 +636,10 @@ def main():
             if args.kap_role_flows:
                 (stage / "PASS-KAP-ROLES").write_text(
                     "HTTPS three-role authorization passed; see kap-role-report.json for exclusions.\n"
+                )
+            if args.kap_upload_flow:
+                (stage / "PASS-KAP-UPLOAD").write_text(
+                    "KAP asynchronous Markdown intake, personal confirmation and reviewed project publication passed.\n"
                 )
         (stage / "exit-code").write_text(str(code) + "\n")
         lock.close()
