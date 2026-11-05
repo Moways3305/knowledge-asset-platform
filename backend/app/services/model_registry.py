@@ -18,15 +18,29 @@ from sqlalchemy import select
 from app.db.utils import utc_now
 from app.models.generation_model import ContentGenerationModel
 from app.models.model_registry import ProviderConnection, RegisteredModel
+from app.schemas.enums import AuditLogType
 from app.schemas.model_registry import ConnectionInput, ModelInput
 from app.schemas.weknora_admin import ModelCheckRequest
+from app.services import audit, model_probe
 from app.services import generation_models as gm
-from app.services import model_probe
 from app.services import weknora_models as wm
 from app.services.model_provider_catalog import RegistryError, endpoints_for
 from app.services.weknora_client import WeKnoraError
 
 LEASE = timedelta(minutes=10)
+
+
+async def record_operation(session, caller, trace_id, action, identifier):
+    await audit.record_event(
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=f"model_registry.{action}",
+        trace_id=trace_id,
+        target_type="model_registry",
+        extra={"registry_ref": str(identifier)},
+    )
+    await session.commit()
 
 
 def signature(model, connection):

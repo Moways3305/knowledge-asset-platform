@@ -12,7 +12,6 @@ from app.api.deps import get_caller_context
 from app.api.model_connections import _require_operator
 from app.core.trace import get_trace_id
 from app.db.session import get_db
-from app.schemas.enums import AuditLogType
 from app.schemas.model_registry import (
     ConnectionInput,
     ConnectionOut,
@@ -22,7 +21,6 @@ from app.schemas.model_registry import (
     VersionInput,
 )
 from app.schemas.permission import CallerContext
-from app.services import audit
 from app.services import model_registry as registry
 from app.services.generation_models import GenerationModelError
 from app.services.model_provider_catalog import CATALOG, RegistryError
@@ -77,19 +75,6 @@ router = APIRouter(
 )
 
 
-async def record(session, caller, request, action, identifier):
-    await audit.record_event(
-        session,
-        caller=caller,
-        log_type=AuditLogType.operation,
-        action=f"model_registry.{action}",
-        trace_id=get_trace_id(request),
-        target_type="model_registry",
-        extra={"registry_ref": str(identifier)},
-    )
-    await session.commit()
-
-
 @router.get("/catalog")
 async def catalog(caller: CallerContext = Depends(get_caller_context)):
     _require_operator(caller)
@@ -113,7 +98,9 @@ async def create_connection(
 ):
     _require_operator(caller)
     result = await registry.save_connection(session, body)
-    await record(session, caller, request, "connection_created", result["id"])
+    await registry.record_operation(
+        session, caller, get_trace_id(request), "connection_created", result["id"]
+    )
     return result
 
 
@@ -127,7 +114,9 @@ async def update_connection(
 ):
     _require_operator(caller)
     result = await registry.save_connection(session, body, connection_id)
-    await record(session, caller, request, "connection_updated", connection_id)
+    await registry.record_operation(
+        session, caller, get_trace_id(request), "connection_updated", connection_id
+    )
     return result
 
 
@@ -140,7 +129,9 @@ async def create_model(
 ):
     _require_operator(caller)
     result = await registry.save_model(session, body)
-    await record(session, caller, request, "model_saved", result["id"])
+    await registry.record_operation(
+        session, caller, get_trace_id(request), "model_saved", result["id"]
+    )
     return result
 
 
@@ -154,7 +145,9 @@ async def update_model(
 ):
     _require_operator(caller)
     result = await registry.save_model(session, body, model_id)
-    await record(session, caller, request, "model_updated", model_id)
+    await registry.record_operation(
+        session, caller, get_trace_id(request), "model_updated", model_id
+    )
     return result
 
 
@@ -168,7 +161,9 @@ async def verify_model(
 ):
     _require_operator(caller)
     result = await registry.verify(session, model_id, body.signature)
-    await record(session, caller, request, "model_verified", model_id)
+    await registry.record_operation(
+        session, caller, get_trace_id(request), "model_verified", model_id
+    )
     return result
 
 
@@ -185,5 +180,7 @@ async def sync_model(
     result = await registry.sync(
         session, model_id, body.signature, weknora, caller.user_id, get_trace_id(request)
     )
-    await record(session, caller, request, "model_synced", model_id)
+    await registry.record_operation(
+        session, caller, get_trace_id(request), "model_synced", model_id
+    )
     return result

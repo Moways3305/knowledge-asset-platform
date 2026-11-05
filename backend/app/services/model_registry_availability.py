@@ -3,6 +3,7 @@
 from sqlalchemy import select
 
 from app.models.model_registry import RegisteredModel
+from app.services.weknora_model_refs import model_ref
 
 
 async def approved_knowledge_names(session):
@@ -34,10 +35,8 @@ async def filter_knowledge_runtime(session, models):
 
 
 async def filter_knowledge_options(session, models):
-    from app.services.weknora_models import _model_ref
-
     registered = list((await session.scalars(select(RegisteredModel))).all())
-    by_ref = {_model_ref(m.weknora_id): m for m in registered if m.weknora_id}
+    by_ref = {model_ref(m.weknora_id): m for m in registered if m.weknora_id}
     result = []
     for item in models:
         model = by_ref.get(item.model_ref)

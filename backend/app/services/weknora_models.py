@@ -10,8 +10,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import uuid
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
@@ -19,7 +17,6 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
 from app.models.identity import Project, User
 from app.models.indexing_job import IndexingOperationJob
 from app.models.weknora import WeknoraKbMapping
@@ -41,6 +38,7 @@ from app.schemas.weknora_admin import (
 )
 from app.services import weknora_defaults
 from app.services.weknora_client import WeKnoraError
+from app.services.weknora_model_refs import model_ref as _model_ref
 
 if TYPE_CHECKING:
     from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient
@@ -64,18 +62,6 @@ def _denied(status_code: int, reason: str, message: str) -> HTTPException:
     return HTTPException(
         status_code=status_code, detail={"denied_reason": reason, "message": message}
     )
-
-
-def _model_ref(model_id: str) -> str:
-    """WeKnora server-only model_id → 对前端不可逆的 model_ref（单向 HMAC-SHA256）。
-
-    防御：空 / "None" 的 id 直接拒绝，避免生成 HMAC("None") 这类「假成功」ref。
-    """
-    mid = str(model_id or "").strip()
-    if not mid or mid == "None":
-        raise _denied(502, "weknora_model_ref_invalid", "底座返回的模型标识无效")
-    key = (get_settings().weknora_model_ref_secret or "kap-weknora-model-ref-v1").encode("utf-8")
-    return hmac.new(key, mid.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
 def _alias(wk_type: str | None) -> str:
