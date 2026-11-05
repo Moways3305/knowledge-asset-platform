@@ -126,6 +126,36 @@ SIGNALS = {
         "cipher: message authentication failed",
     ),
 }
+PROVIDER_CODES = {
+    "Arrearage",
+    "AccessDenied",
+    "access_denied",
+    "AccessDenied.Unpurchased",
+    "Model.AccessDenied",
+    "Workspace.AccessDenied",
+    "Endpoint.AccessDenied",
+    "App.AccessDenied",
+    "AllocationQuota.FreeTierOnly",
+    "InvalidApiKey",
+    "invalid_api_key",
+    "InvalidParameter",
+    "Throttling.AllocationQuota",
+    "Throttling.RateQuota",
+    "BudgetLimitExceeded",
+    "insufficient_quota",
+    "WorkSpaceNotFound",
+    "ModelNotFound",
+}
+PROVIDER_MESSAGES = {
+    "api_key_model_restriction": "access denied by api-key restrictions",
+    "workspace_access_denied": "workspace access denied",
+    "workspace_endpoint_denied": "workspace endpoint access denied",
+    "model_access_denied": "model access denied",
+    "free_tier_only": "use free tier only",
+    "account_standing": "account is in good standing",
+    "asynchronous_not_supported": "does not support asynchronous calls",
+    "synchronous_not_supported": "does not support synchronous calls",
+}
 SQLSTATES = {
     "XX000",
     "XX001",
@@ -153,6 +183,12 @@ def classify(text):
                 found.append(name)
     codes = re.findall(r"WeKnoraError:\s*(\d{4})\s*:", text)
     return {
+        "provider_error_codes": sorted(
+            set(re.findall(r'"(?:code|type)"\s*:\s*"([^"\r\n]+)"', text)) & PROVIDER_CODES
+        ),
+        "provider_message_flags": sorted(
+            label for label, phrase in PROVIDER_MESSAGES.items() if phrase in lowered
+        ),
         "exception_type": found[-1] if found else "unclassified",
         "upstream_error_categories": sorted(
             {UPSTREAM_CODES[c] for c in codes if c in UPSTREAM_CODES}
@@ -177,6 +213,57 @@ def classify(text):
             }
         ),
     }
+
+
+def compare_model_credentials(data):
+    """Compare stored keys in memory; return no keys, hashes, headers or exception details."""
+    import base64
+    import hmac
+
+    def params(slot):
+        value = data["models"][slot].get("parameters") or {}
+        return json.loads(value) if isinstance(value, str) else value
+
+    def plaintext(value):
+        if not isinstance(value, str) or not value:
+            raise ValueError("missing credential")
+        if value.startswith("enc:v1:"):
+            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+            raw = base64.urlsafe_b64decode(value[7:] + "=" * (-len(value[7:]) % 4))
+            return AESGCM(data["aes_key"].encode()).decrypt(raw[:12], raw[12:], None)
+        return value.encode()
+
+    try:
+        embedding, rerank = params("embedding"), params("rerank")
+        result = {
+            "custom_authorization_header_present": {
+                slot: any(str(k).lower() == "authorization" for k in p.get("custom_headers", {}))
+                for slot, p in (("embedding", embedding), ("rerank", rerank))
+            },
+        }
+        try:
+            result["stored_api_keys_equal"] = hmac.compare_digest(
+                plaintext(embedding.get("api_key")), plaintext(rerank.get("api_key"))
+            )
+            result["comparison_completed"] = True
+        except Exception:
+            result["comparison_completed"] = False
+        return result
+    except Exception:
+        return {"comparison_completed": False}
+
+
+def model_diagnostics(stage):
+    result = {"checks": {}}
+    for slot in ("embedding", "chat", "rerank"):
+        path = stage / ("model-check-" + slot + "-private.json")
+        if path.is_file():
+            response = json.loads(path.read_text())
+            result["checks"][slot] = classify(str(response.get("message", "")))
+    data = json.loads((stage / "live-private.json").read_text())
+    result["credential_comparison"] = compare_model_credentials(data)
+    return result
 
 
 def isolated_logs(stage):
@@ -221,6 +308,7 @@ def main():
     choice.add_argument("--stage", type=Path)
     choice.add_argument("--latest-live-run", type=Path)
     parser.add_argument("--container-logs", action="store_true")
+    parser.add_argument("--model-checks", action="store_true")
     args = parser.parse_args()
     if args.latest_live_run:
         run = args.latest_live_run.resolve(strict=True)
@@ -259,6 +347,8 @@ def main():
         }
     if args.container_logs:
         result["isolated_containers"] = isolated_logs(stage)
+    if args.model_checks:
+        result["model_diagnostics"] = model_diagnostics(stage)
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

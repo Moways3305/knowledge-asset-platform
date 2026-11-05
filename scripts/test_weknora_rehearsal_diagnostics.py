@@ -5,10 +5,115 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from weknora_rehearsal_diagnostics import classify, isolated_logs
+from weknora_rehearsal_diagnostics import (
+    classify,
+    isolated_logs,
+    compare_model_credentials,
+    model_diagnostics,
+)
 
 
 class DiagnosticTests(unittest.TestCase):
+    def test_provider_codes_and_reasons_are_allowlisted(self):
+        for code, message, flag in (
+            ("Workspace.AccessDenied", "Workspace access denied.", "workspace_access_denied"),
+            (
+                "access_denied",
+                "Access denied by API-Key restrictions.",
+                "api_key_model_restriction",
+            ),
+            (
+                "AllocationQuota.FreeTierOnly",
+                'disable the "use free tier only" mode',
+                "free_tier_only",
+            ),
+            (
+                "Arrearage",
+                "Access denied, please make sure your account is in good standing.",
+                "account_standing",
+            ),
+        ):
+            value = "API request failed with status 403: " + json.dumps(
+                {
+                    "code": code,
+                    "message": message,
+                    "request_id": "private-request-id",
+                    "other": "sk-private https://private.invalid",
+                }
+            )
+            result = classify(value)
+            self.assertEqual(result["provider_error_codes"], [code])
+            self.assertIn(flag, result["provider_message_flags"])
+            self.assertNotIn("private", json.dumps(result))
+        self.assertEqual(classify('{"code":"sk-private"}')["provider_error_codes"], [])
+
+    def test_key_comparison_decrypts_random_nonces_without_exposing_values(self):
+        import base64
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+        key = "0" * 32
+
+        def encrypted(value, nonce):
+            return "enc:v1:" + base64.urlsafe_b64encode(
+                nonce + AESGCM(key.encode()).encrypt(nonce, value.encode(), None)
+            ).decode().rstrip("=")
+
+        data = {
+            "aes_key": key,
+            "models": {
+                "embedding": {"parameters": {"api_key": encrypted("sk-private", b"1" * 12)}},
+                "rerank": {
+                    "parameters": json.dumps(
+                        {
+                            "api_key": encrypted("sk-private", b"2" * 12),
+                            "custom_headers": {"Authorization": "Bearer hidden"},
+                        }
+                    )
+                },
+            },
+        }
+        result = compare_model_credentials(data)
+        self.assertTrue(result["comparison_completed"])
+        self.assertTrue(result["stored_api_keys_equal"])
+        self.assertTrue(result["custom_authorization_header_present"]["rerank"])
+        self.assertNotIn("private", json.dumps(result))
+        self.assertNotIn("hidden", json.dumps(result))
+        data["models"]["rerank"]["parameters"] = {"api_key": encrypted("sk-other", b"3" * 12)}
+        self.assertFalse(compare_model_credentials(data)["stored_api_keys_equal"])
+        data["aes_key"] = "bad-key"
+        result = compare_model_credentials(data)
+        self.assertFalse(result["comparison_completed"])
+        self.assertNotIn("stored_api_keys_equal", result)
+
+    def test_saved_failure_can_be_diagnosed_offline(self):
+        with tempfile.TemporaryDirectory() as temp:
+            stage = Path(temp)
+            (stage / "model-check-rerank-private.json").write_text(
+                json.dumps(
+                    {
+                        "available": False,
+                        "message": 'API request failed with status 403: {"code":"Model.AccessDenied","message":"Model access denied."}',
+                    }
+                )
+            )
+            (stage / "live-private.json").write_text(
+                json.dumps(
+                    {
+                        "models": {
+                            "embedding": {"parameters": {"api_key": "synthetic"}},
+                            "rerank": {"parameters": {"api_key": "synthetic"}},
+                        }
+                    }
+                )
+            )
+            with patch("weknora_rehearsal_diagnostics.subprocess.run") as execute:
+                result = model_diagnostics(stage)
+                execute.assert_not_called()
+            self.assertTrue(result["credential_comparison"]["stored_api_keys_equal"])
+            self.assertEqual(
+                result["checks"]["rerank"]["provider_error_codes"], ["Model.AccessDenied"]
+            )
+
     def test_model_response_classification_preserves_no_raw_payload(self):
         result = classify(
             "调用Embedding失败: status code: 401 invalid_api_key sk-secret https://private.invalid"
