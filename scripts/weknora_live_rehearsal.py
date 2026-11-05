@@ -1,6 +1,7 @@
 """Fresh synthetic database with a two-domain egress gateway; never switches production."""
 
 import argparse
+import copy
 import hashlib
 import json
 import os
@@ -76,14 +77,66 @@ def assert_network(item, expected, run):
     )
 
 
+def prepare_fixture_models(model_rows, *, correct_rerank_endpoint=False):
+    """Explicit, narrow correction in synthetic records only; never mutate the snapshot."""
+    models = copy.deepcopy(model_rows)
+    adjustments = []
+    if correct_rerank_endpoint:
+        model = models["rerank"]
+        params = model.get("parameters") or {}
+        if isinstance(params, str):
+            params = json.loads(params)
+        pg.require(
+            model.get("name") == "qwen3-rerank"
+            and model.get("type") == "Rerank"
+            and model.get("source") == "remote"
+            and params.get("provider") == "aliyun"
+            and params.get("base_url")
+            in (
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "https://dashscope.aliyuncs.com/compatible-mode/v1/",
+            )
+            and not params.get("spec")
+            and not params.get("extra_config"),
+            "rerank correction requires the exact diagnosed Aliyun configuration",
+        )
+        params["base_url"] = (
+            "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
+        )
+        model["parameters"] = params
+        adjustments.append(
+            {
+                "usage": "rerank",
+                "scope": "synthetic_model_only",
+                "from": "chat_embedding_base",
+                "to": "dashscope_native_rerank",
+                "production_configuration_changed": False,
+            }
+        )
+    return models, adjustments
+
+
 def main():
     import fcntl
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--offline-stage", type=Path, required=True)
+    source_choice = parser.add_mutually_exclusive_group(required=True)
+    source_choice.add_argument("--offline-stage", type=Path)
+    source_choice.add_argument("--build-stage", type=Path)
+    parser.add_argument(
+        "--correct-fixture-rerank-endpoint",
+        action="store_true",
+        help="Correct only the diagnosed Aliyun URL in the new synthetic model; report the deviation",
+    )
     args = parser.parse_args()
     os.umask(0o077)
-    source = args.offline_stage.resolve(strict=True)
+    if args.build_stage:
+        from weknora_keyword_app_rehearsal import passed_offline_for_build
+
+        requested_build = args.build_stage.resolve(strict=True)
+        source = passed_offline_for_build(requested_build.parent, requested_build)
+    else:
+        source = args.offline_stage.resolve(strict=True)
     run = source.parent
     pg.require(
         run.parent == Path("/data/weknora/upgrade-rehearsals")
@@ -162,12 +215,18 @@ def main():
                 metadata == picked["metadata"][slot],
                 "selected model metadata changed since offline validation",
             )
+        model_rows, adjustments = prepare_fixture_models(
+            model_rows, correct_rerank_endpoint=args.correct_fixture_rerank_endpoint
+        )
+        if adjustments:
+            print("仅修正本轮虚构重排模型的地址；生产配置未修改，须后续单独验收。", flush=True)
         (stage / "live-private.json").write_text(
             json.dumps(
                 {
                     "models": model_rows,
                     "aes_key": snapshot["aes_key"],
                     "generation": picked["generation"],
+                    "configuration_adjustments": adjustments,
                 }
             )
         )

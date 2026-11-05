@@ -50,6 +50,13 @@ def endpoint_allowed(url):
     )
 
 
+def record_configuration_adjustments(data, report):
+    adjustments = data.get("configuration_adjustments") or []
+    report["configuration_adjustments"] = adjustments
+    if adjustments:
+        report["not_verified"].append("production rerank endpoint correction and validation")
+
+
 def decrypt(value, key):
     if isinstance(value, dict):
         return {k: decrypt(v, key) for k, v in value.items()}
@@ -340,7 +347,9 @@ def main():
     root = Path("/evidence")
     ok = False
     try:
-        asyncio.run(run(json.loads((root / "live-private.json").read_text())))
+        data = json.loads((root / "live-private.json").read_text())
+        record_configuration_adjustments(data, REPORT)
+        asyncio.run(run(data))
         ok = True
     except Exception:
         failure = traceback.format_exc()

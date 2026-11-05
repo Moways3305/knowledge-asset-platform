@@ -1,5 +1,6 @@
 import copy
 import io
+import json
 from pathlib import Path
 import socket
 import subprocess
@@ -16,6 +17,88 @@ import weknora_live_rehearsal as live
 
 
 class LiveTests(unittest.TestCase):
+    def fixture_models(self):
+        return {
+            "rerank": {
+                "name": "qwen3-rerank",
+                "type": "Rerank",
+                "source": "remote",
+                "parameters": {
+                    "provider": "aliyun",
+                    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                    "api_key": "enc:v1:synthetic-secret",
+                },
+            },
+            "embedding": {"parameters": {"base_url": "synthetic-original"}},
+        }
+
+    def test_rerank_correction_is_opt_in_and_does_not_mutate_source(self):
+        original = self.fixture_models()
+        baseline = copy.deepcopy(original)
+        unchanged, adjustments = live.prepare_fixture_models(original)
+        self.assertEqual(unchanged, baseline)
+        self.assertEqual(adjustments, [])
+        corrected, adjustments = live.prepare_fixture_models(original, correct_rerank_endpoint=True)
+        expected = copy.deepcopy(baseline)
+        expected["rerank"]["parameters"]["base_url"] = (
+            "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
+        )
+        self.assertEqual(corrected, expected)
+        self.assertEqual(original, baseline)
+        self.assertTrue(probe.endpoint_allowed(corrected["rerank"]["parameters"]["base_url"]))
+        self.assertEqual(adjustments[0]["scope"], "synthetic_model_only")
+        self.assertFalse(adjustments[0]["production_configuration_changed"])
+        self.assertNotIn("secret", json.dumps(adjustments))
+
+    def test_rerank_correction_accepts_json_parameters_and_trailing_slash(self):
+        original = self.fixture_models()
+        params = original["rerank"]["parameters"]
+        params["base_url"] += "/"
+        original["rerank"]["parameters"] = json.dumps(params)
+        baseline = copy.deepcopy(original)
+        corrected, _ = live.prepare_fixture_models(original, correct_rerank_endpoint=True)
+        self.assertTrue(corrected["rerank"]["parameters"]["base_url"].endswith("/text-rerank"))
+        self.assertEqual(original, baseline)
+
+    def test_rerank_correction_rejects_undiagnosed_configurations(self):
+        for key, value in (
+            ("base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1?key=secret"),
+            ("base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1#fragment"),
+            ("base_url", "https://dashscope.aliyuncs.com.evil.invalid/compatible-mode/v1"),
+            ("base_url", "https://127.0.0.1/compatible-mode/v1"),
+            ("base_url", "http://dashscope.aliyuncs.com/compatible-mode/v1"),
+            ("base_url", "https://dashscope.aliyuncs.com/compatible-api/v1/reranks"),
+            ("provider", "generic"),
+            ("spec", {"api": "custom"}),
+            ("extra_config", {"remote_model_name": "other"}),
+        ):
+            with self.subTest(key=key, value=value):
+                original = self.fixture_models()
+                original["rerank"]["parameters"][key] = value
+                baseline = copy.deepcopy(original)
+                with self.assertRaisesRegex(RuntimeError, "exact diagnosed"):
+                    live.prepare_fixture_models(original, correct_rerank_endpoint=True)
+                self.assertEqual(original, baseline)
+        for key, value in (("name", "other"), ("type", "Embedding"), ("source", "local")):
+            original = self.fixture_models()
+            original["rerank"][key] = value
+            with self.assertRaisesRegex(RuntimeError, "exact diagnosed"):
+                live.prepare_fixture_models(original, correct_rerank_endpoint=True)
+
+    def test_corrected_fixture_pass_cannot_claim_production_config_validated(self):
+        _, adjustments = live.prepare_fixture_models(
+            self.fixture_models(), correct_rerank_endpoint=True
+        )
+        report = {"not_verified": ["KAP three-role end-to-end authorization"]}
+        probe.record_configuration_adjustments({"configuration_adjustments": adjustments}, report)
+        self.assertEqual(report["configuration_adjustments"], adjustments)
+        self.assertIn(
+            "production rerank endpoint correction and validation", report["not_verified"]
+        )
+        unchanged = {"not_verified": []}
+        probe.record_configuration_adjustments({}, unchanged)
+        self.assertEqual(unchanged, {"not_verified": [], "configuration_adjustments": []})
+
     def test_model_dns_resolution_is_allowlisted_and_deduplicated(self):
         answers = [
             (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("1.1.1.1", 443)),
