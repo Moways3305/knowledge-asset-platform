@@ -20,8 +20,8 @@ const viewports = [
 ];
 const scenarios = [
   "normal",
-  "external-drawer",
-  "weknora-drawer",
+  "onboarding",
+  "connections",
   "kb-drawer",
   "kb-modal",
   "migration-result",
@@ -203,6 +203,26 @@ try {
         if (scenario === "forbidden" && url.pathname.includes("/api/v1/admin/")) {
           return fulfill({ detail: { message: "SECRET_FORBIDDEN_BODY_86" } }, 403);
         }
+        if (url.pathname === "/api/v1/admin/model-registry")
+          return fulfill({ connections: [], models: [] });
+        if (url.pathname === "/api/v1/admin/model-registry/catalog")
+          return fulfill({
+            providers: [
+              {
+                id: "deepseek",
+                name: "DeepSeek",
+                base: "https://api.deepseek.com/v1",
+                capabilities: ["chat"],
+              },
+              {
+                id: "aliyun",
+                name: "阿里云百炼",
+                base: "",
+                workspace: true,
+                capabilities: ["chat", "embedding", "rerank"],
+              },
+            ],
+          });
         if (url.pathname === "/api/v1/admin/model-connections") {
           return fulfill({
             items: scenario === "empty" ? [] : connections,
@@ -240,14 +260,22 @@ try {
       page.on("console", (message) => messages.push(message.text()));
       page.on("pageerror", (error) => messages.push(error.message));
       await page.goto(`${base}/admin/weknora-models`, { waitUntil: "networkidle" });
-      await page.getByRole("heading", { name: "模型配置" }).waitFor();
+      await page.getByRole("heading", { name: "模型管理" }).waitFor();
 
-      if (scenario === "external-drawer") {
-        await page.getByRole("button", { name: "管理外部 LLM" }).click();
-        await page.getByRole("region", { name: "管理外部 LLM" }).waitFor();
-      } else if (scenario === "weknora-drawer") {
-        await page.getByRole("button", { name: "管理 WeKnora 模型" }).click();
-        await page.getByRole("region", { name: "管理 WeKnora 模型" }).waitFor();
+      if (scenario === "onboarding") {
+        await page.getByRole("button", { name: "接入模型", exact: true }).click();
+        await page.getByRole("dialog", { name: "接入模型" }).waitFor();
+        await page.getByRole("button", { name: "新建连接", exact: true }).click();
+        await page.getByRole("dialog", { name: "新建供应商连接" }).waitFor();
+        await page.getByLabel("供应商", { exact: true }).selectOption("aliyun");
+        await page.getByLabel("业务空间 ID").waitFor();
+        const docs = page.getByRole("link", { name: /查看 阿里云百炼 官方文档/ });
+        if (!(await docs.getAttribute("href"))?.startsWith("https://help.aliyun.com/")) {
+          throw new Error("Aliyun documentation link missing");
+        }
+      } else if (scenario === "connections") {
+        await page.getByRole("button", { name: "供应商连接", exact: true }).click();
+        await page.getByRole("dialog", { name: "供应商连接" }).waitFor();
       } else if (["kb-drawer", "kb-modal", "migration-result"].includes(scenario)) {
         await page.getByRole("button", { name: "管理知识库配置" }).click();
         const drawer = page.getByRole("region", { name: "管理知识库配置" });
@@ -285,9 +313,9 @@ try {
           safe: secrets.every((secret) => !text.includes(secret)),
           dialogCount: document.querySelectorAll('[role="dialog"]').length,
           workspaceCount: document.querySelectorAll(".mf-inline-workspace").length,
-          workspaceTabs: document.querySelectorAll(".mf-workspace-tabs button[aria-pressed]")
+          workspaceTabs: document.querySelectorAll(".model-registry-tabs button[aria-pressed]")
             .length,
-          selectedTabs: document.querySelectorAll('.mf-workspace-tabs [aria-pressed="true"]')
+          selectedTabs: document.querySelectorAll('.model-registry-tabs [aria-pressed="true"]')
             .length,
           noMetricMatrix: !document.querySelector(
             ".admin-status-band, .mf-overview-strip, .mf-overview-metric",
@@ -296,13 +324,21 @@ try {
           hasInternalError: text.includes("UI QA route not configured"),
         };
       }, scenario);
-      const expectedDialogs = ["kb-modal", "migration-result"].includes(scenario) ? 1 : 0;
+      const expectedDialogs = [
+        "kb-modal",
+        "migration-result",
+        "onboarding",
+        "connections",
+      ].includes(scenario)
+        ? 1
+        : 0;
       const scenarioPass =
-        metrics.workspaceTabs === 3 &&
+        metrics.workspaceTabs === 2 &&
         metrics.selectedTabs === 1 &&
         metrics.noMetricMatrix &&
         metrics.noInstructionCopy &&
-        metrics.workspaceCount === (scenario === "migration-result" ? 0 : 1) &&
+        metrics.workspaceCount ===
+          (["kb-drawer", "kb-modal", "empty"].includes(scenario) ? 1 : 0) &&
         metrics.dialogCount === expectedDialogs;
       results.push({
         viewport: viewport.name,

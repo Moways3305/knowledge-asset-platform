@@ -32,10 +32,11 @@ from app.services.weknora_client import (
     WeKnoraError,
     weknora_enabled,
 )
+from app.services.weknora_parse_state import PENDING_PARSE_STATUSES, TERMINAL_PARSE_STATUSES
 
 # 仍需对账的解析状态（未达终态）。
-_PENDING_STATUSES = {"pending", "processing"}
-_TERMINAL = {"completed", "failed", "duplicate"}
+_PENDING_STATUSES = PENDING_PARSE_STATUSES
+_TERMINAL = TERMINAL_PARSE_STATUSES
 # 心跳保留上限（避免表无限增长；运维页只读最近一条）。
 _HEARTBEAT_KEEP = 500
 _LEASE_SECONDS = 120

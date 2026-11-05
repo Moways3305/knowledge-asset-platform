@@ -16,6 +16,7 @@ dev/降级：`WEKNORA_BASE_URL` 或 `WEKNORA_API_KEY` 未配置 → `weknora_ena
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -78,7 +79,7 @@ class WeKnoraClient:
         return h
 
     @staticmethod
-    def _unwrap(resp: httpx.Response) -> dict[str, Any]:
+    def _unwrap(resp: httpx.Response) -> Any:
         """解析统一响应包；非 success / 错误状态抛结构化错误（不含 api_key）。"""
         if resp.status_code == 409:
             existing = None
@@ -103,7 +104,14 @@ class WeKnoraClient:
                 str(err.get("message") or "WeKnora 调用失败"),
                 status_code=resp.status_code,
             )
-        return body.get("data") or {}
+        data = body.get("data")
+        return {} if data is None else data
+
+    def _unwrap_object(self, resp: httpx.Response) -> dict[str, Any]:
+        data = self._unwrap(resp)
+        if not isinstance(data, dict):
+            raise WeKnoraError("invalid_response", "WeKnora 响应数据应为对象")
+        return data
 
     async def create_kb(
         self,
@@ -145,7 +153,7 @@ class WeKnoraClient:
             resp = await client.get(
                 f"{self._base}/knowledge-bases/{kb_id}", headers=self._headers(trace_id)
             )
-        return self._unwrap(resp)
+        return self._unwrap_object(resp)
 
     async def update_kb(
         self,
@@ -171,7 +179,7 @@ class WeKnoraClient:
                 json=payload,
                 headers=self._headers(trace_id),
             )
-        return self._unwrap(resp)
+        return self._unwrap_object(resp)
 
     async def get_initialization_config(
         self, kb_id: str, *, trace_id: str | None = None
@@ -185,7 +193,7 @@ class WeKnoraClient:
             resp = await client.get(
                 f"{self._base}/initialization/config/{kb_id}", headers=self._headers(trace_id)
             )
-        return self._unwrap(resp)
+        return self._unwrap_object(resp)
 
     async def initialize_kb(
         self,
@@ -277,7 +285,7 @@ class WeKnoraClient:
                 "latency_ms": round((time.perf_counter() - start) * 1000, 1),
             },
         )
-        return self._unwrap(resp)
+        return self._unwrap_object(resp)
 
     async def get_knowledge(
         self, knowledge_id: str, *, trace_id: str | None = None
@@ -286,7 +294,7 @@ class WeKnoraClient:
             resp = await client.get(
                 f"{self._base}/knowledge/{knowledge_id}", headers=self._headers(trace_id)
             )
-        return self._unwrap(resp)
+        return self._unwrap_object(resp)
 
     async def list_knowledge_in_kb(
         self,
@@ -329,31 +337,61 @@ class WeKnoraClient:
         channel: str | None = None,
         trace_id: str | None = None,
     ) -> dict[str, Any]:
-        """显式 reparse：WeKnora **无独立 reparse 端点**，本方法封装为「受控重传」——
-        先删除已有 doc（若有），再重新上传同一原文触发底座重新解析，返回**新 doc** data
-        （含 id=新 knowledge id、parse_status、file_hash）。
+        """Re-upload canonical content only after the old document is gone.
 
-        与 retry-index 的差异：retry-index 用于尚未进底座的资产（建库 + 首次上传）；reparse
-        用于**已进底座但解析状态异常**的资产，强制刷新解析（会更新 weknora_doc_id 为新 doc）。
-        删除失败（doc 可能已不存在）不阻断重传。异常经 `_unwrap` 不带 api_key / 内部 id。
+        v0.9.0 DELETE acknowledges an asynchronous task. It must not be treated
+        as completed deletion: uploading immediately can deduplicate against a
+        document that the worker will subsequently remove. Retrying via the
+        provider's native reparse API would reuse potentially obsolete content,
+        whereas KAP must submit the current canonical Markdown passed here.
         """
         if knowledge_id:
             try:
                 await self.delete_knowledge(knowledge_id, trace_id=trace_id)
-            except WeKnoraError:
-                # doc 可能已不存在 / 底座删除失败：不阻断重传，继续上传新 doc。
-                _logger.warning(
-                    "weknora_reparse_delete_failed",
-                    exc_info=True,
-                )
-        return await self.upload_file(
-            kb_id=kb_id,
-            content=content,
-            file_name=file_name,
-            mime=mime,
-            metadata=metadata,
-            channel=channel,
-            trace_id=trace_id,
+            except WeKnoraError as exc:
+                if exc.status_code != 404:
+                    raise
+            await self._wait_knowledge_deleted(knowledge_id, trace_id=trace_id)
+        try:
+            return await self.upload_file(
+                kb_id=kb_id,
+                content=content,
+                file_name=file_name,
+                mime=mime,
+                metadata=metadata,
+                channel=channel,
+                trace_id=trace_id,
+            )
+        except WeKnoraDuplicateError as exc:
+            # A duplicate acknowledgment proves neither parsing completion nor
+            # that the competing document will survive another pending delete.
+            raise WeKnoraError(
+                "weknora_reparse_duplicate",
+                "重新解析遇到重复文档，尚未确认解析完成，请核对底座状态后重试。",
+            ) from exc
+
+    async def _wait_knowledge_deleted(self, knowledge_id: str, *, trace_id: str | None) -> None:
+        deadline = time.monotonic() + min(self._timeout, 30.0)
+        async with pooled_http_client(timeout=self._timeout) as client:
+            while (remaining := deadline - time.monotonic()) > 0:
+                try:
+                    resp = await client.get(
+                        f"{self._base}/knowledge/{knowledge_id}",
+                        headers=self._headers(trace_id),
+                        timeout=min(self._timeout, remaining),
+                    )
+                except httpx.RequestError as exc:
+                    raise WeKnoraError(
+                        "weknora_delete_unconfirmed",
+                        "无法确认旧索引文档是否已删除，尚未重传，请稍后重试解析。",
+                    ) from exc
+                if resp.status_code == 404:
+                    return
+                self._unwrap(resp)
+                await asyncio.sleep(min(0.5, max(0.0, deadline - time.monotonic())))
+        raise WeKnoraError(
+            "weknora_delete_pending",
+            "旧索引文档仍在删除中，尚未重传，请稍后重试解析。",
         )
 
     @staticmethod
@@ -403,11 +441,13 @@ class WeKnoraClient:
         knowledge_ids: list[str] | None = None,
         top_k: int = 20,
         trace_id: str | None = None,
+        keyword_only: bool = False,
     ) -> list[dict[str, Any]]:
         """核心检索：`POST /knowledge-search`。
 
         kb_ids 限定可检索的知识库（scope 路由预过滤）；knowledge_ids 进一步限定到
-        指定知识（阶段2取某资产原文 chunk 时用）。返回规整后的 chunk 列表。
+        指定知识（阶段2取某资产原文 chunk 时用）。先批量核对文档所属库，再只传文档范围，
+        避免上游把“整库 + 文档”作为并集。返回结果再次按确认的文档集合过滤。
 
         v0.8.3 使用 match_count，而非 top_k。v0.7.1 会忽略此字段并使用其租户
         检索配置：兼容旧请求并不代表旧底座支持逐请求控制候选数量。
@@ -417,16 +457,49 @@ class WeKnoraClient:
             return []
         payload: dict[str, Any] = {
             "query": query,
-            "knowledge_base_ids": kb_ids,
             "match_count": top_k,
         }
-        if knowledge_ids is not None:
-            payload["knowledge_ids"] = knowledge_ids
         async with pooled_http_client(timeout=self._timeout) as client:
+            allowed_docs: set[str] | None = None
+            if knowledge_ids is None:
+                payload["knowledge_base_ids"] = kb_ids
+            else:
+                requested = list(dict.fromkeys(doc for doc in knowledge_ids if doc))
+                allowed_docs = set()
+                allowed_kbs = set(kb_ids)
+                for offset in range(0, len(requested), 100):
+                    batch = requested[offset : offset + 100]
+                    scope_resp = await client.get(
+                        f"{self._base}/knowledge/batch",
+                        params=[("ids", doc) for doc in batch],
+                        headers=self._headers(trace_id),
+                    )
+                    rows = self._unwrap(scope_resp)
+                    if not isinstance(rows, list):
+                        raise WeKnoraError(
+                            "weknora_search_scope_unconfirmed",
+                            "无法核对文档检索范围，尚未执行检索。",
+                        )
+                    batch_set = set(batch)
+                    for row in rows:
+                        if (
+                            isinstance(row, dict)
+                            and row.get("id") in batch_set
+                            and row.get("knowledge_base_id") in allowed_kbs
+                        ):
+                            allowed_docs.add(row["id"])
+                if not allowed_docs:
+                    return []
+                payload["knowledge_ids"] = [doc for doc in requested if doc in allowed_docs]
+            if keyword_only:
+                payload.update(disable_vector_match=True, rerank={"enabled": False})
             resp = await client.post(
                 f"{self._base}/knowledge-search", json=payload, headers=self._headers(trace_id)
             )
-        return self._normalize_chunks(self._unwrap(resp))
+        chunks = self._normalize_chunks(self._unwrap(resp))
+        if allowed_docs is not None:
+            chunks = [chunk for chunk in chunks if chunk["knowledge_id"] in allowed_docs]
+        return chunks
 
     async def hybrid_search(
         self,

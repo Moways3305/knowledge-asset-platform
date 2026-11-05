@@ -14,7 +14,7 @@ from typing import cast
 
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import Depends
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -155,7 +155,9 @@ async def _resolve_ref(session: AsyncSession, model_ref: str) -> ContentGenerati
 
 
 def _safe_model(model: ContentGenerationModel, default_id: uuid.UUID | None) -> dict:
-    if model.last_error_category:
+    if model.tested_version != model.config_version:
+        health_status = "untested"
+    elif model.last_error_category:
         health_status = "unhealthy"
     elif model.last_test_succeeded_at:
         health_status = "healthy"
@@ -267,6 +269,7 @@ async def update_model(
     model = await _resolve_ref(session, model_ref)
     if model is None:
         raise GenerationModelError("generation_model_not_found", "内容生成模型不存在", 404)
+    await session.refresh(model, with_for_update=True)
     settings = await _settings(session, create=True)
     if settings is None:
         raise RuntimeError("generation model settings missing after create=True")
@@ -276,6 +279,17 @@ async def update_model(
             "请先选择其他默认模型或清空默认模型，再停用当前模型",
             409,
         )
+    if (
+        model.provider != provider
+        or model.model_name != model_name
+        or (base_url is not None and base_url.strip())
+        or (api_key is not None and api_key.strip())
+    ):
+        model.config_version += 1
+        model.tested_version = None
+        model.last_test_succeeded_at = None
+        model.last_test_failed_at = None
+        model.last_error_category = None
     model.display_name = _required(
         display_name, "generation_model_display_name_required", "请填写显示名称"
     )
@@ -334,10 +348,25 @@ async def set_default_model(
     return _safe_model(model, model.id)
 
 
+async def _persist_test(session, model, version, **values):
+    result = await session.execute(
+        update(ContentGenerationModel)
+        .where(
+            ContentGenerationModel.id == model.id, ContentGenerationModel.config_version == version
+        )
+        .values(tested_version=version, **values)
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount != 1:
+        raise GenerationModelError("model_test_stale", "配置已改变，旧测试结果已丢弃", 409)
+    await session.refresh(model)
+
+
 async def test_model_connection(session: AsyncSession, model_ref: str) -> dict:
     model = await _resolve_ref(session, model_ref)
     if model is None:
         raise GenerationModelError("generation_model_not_found", "内容生成模型不存在", 404)
+    tested_version = model.config_version
     started = time.monotonic()
     try:
         client = LLMClient(
@@ -354,9 +383,13 @@ async def test_model_connection(session: AsyncSession, model_ref: str) -> dict:
         )
     except (LLMError, GenerationModelError) as exc:
         diagnostic = safe_llm_diagnostic(getattr(exc, "code", None))
-        model.last_test_failed_at = utc_now()
-        model.last_error_category = diagnostic.category
-        await session.flush()
+        await _persist_test(
+            session,
+            model,
+            tested_version,
+            last_test_failed_at=utc_now(),
+            last_error_category=diagnostic.category,
+        )
         return {
             "success": False,
             "error_category": diagnostic.category,
@@ -365,9 +398,9 @@ async def test_model_connection(session: AsyncSession, model_ref: str) -> dict:
             "retryable": diagnostic.retryable,
             "duration_ms": round((time.monotonic() - started) * 1000),
         }
-    model.last_test_succeeded_at = utc_now()
-    model.last_error_category = None
-    await session.flush()
+    await _persist_test(
+        session, model, tested_version, last_test_succeeded_at=utc_now(), last_error_category=None
+    )
     return {
         "success": True,
         "error_category": None,

@@ -115,7 +115,8 @@ export const routeDefinitions = [
     states: [
       { name: "normal", scenario: "normal" },
       { name: "empty", scenario: "empty" },
-      { name: "configuration", scenario: "external-drawer" },
+      { name: "configuration", scenario: "onboarding" },
+      { name: "connections", scenario: "connections" },
       { name: "forbidden", scenario: "forbidden" },
     ],
   },

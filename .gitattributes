@@ -7,3 +7,6 @@ src/** text=auto eol=lf
 
 # Container entrypoint scripts require LF so their shebang remains executable.
 deploy/*.sh text eol=lf
+
+# Unified patches require literal context prefixes and stable bytes for digest checks.
+patches/*.patch text eol=lf -whitespace

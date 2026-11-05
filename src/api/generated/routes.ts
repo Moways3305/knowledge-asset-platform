@@ -18,6 +18,8 @@ export interface ApiRoutes {
     | `/api/v1/admin/ingest`
     | `/api/v1/admin/model-connections`
     | `/api/v1/admin/model-connections/usages/current`
+    | `/api/v1/admin/model-registry`
+    | `/api/v1/admin/model-registry/catalog`
     | `/api/v1/admin/naming-rules`
     | `/api/v1/admin/people`
     | `/api/v1/admin/people/${string}`
@@ -127,6 +129,10 @@ export interface ApiRoutes {
     | `/api/v1/admin/generation/models/${string}/test`
     | `/api/v1/admin/model-connections`
     | `/api/v1/admin/model-connections/items/${string}/test`
+    | `/api/v1/admin/model-registry/connections`
+    | `/api/v1/admin/model-registry/models`
+    | `/api/v1/admin/model-registry/models/${string}/sync`
+    | `/api/v1/admin/model-registry/models/${string}/verify`
     | `/api/v1/admin/naming-rules/publish`
     | `/api/v1/admin/people/${string}/company-roles`
     | `/api/v1/admin/people/${string}/password`
@@ -220,6 +226,8 @@ export interface ApiRoutes {
     | `/api/v1/admin/generation/models/${string}`
     | `/api/v1/admin/model-connections/items/${string}`
     | `/api/v1/admin/model-connections/usages/current`
+    | `/api/v1/admin/model-registry/connections/${string}`
+    | `/api/v1/admin/model-registry/models/${string}`
     | `/api/v1/admin/naming-rules/draft`
     | `/api/v1/admin/release-notes/${string}`
     | `/api/v1/admin/weknora/default-models`

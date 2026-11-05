@@ -186,6 +186,15 @@ def test_client_rejects_bad_api_key():
         WeKnoraClient(base_url="http://x", api_key="bad-key")
 
 
+@pytest.mark.parametrize("data", [[], [{"id": "model-list-item"}]])
+def test_object_endpoints_reject_arrays_but_generic_unwrap_preserves_them(data):
+    response = httpx.Response(200, json={"success": True, "data": data})
+    client = WeKnoraClient(base_url="https://weknora.example.test", api_key="sk-synthetic")
+    assert client._unwrap(response) == data
+    with pytest.raises(WeKnoraError, match="invalid_response"):
+        client._unwrap_object(response)
+
+
 def test_client_unwrap_success_error_and_409():
     ok = httpx.Response(200, json={"success": True, "data": {"id": "kb-1"}})
     assert WeKnoraClient._unwrap(ok)["id"] == "kb-1"

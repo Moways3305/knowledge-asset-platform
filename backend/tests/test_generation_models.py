@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from sqlalchemy import select
 
 from app.main import app
@@ -184,6 +185,48 @@ async def test_connection_result_is_safe_on_success_and_failure(client, monkeypa
     assert SECRET not in failed.text
     assert URL not in failed.text
     assert "upstream_failed" not in failed.text
+
+
+async def test_changed_credentials_clear_previous_health(client, db_session, monkeypatch):
+    created = (await _create(client)).json()
+
+    async def ok(*args, **kwargs):
+        return "OK"
+
+    monkeypatch.setattr(LLMClient, "chat_completion", ok)
+    await client.post(
+        f"{BASE}/models/{created['model_ref']}/test", headers=_hdr(USER_ADMIN_ONLY), json={}
+    )
+    changed = await client.put(
+        f"{BASE}/models/{created['model_ref']}",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json=_payload(api_key="synthetic-rotated", make_default=False),
+    )
+    assert changed.status_code == 200
+    row = (await db_session.execute(select(ContentGenerationModel))).scalar_one()
+    await db_session.refresh(row)
+    assert row.config_version == 2 and row.tested_version is None
+    assert generation_models.safe_connection_diagnostics(row)["health_status"] == "untested"
+
+
+async def test_late_legacy_probe_cannot_overwrite_new_configuration(
+    client, db_session, monkeypatch, sessionmaker_fixture
+):
+    created = (await _create(client)).json()
+    row = (await db_session.execute(select(ContentGenerationModel))).scalar_one()
+
+    async def late(*args, **kwargs):
+        async with sessionmaker_fixture() as other:
+            current = await other.get(ContentGenerationModel, row.id)
+            current.config_version += 1
+            await other.commit()
+        return "OK"
+
+    monkeypatch.setattr(LLMClient, "chat_completion", late)
+    with pytest.raises(generation_models.GenerationModelError, match="model_test_stale"):
+        await generation_models.test_model_connection(db_session, created["model_ref"])
+    await db_session.refresh(row)
+    assert row.config_version == 2 and row.tested_version is None
 
 
 async def test_product_config_without_default_keeps_summary_pending(client):

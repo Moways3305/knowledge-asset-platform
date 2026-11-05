@@ -1,3 +1,4 @@
+import { fetchRegistry, fetchProviderCatalog } from "../api/modelRegistry";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -31,6 +32,16 @@ const auth = vi.hoisted(() => ({
 }));
 
 vi.mock("../auth/AuthContext", () => ({ useAuth: () => auth }));
+vi.mock("../api/modelRegistry", () => ({
+  fetchRegistry: vi.fn(),
+  fetchProviderCatalog: vi.fn(),
+  createProviderConnection: vi.fn(),
+  updateProviderConnection: vi.fn(),
+  createRegisteredModel: vi.fn(),
+  updateRegisteredModel: vi.fn(),
+  verifyRegisteredModel: vi.fn(),
+  syncRegisteredModel: vi.fn(),
+}));
 vi.mock("../api/admin", () => ({
   checkWeknoraModel: vi.fn(),
   createWeknoraModel: vi.fn(),
@@ -137,6 +148,8 @@ function renderPage() {
 describe("AdminWeKnoraModelsPage modal workspace", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(fetchRegistry).mockResolvedValue({ connections: [], models: [] });
+    vi.mocked(fetchProviderCatalog).mockResolvedValue({ providers: [] });
     Object.assign(auth.capabilities, {
       isAdmin: true,
       isGovernance: false,
@@ -221,55 +234,119 @@ describe("AdminWeKnoraModelsPage modal workspace", () => {
     Element.prototype.scrollIntoView = vi.fn();
   });
 
-  it("keeps the landing page as a fixed connection workspace without growing lists", async () => {
+  async function openEntry(kind: "接入模型" | "模型设置", choice: string) {
+    await waitFor(() => expect(screen.getByRole("button", { name: kind })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: kind }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: kind })).getByRole("button", {
+        name: new RegExp(choice),
+      }),
+    );
+  }
+
+  it("shows both model sources in one inventory without exposing internal identifiers", async () => {
     renderPage();
-    expect(await screen.findByRole("heading", { name: "模型配置" })).toBeInTheDocument();
-    expect(
-      screen.queryByText("先处理不可用连接，再维护模型与知识库底座。"),
-    ).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "管理外部 LLM" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "管理 WeKnora 模型" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "管理知识库配置" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "模型管理" })).toBeInTheDocument();
+    expect(await screen.findByText("DeepSeek 对话")).toBeInTheDocument();
+    expect(screen.getByText("qwen-plus")).toBeInTheDocument();
+    expect(screen.getByText("text-embedding-v3")).toBeInTheDocument();
+    expect(screen.getAllByRole("table")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "管理外部 LLM" })).not.toBeInTheDocument();
     expect(screen.queryByText("交付方法库")).not.toBeInTheDocument();
     expect(screen.queryByText("internal-mapping-id")).not.toBeInTheDocument();
     expect(screen.queryByText("internal-job-id")).not.toBeInTheDocument();
   });
 
-  it("opens searchable model workspaces with model creation in a task modal", async () => {
+  it("searches across model sources and opens the correct conversation editor", async () => {
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "管理外部 LLM" }));
-    const drawer = screen.getByRole("region", { name: "管理外部 LLM" });
-    expect(within(drawer).getByLabelText("搜索外部 LLM")).toBeInTheDocument();
-    expect(within(drawer).getByLabelText("外部 LLM 状态")).toBeInTheDocument();
-    expect(await within(drawer).findByText("DeepSeek 对话")).toBeInTheDocument();
-    expect(within(drawer).queryByRole("form")).not.toBeInTheDocument();
-    fireEvent.click(within(drawer).getByRole("button", { name: "新增外部 LLM" }));
-    expect(screen.getByRole("dialog", { name: "新增外部 LLM" })).toBeInTheDocument();
+    await screen.findByText("DeepSeek 对话");
+    fireEvent.change(screen.getByLabelText("搜索模型"), { target: { value: "DeepSeek" } });
+    expect(screen.getByText("DeepSeek 对话")).toBeInTheDocument();
+    expect(screen.queryByText("qwen-plus")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "接入模型" }));
+    expect(screen.getByRole("dialog", { name: "接入模型" })).toBeInTheDocument();
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
   });
 
-  it("puts the searchable WeKnora list in its workspace and editor in a task modal", async () => {
+  it("filters by model capability and keeps knowledge-model creation separate", async () => {
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "管理 WeKnora 模型" }));
-    const drawer = screen.getByRole("region", { name: "管理 WeKnora 模型" });
-    expect(within(drawer).getByLabelText("搜索 WeKnora 模型")).toBeInTheDocument();
-    expect(within(drawer).getByLabelText("WeKnora 模型类型")).toBeInTheDocument();
-    expect(await within(drawer).findByText("qwen-plus")).toBeInTheDocument();
-    fireEvent.click(within(drawer).getByRole("button", { name: "新增 WeKnora 模型" }));
-    expect(screen.getByRole("dialog", { name: "新增 WeKnora 模型" })).toBeInTheDocument();
+    await screen.findByText("qwen-plus");
+    fireEvent.change(screen.getByLabelText("模型能力"), { target: { value: "embedding" } });
+    expect(screen.getByText("text-embedding-v3")).toBeInTheDocument();
+    expect(screen.queryByText("qwen-plus")).not.toBeInTheDocument();
+    expect(screen.queryByText("DeepSeek 对话")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "接入模型" }));
+    expect(screen.getByRole("dialog", { name: "接入模型" })).toBeInTheDocument();
   });
 
-  it("edits defaults in task modals instead of inline controls", async () => {
+  it("keeps test results separate when model sources have the same reference", async () => {
+    vi.mocked(fetchWeknoraModels).mockResolvedValue([
+      { ...models[0], model_ref: connection.model_ref },
+    ]);
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "管理外部 LLM" }));
-    fireEvent.click(screen.getByRole("button", { name: "编辑默认用途" }));
-    const externalModal = screen.getByRole("dialog", { name: "编辑默认用途" });
-    fireEvent.click(within(externalModal).getByRole("button", { name: "保存默认用途" }));
+    const external = await screen.findByRole("row", {
+      name: "DeepSeek 对话（内容生成 · 项目问答）",
+    });
+    const knowledge = screen.getByRole("row", { name: "qwen-plus（知识库检索与解析）" });
+    expect(within(knowledge).getByText("待测试")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(within(external).getByRole("button", { name: "测试" })).toBeEnabled(),
+    );
+    fireEvent.click(within(external).getByRole("button", { name: "测试" }));
+    expect(await within(external).findByText("本次测试通过")).toBeInTheDocument();
+    expect(within(knowledge).getByText("待测试")).toBeInTheDocument();
+    expect(within(knowledge).queryByText("本次测试通过")).not.toBeInTheDocument();
+  });
+
+  it("preserves a manually entered workspace endpoint when changing providers", async () => {
+    vi.mocked(fetchWeknoraProviders).mockResolvedValue([
+      {
+        value: "aliyun",
+        label: "阿里云百炼",
+        description: null,
+        model_types: ["chat"],
+        default_urls: { chat: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
+      },
+      {
+        value: "deepseek",
+        label: "DeepSeek",
+        description: null,
+        model_types: ["chat"],
+        default_urls: { chat: "https://api.deepseek.com/v1" },
+      },
+    ]);
+    renderPage();
+    const row = await screen.findByRole("row", { name: "qwen-plus（知识库检索与解析）" });
+    await waitFor(() => expect(within(row).getByRole("button", { name: "编辑" })).toBeEnabled());
+    fireEvent.click(within(row).getByRole("button", { name: "编辑" }));
+    fireEvent.keyDown(screen.getByRole("button", { name: "模型供应商" }), { key: "ArrowDown" });
+    fireEvent.click(screen.getByRole("option", { name: /阿里云百炼/ }));
+    expect(screen.getByLabelText("API 地址")).toHaveValue(
+      "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    );
+    const workspaceUrl = "https://workspace.example.invalid/compatible-mode/v1";
+    fireEvent.change(screen.getByLabelText("API 地址"), { target: { value: workspaceUrl } });
+    fireEvent.keyDown(screen.getByRole("button", { name: "模型供应商" }), { key: "ArrowDown" });
+    fireEvent.click(screen.getByRole("option", { name: /DeepSeek/ }));
+    expect(screen.getByLabelText("API 地址")).toHaveValue(workspaceUrl);
+  });
+
+  it("preserves each default assignment endpoint through model settings", async () => {
+    renderPage();
+    await openEntry("模型设置", "内容生成与项目问答");
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "默认对话模型" })).getByRole("button", {
+        name: "保存默认用途",
+      }),
+    );
     await waitFor(() => expect(updateModelUsageAssignments).toHaveBeenCalledTimes(1));
-
-    fireEvent.click(screen.getByRole("button", { name: "管理 WeKnora 模型" }));
-    fireEvent.click(screen.getByRole("button", { name: "编辑默认底座" }));
-    const foundationModal = screen.getByRole("dialog", { name: "编辑默认底座" });
-    fireEvent.click(within(foundationModal).getByRole("button", { name: "保存默认底座" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await openEntry("模型设置", "新建知识库的默认模型");
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "知识库默认模型" })).getByRole("button", {
+        name: "保存默认底座",
+      }),
+    );
     await waitFor(() => expect(updateWeknoraDefaultModels).toHaveBeenCalledTimes(1));
   });
 
@@ -380,11 +457,13 @@ describe("AdminWeKnoraModelsPage modal workspace", () => {
       };
     });
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "测试连接" }));
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "管理外部 LLM" })).toHaveTextContent("1 项异常"),
-    );
-    expect(screen.getByText("连接异常")).toBeInTheDocument();
+    const row = await screen.findByRole("row", { name: /DeepSeek 对话/ });
+    await waitFor(() => expect(within(row).getByRole("button", { name: "测试" })).toBeEnabled());
+    fireEvent.click(within(row).getByRole("button", { name: "测试" }));
+    await waitFor(() => expect(testModelConnection).toHaveBeenCalledWith("external-ref"));
+    expect(await within(row).findByText("本次测试失败")).toBeInTheDocument();
+    expect(within(row).getByText(/连接测试未通过/)).toBeInTheDocument();
+    expect(updateModelConnection).not.toHaveBeenCalled();
   });
 
   it("refreshes the parent default selector after disabling an external connection", async () => {
@@ -399,56 +478,25 @@ describe("AdminWeKnoraModelsPage modal workspace", () => {
       return current;
     });
     renderPage();
-    const workspace = await screen.findByRole("region", { name: "管理外部 LLM" });
-    fireEvent.click(await within(workspace).findByRole("button", { name: "停用" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "编辑默认用途" })).toBeEnabled());
-    await within(workspace).findByRole("button", { name: "启用" });
-    fireEvent.click(screen.getByRole("button", { name: "编辑默认用途" }));
+    const row = await screen.findByRole("row", { name: /DeepSeek 对话/ });
+    const more = within(row).getByRole("button", { name: /更多操作/ });
+    await waitFor(() => expect(more).toBeEnabled());
+    fireEvent.click(more);
+    fireEvent.click(screen.getByRole("button", { name: "停用" }));
+    await within(row).findByText("已停用");
+    await openEntry("模型设置", "内容生成与项目问答");
     expect(
-      within(screen.getByRole("dialog", { name: "编辑默认用途" })).queryByRole("option", {
+      within(screen.getByRole("dialog", { name: "默认对话模型" })).queryByRole("option", {
         name: /DeepSeek 对话/,
       }),
     ).not.toBeInTheDocument();
   });
 
-  it("offers a newly created foundation model when configuring a knowledge base", async () => {
-    let current = [...models];
-    const created = {
-      ...models[0],
-      model_ref: "new-chat",
-      name: "new-local-chat",
-      source: "local",
-    };
-    vi.mocked(fetchWeknoraModels).mockImplementation(async () => current);
-    vi.mocked(createWeknoraModel).mockImplementation(async () => {
-      current = [...current, created];
-      return { ...created, status: "created" };
-    });
+  it("opens reusable provider connections from the model page", async () => {
     renderPage();
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "管理 WeKnora 模型" })).toBeEnabled(),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "管理 WeKnora 模型" }));
-    fireEvent.click(await screen.findByRole("button", { name: "新增 WeKnora 模型" }));
-    const form = screen.getByRole("dialog", { name: "新增 WeKnora 模型" });
-    fireEvent.change(within(form).getByLabelText("模型名称"), { target: { value: created.name } });
-    fireEvent.change(within(form).getByLabelText("模型类型"), { target: { value: "chat" } });
-    fireEvent.change(within(form).getByLabelText("来源"), { target: { value: "local" } });
-    fireEvent.change(within(form).getByLabelText("API 地址"), {
-      target: { value: "http://localhost:11434" },
-    });
-    fireEvent.change(within(form).getByLabelText("API key"), { target: { value: "local" } });
-    fireEvent.click(within(form).getByRole("button", { name: "保存 WeKnora 模型" }));
-    await waitFor(() =>
-      expect(screen.queryByRole("dialog", { name: "新增 WeKnora 模型" })).not.toBeInTheDocument(),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "管理知识库配置" }));
-    fireEvent.click(screen.getByRole("button", { name: "配置" }));
-    expect(
-      within(screen.getByRole("dialog", { name: "配置“交付方法库”" })).getByRole("option", {
-        name: /new-local-chat/,
-      }),
-    ).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "供应商连接" }));
+    expect(screen.getByRole("dialog", { name: "供应商连接" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "新建供应商连接" })).toBeInTheDocument();
   });
 
   it("keeps read-only overview access while hiding mutating actions", async () => {
@@ -459,7 +507,7 @@ describe("AdminWeKnoraModelsPage modal workspace", () => {
     });
     renderPage();
     expect(await screen.findByRole("button", { name: "管理知识库配置" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "编辑默认用途" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "默认对话模型" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "管理知识库配置" }));
     expect(screen.queryByRole("button", { name: "配置" })).not.toBeInTheDocument();
   });
@@ -486,7 +534,7 @@ describe("AdminWeKnoraModelsPage modal workspace", () => {
     ]);
     renderPage();
 
-    const heading = await screen.findByRole("heading", { name: "模型配置" });
+    const heading = await screen.findByRole("heading", { name: "模型管理" });
     const header = heading.closest("header");
     expect(header).not.toBeNull();
     expect(screen.getByRole("button", { name: "管理知识库配置" })).toBeInTheDocument();
@@ -496,6 +544,6 @@ describe("AdminWeKnoraModelsPage modal workspace", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "管理知识库配置" }));
     expect(screen.getByRole("region", { name: "管理知识库配置" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "新增 WeKnora 模型" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "接入知识库模型" })).not.toBeInTheDocument();
   });
 });

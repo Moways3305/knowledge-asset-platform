@@ -2,7 +2,7 @@
 
 由 `npm run api:frontend:generate` 生成，契约来源 `docs/api/openapi.json`，人工复核来源 `frontend-api-review.json`。
 
-共 244 个 HTTP 操作；静态调用已接入 195，已有替代流程 14，系统集成 32，传输基础设施 1，动态资源 2。
+共 252 个 HTTP 操作；静态调用已接入 203，已有替代流程 14，系统集成 32，传输基础设施 1，动态资源 2。
 
 静态调用仅表示找到了封装及直接导入/转导出，不代表每个接口都有独立按钮，也不证明真实环境全流程通过。动态资源单列；请求/响应 DTO 仍由领域适配器和测试校验。
 
@@ -56,6 +56,14 @@
 | `POST /api/v1/admin/model-connections/items/{model_ref}/test` | 静态调用已接入 | `src/api/modelConnections.ts#testModelConnection` → `src/components/UnifiedModelConnectionsSection.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `GET /api/v1/admin/model-connections/usages/current` | 静态调用已接入 | `src/api/modelConnections.ts#fetchModelUsageAssignments` → `src/components/UnifiedModelConnectionsSection.tsx`、`src/pages/controllers/AdminWeKnoraModels/useAdminWeKnoraModels.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `PUT /api/v1/admin/model-connections/usages/current` | 静态调用已接入 | `src/api/modelConnections.ts#updateModelUsageAssignments` → `src/components/UnifiedModelConnectionsSection.tsx`、`src/pages/controllers/AdminWeKnoraModels/useAdminWeKnoraModels.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `GET /api/v1/admin/model-registry` | 静态调用已接入 | `src/api/modelRegistry.ts#fetchRegistry` → `src/components/ModelOnboarding.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `GET /api/v1/admin/model-registry/catalog` | 静态调用已接入 | `src/api/modelRegistry.ts#fetchProviderCatalog` → `src/components/ModelOnboarding.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `POST /api/v1/admin/model-registry/connections` | 静态调用已接入 | `src/api/modelRegistry.ts#createProviderConnection` → `src/components/ModelOnboarding.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `PUT /api/v1/admin/model-registry/connections/{connection_id}` | 静态调用已接入 | `src/api/modelRegistry.ts#updateProviderConnection` → `src/components/ModelOnboarding.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `POST /api/v1/admin/model-registry/models` | 静态调用已接入 | `src/api/modelRegistry.ts#createRegisteredModel` → `src/components/ModelOnboarding.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `PUT /api/v1/admin/model-registry/models/{model_id}` | 静态调用已接入 | `src/api/modelRegistry.ts#updateRegisteredModel` → `src/components/ModelOnboarding.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `POST /api/v1/admin/model-registry/models/{model_id}/sync` | 静态调用已接入 | `src/api/modelRegistry.ts#syncRegisteredModel` → `src/components/ModelOnboarding.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `POST /api/v1/admin/model-registry/models/{model_id}/verify` | 静态调用已接入 | `src/api/modelRegistry.ts#verifyRegisteredModel` → `src/components/ModelOnboarding.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `GET /api/v1/admin/naming-rules` | 静态调用已接入 | `src/api/naming.ts#fetchNamingRuleCenter` → `src/pages/AdminNamingRulesPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `PUT /api/v1/admin/naming-rules/draft` | 静态调用已接入 | `src/api/naming.ts#saveNamingRuleDraft` → `src/pages/AdminNamingRulesPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `POST /api/v1/admin/naming-rules/publish` | 静态调用已接入 | `src/api/naming.ts#publishNamingRuleDraft` → `src/pages/AdminNamingRulesPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |

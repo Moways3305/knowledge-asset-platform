@@ -1,0 +1,342 @@
+diff --git a/internal/models/embedding/kap_proxy_test.go b/internal/models/embedding/kap_proxy_test.go
+new file mode 100644
+index 0000000..5ed4db9
+--- /dev/null
++++ b/internal/models/embedding/kap_proxy_test.go
+@@ -0,0 +1,145 @@
++package embedding
++
++import (
++	"crypto/tls"
++	"crypto/x509"
++	"errors"
++	secutils "github.com/Tencent/WeKnora/internal/utils"
++	"io"
++	"net"
++	"net/http"
++	"net/http/httptest"
++	"net/url"
++	"os"
++	"os/exec"
++	"strings"
++	"sync/atomic"
++	"testing"
++	"time"
++)
++
++// ProxyFromEnvironment caches process environment: use a fresh process per case.
++func TestKAPProxyTransport(t *testing.T) {
++	mode := os.Getenv("KAP_PROXY_TEST_MODE")
++	if mode == "" {
++		for _, scenario := range []string{"proxy", "no_proxy", "direct"} {
++			t.Run(scenario, func(t *testing.T) {
++				cmd := exec.Command(os.Args[0], "-test.run=^TestKAPProxyTransport$")
++				cmd.Env = append(os.Environ(), "KAP_PROXY_TEST_MODE="+scenario)
++				if out, err := cmd.CombinedOutput(); err != nil {
++					t.Fatalf("%v\n%s", err, out)
++				}
++			})
++		}
++		return
++	}
++	for _, key := range []string{"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy", "REQUEST_METHOD"} {
++		t.Setenv(key, "")
++	}
++	backend := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		io.WriteString(w, "synthetic-model-response")
++	}))
++	defer backend.Close()
++	cert := backend.Certificate()
++	if len(cert.DNSNames) == 0 {
++		t.Fatal("TLS fixture must have a DNS SAN")
++	}
++	host := cert.DNSNames[0]
++	_, port, _ := net.SplitHostPort(backend.Listener.Addr().String())
++	target := "https://" + net.JoinHostPort(host, port) + "/model-test"
++	targetURL, _ := url.Parse(target)
++	var tunnels atomic.Int32
++	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if r.Method != "CONNECT" || r.Host != targetURL.Host {
++			http.Error(w, "denied", 403)
++			return
++		}
++		tunnels.Add(1)
++		upstream, err := net.DialTimeout("tcp", backend.Listener.Addr().String(), time.Second)
++		if err != nil {
++			http.Error(w, "unavailable", 502)
++			return
++		}
++		downstream, buffered, err := w.(http.Hijacker).Hijack()
++		if err != nil {
++			upstream.Close()
++			return
++		}
++		defer downstream.Close()
++		defer upstream.Close()
++		io.WriteString(downstream, "HTTP/1.1 200 Connection established\r\n\r\n")
++		go func() { io.Copy(downstream, upstream); downstream.Close() }()
++		io.Copy(upstream, buffered)
++	}))
++	defer proxy.Close()
++	if mode != "direct" {
++		t.Setenv("HTTPS_PROXY", proxy.URL)
++		t.Setenv("HTTP_PROXY", proxy.URL)
++	}
++	if mode == "no_proxy" {
++		t.Setenv("NO_PROXY", host)
++	}
++	transport := sharedEmbeddingHTTPTransport.Clone()
++	defer transport.CloseIdleConnections()
++	if transport.Proxy == nil || transport.DialContext == nil {
++		t.Fatal("proxy or protected dialer missing")
++	}
++	for _, scheme := range []string{"http", "https"} {
++		request, _ := http.NewRequest("GET", scheme+"://"+targetURL.Host, nil)
++		selected, err := transport.Proxy(request)
++		if err != nil {
++			t.Fatal(err)
++		}
++		if mode == "proxy" {
++			if selected == nil || selected.String() != proxy.URL {
++				t.Fatal("configured proxy not selected")
++			}
++		} else if selected != nil {
++			t.Fatal("direct/NO_PROXY must not use proxy")
++		}
++	}
++	if mode != "proxy" {
++		return
++	}
++	// Only the local TLS fixture hostname is exempted from DNS in this child test.
++	secutils.SetSSRFWhitelistFromRaw(host)
++	defer secutils.SetSSRFWhitelistFromRaw("")
++	roots := x509.NewCertPool()
++	roots.AddCert(cert)
++	transport.TLSClientConfig = &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
++	cfg := secutils.DefaultSSRFSafeHTTPClientConfig()
++	cfg.Timeout = 5 * time.Second
++	client := secutils.NewSSRFSafeHTTPClientWithTransport(cfg, transport)
++	response, err := client.Get(target)
++	if err != nil {
++		t.Fatal(err)
++	}
++	body, err := io.ReadAll(response.Body)
++	response.Body.Close()
++	if err != nil || string(body) != "synthetic-model-response" || tunnels.Load() != 1 {
++		t.Fatal("CONNECT/TLS transfer failed")
++	}
++	// Proxy support must not disable certificate validation.
++	untrusted := sharedEmbeddingHTTPTransport.Clone()
++	defer untrusted.CloseIdleConnections()
++	badClient := secutils.NewSSRFSafeHTTPClientWithTransport(cfg, untrusted)
++	if resp, err := badClient.Get(target); err == nil {
++		resp.Body.Close()
++		t.Fatal("untrusted TLS certificate accepted")
++	} else {
++		var unknown x509.UnknownAuthorityError
++		if !errors.As(err, &unknown) {
++			t.Fatalf("expected certificate rejection: %v", err)
++		}
++	}
++	before := tunnels.Load()
++	if resp, err := client.Get("http://169.254.169.254/latest/meta-data"); err == nil {
++		resp.Body.Close()
++		t.Fatal("metadata address accepted")
++	} else if !strings.Contains(strings.ToLower(err.Error()), "ssrf") {
++		t.Fatalf("expected SSRF rejection: %v", err)
++	}
++	if tunnels.Load() != before {
++		t.Fatal("private target reached proxy")
++	}
++}
+diff --git a/internal/models/embedding/transport.go b/internal/models/embedding/transport.go
+index 5abe7b1..401bf81 100644
+--- a/internal/models/embedding/transport.go
++++ b/internal/models/embedding/transport.go
+@@ -12,9 +12,12 @@ import (
+ // all embedding clients. Embedders are recreated as model configuration changes,
+ // but their outbound connections can be safely reused across client instances,
+ // so the transport (and its keep-alive pool) is built once at package load.
+-var sharedEmbeddingHTTPTransport = secutils.NewSSRFSafeTransport(
+-	secutils.DefaultSSRFSafeHTTPClientConfig(),
+-)
++var sharedEmbeddingHTTPTransport = func() *http.Transport {
++	transport := secutils.NewSSRFSafeTransport(secutils.DefaultSSRFSafeHTTPClientConfig())
++	// Honor administrator-configured proxies, retaining SSRF dial and TLS checks.
++	transport.Proxy = http.ProxyFromEnvironment
++	return transport
++}()
+ 
+ // validateEmbeddingBaseURL checks that a resolved embedding API base URL is safe
+ // for outbound requests. Empty URLs are allowed (callers apply provider defaults).
+diff --git a/internal/models/rerank/kap_proxy_test.go b/internal/models/rerank/kap_proxy_test.go
+new file mode 100644
+index 0000000..d89d661
+--- /dev/null
++++ b/internal/models/rerank/kap_proxy_test.go
+@@ -0,0 +1,145 @@
++package rerank
++
++import (
++	"crypto/tls"
++	"crypto/x509"
++	"errors"
++	secutils "github.com/Tencent/WeKnora/internal/utils"
++	"io"
++	"net"
++	"net/http"
++	"net/http/httptest"
++	"net/url"
++	"os"
++	"os/exec"
++	"strings"
++	"sync/atomic"
++	"testing"
++	"time"
++)
++
++// ProxyFromEnvironment caches process environment: use a fresh process per case.
++func TestKAPProxyTransport(t *testing.T) {
++	mode := os.Getenv("KAP_PROXY_TEST_MODE")
++	if mode == "" {
++		for _, scenario := range []string{"proxy", "no_proxy", "direct"} {
++			t.Run(scenario, func(t *testing.T) {
++				cmd := exec.Command(os.Args[0], "-test.run=^TestKAPProxyTransport$")
++				cmd.Env = append(os.Environ(), "KAP_PROXY_TEST_MODE="+scenario)
++				if out, err := cmd.CombinedOutput(); err != nil {
++					t.Fatalf("%v\n%s", err, out)
++				}
++			})
++		}
++		return
++	}
++	for _, key := range []string{"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy", "REQUEST_METHOD"} {
++		t.Setenv(key, "")
++	}
++	backend := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		io.WriteString(w, "synthetic-model-response")
++	}))
++	defer backend.Close()
++	cert := backend.Certificate()
++	if len(cert.DNSNames) == 0 {
++		t.Fatal("TLS fixture must have a DNS SAN")
++	}
++	host := cert.DNSNames[0]
++	_, port, _ := net.SplitHostPort(backend.Listener.Addr().String())
++	target := "https://" + net.JoinHostPort(host, port) + "/model-test"
++	targetURL, _ := url.Parse(target)
++	var tunnels atomic.Int32
++	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if r.Method != "CONNECT" || r.Host != targetURL.Host {
++			http.Error(w, "denied", 403)
++			return
++		}
++		tunnels.Add(1)
++		upstream, err := net.DialTimeout("tcp", backend.Listener.Addr().String(), time.Second)
++		if err != nil {
++			http.Error(w, "unavailable", 502)
++			return
++		}
++		downstream, buffered, err := w.(http.Hijacker).Hijack()
++		if err != nil {
++			upstream.Close()
++			return
++		}
++		defer downstream.Close()
++		defer upstream.Close()
++		io.WriteString(downstream, "HTTP/1.1 200 Connection established\r\n\r\n")
++		go func() { io.Copy(downstream, upstream); downstream.Close() }()
++		io.Copy(upstream, buffered)
++	}))
++	defer proxy.Close()
++	if mode != "direct" {
++		t.Setenv("HTTPS_PROXY", proxy.URL)
++		t.Setenv("HTTP_PROXY", proxy.URL)
++	}
++	if mode == "no_proxy" {
++		t.Setenv("NO_PROXY", host)
++	}
++	transport := sharedRerankHTTPTransport.Clone()
++	defer transport.CloseIdleConnections()
++	if transport.Proxy == nil || transport.DialContext == nil {
++		t.Fatal("proxy or protected dialer missing")
++	}
++	for _, scheme := range []string{"http", "https"} {
++		request, _ := http.NewRequest("GET", scheme+"://"+targetURL.Host, nil)
++		selected, err := transport.Proxy(request)
++		if err != nil {
++			t.Fatal(err)
++		}
++		if mode == "proxy" {
++			if selected == nil || selected.String() != proxy.URL {
++				t.Fatal("configured proxy not selected")
++			}
++		} else if selected != nil {
++			t.Fatal("direct/NO_PROXY must not use proxy")
++		}
++	}
++	if mode != "proxy" {
++		return
++	}
++	// Only the local TLS fixture hostname is exempted from DNS in this child test.
++	secutils.SetSSRFWhitelistFromRaw(host)
++	defer secutils.SetSSRFWhitelistFromRaw("")
++	roots := x509.NewCertPool()
++	roots.AddCert(cert)
++	transport.TLSClientConfig = &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
++	cfg := secutils.DefaultSSRFSafeHTTPClientConfig()
++	cfg.Timeout = 5 * time.Second
++	client := secutils.NewSSRFSafeHTTPClientWithTransport(cfg, transport)
++	response, err := client.Get(target)
++	if err != nil {
++		t.Fatal(err)
++	}
++	body, err := io.ReadAll(response.Body)
++	response.Body.Close()
++	if err != nil || string(body) != "synthetic-model-response" || tunnels.Load() != 1 {
++		t.Fatal("CONNECT/TLS transfer failed")
++	}
++	// Proxy support must not disable certificate validation.
++	untrusted := sharedRerankHTTPTransport.Clone()
++	defer untrusted.CloseIdleConnections()
++	badClient := secutils.NewSSRFSafeHTTPClientWithTransport(cfg, untrusted)
++	if resp, err := badClient.Get(target); err == nil {
++		resp.Body.Close()
++		t.Fatal("untrusted TLS certificate accepted")
++	} else {
++		var unknown x509.UnknownAuthorityError
++		if !errors.As(err, &unknown) {
++			t.Fatalf("expected certificate rejection: %v", err)
++		}
++	}
++	before := tunnels.Load()
++	if resp, err := client.Get("http://169.254.169.254/latest/meta-data"); err == nil {
++		resp.Body.Close()
++		t.Fatal("metadata address accepted")
++	} else if !strings.Contains(strings.ToLower(err.Error()), "ssrf") {
++		t.Fatalf("expected SSRF rejection: %v", err)
++	}
++	if tunnels.Load() != before {
++		t.Fatal("private target reached proxy")
++	}
++}
+diff --git a/internal/models/rerank/transport.go b/internal/models/rerank/transport.go
+index 1cd19d8..e231dda 100644
+--- a/internal/models/rerank/transport.go
++++ b/internal/models/rerank/transport.go
+@@ -22,9 +22,12 @@ func validateRerankBaseURL(baseURL string) error {
+ // rerank clients. Rerankers are recreated on every GetRerankModel call, but
+ // their outbound connections can be safely reused, so the transport (and its
+ // keep-alive pool) is built once at package load.
+-var sharedRerankHTTPTransport = secutils.NewSSRFSafeTransport(
+-	secutils.DefaultSSRFSafeHTTPClientConfig(),
+-)
++var sharedRerankHTTPTransport = func() *http.Transport {
++	transport := secutils.NewSSRFSafeTransport(secutils.DefaultSSRFSafeHTTPClientConfig())
++	// Honor administrator-configured proxies, retaining SSRF dial and TLS checks.
++	transport.Proxy = http.ProxyFromEnvironment
++	return transport
++}()
+ 
+ // defaultRerankRequestTimeout caps one rerank request when the catalog sets
+ // no timeout. Chat and agent contexts carry no deadline of their own, so a

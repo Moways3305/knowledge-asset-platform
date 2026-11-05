@@ -4,6 +4,7 @@ import uuid
 from datetime import timedelta
 from types import SimpleNamespace
 
+import pytest
 from sqlalchemy import select
 
 from app.db.utils import utc_now
@@ -59,7 +60,10 @@ async def test_snapshot_is_hourly_idempotent_and_contains_real_queue_metrics(db_
     assert len(rows) == 1
 
 
-async def test_parse_failed_visibility_excludes_deleted_and_inactive_versions(db_session):
+@pytest.mark.parametrize("parse_status", ["failed", "cancelled"])
+async def test_parse_failed_visibility_excludes_deleted_and_inactive_versions(
+    db_session, parse_status
+):
     active_asset_id = uuid.uuid4()
     active_version_id = uuid.uuid4()
     deleted_asset_id = uuid.uuid4()
@@ -95,7 +99,7 @@ async def test_parse_failed_visibility_excludes_deleted_and_inactive_versions(db
                 created_by=USER_CONSULTANT,
                 index_status="indexed",
                 weknora_doc_id=f"server-only-{asset_id}",
-                weknora_parse_status="failed",
+                weknora_parse_status=parse_status,
             )
         )
     await db_session.commit()

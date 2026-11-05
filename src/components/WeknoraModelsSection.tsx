@@ -1,5 +1,14 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { ReactNode } from "react";
+import type { ModelManagementProps } from "./modelManagement";
 import { ChevronDown, Plus } from "lucide-react";
 import {
   createWeknoraModel,
@@ -57,7 +66,9 @@ export default function WeknoraModelsSection({
   canEdit,
   refreshSignal = 0,
   onChanged,
-}: {
+  managementRef,
+  onManagementState,
+}: ModelManagementProps<ModelDTO> & {
   canEdit: boolean;
   refreshSignal?: number;
   onChanged?: () => void | Promise<void>;
@@ -224,6 +235,12 @@ export default function WeknoraModelsSection({
           : "模型配置已保存，请继续执行连通性测试。",
       );
       await Promise.all([load(), onChanged?.()]);
+      if (editingRef)
+        setTests((previous) => {
+          const next = { ...previous };
+          delete next[editingRef];
+          return next;
+        });
       setFormOpen(false);
       setCardStackOpen(true);
     } catch (caught) {
@@ -237,7 +254,7 @@ export default function WeknoraModelsSection({
     const provider = providers.find((item) => item.value === providerValue);
     const defaultUrl = provider?.default_urls?.[form.type] ?? "";
     const previousBaseUrl = form.base_url?.trim() ?? "";
-    const wasAutofilled = providerAutofillRef.current !== null;
+    const wasAutofilled = previousBaseUrl === providerAutofillRef.current;
     // 只有当前地址为空、或仍是上次自动带出的地址时，才覆盖为新默认地址；
     // 用户手动改过的地址保持不变。
     if (defaultUrl && (!previousBaseUrl || wasAutofilled)) {
@@ -324,6 +341,24 @@ export default function WeknoraModelsSection({
     }
   };
 
+  useImperativeHandle(managementRef, () => ({
+    create: () => {
+      if (effectiveCanEdit && !busyAction) openCreate();
+    },
+    edit: (model) => {
+      if (effectiveCanEdit && !busyAction) openEdit(model);
+    },
+    test: (model) => {
+      if (effectiveCanEdit && !busyAction) void runTest(model);
+    },
+    remove: (model) => {
+      if (effectiveCanEdit && !busyAction) setDeleteTarget(model);
+    },
+  }));
+  useEffect(() => {
+    onManagementState?.({ ready: effectiveCanEdit && !loading, busy: busyAction !== null, tests });
+  }, [onManagementState, effectiveCanEdit, loading, busyAction, tests]);
+
   const visibleModels = models.filter((model) => {
     const query = search.trim().toLowerCase();
     const matchesQuery =
@@ -340,208 +375,265 @@ export default function WeknoraModelsSection({
   });
 
   return (
-    <section className="mf-external-panel" aria-labelledby="weknora-models-title">
-      <div className="mf-panel-heading">
-        <div>
-          <span className="mf-panel-kicker">KAP DIRECT</span>
-          <h3 id="weknora-models-title">WeKnora 模型配置</h3>
-        </div>
-        {effectiveCanEdit && (
-          <button className="btn-small-primary mf-add-button" onClick={openCreate} type="button">
-            <Plus size={14} aria-hidden="true" />
-            新增 WeKnora 模型
-          </button>
-        )}
-      </div>
+    <section
+      className={managementRef ? "mf-model-manager" : "mf-external-panel"}
+      aria-label={managementRef ? "模型操作反馈" : undefined}
+      aria-labelledby={managementRef ? undefined : "weknora-models-title"}
+    >
+      {!managementRef && (
+        <>
+          <div className="mf-panel-heading">
+            <div>
+              <span className="mf-panel-kicker">KAP DIRECT</span>
+              <h3 id="weknora-models-title">WeKnora 模型配置</h3>
+            </div>
+            {effectiveCanEdit && (
+              <button
+                className="btn-small-primary mf-add-button"
+                onClick={openCreate}
+                type="button"
+              >
+                <Plus size={14} aria-hidden="true" />
+                新增 WeKnora 模型
+              </button>
+            )}
+          </div>
 
-      {!canEdit && !forbidden && (
-        <div className="mf-inline-message">当前身份仅可查看，修改需系统管理员。</div>
+          {!canEdit && !forbidden && (
+            <div className="mf-inline-message">当前身份仅可查看，修改需系统管理员。</div>
+          )}
+          {error && (
+            <div className="mf-inline-message is-danger" role="alert">
+              {error}
+            </div>
+          )}
+          {note && <div className="mf-inline-message is-success">{note}</div>}
+
+          <div className="mf-drawer-filters" aria-label="WeKnora 模型筛选">
+            <input
+              aria-label="搜索 WeKnora 模型"
+              placeholder="搜索名称、供应商或类型"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+            <select
+              aria-label="WeKnora 模型类型"
+              value={typeFilter}
+              onChange={(event) => setTypeFilter(event.target.value)}
+            >
+              <option value="all">全部类型</option>
+              <option value="chat">LLM</option>
+              <option value="embedding">嵌入</option>
+              <option value="rerank">重排</option>
+              <option value="multimodal">多模态</option>
+            </select>
+            <select
+              aria-label="WeKnora 模型状态"
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+            >
+              <option value="all">全部状态</option>
+              <option value="enabled">已启用</option>
+              <option value="disabled">已停用</option>
+            </select>
+          </div>
+
+          {loading ? (
+            <div className="mf-empty-state">正在加载 WeKnora 模型…</div>
+          ) : models.length === 0 ? (
+            <div className="mf-empty-state">
+              <strong>尚未配置 WeKnora 模型</strong>
+              <span>新增模型后，WeKnora 知识库底座可使用。</span>
+              {effectiveCanEdit && (
+                <button className="btn-small-primary" onClick={openCreate} type="button">
+                  新增 WeKnora 模型
+                </button>
+              )}
+            </div>
+          ) : (
+            <>
+              <button
+                className="btn-small mf-collapse-toggle"
+                onClick={() => setCardStackOpen(!cardStackOpen)}
+                type="button"
+                aria-expanded={cardStackOpen}
+              >
+                <ChevronDown
+                  size={16}
+                  style={{
+                    transform: cardStackOpen ? "rotate(180deg)" : "rotate(0deg)",
+                    transition: "transform 0.2s",
+                  }}
+                />
+                {cardStackOpen ? "收起模型列表" : `展开模型列表（${models.length}）`}
+              </button>
+
+              {cardStackOpen && (
+                <div className="mf-connection-stack">
+                  {visibleModels.length === 0 && (
+                    <div className="mf-empty-state">没有匹配的 WeKnora 模型。</div>
+                  )}
+                  {visibleModels.map((model, index) => {
+                    const testNotice = tests[model.model_ref];
+                    const statusLabel = !model.enabled ? "已停用" : "已启用";
+                    return (
+                      <details
+                        className="mf-connection-card"
+                        key={model.model_ref}
+                        open={index === 0}
+                      >
+                        <summary>
+                          <span className="mf-provider-mark" aria-hidden="true">
+                            {modelTypeLabel[model.type]?.slice(0, 2).toUpperCase() ??
+                              model.type.slice(0, 2).toUpperCase()}
+                          </span>
+                          <span className="mf-connection-title">
+                            <strong>{model.name}</strong>
+                            <small>
+                              {model.provider ?? "未知"} ·{" "}
+                              {modelTypeLabel[model.type] ?? model.type}
+                              {model.is_builtin && " · 内置"}
+                            </small>
+                          </span>
+                          <span className={`mf-health ${model.enabled ? "is-healthy" : ""}`}>
+                            {statusLabel}
+                          </span>
+                          <ChevronDown className="mf-chevron" size={16} aria-hidden="true" />
+                        </summary>
+                        <div className="mf-connection-body">
+                          <dl className="mf-connection-facts">
+                            <div>
+                              <dt>模型类型</dt>
+                              <dd>{modelTypeLabel[model.type] ?? model.type}</dd>
+                            </div>
+                            <div>
+                              <dt>来源</dt>
+                              <dd>{model.source}</dd>
+                            </div>
+                            <div>
+                              <dt>Provider</dt>
+                              <dd>{model.provider ?? "—"}</dd>
+                            </div>
+                            {model.dimension != null && (
+                              <div>
+                                <dt>向量维度</dt>
+                                <dd>{model.dimension}</dd>
+                              </div>
+                            )}
+                            <div>
+                              <dt>凭据与连通性</dt>
+                              <dd>
+                                {testNotice?.tone === "success"
+                                  ? "凭据已确认保存，连通性已验证"
+                                  : testNotice?.tone === "danger"
+                                    ? "连通性测试失败，可查看安全错误说明后重试"
+                                    : model.credential_status === "configured"
+                                      ? "凭据已确认保存，等待连通性测试"
+                                      : model.source === "local"
+                                        ? "本地模型无需远程凭据，等待连通性测试"
+                                        : "凭据保存状态未确认，请重新配置并测试"}
+                              </dd>
+                            </div>
+                            {model.description && (
+                              <div>
+                                <dt>描述</dt>
+                                <dd>{model.description}</dd>
+                              </div>
+                            )}
+                          </dl>
+                          {testNotice && (
+                            <div className={`mf-test-result is-${testNotice.tone}`} role="status">
+                              {testNotice.message}
+                            </div>
+                          )}
+                          {effectiveCanEdit && !model.is_builtin && (
+                            <div className="mf-card-actions">
+                              <button
+                                className="btn-small"
+                                onClick={() => void runTest(model)}
+                                disabled={busyAction === `test:${model.model_ref}`}
+                                type="button"
+                              >
+                                {busyAction === `test:${model.model_ref}`
+                                  ? "测试中…"
+                                  : "测试连通性"}
+                              </button>
+                              <button
+                                className="btn-small"
+                                onClick={() => openEdit(model)}
+                                type="button"
+                              >
+                                编辑
+                              </button>
+                              <button
+                                className="btn-small mf-delete-btn"
+                                onClick={() => setDeleteTarget(model)}
+                                disabled={busyAction === `delete:${model.model_ref}`}
+                                type="button"
+                              >
+                                {busyAction === `delete:${model.model_ref}` ? "删除中…" : "删除"}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </details>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )}
+        </>
       )}
-      {error && (
+      {managementRef && !formOpen && error && (
         <div className="mf-inline-message is-danger" role="alert">
           {error}
         </div>
       )}
-      {note && <div className="mf-inline-message is-success">{note}</div>}
-
-      <div className="mf-drawer-filters" aria-label="WeKnora 模型筛选">
-        <input
-          aria-label="搜索 WeKnora 模型"
-          placeholder="搜索名称、供应商或类型"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-        />
-        <select
-          aria-label="WeKnora 模型类型"
-          value={typeFilter}
-          onChange={(event) => setTypeFilter(event.target.value)}
-        >
-          <option value="all">全部类型</option>
-          <option value="chat">LLM</option>
-          <option value="embedding">嵌入</option>
-          <option value="rerank">重排</option>
-          <option value="multimodal">多模态</option>
-        </select>
-        <select
-          aria-label="WeKnora 模型状态"
-          value={statusFilter}
-          onChange={(event) => setStatusFilter(event.target.value)}
-        >
-          <option value="all">全部状态</option>
-          <option value="enabled">已启用</option>
-          <option value="disabled">已停用</option>
-        </select>
-      </div>
-
-      {loading ? (
-        <div className="mf-empty-state">正在加载 WeKnora 模型…</div>
-      ) : models.length === 0 ? (
-        <div className="mf-empty-state">
-          <strong>尚未配置 WeKnora 模型</strong>
-          <span>新增模型后，WeKnora 知识库底座可使用。</span>
-          {effectiveCanEdit && (
-            <button className="btn-small-primary" onClick={openCreate} type="button">
-              新增 WeKnora 模型
-            </button>
-          )}
+      {managementRef && note && (
+        <div className="mf-inline-message is-success" role="status">
+          {note}
         </div>
-      ) : (
-        <>
-          <button
-            className="btn-small mf-collapse-toggle"
-            onClick={() => setCardStackOpen(!cardStackOpen)}
-            type="button"
-            aria-expanded={cardStackOpen}
-          >
-            <ChevronDown
-              size={16}
-              style={{
-                transform: cardStackOpen ? "rotate(180deg)" : "rotate(0deg)",
-                transition: "transform 0.2s",
-              }}
-            />
-            {cardStackOpen ? "收起模型列表" : `展开模型列表（${models.length}）`}
-          </button>
-
-          {cardStackOpen && (
-            <div className="mf-connection-stack">
-              {visibleModels.length === 0 && (
-                <div className="mf-empty-state">没有匹配的 WeKnora 模型。</div>
-              )}
-              {visibleModels.map((model, index) => {
-                const testNotice = tests[model.model_ref];
-                const statusLabel = !model.enabled ? "已停用" : "已启用";
-                return (
-                  <details className="mf-connection-card" key={model.model_ref} open={index === 0}>
-                    <summary>
-                      <span className="mf-provider-mark" aria-hidden="true">
-                        {modelTypeLabel[model.type]?.slice(0, 2).toUpperCase() ??
-                          model.type.slice(0, 2).toUpperCase()}
-                      </span>
-                      <span className="mf-connection-title">
-                        <strong>{model.name}</strong>
-                        <small>
-                          {model.provider ?? "未知"} · {modelTypeLabel[model.type] ?? model.type}
-                          {model.is_builtin && " · 内置"}
-                        </small>
-                      </span>
-                      <span className={`mf-health ${model.enabled ? "is-healthy" : ""}`}>
-                        {statusLabel}
-                      </span>
-                      <ChevronDown className="mf-chevron" size={16} aria-hidden="true" />
-                    </summary>
-                    <div className="mf-connection-body">
-                      <dl className="mf-connection-facts">
-                        <div>
-                          <dt>模型类型</dt>
-                          <dd>{modelTypeLabel[model.type] ?? model.type}</dd>
-                        </div>
-                        <div>
-                          <dt>来源</dt>
-                          <dd>{model.source}</dd>
-                        </div>
-                        <div>
-                          <dt>Provider</dt>
-                          <dd>{model.provider ?? "—"}</dd>
-                        </div>
-                        {model.dimension != null && (
-                          <div>
-                            <dt>向量维度</dt>
-                            <dd>{model.dimension}</dd>
-                          </div>
-                        )}
-                        <div>
-                          <dt>凭据与连通性</dt>
-                          <dd>
-                            {testNotice?.tone === "success"
-                              ? "凭据已确认保存，连通性已验证"
-                              : testNotice?.tone === "danger"
-                                ? "连通性测试失败，可查看安全错误说明后重试"
-                                : model.credential_status === "configured"
-                                  ? "凭据已确认保存，等待连通性测试"
-                                  : model.source === "local"
-                                    ? "本地模型无需远程凭据，等待连通性测试"
-                                    : "凭据保存状态未确认，请重新配置并测试"}
-                          </dd>
-                        </div>
-                        {model.description && (
-                          <div>
-                            <dt>描述</dt>
-                            <dd>{model.description}</dd>
-                          </div>
-                        )}
-                      </dl>
-                      {testNotice && (
-                        <div className={`mf-test-result is-${testNotice.tone}`} role="status">
-                          {testNotice.message}
-                        </div>
-                      )}
-                      {effectiveCanEdit && !model.is_builtin && (
-                        <div className="mf-card-actions">
-                          <button
-                            className="btn-small"
-                            onClick={() => void runTest(model)}
-                            disabled={busyAction === `test:${model.model_ref}`}
-                            type="button"
-                          >
-                            {busyAction === `test:${model.model_ref}` ? "测试中…" : "测试连通性"}
-                          </button>
-                          <button
-                            className="btn-small"
-                            onClick={() => openEdit(model)}
-                            type="button"
-                          >
-                            编辑
-                          </button>
-                          <button
-                            className="btn-small mf-delete-btn"
-                            onClick={() => setDeleteTarget(model)}
-                            disabled={busyAction === `delete:${model.model_ref}`}
-                            type="button"
-                          >
-                            {busyAction === `delete:${model.model_ref}` ? "删除中…" : "删除"}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </details>
-                );
-              })}
-            </div>
-          )}
-        </>
       )}
 
       <TaskModal
         open={formOpen && effectiveCanEdit}
-        title={editingRef ? "编辑 WeKnora 模型" : "新增 WeKnora 模型"}
+        title={
+          managementRef
+            ? editingRef
+              ? "编辑知识库模型"
+              : "接入知识库模型"
+            : editingRef
+              ? "编辑 WeKnora 模型"
+              : "新增 WeKnora 模型"
+        }
         description="地址和密钥仅单向写入；仅在凭据状态已确认时，编辑留空才表示保持原值。"
         onClose={() => setFormOpen(false)}
         busy={busyAction === "form"}
         size="large"
-        eyebrow="WeKnora 模型"
+        eyebrow={managementRef ? undefined : "WeKnora 模型"}
         panelClassName="mf-connection-editor"
+        footer={
+          <div className="mf-editor-actions">
+            <button
+              className="btn-small-primary"
+              onClick={() => void saveModel()}
+              disabled={busyAction === "form"}
+              type="button"
+            >
+              {busyAction === "form" ? "保存中…" : managementRef ? "保存模型" : "保存 WeKnora 模型"}
+            </button>
+            <button className="btn-small" onClick={() => setFormOpen(false)} type="button">
+              取消
+            </button>
+          </div>
+        }
       >
+        {managementRef && error && (
+          <div className="mf-inline-message is-danger" role="alert">
+            {error}
+          </div>
+        )}
         <form
           key={editingRef ?? "create"}
           className="ws-form-grid mf-form-grid"
@@ -593,7 +685,7 @@ export default function WeknoraModelsSection({
               <option value="local">本地</option>
             </select>
           </FormField>
-          <FormField label="Provider">
+          <FormField label={managementRef ? "模型供应商" : "Provider"}>
             <ProviderSelect
               ariaLabel="模型供应商"
               options={providerOptions}
@@ -603,7 +695,9 @@ export default function WeknoraModelsSection({
               placeholder="请选择供应商（或自定义）"
             />
             {Boolean(form.base_url?.trim()) && (
-              <small className="mf-field-hint">API 地址已按所选供应商自动带出，可手动修改。</small>
+              <small className="mf-field-hint">
+                请核对当前模型能力对应的地址；使用业务空间时，以服务商控制台提供的地址为准。
+              </small>
             )}
           </FormField>
           <FormField label="API 地址">
@@ -666,19 +760,6 @@ export default function WeknoraModelsSection({
             </select>
           </FormField>
         </form>
-        <div className="mf-editor-actions">
-          <button
-            className="btn-small-primary"
-            onClick={() => void saveModel()}
-            disabled={busyAction === "form"}
-            type="button"
-          >
-            {busyAction === "form" ? "保存中…" : "保存 WeKnora 模型"}
-          </button>
-          <button className="btn-small" onClick={() => setFormOpen(false)} type="button">
-            取消
-          </button>
-        </div>
       </TaskModal>
 
       <ConfirmDialog

@@ -651,7 +651,9 @@ async def test_index_failure_retry_reuses_authorized_index_contract(client, db_s
     assert "source_file_ref" not in response.text
 
 
-async def test_parse_failure_keeps_indexed_state_and_exposes_reparse_action(client, db_session):
+@pytest.mark.parametrize("parse_status", ["failed", "cancelled"])
+@pytest.mark.parametrize("index_status", ["indexed", "index_failed", "indexing"])
+async def test_parse_failure_exposes_reparse_action(client, db_session, parse_status, index_status):
     task = await _task(db_session, status="completed", asset_id=KA_PERSONAL)
     version = (
         await db_session.execute(
@@ -661,9 +663,9 @@ async def test_parse_failure_keeps_indexed_state_and_exposes_reparse_action(clie
             )
         )
     ).scalar_one()
-    version.index_status = "indexed"
+    version.index_status = index_status
     version.weknora_doc_id = "server-only-doc"
-    version.weknora_parse_status = "failed"
+    version.weknora_parse_status = parse_status
     await db_session.commit()
 
     response = await client.get(_status_url(task.id), headers=_headers(USER_CONSULTANT))
@@ -672,14 +674,16 @@ async def test_parse_failure_keeps_indexed_state_and_exposes_reparse_action(clie
     body = response.json()
     assert body["stage"] == "failed"
     assert body["status"] == "failed"
-    assert body["error"]["code"] == "weknora_parse_failed"
+    assert body["error"]["code"] == (
+        "weknora_parse_cancelled" if parse_status == "cancelled" else "weknora_parse_failed"
+    )
     assert body["next_action"] == {
         "key": "reparse",
         "route_key": "ingest_task_retry",
         "enabled": True,
     }
     await db_session.refresh(version)
-    assert version.index_status == "indexed"
+    assert version.index_status == index_status
     assert "server-only-doc" not in response.text
 
 

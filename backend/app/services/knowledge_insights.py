@@ -54,6 +54,7 @@ from app.schemas.knowledge_insights import (
 from app.schemas.permission import CallerContext
 from app.services import error_catalog
 from app.services.permission_rules import access_request_timeout_hours
+from app.services.weknora_parse_state import FAILED_PARSE_STATUSES
 
 _ACTIVE_VERSION = "active"
 _INDEXED = "indexed"
@@ -175,13 +176,15 @@ async def get_ops_insights(
             _version_count(KnowledgeAssetVersion.index_status == "not_indexed")
         ),
         parse_failed=await _count(
-            _version_count(KnowledgeAssetVersion.weknora_parse_status == "failed")
+            _version_count(KnowledgeAssetVersion.weknora_parse_status.in_(FAILED_PARSE_STATUSES))
         ),
         parse_pending=await _count(
             _version_count(KnowledgeAssetVersion.weknora_parse_status == "pending")
         ),
         parse_processing=await _count(
-            _version_count(KnowledgeAssetVersion.weknora_parse_status == "processing")
+            _version_count(
+                KnowledgeAssetVersion.weknora_parse_status.in_(("processing", "finalizing"))
+            )
         ),
         kb_init_failed=await _count(_kb_init_failed_stmt(caller, scope_v, project_id)),
         recent_jobs=(await _recent_jobs(session) if ops_viewer else []),

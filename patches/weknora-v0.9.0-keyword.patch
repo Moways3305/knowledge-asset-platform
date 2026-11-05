@@ -1,0 +1,405 @@
+diff --git a/internal/application/repository/retriever/postgres/keyword_plan.go b/internal/application/repository/retriever/postgres/keyword_plan.go
+new file mode 100644
+index 0000000..db09046
+--- /dev/null
++++ b/internal/application/repository/retriever/postgres/keyword_plan.go
+@@ -0,0 +1,78 @@
++package postgres
++
++import (
++	"context"
++	"database/sql"
++	"fmt"
++	"strings"
++
++	"github.com/Tencent/WeKnora/internal/types"
++	"gorm.io/gorm"
++)
++
++// withKeywordPlan protects score evaluation from cached generic plans. The
++// previous value is restored explicitly for callers already inside a transaction;
++// errors roll back the transaction/savepoint, including SET LOCAL.
++func (g *pgRepository) withKeywordPlan(ctx context.Context, query func(*gorm.DB) error) error {
++	return g.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
++		var previous string
++		if err := tx.Raw("SHOW plan_cache_mode").Scan(&previous).Error; err != nil {
++			return err
++		}
++		if previous != "auto" && previous != "force_custom_plan" && previous != "force_generic_plan" {
++			return fmt.Errorf("unexpected PostgreSQL plan mode")
++		}
++		if err := tx.Exec("SET LOCAL plan_cache_mode = force_custom_plan").Error; err != nil {
++			return err
++		}
++		if err := query(tx); err != nil {
++			return err
++		}
++		return tx.Exec("SELECT set_config('plan_cache_mode', ?, true)", previous).Error
++	}, &sql.TxOptions{ReadOnly: true})
++}
++
++// Materialize before the cross-column predicate so ParadeDB evaluates score()
++// in its own scan. No inner LIMIT: generated questions must not crowd out valid
++// body chunks before exclusion. All scope filters remain bound in the inner scan.
++func materializedKeywordSQL(params types.RetrieveParams, scoreFunction string) (string, []interface{}, error) {
++	if scoreFunction != "paradedb.score" && scoreFunction != "pgsearch.score" {
++		return "", nil, fmt.Errorf("unsupported keyword score function")
++	}
++	if params.TopK <= 0 {
++		return "", nil, fmt.Errorf("keyword TopK must be positive")
++	}
++	values := make([]interface{}, 0)
++	in := func(column string, ids []string) string {
++		marks := make([]string, len(ids))
++		for i, id := range ids {
++			marks[i] = "?"
++			values = append(values, id)
++		}
++		return column + " IN (" + strings.Join(marks, ",") + ")"
++	}
++	filters := make([]string, 0)
++	if len(params.KnowledgeBaseIDs) > 0 {
++		filters = append(filters, in("knowledge_base_id", params.KnowledgeBaseIDs))
++	}
++	if len(params.KnowledgeIDs) > 0 {
++		filters = append(filters, in("knowledge_id", params.KnowledgeIDs))
++	}
++	if len(params.TagIDs) > 0 {
++		filters = append(filters, in("tag_id", params.TagIDs))
++	}
++	filters = append(filters, "content ||| ?", "(is_enabled IS NULL OR is_enabled = ?)")
++	values = append(values, params.Query, true)
++	exclusion := "true"
++	if len(params.ExcludeGeneratedQuestionKBIDs) > 0 {
++		exclusion = "NOT (" + in("knowledge_base_id", params.ExcludeGeneratedQuestionKBIDs) +
++			" AND " + types.GeneratedQuestionRowPredicate("") + ")"
++	}
++	values = append(values, params.TopK)
++	statement := "WITH scored AS MATERIALIZED (SELECT " + scoreFunction +
++		"(id) AS score,id,content,source_id,source_type,chunk_id,knowledge_id,knowledge_base_id,tag_id" +
++		" FROM embeddings WHERE " + strings.Join(filters, " AND ") + " ORDER BY score DESC) " +
++		"SELECT score,id,content,source_id,source_type,chunk_id,knowledge_id,knowledge_base_id,tag_id" +
++		" FROM scored WHERE " + exclusion + " ORDER BY score DESC LIMIT ?"
++	return statement, values, nil
++}
+diff --git a/internal/application/repository/retriever/postgres/keyword_plan_integration_test.go b/internal/application/repository/retriever/postgres/keyword_plan_integration_test.go
+new file mode 100644
+index 0000000..04e68d5
+--- /dev/null
++++ b/internal/application/repository/retriever/postgres/keyword_plan_integration_test.go
+@@ -0,0 +1,119 @@
++package postgres
++
++import (
++	"context"
++	"errors"
++	"os"
++	"testing"
++
++	"github.com/Tencent/WeKnora/internal/types"
++	"github.com/stretchr/testify/require"
++	gormpostgres "gorm.io/driver/postgres"
++	"gorm.io/gorm"
++	"gorm.io/gorm/logger"
++)
++
++// This test requires a new, disposable ParadeDB database named kap_keyword_test.
++// It never uses the application's configured database or credentials.
++func TestKeywordPlanParadeDB(t *testing.T) {
++	dsn := os.Getenv("KAP_KEYWORD_TEST_DSN")
++	if dsn == "" {
++		t.Skip("set KAP_KEYWORD_TEST_DSN to an empty disposable ParadeDB database")
++	}
++	db, err := gorm.Open(gormpostgres.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
++	require.NoError(t, err)
++	sqlDB, err := db.DB()
++	require.NoError(t, err)
++	sqlDB.SetMaxOpenConns(1)
++	t.Cleanup(func() { _ = sqlDB.Close() })
++	var database string
++	require.NoError(t, db.Raw("SELECT current_database()").Scan(&database).Error)
++	require.Equal(t, "kap_keyword_test", database)
++	var existing int
++	require.NoError(t, db.Raw("SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='embeddings'").Scan(&existing).Error)
++	require.Zero(t, existing, "fixture requires a fresh database")
++	require.NoError(t, db.Exec(`CREATE TABLE embeddings (
++		id bigserial PRIMARY KEY, content text, source_id text, source_type integer,
++		chunk_id text, knowledge_id text, knowledge_base_id text, tag_id text, is_enabled boolean
++	)`).Error)
++	t.Cleanup(func() { require.NoError(t, db.Exec("DROP TABLE embeddings").Error) })
++	require.NoError(t, db.Exec(`INSERT INTO embeddings
++		(content, source_id, source_type, chunk_id, knowledge_id, knowledge_base_id, tag_id, is_enabled)
++		VALUES
++		('commonkeyword body', 'body', 0, 'body', 'doc-a', 'kb-a', 'tag-a', true),
++		('commonkeyword legacy', 'legacy', 0, 'legacy', 'doc-a', 'kb-a', 'tag-a', NULL),
++		('commonkeyword disabled', 'disabled', 0, 'disabled', 'doc-a', 'kb-a', 'tag-a', false),
++		('commonkeyword otherdocument', 'otherdoc', 0, 'otherdoc', 'doc-b', 'kb-a', 'tag-a', true),
++		('commonkeyword othertag', 'othertag', 0, 'othertag', 'doc-a', 'kb-a', 'tag-b', true),
++		('commonkeyword forbidden', 'forbidden', 0, 'forbidden', 'doc-a', 'kb-private', 'tag-a', true),
++		('commonkeyword faq', 'faq-question', 0, 'faq', 'doc-faq', 'kb-faq', 'tag-a', true)
++	`).Error)
++	// Enough generated questions to detect limiting before exclusion.
++	require.NoError(t, db.Exec(`INSERT INTO embeddings
++		(content, source_id, source_type, chunk_id, knowledge_id, knowledge_base_id, tag_id, is_enabled)
++		SELECT 'commonkeyword', 'body-question-' || n, 0, 'body', 'doc-a', 'kb-a', 'tag-a', true
++		FROM generate_series(1, 600) n`).Error)
++	// Match the application's migrated index, including filters not in BM25.
++	require.NoError(t, db.Exec(`CREATE INDEX kap_keyword_fixture ON embeddings USING bm25
++		(id, knowledge_base_id, content, knowledge_id, chunk_id)
++		WITH (key_field='id', text_fields='{"content":{"tokenizer":{"type":"chinese_lindera"}}}')`).Error)
++	ctx := context.Background()
++	for _, mode := range []string{"auto", "force_generic_plan"} {
++		t.Run(mode, func(t *testing.T) {
++			require.NoError(t, db.Exec("SELECT set_config('plan_cache_mode', ?, false)", mode).Error)
++			repo := NewPostgresRetrieveEngineRepository(db).(*pgRepository)
++			for attempt := 0; attempt < 9; attempt++ {
++				params := types.RetrieveParams{Query: "commonkeyword", TopK: 500,
++					KnowledgeBaseIDs: []string{"kb-a", "kb-faq"}, ExcludeGeneratedQuestionKBIDs: []string{"kb-a"}}
++				results, err := repo.KeywordsRetrieve(ctx, params)
++				require.NoError(t, err)
++				chunks := make([]string, 0)
++				for _, result := range results[0].Results {
++					chunks = append(chunks, result.ChunkID)
++					require.Greater(t, result.Score, float64(0))
++				}
++				require.ElementsMatch(t, []string{"body", "legacy", "otherdoc", "othertag", "faq"}, chunks)
++				params.KnowledgeIDs, params.TagIDs = []string{"doc-a"}, []string{"tag-a"}
++				results, err = repo.KeywordsRetrieve(ctx, params)
++				require.NoError(t, err)
++				require.Len(t, results[0].Results, 2)
++				params.Query = "nonexistentuniquefixturetoken"
++				results, err = repo.KeywordsRetrieve(ctx, params)
++				require.NoError(t, err)
++				require.Empty(t, results[0].Results)
++				params.Query, params.ExcludeGeneratedQuestionKBIDs = "commonkeyword", nil
++				results, err = repo.KeywordsRetrieve(ctx, params)
++				require.NoError(t, err)
++				require.Len(t, results[0].Results, 500)
++				var restored string
++				require.NoError(t, db.Raw("SHOW plan_cache_mode").Scan(&restored).Error)
++				require.Equal(t, mode, restored)
++			}
++			// A caller's existing transaction must retain its own plan mode on both paths.
++			for _, fail := range []bool{false, true} {
++				tx := db.Begin()
++				require.NoError(t, tx.Error)
++				nested := NewPostgresRetrieveEngineRepository(tx).(*pgRepository)
++				cause := errors.New("fixture rollback")
++				err := nested.withKeywordPlan(ctx, func(inner *gorm.DB) error {
++					var active string
++					require.NoError(t, inner.Raw("SHOW plan_cache_mode").Scan(&active).Error)
++					require.Equal(t, "force_custom_plan", active)
++					if fail {
++						return cause
++					}
++					return nil
++				})
++				if fail {
++					require.ErrorIs(t, err, cause)
++				} else {
++					require.NoError(t, err)
++				}
++				var restored string
++				require.NoError(t, tx.Raw("SHOW plan_cache_mode").Scan(&restored).Error)
++				require.Equal(t, mode, restored)
++				require.NoError(t, tx.Rollback().Error)
++			}
++		})
++	}
++}
+diff --git a/internal/application/repository/retriever/postgres/keyword_plan_test.go b/internal/application/repository/retriever/postgres/keyword_plan_test.go
+new file mode 100644
+index 0000000..c6c3292
+--- /dev/null
++++ b/internal/application/repository/retriever/postgres/keyword_plan_test.go
+@@ -0,0 +1,95 @@
++package postgres
++
++import (
++	"context"
++	"errors"
++	"regexp"
++	"strings"
++	"testing"
++
++	"github.com/DATA-DOG/go-sqlmock"
++	"github.com/Tencent/WeKnora/internal/types"
++	"github.com/stretchr/testify/require"
++	"gorm.io/gorm"
++)
++
++func expectKeywordPlanBegin(mock sqlmock.Sqlmock, mode string) {
++	mock.ExpectBegin()
++	mock.ExpectQuery("SHOW plan_cache_mode").WillReturnRows(sqlmock.NewRows([]string{"plan_cache_mode"}).AddRow(mode))
++	mock.ExpectExec("SET LOCAL plan_cache_mode = force_custom_plan").WillReturnResult(sqlmock.NewResult(0, 0))
++}
++
++func expectKeywordPlanEnd(mock sqlmock.Sqlmock, mode string) {
++	mock.ExpectExec(regexp.QuoteMeta("SELECT set_config('plan_cache_mode', $1, true)")).WithArgs(mode).WillReturnResult(sqlmock.NewResult(0, 0))
++	mock.ExpectCommit()
++}
++
++func TestMaterializedKeywordScopeAndLimit(t *testing.T) {
++	params := types.RetrieveParams{Query: "quote' OR true --", TopK: 500,
++		KnowledgeBaseIDs: []string{"kb-1", "kb-2"}, KnowledgeIDs: []string{"doc-1", "doc-2"},
++		TagIDs: []string{"tag-1"}, ExcludeGeneratedQuestionKBIDs: []string{"kb-1"}}
++	statement, values, err := materializedKeywordSQL(params, "paradedb.score")
++	require.NoError(t, err)
++	require.Contains(t, statement, "WITH scored AS MATERIALIZED")
++	require.Equal(t, 1, strings.Count(statement, "LIMIT"))
++	require.Less(t, strings.Index(statement, "FROM scored WHERE"), strings.Index(statement, "source_id <> chunk_id"))
++	require.Less(t, strings.Index(statement, "source_id <> chunk_id"), strings.Index(statement, "LIMIT"))
++	require.NotContains(t, statement, params.Query)
++	require.Equal(t, []interface{}{"kb-1", "kb-2", "doc-1", "doc-2", "tag-1", params.Query, true, "kb-1", params.TopK}, values)
++	_, _, err = materializedKeywordSQL(params, "untrusted.score")
++	require.Error(t, err)
++}
++
++func TestMaterializedKeywordExecutionRestoresCallerMode(t *testing.T) {
++	for _, mode := range []string{"auto", "force_generic_plan", "force_custom_plan"} {
++		t.Run(mode, func(t *testing.T) {
++			repo, mock := newKeywordTestRepository(t)
++			mock.ExpectQuery(regexp.QuoteMeta(keywordScoreFunctionSQL)).WillReturnRows(sqlmock.NewRows([]string{"score_function"}).AddRow("paradedb.score"))
++			expectKeywordPlanBegin(mock, mode)
++			mock.ExpectQuery(`WITH scored AS MATERIALIZED.*knowledge_base_id IN \(\$1,\$2\).*FROM scored WHERE NOT.*LIMIT \$6`).
++				WithArgs("kb-1", "kb-2", "项目", true, "kb-1", 500).
++				WillReturnRows(sqlmock.NewRows([]string{"id", "chunk_id", "score"}).AddRow(1, "body", 10))
++			expectKeywordPlanEnd(mock, mode)
++			results, err := repo.KeywordsRetrieve(context.Background(), types.RetrieveParams{Query: "项目", TopK: 500,
++				KnowledgeBaseIDs: []string{"kb-1", "kb-2"}, ExcludeGeneratedQuestionKBIDs: []string{"kb-1"}})
++			require.NoError(t, err)
++			require.Equal(t, "body", results[0].Results[0].ChunkID)
++		})
++	}
++}
++
++func TestKeywordPlanSetupAndRestoreFailuresFailClosed(t *testing.T) {
++	for _, phase := range []string{"show", "set", "query", "restore"} {
++		t.Run(phase, func(t *testing.T) {
++			repo, mock := newKeywordTestRepository(t)
++			cause := errors.New("fixture failure")
++			mock.ExpectBegin()
++			show := mock.ExpectQuery("SHOW plan_cache_mode")
++			if phase == "show" {
++				show.WillReturnError(cause)
++			} else {
++				show.WillReturnRows(sqlmock.NewRows([]string{"plan_cache_mode"}).AddRow("auto"))
++				set := mock.ExpectExec("SET LOCAL plan_cache_mode = force_custom_plan")
++				if phase == "set" {
++					set.WillReturnError(cause)
++				} else {
++					set.WillReturnResult(sqlmock.NewResult(0, 0))
++				}
++			}
++			if phase == "restore" {
++				mock.ExpectExec(regexp.QuoteMeta("SELECT set_config('plan_cache_mode', $1, true)")).WithArgs("auto").WillReturnError(cause)
++			}
++			mock.ExpectRollback()
++			called := false
++			err := repo.withKeywordPlan(context.Background(), func(tx *gorm.DB) error {
++				called = true
++				if phase == "query" {
++					return cause
++				}
++				return nil
++			})
++			require.ErrorIs(t, err, cause)
++			require.Equal(t, phase == "query" || phase == "restore", called)
++		})
++	}
++}
+diff --git a/internal/application/repository/retriever/postgres/keyword_score_test.go b/internal/application/repository/retriever/postgres/keyword_score_test.go
+index 22b0564..debb5a9 100644
+--- a/internal/application/repository/retriever/postgres/keyword_score_test.go
++++ b/internal/application/repository/retriever/postgres/keyword_score_test.go
+@@ -48,12 +48,14 @@ func TestKeywordsRetrieveScoreFunctionCompatibility(t *testing.T) {
+ 				`content \|\|\| \$4.*is_enabled IS NULL OR is_enabled = \$5.*` +
+ 				`ORDER BY "score" DESC LIMIT \$6`
+ 			for range 2 {
++				expectKeywordPlanBegin(mock, "auto")
+ 				mock.ExpectQuery(query).
+ 					WithArgs("kb-test", "doc-test", "tag-test", params.Query, true, 5).
+ 					WillReturnRows(sqlmock.NewRows([]string{
+ 						"id", "chunk_id", "knowledge_id", "knowledge_base_id", "tag_id", "score",
+ 					}).
+ 						AddRow(1, "chunk-test", "doc-test", "kb-test", "tag-test", 31.15))
++				expectKeywordPlanEnd(mock, "auto")
+ 				results, err := repo.Retrieve(context.Background(), params)
+ 				require.NoError(t, err)
+ 				require.Len(t, results, 1)
+@@ -139,15 +141,19 @@ func TestKeywordsRetrieveQueryFailurePreservesResolvedFunction(t *testing.T) {
+ 		WillReturnRows(sqlmock.NewRows([]string{"score_function"}).AddRow("pgsearch.score"))
+ 	query := `SELECT pgsearch\.score\(id\) as score,.*FROM "embeddings".*`
+ 	cause := errors.New("keyword index unavailable")
++	expectKeywordPlanBegin(mock, "auto")
+ 	mock.ExpectQuery(query).WithArgs("关键词测试", true, 5).WillReturnError(cause)
++	mock.ExpectRollback()
+ 	params := types.RetrieveParams{Query: "关键词测试", TopK: 5}
+ 	results, err := repo.KeywordsRetrieve(context.Background(), params)
+ 	require.Nil(t, results)
+ 	require.ErrorIs(t, err, cause)
+ 
+ 	// The catalog probe succeeded: retry only the retrieval, not detection.
++	expectKeywordPlanBegin(mock, "auto")
+ 	mock.ExpectQuery(query).WithArgs("关键词测试", true, 5).
+ 		WillReturnRows(sqlmock.NewRows([]string{"id", "score"}))
++	expectKeywordPlanEnd(mock, "auto")
+ 	results, err = repo.KeywordsRetrieve(context.Background(), params)
+ 	require.NoError(t, err)
+ 	require.Len(t, results, 1)
+diff --git a/internal/application/repository/retriever/postgres/repository.go b/internal/application/repository/retriever/postgres/repository.go
+index 9951a04..1c18c10 100644
+--- a/internal/application/repository/retriever/postgres/repository.go
++++ b/internal/application/repository/retriever/postgres/repository.go
+@@ -270,28 +270,34 @@ func (g *pgRepository) KeywordsRetrieve(ctx context.Context,
+ 		SQL:  "(is_enabled IS NULL OR is_enabled = ?)",
+ 		Vars: []interface{}{true},
+ 	})
+-	if exclusion := generatedQuestionExclusionClause(params.ExcludeGeneratedQuestionKBIDs); exclusion != nil {
+-		conds = append(conds, exclusion)
+-	}
+ 	conds = append(conds, clause.OrderBy{Columns: []clause.OrderByColumn{
+ 		{Column: clause.Column{Name: "score"}, Desc: true},
+ 	}})
+ 
+ 	var embeddingDBList []pgVectorWithScore
+-	err = g.db.WithContext(ctx).Clauses(conds...).
+-		Select([]string{
+-			scoreFunction + "(id) as score",
+-			"id",
+-			"content",
+-			"source_id",
+-			"source_type",
+-			"chunk_id",
+-			"knowledge_id",
+-			"knowledge_base_id",
+-			"tag_id",
+-		}).
+-		Limit(int(params.TopK)).
+-		Find(&embeddingDBList).Error
++	err = g.withKeywordPlan(ctx, func(tx *gorm.DB) error {
++		if len(params.ExcludeGeneratedQuestionKBIDs) > 0 {
++			statement, values, buildErr := materializedKeywordSQL(params, scoreFunction)
++			if buildErr != nil {
++				return buildErr
++			}
++			return tx.Raw(statement, values...).Scan(&embeddingDBList).Error
++		}
++		return tx.Clauses(conds...).
++			Select([]string{
++				scoreFunction + "(id) as score",
++				"id",
++				"content",
++				"source_id",
++				"source_type",
++				"chunk_id",
++				"knowledge_id",
++				"knowledge_base_id",
++				"tag_id",
++			}).
++			Limit(int(params.TopK)).
++			Find(&embeddingDBList).Error
++	})
+ 
+ 	if err == gorm.ErrRecordNotFound {
+ 		logger.GetLogger(ctx).Warnf("[Postgres] No records found for keywords query: %s", params.Query)

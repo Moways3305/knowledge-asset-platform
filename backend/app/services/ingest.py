@@ -77,6 +77,7 @@ from app.services.weknora_client import (
     WeKnoraError,
     weknora_enabled,
 )
+from app.services.weknora_parse_state import TERMINAL_PARSE_STATUSES
 from app.worker.enqueue import enqueue_ingest_processing, enqueue_outbox_delivery
 
 if TYPE_CHECKING:
@@ -1042,7 +1043,7 @@ async def refresh_parse(
         weknora_enabled()
         and version is not None
         and version.weknora_doc_id
-        and version.weknora_parse_status not in {"completed", "failed", "duplicate"}
+        and version.weknora_parse_status not in TERMINAL_PARSE_STATUSES
     ):
         try:
             data = await weknora.get_knowledge(version.weknora_doc_id, trace_id=None)

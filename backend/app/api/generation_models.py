@@ -26,6 +26,7 @@ from app.services import audit as audit_service
 from app.services import generation_models
 from app.services import ingest_status as ingest_status_service
 from app.services.desensitization import DesensitizationEngine, get_desensitizer
+from app.services.model_registry import require_legacy_unmanaged
 from app.services.storage import LocalFileStorage, get_storage
 
 router = APIRouter(prefix="/api/v1", tags=["generation-models"])
@@ -150,6 +151,7 @@ async def update_generation_model(
     session: AsyncSession = Depends(get_db),
 ) -> GenerationModelOptionOut:
     _require_admin(caller)
+    await require_legacy_unmanaged(session, model_ref, "business")
     try:
         item = await generation_models.update_model(
             session,
@@ -185,6 +187,7 @@ async def delete_generation_model(
     session: AsyncSession = Depends(get_db),
 ) -> GenerationModelDeleteResponse:
     _require_admin(caller)
+    await require_legacy_unmanaged(session, model_ref, "business")
     try:
         await generation_models.delete_model(session, model_ref)
     except generation_models.GenerationModelError as exc:

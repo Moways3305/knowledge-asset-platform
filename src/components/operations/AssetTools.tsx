@@ -105,6 +105,10 @@ export function RefreshParseButton({ taskId }: { taskId: string }) {
     failed: "解析失败",
     pending: "等待解析",
     processing: "解析中",
+    finalizing: "解析收尾中",
+    cancelled: "解析已取消",
+    canceled: "解析已取消",
+    deleting: "索引文档删除中",
     duplicate: "重复资料",
   };
   return (

@@ -443,6 +443,31 @@ async def test_parse_reconcile_updates_and_tolerates_failure(db_session, monkeyp
     assert hb.processed == 1 and hb.updated == 1 and hb.failed == 1
 
 
+@pytest.mark.parametrize("terminal", ["completed", "failed", "cancelled"])
+async def test_parse_reconcile_v090_finalizing_reaches_terminal(db_session, monkeypatch, terminal):
+    monkeypatch.setattr(parse_reconcile, "weknora_enabled", lambda: True)
+    version = await _new_version(db_session, doc_id="v090-doc", parse_status="processing")
+    fake = FakeParseWeKnora({"v090-doc": "finalizing"})
+    first = await parse_reconcile.reconcile_parse_statuses(db_session, fake, trace_id="v090-first")
+    await db_session.refresh(version)
+    assert first["updated"] == 1
+    assert version.weknora_parse_status == "finalizing"
+    assert version.index_status == "indexing"
+    assert version.indexed_at is None
+    fake.statuses["v090-doc"] = terminal
+    second = await parse_reconcile.reconcile_parse_statuses(
+        db_session, fake, trace_id="v090-second"
+    )
+    await db_session.refresh(version)
+    assert second["updated"] == 1
+    assert version.weknora_parse_status == terminal
+    assert version.index_status == ("indexed" if terminal == "completed" else "index_failed")
+    if terminal == "cancelled":
+        assert version.index_error_code == "weknora_parse_cancelled"
+    third = await parse_reconcile.reconcile_parse_statuses(db_session, fake, trace_id="v090-third")
+    assert third["processed"] == 0
+
+
 async def test_parse_reconcile_releases_transaction_during_upstream_io(db_session, monkeypatch):
     monkeypatch.setattr(parse_reconcile, "weknora_enabled", lambda: True)
     await _new_version(db_session, doc_id="unlocked-1", parse_status="processing")
