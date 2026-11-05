@@ -4,6 +4,45 @@
   border: 0;
   min-width: 0;
 }
+.onboarding-section-heading,
+.onboarding-field-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.onboarding-section-heading {
+  margin-bottom: 14px;
+}
+.onboarding-fields .onboarding-section-heading h3 {
+  margin: 0;
+}
+.onboarding-provider-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 13px;
+}
+.onboarding-docs-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--color-text-secondary, #687081);
+  font-size: 13px;
+  font-weight: 400;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.onboarding-docs-link:hover {
+  color: var(--color-primary, #3368ff);
+  text-decoration: underline;
+}
+.onboarding-docs-link:focus-visible {
+  outline: 2px solid var(--color-primary, #3368ff);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
 .onboarding-fields section {
   padding: 18px 0;
   border-bottom: 1px solid var(--color-border, #e5e7eb);

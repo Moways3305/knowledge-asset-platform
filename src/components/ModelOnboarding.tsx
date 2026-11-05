@@ -21,6 +21,7 @@ import type {
   RegistryModelInput,
 } from "../types/modelRegistry";
 import TaskModal from "./TaskModal";
+import ProviderDocsLink from "./ProviderDocsLink";
 import { ProviderLogo } from "./providerIcons";
 import "./ModelOnboarding.css";
 
@@ -349,7 +350,10 @@ export default function ModelOnboarding({
         )}
         <fieldset disabled={busy || !loaded} className="onboarding-fields">
           <section>
-            <h3>供应商连接</h3>
+            <div className="onboarding-section-heading">
+              <h3>供应商连接</h3>
+              <ProviderDocsLink provider={selected?.provider} />
+            </div>
             <div className="onboarding-connection-choice">
               <label>
                 已有连接
@@ -602,9 +606,13 @@ export default function ModelOnboarding({
                 placeholder="例如：硅基流动 · 项目服务"
               />
             </label>
-            <label>
-              供应商
+            <div className="onboarding-provider-field">
+              <div className="onboarding-field-heading">
+                <span aria-hidden="true">供应商</span>
+                <ProviderDocsLink provider={connectionForm.provider} />
+              </div>
               <select
+                aria-label="供应商"
                 value={connectionForm.provider}
                 disabled={!!connection}
                 onChange={(e) => {
@@ -619,7 +627,7 @@ export default function ModelOnboarding({
                   </option>
                 ))}
               </select>
-            </label>
+            </div>
             {template?.workspace && (
               <>
                 <label>
