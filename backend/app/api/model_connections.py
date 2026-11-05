@@ -20,6 +20,7 @@ from app.schemas.model_connections import (
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
 from app.services import generation_models, model_connections
+from app.services.model_registry import require_legacy_unmanaged
 
 router = APIRouter(prefix="/api/v1/admin/model-connections", tags=["model-connections"])
 
@@ -138,6 +139,7 @@ async def put_connection(
     session: AsyncSession = Depends(get_db),
 ) -> ModelConnectionOut:
     _require_operator(caller)
+    await require_legacy_unmanaged(session, model_ref, "business")
     try:
         item = await model_connections.update_connection(
             session,
@@ -194,6 +196,7 @@ async def delete_connection(
     session: AsyncSession = Depends(get_db),
 ):
     _require_operator(caller)
+    await require_legacy_unmanaged(session, model_ref, "business")
     try:
         await model_connections.delete_model_connection(session, model_ref)
     except model_connections.ModelConnectionError as exc:

@@ -1,0 +1,42 @@
+"""Keep incomplete onboarding records out of runtime model choices."""
+
+from sqlalchemy import select
+
+from app.models.model_registry import RegisteredModel
+
+
+async def filter_knowledge_runtime(session, models):
+    registered = list((await session.scalars(select(RegisteredModel))).all())
+    by_id = {m.weknora_id: m for m in registered if m.weknora_id}
+    result = []
+    for raw in models:
+        if not isinstance(raw, dict):
+            continue
+        identifier = str(raw.get("id") or "")
+        model = by_id.get(identifier)
+        marked = str(raw.get("description") or "").startswith("kap-registry:")
+        if model is not None and model.bindings.get("knowledge", {}).get("status") != "ready":
+            continue
+        if marked and model is None:
+            continue
+        result.append(raw)
+    return result
+
+
+async def filter_knowledge_options(session, models):
+    from app.services.weknora_models import _model_ref
+
+    registered = list((await session.scalars(select(RegisteredModel))).all())
+    by_ref = {_model_ref(m.weknora_id): m for m in registered if m.weknora_id}
+    result = []
+    for item in models:
+        model = by_ref.get(item.model_ref)
+        marked = str(item.description or "").startswith("kap-registry:")
+        if model is not None and model.bindings.get("knowledge", {}).get("status") != "ready":
+            continue
+        if marked and model is None:
+            continue
+        if marked:
+            item = item.model_copy(update={"description": None})
+        result.append(item)
+    return result

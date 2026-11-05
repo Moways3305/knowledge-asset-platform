@@ -28,6 +28,7 @@ from app.api import (
     lifecycle,
     mcp_oauth,
     model_connections,
+    model_registry,
     my_knowledge,
     naming,
     notifications,
@@ -93,6 +94,7 @@ def create_app() -> FastAPI:
     app.include_router(preview.router)
     app.include_router(generation_models.router)
     app.include_router(model_connections.router)
+    app.include_router(model_registry.router)
     app.include_router(naming.router)
     app.include_router(notifications.router)
     app.include_router(release_notes.router)

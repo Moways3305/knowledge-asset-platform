@@ -1,3 +1,5 @@
+import ModelOnboarding, { type ModelOnboardingHandle } from "../components/ModelOnboarding";
+import type { RegistryInventory } from "../types/modelRegistry";
 import { useRef, useState } from "react";
 import { Plus, Settings2, RefreshCw } from "lucide-react";
 import ModelRegistryTable from "../components/ModelRegistryTable";
@@ -77,11 +79,16 @@ export default function AdminWeKnoraModelsPage() {
     setMigrationResult,
   } = useAdminWeKnoraModels();
 
+  const onboarding = useRef<ModelOnboardingHandle>(null);
+  const [registryInventory, setRegistryInventory] = useState<RegistryInventory>({
+    connections: [],
+    models: [],
+  });
   const externalManager = useRef<ModelManagementHandle<ModelConnectionDTO>>(null);
   const knowledgeManager = useRef<ModelManagementHandle<ModelDTO>>(null);
   const [externalState, setExternalState] = useState(emptyManagementState);
   const [knowledgeState, setKnowledgeState] = useState(emptyManagementState);
-  const [entry, setEntry] = useState<"create" | "settings" | null>(null);
+  const [entry, setEntry] = useState<"settings" | null>(null);
   const editable = canEdit && isGlobalOperator;
 
   return (
@@ -127,10 +134,13 @@ export default function AdminWeKnoraModelsPage() {
                   <Settings2 size={16} aria-hidden="true" />
                   模型设置
                 </button>
+                <button className="btn-small" onClick={() => onboarding.current?.connections()}>
+                  供应商连接
+                </button>
                 <button
                   className="btn-small-primary"
-                  disabled={loading || busy || (!externalState.ready && !knowledgeState.ready)}
-                  onClick={() => setEntry("create")}
+                  disabled={loading || busy}
+                  onClick={() => onboarding.current?.create()}
                 >
                   <Plus size={16} aria-hidden="true" />
                   接入模型
@@ -191,6 +201,8 @@ export default function AdminWeKnoraModelsPage() {
           )}
           {isGlobalOperator && drawer !== "knowledge" && drawer !== "migration" && (
             <ModelRegistryTable
+              registeredModels={registryInventory.models}
+              onRegisteredAction={(action, model) => onboarding.current?.[action](model)}
               connections={externalConnections}
               models={models}
               externalState={externalState}
@@ -203,6 +215,13 @@ export default function AdminWeKnoraModelsPage() {
           )}
           {isGlobalOperator && (
             <>
+              <ModelOnboarding
+                managementRef={onboarding}
+                onInventory={setRegistryInventory}
+                onChanged={load}
+                refreshSignal={refreshSignal}
+                canEdit={editable}
+              />
               <UnifiedModelConnectionsSection
                 managementRef={externalManager}
                 onManagementState={setExternalState}
@@ -336,60 +355,29 @@ export default function AdminWeKnoraModelsPage() {
       </div>
       <TaskModal
         open={entry !== null && editable}
-        title={entry === "create" ? "接入模型" : "模型设置"}
+        title="模型设置"
         onClose={() => setEntry(null)}
-        description={
-          entry === "create"
-            ? "选择模型的使用场景，再填写供应商和连接信息。"
-            : "按用途设置默认模型；已有知识库保留各自的模型绑定。"
-        }
+        description="按用途设置默认模型；已有知识库保留各自的模型绑定。"
       >
         <div className="model-entry-options">
-          {entry === "create" ? (
-            <>
-              <button
-                disabled={!externalState.ready || externalState.busy}
-                onClick={() => {
-                  setEntry(null);
-                  externalManager.current?.create();
-                }}
-              >
-                <strong>内容生成与项目问答</strong>
-                <span>接入对话模型，用于资料摘要、内容生成及项目问答。</span>
-              </button>
-              <button
-                disabled={!knowledgeState.ready || knowledgeState.busy}
-                onClick={() => {
-                  setEntry(null);
-                  knowledgeManager.current?.create();
-                }}
-              >
-                <strong>知识库检索与解析</strong>
-                <span>接入嵌入、重排、对话或多模态模型，供知识库使用。</span>
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                onClick={() => {
-                  setEntry(null);
-                  setDefaultsModal("external");
-                }}
-              >
-                <strong>内容生成与项目问答</strong>
-                <span>设置内容生成和默认项目问答共同使用的对话模型。</span>
-              </button>
-              <button
-                onClick={() => {
-                  setEntry(null);
-                  openFoundationDefaults();
-                }}
-              >
-                <strong>新建知识库的默认模型</strong>
-                <span>设置嵌入、重排、对话和多模态模型，不更改已有知识库。</span>
-              </button>
-            </>
-          )}
+          <button
+            onClick={() => {
+              setEntry(null);
+              setDefaultsModal("external");
+            }}
+          >
+            <strong>内容生成与项目问答</strong>
+            <span>设置内容生成和默认项目问答共同使用的对话模型。</span>
+          </button>
+          <button
+            onClick={() => {
+              setEntry(null);
+              openFoundationDefaults();
+            }}
+          >
+            <strong>新建知识库的默认模型</strong>
+            <span>设置嵌入、重排、对话和多模态模型，不更改已有知识库。</span>
+          </button>
         </div>
       </TaskModal>
       <TaskModal

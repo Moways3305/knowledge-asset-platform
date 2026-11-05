@@ -33,6 +33,8 @@ class ContentGenerationModel(Base):
     base_url_ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
     api_key_ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    config_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    tested_version: Mapped[int | None] = mapped_column(Integer)
     last_test_succeeded_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

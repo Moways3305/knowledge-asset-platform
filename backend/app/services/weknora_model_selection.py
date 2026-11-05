@@ -117,7 +117,11 @@ async def resolve_models_for_kb(
             "尚未配置平台默认问答模型，请联系管理员在模型配置中设置",
         )
 
-    raw_models = await client.list_models(trace_id=trace_id)
+    from app.services.model_registry_availability import filter_knowledge_runtime
+
+    raw_models = await filter_knowledge_runtime(
+        session, await client.list_models(trace_id=trace_id)
+    )
     discovered_models_by_id = {
         meta.model_id: meta
         for meta in (_safe_model_meta(m) for m in raw_models if isinstance(m, dict))

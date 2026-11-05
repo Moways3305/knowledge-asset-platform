@@ -170,6 +170,8 @@ class Settings(BaseSettings):
     # Fernet key（urlsafe base64 编码的 32-byte key），只用于内容生成模型敏感配置加密。
     # 生产必须显式配置；不入库、不进响应/日志。
     generation_model_encryption_key: str = ""
+    # Explicit internal model gateways; empty by default. Never enables general private egress.
+    model_registry_private_hosts: str = ""
 
     # 入库 OCR：只调用容器内 Tesseract，不把原文发往外部视觉模型。
     ocr_enabled: bool = True

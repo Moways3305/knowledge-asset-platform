@@ -43,6 +43,7 @@ from app.schemas.weknora_admin import (
 from app.services import audit as audit_service
 from app.services import indexing_ops as indexing_ops_service
 from app.services import weknora_models
+from app.services.model_registry import require_legacy_unmanaged
 from app.services.storage import LocalFileStorage, get_storage
 from app.services.weknora_client import (
     NullWeKnoraClient,
@@ -208,6 +209,7 @@ async def list_providers(
 async def list_models(
     request: Request,
     type: str | None = None,
+    session: AsyncSession = Depends(get_db),
     caller: CallerContext = Depends(get_caller_context),
     weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
 ) -> ModelListResponse:
@@ -219,6 +221,9 @@ async def list_models(
         )
     except WeKnoraError as exc:
         raise _wrap_weknora(exc) from exc
+    from app.services.model_registry_availability import filter_knowledge_options
+
+    items = await filter_knowledge_options(session, items)
     return ModelListResponse(items=items)
 
 
@@ -261,6 +266,7 @@ async def update_model(
     weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
 ) -> ModelMutateResponse:
     _require_operator(caller)
+    await require_legacy_unmanaged(session, model_ref, "knowledge")
     _require_enabled()
     trace_id = get_trace_id(request)
     try:
@@ -289,6 +295,7 @@ async def delete_model(
     weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
 ) -> ModelDeleteResponse:
     _require_operator(caller)
+    await require_legacy_unmanaged(session, model_ref, "knowledge")
     _require_enabled()
     trace_id = get_trace_id(request)
     try:

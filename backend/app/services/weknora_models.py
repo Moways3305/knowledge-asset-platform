@@ -707,7 +707,11 @@ async def update_kb_init(
     provided = {k: v for k, v in refs.items() if v}
     if not provided:
         raise _denied(422, "no_model_selected", "至少选择一个模型")
-    raw_models = await client.list_models(trace_id=trace_id)
+    from app.services.model_registry_availability import filter_knowledge_runtime
+
+    raw_models = await filter_knowledge_runtime(
+        session, await client.list_models(trace_id=trace_id)
+    )
     ref_map = {
         _model_ref(str(model["id"])): model
         for model in raw_models
@@ -793,7 +797,11 @@ async def list_model_options(
     embedding / rerank 的 model_ref 精确匹配标注；其它模型（含 disabled / 伪造）不会被误标。
     default_missing 反映初始化必需的默认 embedding 或 KnowledgeQA 是否未配置（前端据此禁用提交）。
     """
-    models = await list_models(client, model_type=model_type, trace_id=trace_id)
+    from app.services.model_registry_availability import filter_knowledge_options
+
+    models = await filter_knowledge_options(
+        session, await list_models(client, model_type=model_type, trace_id=trace_id)
+    )
     defaults = await weknora_defaults.get_defaults(session)
     emb_default = (defaults.default_embedding_model_id if defaults else None) or None
     chat_default = (defaults.default_chat_model_id if defaults else None) or None
@@ -836,7 +844,9 @@ async def set_default_models(
     - 校验通过后存 server-only id；返回安全视图（只含 model_ref，绝不回真实 id）。
     """
     # 一次列模型，建 ref → (server-only id, 前端类型别名, 模型名称)。
-    raw = await client.list_models(trace_id=trace_id)
+    from app.services.model_registry_availability import filter_knowledge_runtime
+
+    raw = await filter_knowledge_runtime(session, await client.list_models(trace_id=trace_id))
     entries: dict[str, tuple[str, str, str]] = {}
     for m in raw:
         if isinstance(m, dict) and m.get("id"):
