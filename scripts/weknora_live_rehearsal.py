@@ -29,10 +29,24 @@ finally:
 """
 
 
-def gateway_runtime_args(image, source):
+def workspace_env_args(workspace_id):
+    egress.allowed_hosts(workspace_id)  # Validate before passing it to Docker.
+    return ["-e", egress.WORKSPACE_ENV + "=" + workspace_id]
+
+
+def gateway_runtime_args(image, source, workspace_id=""):
     # git archive under umask 077 is unreadable by the image's non-root user.
     # This standalone, public script needs neither a host mount nor credentials.
-    return ["--read-only", "--entrypoint", "python", image, "-u", "-c", source]
+    return [
+        "--read-only",
+        *workspace_env_args(workspace_id),
+        "--entrypoint",
+        "python",
+        image,
+        "-u",
+        "-c",
+        source,
+    ]
 
 
 def wait_gateway(name):
@@ -51,9 +65,9 @@ def wait_gateway(name):
     raise RuntimeError("egress gateway readiness timeout")
 
 
-def model_host_args(mapping):
+def model_host_args(mapping, allowed=None):
     result = []
-    for host, addresses in sorted(egress.validate_model_hosts(mapping).items()):
+    for host, addresses in sorted(egress.validate_model_hosts(mapping, allowed).items()):
         for address in addresses:
             result.extend(["--add-host", host + ":" + address])
     return result
@@ -77,10 +91,51 @@ def assert_network(item, expected, run):
     )
 
 
-def prepare_fixture_models(model_rows, *, correct_rerank_endpoint=False):
+def prepare_fixture_models(model_rows, *, correct_rerank_endpoint=False, workspace_id=""):
     """Explicit, narrow correction in synthetic records only; never mutate the snapshot."""
     models = copy.deepcopy(model_rows)
     adjustments = []
+    pg.require(not (correct_rerank_endpoint and workspace_id), "choose one fixture adjustment mode")
+    if workspace_id:
+        host = egress.workspace_host(workspace_id)
+        old_root = "https://dashscope.aliyuncs.com"
+        for slot, name, kind, path in (
+            ("embedding", "text-embedding-v3", "Embedding", "/compatible-mode/v1"),
+            ("rerank", "qwen3-rerank", "Rerank", "/api/v1/services/rerank/text-rerank/text-rerank"),
+        ):
+            model = models[slot]
+            params = model.get("parameters") or {}
+            if isinstance(params, str):
+                params = json.loads(params)
+            accepted = {old_root + "/compatible-mode/v1"}
+            if slot == "rerank":
+                accepted.add(old_root + path)
+            pg.require(
+                model.get("name") == name
+                and model.get("type") == kind
+                and model.get("source") == "remote"
+                and params.get("provider") in (None, "", "aliyun")
+                and params.get("base_url") in accepted | {url + "/" for url in accepted}
+                and not params.get("spec")
+                and not params.get("extra_config"),
+                "workspace migration requires the diagnosed Aliyun model configuration",
+            )
+            params["base_url"] = "https://" + host + path
+            # The upstream URL-based provider detector recognizes the old host
+            # only. Pin Aliyun explicitly to keep the native rerank protocol.
+            params["provider"] = "aliyun"
+            model["parameters"] = params
+            adjustments.append(
+                {
+                    "usage": slot,
+                    "scope": "synthetic_model_only",
+                    "from": "legacy_dashscope_endpoint",
+                    "to": "beijing_workspace_endpoint",
+                    "host": host,
+                    "production_configuration_changed": False,
+                    "credentials_changed": False,
+                }
+            )
     if correct_rerank_endpoint:
         model = models["rerank"]
         params = model.get("parameters") or {}
@@ -123,12 +178,19 @@ def main():
     source_choice = parser.add_mutually_exclusive_group(required=True)
     source_choice.add_argument("--offline-stage", type=Path)
     source_choice.add_argument("--build-stage", type=Path)
-    parser.add_argument(
+    adjustment_choice = parser.add_mutually_exclusive_group()
+    adjustment_choice.add_argument(
         "--correct-fixture-rerank-endpoint",
         action="store_true",
         help="Correct only the diagnosed Aliyun URL in the new synthetic model; report the deviation",
     )
+    adjustment_choice.add_argument(
+        "--aliyun-workspace-id",
+        default="",
+        help="Use this Beijing workspace for synthetic embedding/rerank models and exact egress allowlist",
+    )
     args = parser.parse_args()
+    allowed = egress.allowed_hosts(args.aliyun_workspace_id)
     os.umask(0o077)
     if args.build_stage:
         from weknora_keyword_app_rehearsal import passed_offline_for_build
@@ -216,10 +278,12 @@ def main():
                 "selected model metadata changed since offline validation",
             )
         model_rows, adjustments = prepare_fixture_models(
-            model_rows, correct_rerank_endpoint=args.correct_fixture_rerank_endpoint
+            model_rows,
+            correct_rerank_endpoint=args.correct_fixture_rerank_endpoint,
+            workspace_id=args.aliyun_workspace_id,
         )
         if adjustments:
-            print("仅修正本轮虚构重排模型的地址；生产配置未修改，须后续单独验收。", flush=True)
+            print("仅调整本轮虚构模型的地址；生产配置未修改，须后续单独验收。", flush=True)
         (stage / "live-private.json").write_text(
             json.dumps(
                 {
@@ -299,7 +363,9 @@ def main():
             "--cpus",
             "1",
             *gateway_runtime_args(
-                kap["Image"], (repo / "scripts/weknora_live_egress.py").read_text()
+                kap["Image"],
+                (repo / "scripts/weknora_live_egress.py").read_text(),
+                args.aliyun_workspace_id,
             ),
         )
         pg.docker("network", "connect", outside, gateway)
@@ -323,7 +389,7 @@ def main():
             timeout=30,
             check=True,
         )
-        model_hosts = egress.validate_model_hosts(json.loads(resolved.stdout))
+        model_hosts = egress.validate_model_hosts(json.loads(resolved.stdout), allowed)
         (stage / "model-hosts.json").write_text(json.dumps(model_hosts))
         print("两家模型域名的公网地址已校验，仅供本轮隔离容器解析。", flush=True)
         create(
@@ -338,7 +404,7 @@ def main():
             "512m",
             "--env-file",
             str(stage / "db-private.env"),
-            *model_host_args(model_hosts),
+            *model_host_args(model_hosts, allowed),
             "--mount",
             f"type=volume,src={data_volume},dst=/var/lib/postgresql/data",
             images["database"],
@@ -442,6 +508,7 @@ def main():
             "HTTP_PROXY=" + proxy,
             "-e",
             "NO_PROXY=127.0.0.1,localhost",
+            *workspace_env_args(args.aliyun_workspace_id),
             "--mount",
             f"type=bind,src={repo},dst=/probe,readonly",
             "--mount",

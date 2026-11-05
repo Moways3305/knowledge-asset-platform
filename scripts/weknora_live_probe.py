@@ -17,11 +17,10 @@ import zipfile
 
 import httpx
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from weknora_live_egress import validate_model_hosts
+from weknora_live_egress import ALLOWED, validate_model_hosts
 from weknora_rehearsal_diagnostics import classify
 
 sys.path.insert(0, "/probe/backend")
-ALLOWED = {"api.deepseek.com", "dashscope.aliyuncs.com"}
 REPORT = {
     "checks": [],
     "scope": "fresh synthetic database, live selected models and file lifecycle",
@@ -55,6 +54,8 @@ def record_configuration_adjustments(data, report):
     report["configuration_adjustments"] = adjustments
     if adjustments:
         report["not_verified"].append("production rerank endpoint correction and validation")
+    if any(a.get("usage") == "embedding" for a in adjustments):
+        report["not_verified"].append("production embedding workspace endpoint and key ownership")
 
 
 def decrypt(value, key):

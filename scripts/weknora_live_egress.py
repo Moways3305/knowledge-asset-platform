@@ -2,13 +2,33 @@
 
 import ipaddress
 import json
+import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import re
 import select
 import socket
 import sys
 import time
 
-ALLOWED = {"api.deepseek.com", "dashscope.aliyuncs.com"}
+WORKSPACE_ENV = "KAP_REHEARSAL_ALIYUN_WORKSPACE_ID"
+
+
+def workspace_host(workspace_id):
+    # This rehearsal supports the explicitly selected Beijing workspace only.
+    # An ID is a single DNS label, never an arbitrary URL or wildcard domain.
+    if not isinstance(workspace_id, str) or not re.fullmatch(r"ws-[a-z0-9]{1,60}", workspace_id):
+        raise ValueError("invalid Beijing workspace ID")
+    return workspace_id + ".cn-beijing.maas.aliyuncs.com"
+
+
+def allowed_hosts(workspace_id=""):
+    return {
+        "api.deepseek.com",
+        workspace_host(workspace_id) if workspace_id else "dashscope.aliyuncs.com",
+    }
+
+
+ALLOWED = allowed_hosts(os.environ.get(WORKSPACE_ENV, ""))
 
 
 def target(authority):
@@ -36,8 +56,9 @@ def resolve_public(host):
     return addresses
 
 
-def validate_model_hosts(mapping):
-    if not isinstance(mapping, dict) or set(mapping) != ALLOWED:
+def validate_model_hosts(mapping, allowed=None):
+    expected = ALLOWED if allowed is None else allowed
+    if not isinstance(mapping, dict) or set(mapping) != expected:
         raise ValueError("model DNS hosts differ from allowlist")
     result = {}
     for host, addresses in mapping.items():
