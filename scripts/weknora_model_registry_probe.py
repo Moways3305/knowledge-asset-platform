@@ -10,6 +10,7 @@ import socket
 import ssl
 import subprocess
 import sys
+import time
 import traceback
 import uuid
 
@@ -153,7 +154,7 @@ async def seed_admin():
     return user
 
 
-async def exercise(user, models, workspace, cert, process):
+async def exercise(user, models, workspace, cert, process, *, ui_only=False):
     async with httpx.AsyncClient(
         base_url="https://127.0.0.1:18443",
         verify=ssl.create_default_context(cafile=str(cert)),
@@ -231,6 +232,14 @@ async def exercise(user, models, workspace, cert, process):
             },
             201,
         )
+        if ui_only:
+            # Only save connections. Browser actions must create, test and sync models.
+            inventory = await request("GET", BASE)
+            check(
+                "ui_connections_only",
+                len(inventory["connections"]) == 2 and not inventory["models"],
+            )
+            return
         ready = {}
         for slot in ("embedding", "rerank", "chat"):
             connection = deepseek if slot == "chat" else aliyun
@@ -316,11 +325,16 @@ def main():
     os.umask(0o077)
     process = None
     ok = False
+    ui_mode = False
     runtime = ROOT / "kap-registry-runtime"
     runtime.mkdir()
     with (ROOT / "kap-registry-private.log").open("w") as log:
         try:
             data = json.loads((ROOT / "live-private.json").read_text())
+            ui_mode = data.get("kap_model_ui") is True
+            if ui_mode:
+                REPORT["scope"] = "isolated browser UI preparation; manual acceptance pending"
+                REPORT["not_verified"].insert(0, "manual browser acceptance")
             check("explicit_registry_mode", data.get("kap_model_registry") is True)
             proxy = os.environ.get("HTTPS_PROXY", "")
             check(
@@ -339,6 +353,8 @@ def main():
                 }
             )
             env["MODEL_REGISTRY_PROXY_URL"] = proxy
+            if ui_mode:
+                env["PYTHONPATH"] = "/probe/scripts:/probe/backend"
             os.environ.clear()
             os.environ.update(env)
             os.chdir(runtime)
@@ -357,9 +373,13 @@ def main():
                     sys.executable,
                     "-m",
                     "uvicorn",
-                    "app.main:app",
+                    *(
+                        ["weknora_model_ui_app:create_app", "--factory"]
+                        if ui_mode
+                        else ["app.main:app"]
+                    ),
                     "--host",
-                    "127.0.0.1",
+                    "0.0.0.0" if ui_mode else "127.0.0.1",
                     "--port",
                     "18443",
                     "--ssl-certfile",
@@ -372,7 +392,46 @@ def main():
                 stdout=log,
                 stderr=log,
             )
-            asyncio.run(exercise(user, models, workspace, cert, process))
+            asyncio.run(exercise(user, models, workspace, cert, process, ui_only=ui_mode))
+            if ui_mode:
+                # Synthetic login only; real provider credentials never leave the backend.
+                write_public_report(
+                    ROOT / "ui-login-private.json",
+                    {k: user[k] for k in ("email", "password")},
+                )
+                from cryptography import x509
+                from cryptography.hazmat.primitives import hashes
+
+                fingerprint = (
+                    x509.load_pem_x509_certificate(cert.read_bytes())
+                    .fingerprint(hashes.SHA256())
+                    .hex()
+                )
+                write_public_report(
+                    ROOT / "ui-ready.json",
+                    {
+                        "ready": True,
+                        "browser_acceptance_passed": False,
+                        "url": f"https://127.0.0.1:{data['ui_port']}/admin/weknora-models",
+                        "tls_sha256": fingerprint,
+                        "models": {
+                            slot: {
+                                "model_name": m["name"],
+                                "dimension": 1024 if slot == "embedding" else None,
+                            }
+                            for slot, m in models.items()
+                        },
+                        "connections_prepared": 2,
+                        "models_prepared": 0,
+                        "expires_in_minutes": data["ui_minutes"],
+                    },
+                )
+                deadline = time.monotonic() + data["ui_minutes"] * 60
+                while time.monotonic() < deadline and not (ROOT / "ui-stop").exists():
+                    if process.poll() is not None:
+                        raise RuntimeError("isolated UI backend exited")
+                    time.sleep(1)
+                REPORT["session_closed"] = True
             ok = True
         except Exception:
             failure = traceback.format_exc()
@@ -386,7 +445,9 @@ def main():
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait(timeout=10)
-            REPORT["passed"] = ok
+            REPORT["passed"] = None if ui_mode else ok
+            if ui_mode:
+                REPORT["preparation_and_session_completed"] = ok
             write_public_report(ROOT / "live-report.json", REPORT)
     raise SystemExit(0 if ok else 1)
 

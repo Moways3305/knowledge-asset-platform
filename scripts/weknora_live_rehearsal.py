@@ -3,10 +3,13 @@
 import argparse
 import copy
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
 import secrets
+import signal
+import ssl
 import subprocess
 import time
 import traceback
@@ -93,15 +96,88 @@ def assert_shared_hosts(child, parent):
     )
 
 
-def assert_network(item, expected, run):
+def assert_network(item, expected, run, ui_port=None):
     pg.require(
         item["Config"].get("Labels", {}).get(pg.LABEL) == str(run), "resource label mismatch"
     )
-    pg.require(not item["HostConfig"].get("PortBindings"), "published ports forbidden")
+    bindings = item["HostConfig"].get("PortBindings") or {}
+    wanted = {"18443/tcp": [{"HostIp": "127.0.0.1", "HostPort": str(ui_port)}]} if ui_port else {}
+    pg.require(bindings == wanted, "unexpected published ports")
     pg.require(not item["HostConfig"].get("Privileged"), "privileged container forbidden")
     pg.require(
         set(item["NetworkSettings"]["Networks"]) == set(expected), "network attachment changed"
     )
+
+
+def build_ui(repo, stage, token, run):
+    """Build only public frontend sources, before mounting any fixture credentials."""
+    image = "kap-isolated-ui-build:" + token
+    name = "kap-isolated-ui-build-" + token
+    print("构建本轮隔离前端；构建日志保留在 private.log。", flush=True)
+    pg.docker(
+        "build",
+        "--target",
+        "build",
+        "-f",
+        str(repo / "Dockerfile.frontend"),
+        "-t",
+        image,
+        str(repo),
+    )
+    pg.docker(
+        "create", "--name", name, "--network", "none", "--label", pg.LABEL + "=" + str(run), image
+    )
+    try:
+        pg.docker("cp", name + ":/app/dist", str(stage / "ui-dist"))
+    finally:
+        pg.docker("rm", name)
+    pg.require((stage / "ui-dist/index.html").is_file(), "frontend build missing")
+
+
+def wait_ui_session(
+    tester, database, gateway, relay, internal, outside, stage, run, before, port, minutes
+):
+    pg.docker("start", tester)
+    deadline = time.monotonic() + (minutes + 10) * 60
+    announced = False
+    while pg.inspect(tester)["State"]["Running"]:
+        pg.require(time.monotonic() < deadline, "UI session timeout")
+        if not announced:
+            try:
+                ready = json.loads((stage / "ui-ready.json").read_text())
+            except (FileNotFoundError, PermissionError):
+                ready = None
+            if ready:
+                pg.require(ready.get("ready") is True, "UI not ready")
+                assert_network(pg.inspect(database), [internal], run)
+                assert_network(pg.inspect(gateway), [internal, outside], run)
+                assert_network(pg.inspect(relay), [internal, outside], run, ui_port=port)
+                cert = pg.docker("exec", tester, "cat", "/evidence/kap-registry-runtime/tls.pem")
+                connection = http.client.HTTPSConnection(
+                    "127.0.0.1", port, context=ssl.create_default_context(cadata=cert), timeout=15
+                )
+                try:
+                    connection.request("GET", "/login")
+                    response = connection.getresponse()
+                    pg.require(
+                        response.status == 200 and b'<div id="root"' in response.read(),
+                        "UI published HTTPS route unavailable",
+                    )
+                finally:
+                    connection.close()
+                pg.compare(before, app.production_fingerprint())
+                print(json.dumps(ready, ensure_ascii=False), flush=True)
+                print(
+                    "虚构登录信息（仅本地查看，不回传）：" + str(stage / "ui-login-private.json"),
+                    flush=True,
+                )
+                print("提前结束命令：touch " + str(stage / "ui-stop"), flush=True)
+                print("UI 尚未验收；到期自动停止本轮测试容器。", flush=True)
+                print("UI_READY：仅监听服务器 127.0.0.1；请通过 SSH 隧道访问。", flush=True)
+                announced = True
+        time.sleep(2)
+    pg.require(announced, "UI preparation failed before readiness")
+    pg.require(pg.inspect(tester)["State"]["ExitCode"] == 0, "UI session failed")
 
 
 def prepare_fixture_models(
@@ -248,7 +324,20 @@ def main():
         action="store_true",
         help="Verify new KAP shared connections with live models only, without repeating file/role flows",
     )
+    parser.add_argument(
+        "--kap-model-ui",
+        action="store_true",
+        help="Prepare a loopback-only browser session; requires --kap-model-registry",
+    )
+    parser.add_argument("--ui-port", type=int, default=18443)
+    parser.add_argument("--ui-minutes", type=int, default=90)
     args = parser.parse_args()
+    if args.kap_model_ui and (
+        not args.kap_model_registry
+        or not 1024 <= args.ui_port <= 65535
+        or not 1 <= args.ui_minutes <= 90
+    ):
+        parser.error("UI requires --kap-model-registry, an unprivileged port and 1–90 minutes")
     if args.kap_model_registry and (
         args.kap_role_flows
         or args.kap_upload_flow
@@ -298,8 +387,15 @@ def main():
         "wk-live-" + token + suffix for suffix in ("-db", "-redis", "-app")
     )
     gateway, tester = "wk-live-" + token + "-egress", "wk-live-" + token + "-probe"
+    relay = "wk-live-" + token + "-ui"
     created = []
     before, code = None, 1
+
+    def interrupted(signum, frame):
+        raise RuntimeError("rehearsal interrupted; stopping isolated containers")
+
+    signal.signal(signal.SIGTERM, interrupted)
+    signal.signal(signal.SIGINT, interrupted)
     try:
         print("联网演练目录：" + str(stage), flush=True)
         before = app.production_fingerprint()
@@ -315,6 +411,8 @@ def main():
             ).hexdigest(),
             "live rehearsal requires the verified model proxy build and a new offline pass",
         )
+        if args.kap_model_ui:
+            build_ui(repo, stage, token, run)
         print("=== 1/4 只读取得当前模型选择，准备全新空库 ===", flush=True)
         kap = pg.inspect("kap-backend-1")
         selection = subprocess.run(
@@ -370,6 +468,9 @@ def main():
                     "kap_role_flows": args.kap_role_flows,
                     "kap_upload_flow": args.kap_upload_flow,
                     "kap_model_registry": args.kap_model_registry,
+                    "kap_model_ui": args.kap_model_ui,
+                    "ui_port": args.ui_port,
+                    "ui_minutes": args.ui_minutes,
                     "kap_database_url": (
                         "postgresql+asyncpg://wkfixture:"
                         + password
@@ -418,6 +519,7 @@ def main():
                     "redis": redis,
                     "gateway": gateway,
                     "tester": tester,
+                    "ui_relay": relay if args.kap_model_ui else None,
                     "networks": [internal, outside],
                     "volumes": [data_volume, file_volume],
                     "fresh_database": True,
@@ -579,7 +681,9 @@ def main():
             "test database contains documents before probe",
         )
         print(
-            "=== 3/4 新模型接入：共用凭据、真实能力验证及用途接入 ==="
+            "=== 3/4 启动隔离浏览器 UI，仅预置共享连接 ==="
+            if args.kap_model_ui
+            else "=== 3/4 新模型接入：共用凭据、真实能力验证及用途接入 ==="
             if args.kap_model_registry
             else "=== 3/4 虚构资料：真实模型、纯向量召回、上传、删除及重新解析 ===",
             flush=True,
@@ -614,17 +718,60 @@ def main():
             if args.kap_model_registry
             else "/probe/scripts/weknora_live_probe.py",
         )
-        subprocess.run(
-            ["docker", "start", "-a", tester],
-            stdout=pg.PRIVATE,
-            stderr=pg.PRIVATE,
-            timeout=3600 if args.kap_role_flows else 1800,
-            check=True,
-        )
+        if args.kap_model_ui:
+            create(
+                relay,
+                "--network",
+                outside,
+                "-p",
+                f"127.0.0.1:{args.ui_port}:18443",
+                "--read-only",
+                "--cap-drop",
+                "ALL",
+                "--security-opt",
+                "no-new-privileges",
+                "--memory",
+                "128m",
+                "--cpus",
+                "0.5",
+                "--entrypoint",
+                "python",
+                kap["Image"],
+                "-c",
+                (repo / "scripts/weknora_ui_relay.py").read_text(),
+                database,
+            )
+            pg.docker("network", "connect", internal, relay)
+            pg.docker("start", relay)
+            wait_ui_session(
+                tester,
+                database,
+                gateway,
+                relay,
+                internal,
+                outside,
+                stage,
+                run,
+                before,
+                args.ui_port,
+                args.ui_minutes,
+            )
+        else:
+            subprocess.run(
+                ["docker", "start", "-a", tester],
+                stdout=pg.PRIVATE,
+                stderr=pg.PRIVATE,
+                timeout=3600 if args.kap_role_flows else 1800,
+                check=True,
+            )
         pg.require(pg.inspect(tester)["State"]["ExitCode"] == 0, "live probe failed")
         assert_shared_hosts(pg.inspect(tester), pg.inspect(database))
         report = json.loads((stage / "live-report.json").read_text())
-        pg.require(report.get("passed") is True, "live report failed")
+        pg.require(
+            report.get("preparation_and_session_completed" if args.kap_model_ui else "passed")
+            is True,
+            "live report failed",
+        )
         if args.kap_upload_flow:
             pg.require(
                 report.get("kap_role_authorization", {}).get("upload_workflow_passed") is True,
@@ -632,6 +779,8 @@ def main():
             )
         print(json.dumps(report, ensure_ascii=False), flush=True)
         assert_network(pg.inspect(database), [internal], run)
+        if args.kap_model_ui:
+            assert_network(pg.inspect(relay), [internal, outside], run, ui_port=args.ui_port)
         assert_network(pg.inspect(gateway), [internal, outside], run)
         print("=== 4/4 核对生产未变并停止全部测试容器 ===", flush=True)
         pg.compare(before, app.production_fingerprint())
@@ -664,7 +813,11 @@ def main():
             except Exception:
                 code = 1
         if code == 0:
-            if args.kap_model_registry:
+            if args.kap_model_ui:
+                (stage / "UI-SESSION-CLOSED").write_text(
+                    "Session stopped; production fingerprint unchanged; manual browser acceptance is separate.\n"
+                )
+            elif args.kap_model_registry:
                 (stage / "PASS-KAP-MODEL-REGISTRY").write_text(
                     "Live shared-connection onboarding passed; production unchanged; see live-report.json.\n"
                 )

@@ -18,6 +18,27 @@ import weknora_live_rehearsal as live
 
 
 class LiveTests(unittest.TestCase):
+    def test_ui_network_allows_only_exact_loopback_https_port(self):
+        run = Path("/synthetic")
+        item = {
+            "Config": {"Labels": {live.pg.LABEL: str(run)}},
+            "HostConfig": {
+                "PortBindings": {"18443/tcp": [{"HostIp": "127.0.0.1", "HostPort": "18443"}]}
+            },
+            "NetworkSettings": {"Networks": {"internal": {}}},
+        }
+        live.assert_network(item, ["internal"], run, ui_port=18443)
+        with self.assertRaises(RuntimeError):
+            live.assert_network(item, ["internal"], run)
+        for bad in (
+            {"18443/tcp": [{"HostIp": "0.0.0.0", "HostPort": "18443"}]},
+            {"5432/tcp": [{"HostIp": "127.0.0.1", "HostPort": "18443"}]},
+            {"18443/tcp": [{"HostIp": "127.0.0.1", "HostPort": "443"}]},
+        ):
+            item["HostConfig"]["PortBindings"] = bad
+            with self.assertRaises(RuntimeError):
+                live.assert_network(item, ["internal"], run, ui_port=18443)
+
     def test_unreadable_report_does_not_raise_during_error_cleanup(self):
         with patch.object(Path, "read_text", side_effect=PermissionError("private detail")):
             with patch("sys.stdout", new_callable=io.StringIO) as output:

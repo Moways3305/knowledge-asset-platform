@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
+import pytest
 from test_model_registry import wire, wk  # noqa: F401
 
 from app.core.config import get_settings
@@ -15,7 +16,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 import weknora_model_registry_probe as probe  # noqa: E402
 
 
-async def test_live_runner_api_workflow(client, monkeypatch, db_session, wk, wire):  # noqa: F811
+@pytest.mark.parametrize("ui_only", [False, True])
+async def test_live_runner_api_workflow(client, monkeypatch, db_session, wk, wire, ui_only):  # noqa: F811
     # Login/TLS have separate real HTTPS acceptance coverage; here use the existing
     # test identity to validate every registry/default/runtime route in the new probe.
     client.headers["X-Dev-User-Id"] = str(USER_ADMIN_ONLY)
@@ -65,8 +67,16 @@ async def test_live_runner_api_workflow(client, monkeypatch, db_session, wk, wir
         "ws-fixture",
         "synthetic-cert",
         SimpleNamespace(poll=lambda: None),
+        ui_only=ui_only,
     )
     assert all(c["passed"] for c in probe.REPORT["checks"])
+    if ui_only:
+        assert wk.create_calls == 0
+        assert len(wire) == 0
+        inventory = (await client.get(probe.BASE)).json()
+        assert len(inventory["connections"]) == 2
+        assert inventory["models"] == []
+        return
     assert wk.create_calls == 3
     assert len(wire) == 3
     assert [c["case"] for c in probe.REPORT["checks"]].count("runtime_binding_verified") == 4
