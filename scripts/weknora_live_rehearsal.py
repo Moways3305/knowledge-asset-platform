@@ -471,7 +471,10 @@ def main():
             "database was not empty",
         )
         if args.kap_role_flows:
-            pg.sql(database, "CREATE DATABASE kap_role_fixture;")
+            # ParadeDB's default template includes PostGIS/statistics relations in
+            # public. KAP needs a pristine schema, just as in its PostgreSQL tests.
+            # Keep assert_empty_database strict instead of ignoring inherited tables.
+            pg.sql(database, "CREATE DATABASE kap_role_fixture TEMPLATE template0;")
             print("本轮另建空白 KAP 测试库，使用真实密码会话验收三角色权限。", flush=True)
         parent_id = pg.inspect(database)["Id"]
         create(

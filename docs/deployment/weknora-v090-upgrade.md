@@ -149,6 +149,10 @@ HTTP 对照还发现 KAP 的范围假设不符合上游：v0.9.0 `buildSearchTar
 
 只有完整流程及生产指纹核验、容器收尾均成功才写 `PASS-KAP-ROLES`，详细结果在 `kap-role-report.json`。失败日志保持私密，可由诊断工具对白名单类别做脱敏提取。浏览器 UI、KAP 上传确认发布、多模态、PDF/OCR 和生产配置修正继续单列未验收；本地替身验证不计作服务器真实模型验收。
 
+首轮服务器角色续验在 `kap_database_initially_empty` 失败，尚未运行登录或权限接口；同轮真实模型和文件生命周期检查再次通过。本地使用 `paradedb/paradedb:v0.25.11-pg17` 复现：默认模板创建的新库自带 public 下的 `geography_columns`、`geometry_columns`、`spatial_ref_sys`、`pg_stat_statements_info`、`pg_stat_statements`，分别属于 PostGIS / pg_stat_statements 扩展。此前普通 PostgreSQL 预跑未覆盖该模板差异。
+
+修正仅将独立 KAP 夹具库创建语句改为 `CREATE DATABASE kap_role_fixture TEMPLATE template0`，不忽略任何已有表，不删除服务器失败记录，不改 WeKnora 库及生产库。相同 ParadeDB 镜像下验证 public 表/视图数为 0，完整迁移及 HTTPS 权限流程本地替身预跑 110 项通过，81 项脚本测试通过。真实服务器角色验收仍待重跑。
+
 ## 上游参考链接
 
 - [v0.9.0 发布](https://github.com/Tencent/WeKnora/releases/tag/v0.9.0)
