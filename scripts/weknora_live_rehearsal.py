@@ -34,6 +34,19 @@ def workspace_env_args(workspace_id):
     return ["-e", egress.WORKSPACE_ENV + "=" + workspace_id]
 
 
+def print_report_if_readable(stage):
+    """A report I/O failure must not mask the original error or interrupt cleanup."""
+    try:
+        report = json.loads((stage / "live-report.json").read_text())
+    except FileNotFoundError:
+        return False
+    except (OSError, ValueError):
+        print("脱敏报告暂不可读取；保留原记录，容器收尾继续执行。", flush=True)
+        return False
+    print(json.dumps(report, ensure_ascii=False), flush=True)
+    return True
+
+
 def gateway_runtime_args(image, source, workspace_id=""):
     # git archive under umask 077 is unreadable by the image's non-root user.
     # This standalone, public script needs neither a host mount nor credentials.
@@ -625,8 +638,7 @@ def main():
         code = 0
     except Exception:
         pg.PRIVATE.write(traceback.format_exc().encode())
-        if (stage / "live-report.json").is_file():
-            print((stage / "live-report.json").read_text(), flush=True)
+        print_report_if_readable(stage)
         print("联网演练停止，生产未切换；不要粘贴 private 文件。", flush=True)
     finally:
         for name in reversed(created):

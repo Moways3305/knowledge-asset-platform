@@ -18,6 +18,13 @@ import weknora_live_rehearsal as live
 
 
 class LiveTests(unittest.TestCase):
+    def test_unreadable_report_does_not_raise_during_error_cleanup(self):
+        with patch.object(Path, "read_text", side_effect=PermissionError("private detail")):
+            with patch("sys.stdout", new_callable=io.StringIO) as output:
+                self.assertFalse(live.print_report_if_readable(Path("unused-stage")))
+        self.assertNotIn("private detail", output.getvalue())
+        self.assertIn("容器收尾继续执行", output.getvalue())
+
     def workspace_models(self):
         models = self.fixture_models()
         models["embedding"] = {

@@ -1,10 +1,56 @@
 import copy
+import json
+import os
+from pathlib import Path
+import tempfile
 import unittest
 
 import weknora_model_registry_probe as probe
 
 
 class RegistryLiveTests(unittest.TestCase):
+    def test_public_report_is_utf8_and_never_overwrites_existing_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "live-report.json"
+            report = {"passed": True, "scope": "虚构验收"}
+            probe.write_public_report(path, report)
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8")), report)
+            with self.assertRaises(FileExistsError):
+                probe.write_public_report(path, {"passed": False})
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8")), report)
+
+    @unittest.skipUnless(
+        hasattr(os, "geteuid") and os.geteuid() == 0, "requires isolated Linux root"
+    )
+    def test_root_container_report_readable_by_host_owner_private_file_stays_private(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            root.chmod(0o700)
+            os.chown(root, 10001, 10001)
+            private = root / "private.log"
+            private.write_text("synthetic private fixture")
+            private.chmod(0o600)
+            report = root / "live-report.json"
+            probe.write_public_report(report, {"passed": True})
+            self.assertEqual(report.stat().st_uid, 10001)
+            self.assertEqual(report.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(private.stat().st_uid, 0)
+            child = os.fork()
+            if child == 0:
+                try:
+                    os.setgid(10001)
+                    os.setuid(10001)
+                    assert json.loads(report.read_text())["passed"] is True
+                    try:
+                        private.read_text()
+                    except PermissionError:
+                        os._exit(0)
+                except Exception:
+                    pass
+                os._exit(1)
+            _, status = os.waitpid(child, 0)
+            self.assertEqual(status, 0)
+
     def setUp(self):
         probe.REPORT["checks"] = []
         root = "https://ws-fixture.cn-beijing.maas.aliyuncs.com"

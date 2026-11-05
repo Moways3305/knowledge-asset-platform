@@ -41,6 +41,20 @@ def check(name, passed, **facts):
         raise RuntimeError("check failed: " + name)
 
 
+def write_public_report(path, report):
+    """Keep 0600 while giving the host stage owner access to this safe report only."""
+    owner = path.parent.stat()
+    with path.open("x", encoding="utf-8") as stream:
+        if hasattr(os, "fchmod"):
+            os.fchmod(stream.fileno(), 0o600)
+        else:
+            os.chmod(path, 0o600)
+        json.dump(report, stream, ensure_ascii=False, indent=2)
+        stream.flush()
+        if hasattr(os, "fchown"):
+            os.fchown(stream.fileno(), owner.st_uid, owner.st_gid)
+
+
 def selected_models(data, workspace):
     host = workspace_host(workspace)
     result = {}
@@ -373,7 +387,7 @@ def main():
                     process.kill()
                     process.wait(timeout=10)
             REPORT["passed"] = ok
-            (ROOT / "live-report.json").write_text(json.dumps(REPORT, ensure_ascii=False, indent=2))
+            write_public_report(ROOT / "live-report.json", REPORT)
     raise SystemExit(0 if ok else 1)
 
 
