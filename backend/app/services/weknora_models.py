@@ -389,13 +389,13 @@ async def check_model(
         fn = client.check_rerank_model
     else:
         fn = None
-    if fn is None:
+    if fn is None and model_type != "vllm":
         # Unsupported saved-model types must fail before inspecting optional
         # connection fields, so the user-visible error remains stable.
         raise _denied(
             422,
             "weknora_saved_model_check_unsupported",
-            "当前知识底座版本不支持该类型的已保存模型连通性测试",
+            "当前平台暂未接入该类型的测试，不代表模型不可用",
         )
     base_url = str(params.get("base_url") or params.get("api_url") or "").strip()
     model_name = str(saved.get("name") or "").strip() if isinstance(saved, dict) else ""
@@ -426,18 +426,36 @@ async def check_model(
                 ),
                 credential_status=credential_status,
             )
-    res = await fn(
-        model_id=model_id,
-        model_name=model_name,
-        base_url=base_url,
-        source=source,
-        provider=provider,
-        interface_type=interface_type,
-        trace_id=trace_id,
-    )
+    if model_type == "vllm":
+        res = await client.check_vision_model(model_id=model_id, trace_id=trace_id)
+    else:
+        assert fn is not None
+        res = await fn(
+            model_id=model_id,
+            model_name=model_name,
+            base_url=base_url,
+            source=source,
+            provider=provider,
+            interface_type=interface_type,
+            trace_id=trace_id,
+        )
     # `_unwrap` already checked the HTTP/envelope success. The v0.7.1 business result is the
     # `data` object returned here; an absent or false `available` must fail closed.
     success = isinstance(res, dict) and res.get("available") is True
+    if model_type == "vllm":
+        messages = {
+            "vision_test_unavailable": "图片测试接口暂不可用，请核对模型是否仍存在及知识底座版本。",
+            "model_test_timeout": "图片理解测试超时，请稍后重试。",
+            "model_unavailable": "图片理解测试未通过，请检查模型连接配置后重试。",
+        }
+        code = res.get("error_code") if isinstance(res, dict) else None
+        code = code if code in messages else "model_unavailable"
+        return ModelCheckResponse(
+            success=success,
+            message="图片理解测试通过；音频、视频能力未测试。" if success else messages[code],
+            error_code=None if success else code,
+            credential_status=credential_status,
+        )
     return ModelCheckResponse(
         success=success,
         message=(

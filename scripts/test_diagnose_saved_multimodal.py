@@ -70,10 +70,10 @@ class SafeMetadataTests(unittest.TestCase):
 
 
 class DeployedGateTests(unittest.IsolatedAsyncioTestCase):
-    async def test_multimodal_is_rejected_without_provider_call(self):
+    async def test_multimodal_dispatch_is_blocked_without_provider_call(self):
         model = saved()
         before = copy.deepcopy(model)
-        self.assertEqual(await inspect_gate(model), "weknora_saved_model_check_unsupported")
+        self.assertEqual(await inspect_gate(model), "probe_branch_reached_but_not_executed")
         self.assertEqual(model, before)
 
     async def test_chat_dispatch_is_blocked_without_provider_call(self):
@@ -107,7 +107,7 @@ class DeployedGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(calls), 2)
         self.assertEqual(
             result["models"][0]["records"][0]["local_test_gate"],
-            "weknora_saved_model_check_unsupported",
+            "probe_branch_reached_but_not_executed",
         )
         self.assertEqual(result["models"][1]["match_count"], 0)
         self.assertFalse(result["provider_connectivity_tested"])

@@ -1,6 +1,9 @@
 import type { Ref } from "react";
 
-export type ModelTestNotice = { tone: "busy" | "success" | "danger"; message: string };
+export type ModelTestNotice = {
+  tone: "busy" | "success" | "danger" | "neutral";
+  message: string;
+};
 export interface ModelManagementState {
   ready: boolean;
   busy: boolean;
