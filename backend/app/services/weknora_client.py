@@ -21,12 +21,15 @@ import json
 import logging
 import time
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
 from app.core.config import get_settings
 from app.core.logging import safe_log_exception
 from app.services.http_pool import pooled_http_client
+from app.services.vision_check import available as vision_available
+from app.services.vision_check import synthetic_image
 
 _logger = logging.getLogger(__name__)
 
@@ -760,6 +763,48 @@ class WeKnoraClient:
         result: dict[str, Any] = await self._call("POST", path, json=body, trace_id=trace_id)
         return result
 
+    async def check_vision_model(
+        self, *, model_id: str, trace_id: str | None = None
+    ) -> dict[str, Any]:
+        """Use v0.9.0's saved-model VLM constructor; never fetch or forward vendor keys.
+
+        The debug endpoint returns configuration previews and provider output. Reduce
+        those to a boolean before returning to the service, and never log the body.
+        """
+
+        async def run() -> dict[str, Any]:
+            async with pooled_http_client(timeout=60) as client:
+                async with client.stream(
+                    "POST",
+                    f"{self._base}/models/{quote(model_id, safe='')}/debug",
+                    headers=self._headers(trace_id),
+                    data={
+                        "input": "Describe the main shape and its color in this image in one short sentence."
+                    },
+                    files={"file": ("synthetic-vision.png", synthetic_image(), "image/png")},
+                    follow_redirects=False,
+                ) as response:
+                    if response.status_code in (404, 405):
+                        return {"available": False, "error_code": "vision_test_unavailable"}
+                    if not 200 <= response.status_code < 300:
+                        return {"available": False}
+                    body = bytearray()
+                    async for part in response.aiter_bytes():
+                        body.extend(part)
+                        if len(body) > 1024 * 1024:
+                            return {"available": False}
+                    try:
+                        return {"available": vision_available(json.loads(body))}
+                    except (ValueError, UnicodeDecodeError):
+                        return {"available": False}
+
+        try:
+            return await asyncio.wait_for(run(), timeout=60)
+        except (asyncio.TimeoutError, httpx.TimeoutException):
+            return {"available": False, "error_code": "model_test_timeout"}
+        except httpx.RequestError:
+            return {"available": False}
+
     async def check_remote_model(
         self,
         *,
@@ -896,6 +941,9 @@ class NullWeKnoraClient:
         raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
 
     async def update_initialization_config(self, *_: Any, **__: Any) -> dict[str, Any] | None:
+        raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
+
+    async def check_vision_model(self, *_: Any, **__: Any) -> dict[str, Any]:
         raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
 
     async def check_remote_model(self, *_: Any, **__: Any) -> dict[str, Any]:

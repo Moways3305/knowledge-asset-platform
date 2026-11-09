@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  checkWeknoraModel,
   createWeknoraModel,
   deleteWeknoraModel,
   fetchWeknoraDefaultModels,
@@ -14,6 +15,7 @@ import {
   updateWeknoraKbInit,
   updateWeknoraModel,
 } from "../api/admin";
+import { ApiError } from "../api/http";
 import {
   createModelConnection,
   deleteModelConnection,
@@ -436,6 +438,41 @@ describe("AdminWeKnoraModelsPage modal workspace", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("tests a saved vision model by reference and labels the image-only scope", async () => {
+    vi.mocked(fetchWeknoraModels).mockResolvedValue([
+      { ...models[0], model_ref: "vision-ref", name: "qwen3.6-plus", type: "vllm" },
+    ]);
+    vi.mocked(checkWeknoraModel).mockResolvedValue({
+      success: true,
+      message: "图片理解测试通过；音频、视频能力未测试。",
+      error_code: null,
+      credential_status: "configured",
+    });
+    renderPage();
+    const row = await screen.findByRole("row", { name: "qwen3.6-plus（知识库检索与解析）" });
+    await waitFor(() => expect(within(row).getByRole("button", { name: "测试" })).toBeEnabled());
+    fireEvent.click(within(row).getByRole("button", { name: "测试" }));
+    expect(await within(row).findByText("图片理解测试通过")).toBeInTheDocument();
+    expect(within(row).getByText("图片理解测试通过；音频、视频能力未测试。")).toBeInTheDocument();
+    expect(checkWeknoraModel).toHaveBeenCalledWith({ model_ref: "vision-ref" });
+  });
+
+  it("distinguishes unsupported tests from failed provider calls", async () => {
+    vi.mocked(checkWeknoraModel).mockRejectedValue(
+      new ApiError(
+        422,
+        "当前平台暂未接入该类型的测试，不代表模型不可用",
+        "weknora_saved_model_check_unsupported",
+      ),
+    );
+    renderPage();
+    const row = await screen.findByRole("row", { name: "qwen-plus（知识库检索与解析）" });
+    await waitFor(() => expect(within(row).getByRole("button", { name: "测试" })).toBeEnabled());
+    fireEvent.click(within(row).getByRole("button", { name: "测试" }));
+    expect(await within(row).findByText("测试暂不可用")).toBeInTheDocument();
+    expect(within(row).queryByText("本次测试失败")).not.toBeInTheDocument();
   });
 
   it("refreshes parent anomaly counts after testing a connection", async () => {

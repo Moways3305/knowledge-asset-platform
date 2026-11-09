@@ -216,6 +216,10 @@ class FakeModelsWK:
     async def check_rerank_model(self, **_):
         return {"available": True, "message": "重排序模型可用"}
 
+    async def check_vision_model(self, *, model_id, trace_id=None):
+        self.last_check = {"type": "vllm", "model_id": model_id}
+        return {"available": True}
+
     async def test_multimodal_model(self, **_):
         return {"success": True, "message": "多模态模型测试通过"}
 
@@ -256,6 +260,13 @@ async def test_consultant_forbidden(client, wk):
         r = await client.get(f"{BASE}{path}", headers=_hdr(USER_CONSULTANT))
         assert r.status_code == 403
         assert r.json()["detail"]["denied_reason"] == "weknora_operator_required"
+    r = await client.post(
+        f"{BASE}/models/check",
+        headers=_hdr(USER_CONSULTANT),
+        json={"model_ref": _model_ref("mid-chat")},
+    )
+    assert r.status_code == 403
+    assert wk.last_check is None
 
 
 # ---------------------------------------------------------------------------
@@ -798,7 +809,31 @@ async def test_check_model_rejects_missing_saved_connection_before_upstream_call
     assert wk.last_check is None
 
 
-async def test_check_model_fails_closed_for_multimodal_without_native_saved_model_contract(
+async def test_check_model_uses_saved_vision_interface_without_vendor_credentials(client, wk):
+    wk.models["mid-vllm"] = {
+        "id": "mid-vllm",
+        "name": "qwen-vl-plus",
+        "type": "VLLM",
+        "source": "remote",
+        "status": "active",
+        "parameters": {"provider": "aliyun", "base_url": _URL},
+        "credentials": {"api_key": {"configured": True}},
+    }
+    r = await client.post(
+        f"{BASE}/models/check",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"model_ref": _model_ref("mid-vllm")},
+    )
+    assert r.status_code == 200
+    assert r.json()["success"] is True
+    assert "图片理解测试通过" in r.json()["message"]
+    assert "音频、视频能力未测试" in r.json()["message"]
+    assert wk.last_check == {"type": "vllm", "model_id": "mid-vllm"}
+    for token in [_URL, "mid-vllm", "api_key", "base_url"]:
+        assert token not in r.text
+
+
+async def test_vision_check_refuses_missing_credential_and_unsupported_asr_remains_explicit(
     client, wk
 ):
     wk.models["mid-vllm"] = {
@@ -806,19 +841,53 @@ async def test_check_model_fails_closed_for_multimodal_without_native_saved_mode
         "name": "qwen-vl-plus",
         "type": "VLLM",
         "source": "remote",
-        "status": "active",
-        "parameters": {"provider": "aliyun"},
+        "parameters": {"provider": "aliyun", "base_url": _URL},
+        "credentials": {"api_key": {"configured": False}},
     }
-    r = await client.post(
+    response = await client.post(
         f"{BASE}/models/check",
         headers=_hdr(USER_ADMIN_ONLY),
         json={"model_ref": _model_ref("mid-vllm")},
     )
-    assert r.status_code == 422
-    assert r.json()["detail"]["denied_reason"] == "weknora_saved_model_check_unsupported"
+    assert response.json()["error_code"] == "credential_missing"
     assert wk.last_check is None
-    for token in [_URL, "mid-vllm", "api_key", "base_url"]:
-        assert token not in r.text
+    wk.models["mid-vllm"]["type"] = "ASR"
+    response = await client.post(
+        f"{BASE}/models/check",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"model_ref": _model_ref("mid-vllm")},
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"]["denied_reason"] == "weknora_saved_model_check_unsupported"
+    assert "当前平台暂未接入" in response.json()["detail"]["message"]
+
+
+@pytest.mark.parametrize("code", ["vision_test_unavailable", "model_test_timeout", "SECRET-ERROR"])
+async def test_vision_check_failure_messages_are_allowlisted(client, wk, code):
+    wk.models["mid-vllm"] = {
+        "id": "mid-vllm",
+        "name": "qwen-vl-plus",
+        "type": "VLLM",
+        "source": "remote",
+        "parameters": {"provider": "aliyun", "base_url": _URL},
+        "credentials": {"api_key": {"configured": True}},
+    }
+
+    async def unavailable(**kwargs):
+        return {"available": False, "error_code": code, "message": "SECRET-DETAIL"}
+
+    wk.check_vision_model = unavailable
+    response = await client.post(
+        f"{BASE}/models/check",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"model_ref": _model_ref("mid-vllm")},
+    )
+    assert response.status_code == 200
+    assert response.json()["success"] is False
+    assert response.json()["error_code"] == (
+        code if code != "SECRET-ERROR" else "model_unavailable"
+    )
+    assert "SECRET" not in response.text
 
 
 async def test_not_configured_returns_safe_503(client, monkeypatch):

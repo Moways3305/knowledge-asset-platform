@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
-import type { ModelManagementProps } from "./modelManagement";
+import type { ModelManagementProps, ModelTestNotice } from "./modelManagement";
 import { ChevronDown, Plus } from "lucide-react";
 import {
   createWeknoraModel,
@@ -51,8 +51,6 @@ const emptyForm = (): WeknoraModelMutateDTO => ({
 
 const autofillWarning = "检测到浏览器自动填充，已恢复表单原值。请手动确认并重新填写模型信息。";
 
-type TestNotice = { tone: "busy" | "success" | "danger"; message: string };
-
 function safeActionError(err: unknown, fallback: string): string {
   if (!(err instanceof ApiError)) return fallback;
   const hint = err.detail?.remediation_hint;
@@ -88,7 +86,7 @@ export default function WeknoraModelsSection({
   const [formOpen, setFormOpen] = useState(false);
   const [editingRef, setEditingRef] = useState<string | null>(null);
   const [form, setForm] = useState<WeknoraModelMutateDTO>(emptyForm());
-  const [tests, setTests] = useState<Record<string, TestNotice>>({});
+  const [tests, setTests] = useState<Record<string, ModelTestNotice>>({});
   const panelRef = useRef<HTMLFormElement>(null);
   const providerAutofillRef = useRef<string | null>(null);
   const nameListId = useId();
@@ -323,7 +321,11 @@ export default function WeknoraModelsSection({
       setTests((old) => ({
         ...old,
         [model.model_ref]: {
-          tone: result.success ? "success" : "danger",
+          tone: result.success
+            ? "success"
+            : result.error_code === "vision_test_unavailable"
+              ? "neutral"
+              : "danger",
           message: result.message,
         },
       }));
@@ -332,7 +334,11 @@ export default function WeknoraModelsSection({
       setTests((old) => ({
         ...old,
         [model.model_ref]: {
-          tone: "danger",
+          tone:
+            caught instanceof ApiError &&
+            caught.deniedReason === "weknora_saved_model_check_unsupported"
+              ? "neutral"
+              : "danger",
           message: safeActionError(caught, "模型连通性测试未完成，请检查配置后重试。"),
         },
       }));
@@ -524,14 +530,16 @@ export default function WeknoraModelsSection({
                               <dt>凭据与连通性</dt>
                               <dd>
                                 {testNotice?.tone === "success"
-                                  ? "凭据已确认保存，连通性已验证"
-                                  : testNotice?.tone === "danger"
-                                    ? "连通性测试失败，可查看安全错误说明后重试"
-                                    : model.credential_status === "configured"
-                                      ? "凭据已确认保存，等待连通性测试"
-                                      : model.source === "local"
-                                        ? "本地模型无需远程凭据，等待连通性测试"
-                                        : "凭据保存状态未确认，请重新配置并测试"}
+                                  ? testNotice.message
+                                  : testNotice?.tone === "neutral"
+                                    ? testNotice.message
+                                    : testNotice?.tone === "danger"
+                                      ? "连通性测试失败，可查看安全错误说明后重试"
+                                      : model.credential_status === "configured"
+                                        ? "凭据已确认保存，等待连通性测试"
+                                        : model.source === "local"
+                                          ? "本地模型无需远程凭据，等待连通性测试"
+                                          : "凭据保存状态未确认，请重新配置并测试"}
                               </dd>
                             </div>
                             {model.description && (

@@ -273,8 +273,12 @@ export default function ModelRegistryTable({
                 ? notice.tone === "busy"
                   ? "测试中…"
                   : notice.tone === "success"
-                    ? "本次测试通过"
-                    : "本次测试失败"
+                    ? type === "vllm"
+                      ? "图片理解测试通过"
+                      : "本次测试通过"
+                    : notice.tone === "neutral"
+                      ? "测试暂不可用"
+                      : "本次测试失败"
                 : fallback;
               const tone =
                 notice?.tone ??
