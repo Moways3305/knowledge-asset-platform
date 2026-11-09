@@ -27,7 +27,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
@@ -104,25 +104,31 @@ class GuardResult:
     lockout_minutes: int
 
 
-async def _attempts_since(
+async def _failure_stats_since(
     session: AsyncSession,
     *,
     column,
     value: str,
     since: datetime,
-) -> list[AuthLoginAttempt]:
-    rows = (
-        (
-            await session.execute(
-                select(AuthLoginAttempt)
-                .where(column == value, AuthLoginAttempt.created_at >= since)
-                .order_by(AuthLoginAttempt.created_at.desc())
-            )
+    after: datetime | None = None,
+) -> tuple[int, datetime | None]:
+    # Login volume must not become Python object volume on every attempt.
+    # Keep exact counts for audit/ops, but return only the two needed scalars.
+    conditions = [
+        column == value,
+        AuthLoginAttempt.created_at >= since,
+        AuthLoginAttempt.result.in_(_FAILED_RESULTS),
+    ]
+    if after is not None:
+        conditions.append(AuthLoginAttempt.created_at > after)
+    count, latest = (
+        await session.execute(
+            select(func.count(), func.max(AuthLoginAttempt.created_at))
+            .select_from(AuthLoginAttempt)
+            .where(*conditions)
         )
-        .scalars()
-        .all()
-    )
-    return list(rows)
+    ).one()
+    return int(count), _as_aware(latest) if latest is not None else None
 
 
 async def _last_reset_anchor_at(session: AsyncSession, identifier_hash: str) -> datetime | None:
@@ -164,7 +170,7 @@ async def check_login_guard(
     ip_max = _clamp(s.auth_ip_max_failed_attempts, 30)
 
     # ---- identifier 维度：自最近成功**之后**、窗口内的失败计数 ----
-    # 取窗口内全部尝试，再用**严格** created_at > last_success 在内存过滤排除「成功及更早」。
+    # 数据库仅聚合失败尝试，严格 created_at > last_success 排除「成功及更早」。
     # 关键：用 `>`（而非 `>= effective_start`）—— DB 时间精度粗（如 SQLite）时，success 与其
     # 之前的 failed 可能落在同一时间戳；`>=` 会把这些旧 failed 误算进「成功之后」，导致
     # 「成功重置失败计数」不稳定（flaky）。严格 `>` 保证「成功及之前」的失败永不被重新计入。
@@ -173,23 +179,20 @@ async def check_login_guard(
     # 极少数 post-success 失败暂不计入（保守、瞬时，下一刻即正常计入），不构成安全缺口。
     window_start = now - timedelta(minutes=win)
     last_anchor = await _last_reset_anchor_at(session, identifier_hash)
-    id_attempts = await _attempts_since(
-        session, column=AuthLoginAttempt.identifier_hash, value=identifier_hash, since=window_start
+    id_fail_count, last_fail_at = await _failure_stats_since(
+        session,
+        column=AuthLoginAttempt.identifier_hash,
+        value=identifier_hash,
+        since=window_start,
+        after=last_anchor,
     )
-    id_fails = [
-        a
-        for a in id_attempts
-        if a.result in _FAILED_RESULTS
-        and (last_anchor is None or _as_aware(a.created_at) > last_anchor)
-    ]
-    if len(id_fails) >= max_failed:
-        last_fail_at = _as_aware(id_fails[0].created_at)  # desc 排序，[0] 为最近
+    if id_fail_count >= max_failed and last_fail_at is not None:
         if now < last_fail_at + timedelta(minutes=lockout):
             return GuardResult(
                 blocked=True,
                 result="locked",
                 reason_code="identifier_locked",
-                failed_count=len(id_fails),
+                failed_count=id_fail_count,
                 window_minutes=win,
                 lockout_minutes=lockout,
             )
@@ -197,16 +200,15 @@ async def check_login_guard(
     # ---- IP 维度：窗口内失败计数 ----
     if ip_hash:
         ip_start = now - timedelta(minutes=ip_win)
-        ip_attempts = await _attempts_since(
+        ip_fail_count, _ = await _failure_stats_since(
             session, column=AuthLoginAttempt.ip_hash, value=ip_hash, since=ip_start
         )
-        ip_fails = [a for a in ip_attempts if a.result in _FAILED_RESULTS]
-        if len(ip_fails) >= ip_max:
+        if ip_fail_count >= ip_max:
             return GuardResult(
                 blocked=True,
                 result="rate_limited",
                 reason_code="ip_rate_limited",
-                failed_count=len(ip_fails),
+                failed_count=ip_fail_count,
                 window_minutes=ip_win,
                 lockout_minutes=lockout,
             )
@@ -215,7 +217,7 @@ async def check_login_guard(
         blocked=False,
         result=None,
         reason_code=None,
-        failed_count=len(id_fails),
+        failed_count=id_fail_count,
         window_minutes=win,
         lockout_minutes=lockout,
     )
