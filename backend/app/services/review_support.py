@@ -48,26 +48,6 @@ _NON_TERMINAL = {
     ReviewTaskStatus.approval_failed.value,
 }
 
-_FORBIDDEN_ATTACHMENT_KEYS = {
-    "url",
-    "download_url",
-    "file_url",
-    "path",
-    "storage_ref",
-    "source_file_ref",
-    "bucket",
-    "object_key",
-    "token",
-}
-_FORBIDDEN_VALUE_PREFIXES = (
-    "http://",
-    "https://",
-    "file://",
-    "s3://",
-    "oss://",
-    "internal://",
-)
-
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:
     return HTTPException(

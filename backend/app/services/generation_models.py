@@ -22,30 +22,12 @@ from app.db.session import get_db
 from app.db.utils import utc_now
 from app.models.generation_model import ContentGenerationModel, ContentGenerationSettings
 from app.services.llm_client import (
-    PROVIDER_REGISTRY,
     LLMClient,
     LLMError,
     NullLLMClient,
     get_llm_client,
-    llm_enabled,
     safe_llm_diagnostic,
 )
-
-
-def _configured_provider_model() -> tuple[str, str] | None:
-    s = get_settings()
-    if not llm_enabled():
-        return None
-    provider = (s.llm_provider or "").strip()
-    model = (s.llm_model or "").strip()
-    if not provider:
-        return None
-    if not model:
-        reg = PROVIDER_REGISTRY.get(provider)
-        model = reg.default_model if reg else ""
-    if not model:
-        return None
-    return provider, model
 
 
 class GenerationModelError(Exception):
@@ -476,11 +458,6 @@ async def resolve_connection_ref(
     session: AsyncSession, model_ref: str
 ) -> ContentGenerationModel | None:
     return await _resolve_ref(session, model_ref)
-
-
-def decrypt_connection_secrets(model: ContentGenerationModel) -> tuple[str, str]:
-    """Return endpoint/key only to server-side adapter code."""
-    return _decrypt(model.base_url_ciphertext), _decrypt(model.api_key_ciphertext)
 
 
 def _client_for_model(model: ContentGenerationModel) -> LLMClient:

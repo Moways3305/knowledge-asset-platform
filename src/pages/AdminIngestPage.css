@@ -127,73 +127,6 @@
   font-size: 12px;
 }
 
-.ao84-index-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  padding: 12px 14px 14px;
-}
-
-.ao84-index-metric {
-  min-width: 0;
-  padding: 10px 11px;
-  background: var(--color-bg-muted);
-  border: 1px solid var(--color-border-light);
-  border-top: 2px solid var(--color-accent-2);
-}
-
-.ao84-index-metric.is-danger {
-  border-top-color: var(--color-danger);
-}
-
-.ao84-index-metric.is-blue {
-  border-top-color: var(--color-primary);
-}
-
-.ao84-index-metric.is-gold {
-  border-top-color: var(--color-gold);
-}
-
-.ao84-index-metric.is-violet {
-  border-top-color: var(--color-accent-1);
-}
-
-.ao84-index-metric strong,
-.ao84-index-metric span {
-  display: block;
-}
-
-.ao84-index-metric strong {
-  color: var(--color-text-heading);
-  font-family: var(--font-serif);
-  font-size: 22px;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.15;
-}
-
-.ao84-index-metric span {
-  margin-top: 4px;
-  overflow-wrap: anywhere;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-}
-
-.ao84-index-metric-hint {
-  display: block;
-  margin-top: 2px;
-  color: var(--color-text-tertiary);
-  font-size: 10px;
-  font-style: normal;
-}
-
-.ao84-index-note {
-  margin: 0;
-  padding: 0 14px 12px;
-  color: var(--color-text-tertiary);
-  font-size: 11px;
-  line-height: 1.6;
-}
-
 .ao84-reconcile-bad {
   color: var(--color-danger);
   font-weight: 600;
@@ -972,7 +905,6 @@
 }
 
 @media (max-width: 640px) {
-  .ao84-index-grid,
   .ao84-ingest-counts,
   .ao84-action-options,
   .ao84-action-buttons {

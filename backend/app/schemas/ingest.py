@@ -22,14 +22,6 @@ from app.schemas.naming import NamingConfirmationFields, NamingWarningCode
 from app.schemas.upload_duplicates import UploadDuplicateReadModel
 
 
-class IngestUploadRequest(BaseModel):
-    file_name: str
-    file_mime_type: str
-    file_size: int | None = None
-    target_scope: str | None = None
-    target_project_id: uuid.UUID | None = None
-
-
 class IngestUploadResponse(BaseModel):
     ingest_task_id: uuid.UUID
     status: str

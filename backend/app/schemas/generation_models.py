@@ -5,8 +5,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-
 from pydantic import BaseModel, Field, SecretStr
 
 
@@ -69,7 +67,3 @@ class GenerationModelTestResponse(BaseModel):
     remediation_hint: str
     retryable: bool = False
     duration_ms: int
-
-
-class GenerationModelAdminOut(GenerationModelOptionOut):
-    updated_at: datetime | None = None
