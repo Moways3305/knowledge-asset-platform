@@ -92,7 +92,22 @@ def table_snapshot(r, old, columns=None):
                 "SELECT coalesce(json_agg(tablename ORDER BY tablename),'[]'::json) FROM pg_tables WHERE schemaname='public' AND tablename<>'alembic_version';",
             )
         )
-        columns = {name: "*" for name in tables}
+        # Freeze the pre-migration projection. SELECT * would include columns
+        # added by 0083 and falsely report changed business data after upgrade.
+        columns = {}
+        for name in tables:
+            names = json.loads(
+                sql(
+                    r,
+                    old,
+                    "SELECT coalesce(json_agg(column_name ORDER BY ordinal_position),'[]'::json) "
+                    "FROM information_schema.columns WHERE table_schema='public' AND table_name="
+                    + literal(name)
+                    + ";",
+                )
+            )
+            require(bool(names), "KAP original table has no readable columns")
+            columns[name] = ",".join(pg.ident(column) for column in names)
     result = {}
     for name, projection in columns.items():
         result[name] = sql(
