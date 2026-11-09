@@ -5,14 +5,20 @@ permitted only before the durable traffic-opening boundary. No volumes are delet
 """
 
 import copy
+import hashlib
+import os
+import re
+import shutil
 import http.client
 import json
+from pathlib import Path
 import socket
 from urllib.parse import quote
 
 from prepare_production_release import require
 
 LABEL = "kap.production.cutover"
+OPERATIONAL_DIRECTORIES = {Path("/data/weknora/repo"), Path("/data/weknora/releases/v0.7.1")}
 
 
 class UnixConnection(http.client.HTTPConnection):
@@ -157,12 +163,15 @@ class Runtime:
         self.state = {
             "originals": originals,
             "backups": [],
+            "config_replacements": [],
+            "tag_replacements": [],
             "new": {},
             "helpers": [],
             "renamed": [],
             "backup_complete": False,
             "data_mutated": False,
             "traffic_opening": False,
+            "recovery_opening": False,
             "touched": False,
             "passed": False,
         }
@@ -282,7 +291,9 @@ class Runtime:
                 f"type=volume,src={volume},dst=/to",
             ]
             print(f"制作并校验停写副本 {index + 1}/{len(stores)}。", flush=True)
-            self.helper(["sh", "-ec", "test ! -e /to/object; cp -a /from /to/object"], mounts)
+            self.helper(
+                ["sh", "-ec", "test ! -e /to/object; cp -a /from /to/object; sync -f /to"], mounts
+            )
             self.helper(["python", "-c", VERIFY_COPY], mounts)
             entry["verified"] = True
             self.save()
@@ -326,12 +337,95 @@ class Runtime:
         del self.state["new"][name]
         self.save()
 
+    def configure_entrypoints(self, paths, managed_weknora, images):
+        for index, target in enumerate(paths):
+            target = Path(target)
+            require(
+                target.parent in OPERATIONAL_DIRECTORIES and target.name == "docker-compose.yml",
+                "unexpected operational config target",
+            )
+            backup = self.directory / f"operational-config-before-{index}-private"
+            shutil.copyfile(target, backup)
+            backup.chmod(0o600)
+            record = {
+                "target": str(target),
+                "backup": str(backup),
+                "mode": target.stat().st_mode & 0o777,
+                "sha256": hashlib.sha256(backup.read_bytes()).hexdigest(),
+            }
+            self.state["config_replacements"].append(record)
+            self.save()
+            temporary = target.with_name(target.name + "." + self.token + ".tmp")
+            shutil.copyfile(managed_weknora, temporary)
+            temporary.chmod(0o600)
+            with temporary.open("rb+") as stream:
+                os.fsync(stream.fileno())
+            temporary.replace(target)
+        for service, image in images.items():
+            require(
+                service in {"backend", "worker", "ocr_worker", "beat", "frontend", "migrate"},
+                "unexpected operational image",
+            )
+            tag = "kap-" + service + ":latest"
+            old = self.r.image_identity(tag)
+            self.state["tag_replacements"].append({"tag": tag, "old": old, "new": image})
+            self.save()
+            self.r.docker("tag", image, tag)
+            require(self.r.image_identity(tag) == image, "operational image tag changed")
+
+    def restore_entrypoints(self):
+        for entry in self.state.get("config_replacements", []):
+            target, backup = Path(entry["target"]), Path(entry["backup"])
+            require(
+                target.parent in OPERATIONAL_DIRECTORIES and target.name == "docker-compose.yml",
+                "unexpected operational config target",
+            )
+            require(
+                backup.resolve().parent == self.directory
+                and hashlib.sha256(backup.read_bytes()).hexdigest() == entry["sha256"],
+                "operational config backup changed",
+            )
+            temporary = target.with_name(target.name + "." + self.token + ".tmp")
+            shutil.copyfile(backup, temporary)
+            temporary.chmod(entry["mode"])
+            temporary.replace(target)
+        for entry in self.state.get("tag_replacements", []):
+            require(
+                re.fullmatch(
+                    r"kap-(backend|worker|ocr_worker|beat|frontend|migrate):latest", entry["tag"]
+                ),
+                "unexpected operational tag",
+            )
+            current = self.r.image_identity(entry["tag"])
+            require(current in {entry["old"], entry["new"]}, "operational tag concurrently changed")
+            if entry["old"]:
+                self.r.docker("tag", entry["old"], entry["tag"])
+            elif current:
+                self.r.docker("image", "rm", entry["tag"])
+
     def recover(self, start_order):
         require(
             not self.state["traffic_opening"],
             "traffic boundary crossed; automatic data rollback forbidden",
         )
         if not self.state["touched"]:
+            return
+        if self.state.get("recovery_opening"):
+            # A previous recovery may already have accepted writes through the
+            # old release. Resume starts only; never restore that snapshot again.
+            for name in start_order:
+                old = self.state["originals"][name]
+                item = self.r.inspect(old["Id"])
+                require(
+                    item["Name"] == "/" + name
+                    and item["Image"] == old["Image"]
+                    and item["Config"] == old["Config"],
+                    "recovery runtime identity changed",
+                )
+                if not item["State"]["Running"]:
+                    self.r.docker("start", old["Id"])
+            self.state["recovered"] = True
+            self.save()
             return
         # Discover labelled resources too, covering a crash after create but before save.
         ids = self.r.docker(
@@ -364,7 +458,7 @@ class Runtime:
                     [
                         "sh",
                         "-ec",
-                        "if [ -d /from/object ]; then find /to -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +; cp -a /from/object/. /to/; else cp -p /from/object /to; fi",
+                        "if [ -d /from/object ]; then find /to -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +; cp -a /from/object/. /to/; else cp -p /from/object /to; fi; sync -f /to",
                     ],
                     [
                         f"type=volume,src={entry['volume']},dst=/from,readonly",
@@ -378,6 +472,7 @@ class Runtime:
                         f"type=volume,src={entry['volume']},dst=/to,readonly",
                     ],
                 )
+        self.restore_entrypoints()
         for name, old in self.state["originals"].items():
             if name == "kap-migrate-1":
                 continue
@@ -395,6 +490,8 @@ class Runtime:
             self.api.request(
                 "POST", "/containers/" + old["Id"] + "/update", {"RestartPolicy": policy}
             )
+        self.state["recovery_opening"] = True
+        self.save()
         for name in start_order:
             self.r.docker("start", self.state["originals"][name]["Id"])
         self.state["recovered"] = True

@@ -308,8 +308,15 @@ def persist_compose(r, stage, out, originals, configs):
             r.docker("compose", "-p", project, "-f", str(path), "config", "--format", "json")
         )
         for service, config in output["services"].items():
+            actual = rendered["services"][service]["environment"]
+            # Compose config serializes literal dollar signs as $$ so its output
+            # can itself be used as a Compose file; containers receive one $.
+            unescaped = {
+                key: value.replace("$$", "$") if isinstance(value, str) else value
+                for key, value in actual.items()
+            }
             require(
-                rendered["services"][service]["environment"] == config["environment"],
+                actual == config["environment"] or unescaped == config["environment"],
                 "operational Compose changed environment literals",
             )
         result[project] = str(path)
@@ -338,6 +345,10 @@ def execute(r, stage, out, report, holder):
     images = read(stage / "candidate-image-ids.json")
     wk = read(stage / "weknora-candidate.json")
     api = Engine(r.log)
+    require(
+        api.request("GET", "/info")["ID"] == r.docker("info", "--format", "{{.ID}}"),
+        "Docker API and CLI target different engines",
+    )
     runtime = Runtime(r, api, out, old, images["backend"])
     holder.append(runtime)
     configs = {}
@@ -357,6 +368,24 @@ def execute(r, stage, out, report, holder):
         configs[name] = payload(item, image, new_config, old_config, runtime.token)
     managed = persist_compose(r, stage, out, old, configs)
     report["managed_compose_files"] = managed
+    operational_paths = sorted(
+        {
+            Path(record["files"])
+            for record in read(stage / "compose-sources-private.json")
+            if record["project"] == "weknora"
+        }
+    )
+    require(
+        len(operational_paths) == 2
+        and all(
+            path.parent in {Path("/data/weknora/repo"), Path("/data/weknora/releases/v0.7.1")}
+            and path.name == "docker-compose.yml"
+            and path.resolve() == path
+            and os.access(path.parent, os.W_OK)
+            for path in operational_paths
+        ),
+        "WeKnora operational Compose files not writable or unexpected",
+    )
     for name, config in configs.items():
         labels = config["Labels"]
         project = old[name]["Config"]["Labels"]["com.docker.compose.project"]
@@ -680,6 +709,8 @@ def execute(r, stage, out, report, holder):
         "--check-only",
         timeout=60,
     )
+    runtime.configure_entrypoints(operational_paths, Path(managed["weknora"]), images)
+    report["operational_image_references_updated"] = True
     # Durable boundary BEFORE any original host port is restored. After this marker,
     # failures retain the new databases; never erase possibly accepted user writes.
     report["checkpoint"] = "opening_traffic"
@@ -822,6 +853,7 @@ def main():
                         state["originals"] == read(stage / "runtime-private.json"),
                         "recovery originals changed",
                     )
+                    report["production_switched"] = bool(state["traffic_opening"])
                     require(
                         not state["traffic_opening"],
                         "traffic already opened; data rollback forbidden",

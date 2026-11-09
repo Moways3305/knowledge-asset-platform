@@ -7,6 +7,8 @@ from pathlib import Path
 import tempfile
 import unittest
 import uuid
+from unittest.mock import patch
+import production_cutover_runtime as runtime_module
 
 from execute_production_cutover import corrected_models, escape_compose
 from prepare_production_release import Runner
@@ -64,6 +66,44 @@ class PayloadTests(unittest.TestCase):
         runtime.state = {"traffic_opening": True}
         with self.assertRaisesRegex(RuntimeError, "automatic data rollback forbidden"):
             runtime.recover([])
+
+
+class EntrypointRecoveryTests(unittest.TestCase):
+    def test_configuration_and_mutable_tags_are_restored_together(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp).resolve()
+            target = directory / "docker-compose.yml"
+            target.write_text("original configuration")
+            managed = directory / "managed.json"
+            managed.write_text("new configuration")
+            tags = {"kap-backend:latest": "old-image"}
+
+            class Runner:
+                def image_identity(self, tag):
+                    return tags.get(tag)
+
+                def docker(self, *args):
+                    if args[0] == "tag":
+                        tags[args[2]] = args[1]
+                    elif args[:2] == ("image", "rm"):
+                        tags.pop(args[2])
+                    else:
+                        raise AssertionError(args)
+
+            runtime = object.__new__(Runtime)
+            runtime.r = Runner()
+            runtime.directory, runtime.token = directory, "cutover-test"
+            runtime.state = {"config_replacements": [], "tag_replacements": []}
+            runtime.save = lambda: None
+            with patch.object(runtime_module, "OPERATIONAL_DIRECTORIES", {directory}):
+                runtime.configure_entrypoints(
+                    [target], managed, {"backend": "new-image", "migrate": "new-migrate"}
+                )
+                self.assertEqual(target.read_text(), "new configuration")
+                self.assertEqual(tags["kap-backend:latest"], "new-image")
+                runtime.restore_entrypoints()
+                self.assertEqual(target.read_text(), "original configuration")
+                self.assertEqual(tags, {"kap-backend:latest": "old-image"})
 
 
 class ComposeLiteralTests(unittest.TestCase):
@@ -183,6 +223,7 @@ class RealDockerRecovery(unittest.TestCase):
                     runtime.freeze([name])
                     runtime.recover([name])
                     self.assertTrue(r.inspect(name)["State"]["Running"])
+                    runtime = Runtime(r, api, out, {name: old}, image)
                     runtime.freeze([name])
                     runtime.backup([{"mount": old["Mounts"][0]}])
                     runtime.detach_originals()
@@ -212,6 +253,21 @@ class RealDockerRecovery(unittest.TestCase):
                     )
                     self.assertTrue(runtime.state["backup_complete"])
                     self.assertTrue(runtime.state["recovered"])
+                    r.docker(
+                        "exec",
+                        name,
+                        "python",
+                        "-c",
+                        "from pathlib import Path; Path('/data/item').write_text('after-recovery')",
+                    )
+                    runtime.recover([name])
+                    r.docker(
+                        "exec",
+                        name,
+                        "python",
+                        "-c",
+                        "from pathlib import Path; assert Path('/data/item').read_text()=='after-recovery'",
+                    )
                 except BaseException:
                     log.flush()
                     # This test uses only generated synthetic fixtures; no production data.
