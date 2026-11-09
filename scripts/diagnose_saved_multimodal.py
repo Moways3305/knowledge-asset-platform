@@ -7,9 +7,11 @@ import json
 import logging
 from pathlib import Path
 import re
+import struct
 import subprocess
 import sys
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
+import zlib
 
 TARGETS = ("qwen3.6-plus", "qwen3.5-omni-plus")
 WORKSPACE_HOST = "ws-47k0t1zmjgch8h33.cn-beijing.maas.aliyuncs.com"
@@ -70,6 +72,122 @@ class ProbeDispatchBlocked(Exception):
     pass
 
 
+def synthetic_image():
+    """A generated 64x64 red square on white; no uploaded or business image."""
+
+    def chunk(kind, data):
+        return (
+            struct.pack("!I", len(data)) + kind + data + struct.pack("!I", zlib.crc32(kind + data))
+        )
+
+    rows = b"".join(
+        b"\x00"
+        + b"".join(
+            b"\xff\x00\x00" if 16 <= x < 48 and 16 <= y < 48 else b"\xff\xff\xff" for x in range(64)
+        )
+        for y in range(64)
+    )
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack("!2I5B", 64, 64, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(rows))
+        + chunk(b"IEND", b"")
+    )
+
+
+def probe_result(status, body):
+    """Allowlisted facts only; upstream debug previews and answers stay private."""
+    data = body.get("data") if isinstance(body, dict) else None
+    success = (
+        200 <= status < 300
+        and isinstance(body, dict)
+        and body.get("success") is True
+        and isinstance(data, dict)
+        and data.get("ok") is True
+        and not data.get("error")
+        and isinstance(data.get("raw_response"), str)
+        and bool(data["raw_response"].strip())
+    )
+    error = data.get("error", "") if isinstance(data, dict) else ""
+    if not error and isinstance(body, dict):
+        error = body.get("error", "")
+    raw = json.dumps(error, ensure_ascii=False)[:65536]
+    codes = (
+        "Endpoint.AccessDenied",
+        "Workspace.AccessDenied",
+        "Model.AccessDenied",
+        "Arrearage",
+        "InvalidApiKey",
+        "invalid_api_key",
+        "insufficient_quota",
+        "InvalidParameter",
+        "ModelNotFound",
+        "model_not_found",
+        "Throttling.RateQuota",
+        "AllocationQuota.FreeTierOnly",
+    )
+    flags = {
+        "streaming_required": r"only support.{0,30}stream|stream.{0,40}(?:must be true|is required)|stream.{0,10}true.{0,30}required",
+        "thinking_parameter_mentioned": r"enable_thinking",
+        "model_missing": r"model.{0,60}(?:does not exist|not found)",
+        "credential_rejected": r"invalid.{0,10}api.?key|incorrect.{0,10}api.?key",
+        "timeout": r"deadline exceeded|timed out|timeout",
+        "dns_failure": r"no such host|name resolution",
+        "images_unsupported": r"does not accept images|image.{0,20}not supported",
+        "empty_or_incomplete_output": r"truncat|finish_reason=length",
+    }
+    return {
+        "attempted": True,
+        "weknora_http_status": status,
+        "vision_call_succeeded": success,
+        "provider_error_codes": [
+            code for code in codes if re.search(r"(?<![\w.])" + re.escape(code) + r"(?![\w.])", raw)
+        ],
+        "error_flags": [label for label, pattern in flags.items() if re.search(pattern, raw, re.I)],
+        "provider_output_included": False,
+    }
+
+
+async def probe_saved_vision(client, model_id):
+    import httpx
+    from app.services.http_pool import pooled_http_client
+
+    try:
+        async with pooled_http_client(timeout=60) as http:
+            async with http.stream(
+                "POST",
+                client._base + "/models/" + quote(model_id, safe="") + "/debug",
+                headers=client._headers(None),
+                data={
+                    "input": "Describe the main shape and its color in this image in one short sentence."
+                },
+                files={"file": ("synthetic-vision.png", synthetic_image(), "image/png")},
+                follow_redirects=False,
+            ) as response:
+                payload = bytearray()
+                async for part in response.aiter_bytes():
+                    payload.extend(part)
+                    if len(payload) > 1024 * 1024:
+                        return {
+                            "attempted": True,
+                            "vision_call_succeeded": False,
+                            "diagnostic": "response_too_large",
+                        }
+                try:
+                    body = json.loads(payload)
+                except (ValueError, UnicodeDecodeError):
+                    body = {}
+                return probe_result(response.status_code, body)
+    except httpx.TimeoutException:
+        return {"attempted": True, "vision_call_succeeded": False, "diagnostic": "timeout"}
+    except Exception:
+        return {
+            "attempted": True,
+            "vision_call_succeeded": False,
+            "diagnostic": "native_probe_failed",
+        }
+
+
 async def inspect_gate(saved):
     from fastapi import HTTPException
     from app.schemas.weknora_admin import ModelCheckRequest
@@ -124,7 +242,7 @@ async def inspect_gate(saved):
         return "local_gate_inspection_failed"
 
 
-async def collect():
+async def collect(*, live=False):
     from app.core.config import get_settings
     from app.services.model_provider_catalog import CATALOG
     from app.services.weknora_client import WeKnoraClient
@@ -150,6 +268,12 @@ async def collect():
         ),
         "models": [],
     }
+    if live:
+        report.update(
+            scope="saved_vision_live_probe", read_only=False, configuration_read_only=True
+        )
+        report.pop("provider_connectivity_tested")
+        report.pop("credential_validity_verified")
     models = await client.list_models()
     for target in TARGETS:
         matches = [m for m in models if isinstance(m, dict) and m.get("name") == target]
@@ -159,6 +283,38 @@ async def collect():
                 saved = await client.get_model(str(record["id"]))
                 facts = metadata(saved)
                 facts["local_test_gate"] = await inspect_gate(saved)
+                if live:
+                    params = saved.get("parameters") or {}
+                    eligible = (
+                        len(matches) == 1
+                        and saved.get("name") == target
+                        and facts.get("model_type") == "VLLM"
+                        and facts.get("remote")
+                        and facts.get("enabled")
+                        and facts.get("provider_is_aliyun")
+                        and facts.get("https")
+                        and facts.get("endpoint_kind") == "openai_base"
+                        and (
+                            facts.get("is_legacy_dashscope_host")
+                            or facts.get("matches_previously_verified_workspace")
+                        )
+                        and facts.get("credential_status") == "configured"
+                        and not facts.get("custom_authorization_present")
+                        and not facts.get("spec_override_present")
+                        and not facts.get("extra_config_present")
+                        and params.get("interface_type", "") in ("", "openai")
+                    )
+                    if eligible:
+                        facts["native_vision_probe"] = await probe_saved_vision(
+                            client, str(record["id"])
+                        )
+                        after = await client.get_model(str(record["id"]))
+                        facts["saved_metadata_unchanged"] = after == saved
+                    else:
+                        facts["native_vision_probe"] = {
+                            "attempted": False,
+                            "diagnostic": "outside_fixed_probe_scope",
+                        }
                 item["records"].append(facts)
             except Exception:
                 item["records"].append({"metadata_read_failed": True})
@@ -168,13 +324,16 @@ async def collect():
 
 
 def main():
-    report = {"read_only": True, "raw_logs_included": False}
+    live = "--probe-saved-vision" in sys.argv
+    report = {"read_only": not live, "configuration_read_only": True, "raw_logs_included": False}
     try:
         if "--inside" in sys.argv:
             # Never expose imported application logging or exception messages.
             logging.disable(logging.CRITICAL)
             with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                report = asyncio.run(asyncio.wait_for(collect(), timeout=90))
+                report = asyncio.run(
+                    asyncio.wait_for(collect(live=live), timeout=180 if live else 90)
+                )
         else:
             services = []
             for name, expected in EXPECTED_IMAGES.items():
@@ -193,11 +352,16 @@ def main():
                         "matches_successful_cutover_image": image == expected,
                     }
                 )
+            if live and not all(
+                s["running"] and s["matches_successful_cutover_image"] for s in services
+            ):
+                raise RuntimeError("probe requires the diagnosed running images")
             result = subprocess.run(
-                ["docker", "exec", "-i", "kap-backend-1", "python", "-", "--inside"],
+                ["docker", "exec", "-i", "kap-backend-1", "python", "-", "--inside"]
+                + (["--probe-saved-vision"] if live else []),
                 input=Path(__file__).read_bytes(),
                 capture_output=True,
-                timeout=110,
+                timeout=200 if live else 110,
                 check=True,
             )
             report = json.loads(result.stdout)
