@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from sqlalchemy import select
@@ -41,7 +42,14 @@ async def enqueue_outbox_delivery(session: AsyncSession) -> None:
         return
     from app.worker.tasks.outbox import dispatch_pending
 
-    dispatch_pending.delay()
+    try:
+        dispatch_pending.delay()
+    except Exception as exc:
+        # The event is already durable. Beat also dispatches pending events;
+        # losing this wakeup must not turn a committed operation into a failure.
+        logging.getLogger(__name__).warning(
+            "outbox_wakeup_failed", extra={"error_type": type(exc).__name__}
+        )
 
 
 async def enqueue_ingest_processing(

@@ -17,6 +17,18 @@ from app.worker.runtime import run_task
 _logger = logging.getLogger(__name__)
 
 
+async def _recover(maker) -> int:
+    from app.services.jobs.indexing_operations import recover_interrupted_jobs
+
+    async with maker() as session:
+        return await recover_interrupted_jobs(session)
+
+
+@celery_app.task(name="indexing.recover_interrupted_jobs")
+def recover_interrupted_indexing_jobs() -> int:
+    return run_task(_recover, label="indexing.recover_interrupted_jobs")
+
+
 async def _run(maker, job_id_str: str, trace_id: str | None) -> None:
     from app.services.jobs import indexing_operations
     from app.services.storage import get_storage

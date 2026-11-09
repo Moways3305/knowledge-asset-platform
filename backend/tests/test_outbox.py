@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import timedelta
+from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock
 
@@ -17,6 +18,7 @@ from app.models.outbox import DomainEventOutbox
 from app.models.review import ReviewTask
 from app.seed.dev_seed import PROJECT_ALPHA, REVIEW_SEED, USER_CONSULTANT
 from app.services import domain_events, notification_event_consumers, outbox
+from app.worker import enqueue
 
 
 def _review_event() -> domain_events.DomainEvent:
@@ -266,3 +268,31 @@ async def test_review_decided_event_creates_one_submitter_update(db_session):
     assert len(rows) == 1
     assert rows[0].recipient_user_id == USER_CONSULTANT
     assert rows[0].dedup_key == event_key
+
+
+async def test_broker_wakeup_failure_keeps_committed_event_recoverable(db_session, monkeypatch):
+    from app.worker.tasks.outbox import dispatch_pending
+
+    event = await domain_events.publish(db_session, _review_event())
+    event_id = event.id
+    await db_session.commit()
+    monkeypatch.setattr(
+        enqueue, "get_settings", lambda: SimpleNamespace(celery_task_always_eager=False)
+    )
+
+    def unavailable():
+        raise ConnectionError("synthetic broker failure")
+
+    monkeypatch.setattr(dispatch_pending, "delay", unavailable)
+    await enqueue.enqueue_outbox_delivery(db_session)
+    assert (await db_session.get(DomainEventOutbox, event_id)).status == "pending"
+    assert await outbox.process_pending(db_session) == {"processed": 1, "failed": 0}
+    assert await outbox.process_pending(db_session) == {"processed": 0, "failed": 0}
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(BusinessNotification)
+            .where(BusinessNotification.target_id == REVIEW_SEED)
+        )
+        == 1
+    )

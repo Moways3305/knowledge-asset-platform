@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass
+from datetime import timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,6 +29,7 @@ from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
 from app.services import error_catalog, indexing, operation_events
 from app.services.indexing_candidates import reparse_candidate_conditions, scope_conditions
+from app.services.job_execution import exclusive_execution, try_execution_lock
 from app.services.permission import build_caller_context
 from app.services.storage import LocalFileStorage
 from app.services.weknora_client import (
@@ -267,6 +269,68 @@ async def _process_one(
 
 
 async def run_operation_job(
+    session: AsyncSession,
+    job_id: uuid.UUID,
+    *,
+    weknora: WeKnoraClient | NullWeKnoraClient,
+    storage: LocalFileStorage,
+    trace_id: str | None = None,
+) -> str:
+    async with exclusive_execution(session, "index-job", job_id) as owned:
+        if not owned:
+            return "running"
+        return await _run_operation_job(
+            session, job_id, weknora=weknora, storage=storage, trace_id=trace_id
+        )
+
+
+async def recover_interrupted_jobs(session: AsyncSession, *, now=None, limit: int = 100) -> int:
+    """Expose stopped running jobs as retryable failures, without replaying uploads.
+
+    Long live jobs keep their ownership even if they exceed the age threshold.
+    Per-version state remains authoritative: some targets may already have
+    completed upstream before the worker exited.
+    """
+    current = now or utc_now()
+    jobs = (
+        await session.scalars(
+            select(IndexingOperationJob)
+            .where(
+                IndexingOperationJob.status == "running",
+                IndexingOperationJob.started_at < current - timedelta(minutes=15),
+            )
+            .order_by(IndexingOperationJob.started_at)
+            .limit(max(1, min(limit, 500)))
+            .with_for_update(skip_locked=True)
+            .execution_options(populate_existing=True)
+        )
+    ).all()
+    recovered = 0
+    for job in jobs:
+        if not await try_execution_lock(session, "index-job", job.id):
+            continue
+        job.status = "failed"
+        job.error_code = "index_job_interrupted"
+        job.error_message = error_catalog.user_message(job.error_code)
+        job.finished_at = current
+        await operation_events.publish_job_finished(session, job)
+        await audit_service.record_system_event(
+            session,
+            log_type=AuditLogType.exception,
+            action="knowledge.index_job_interrupted",
+            trace_id=job.trace_id or "index-job-recovery",
+            target_type="indexing_operation_job",
+            target_id=job.id,
+            extra={"error_code": job.error_code, "status": "failed"},
+        )
+        recovered += 1
+    await session.commit()
+    if recovered:
+        await enqueue_outbox_delivery(session)
+    return recovered
+
+
+async def _run_operation_job(
     session: AsyncSession,
     job_id: uuid.UUID,
     *,

@@ -10,6 +10,7 @@ from sqlalchemy import text
 
 from app.core.config import get_settings
 from app.models.ingest import IngestTask
+from app.services.job_execution import try_execution_lock
 from app.worker.queues import ingest_processing_queue
 
 _GENERAL_LOCK = 1262571600
@@ -35,6 +36,9 @@ async def processing_slot(maker, task_id):
             return
         settings = get_settings()
         try:
+            if not await try_execution_lock(gate, "ingest", task_id):
+                yield "duplicate"
+                return
             task = await gate.get(IngestTask, task_id)
             if task is None or task.cancel_requested or task.status == "cancelled":
                 yield True  # Let the existing cancellation/terminal handler acknowledge it.

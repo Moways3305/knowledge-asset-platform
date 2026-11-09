@@ -14,6 +14,7 @@ from app.models.ingest import IngestTask
 from app.models.review import ReviewTask
 from app.schemas.enums import AuditAction, AuditLogType, IngestStatus
 from app.services import audit as audit_service
+from app.services.job_execution import try_execution_lock
 from app.services.storage import LocalFileStorage, StorageError
 
 _logger = logging.getLogger(__name__)
@@ -114,6 +115,8 @@ async def cleanup_cancelled_tasks(
     )
     cleaned = 0
     for task in tasks:
+        if not await try_execution_lock(session, "ingest", task.id):
+            continue
         refs = [task.source_file_ref]
         if task.canonical_markdown and task.canonical_markdown.storage_ref:
             refs.append(task.canonical_markdown.storage_ref)
@@ -188,11 +191,15 @@ async def acknowledge_unclaimed_cancellations(
     if dry_run:
         await session.rollback()
         return len(tasks)
+    acknowledged = 0
     for task in tasks:
+        if not await try_execution_lock(session, "ingest", task.id):
+            continue
         _mark_cancelled(task)
+        acknowledged += 1
     if tasks:
         await session.commit()
-    return len(tasks)
+    return acknowledged
 
 
 async def mark_stopped_task_cancelled(session: AsyncSession, task: IngestTask) -> None:
