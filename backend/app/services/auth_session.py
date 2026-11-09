@@ -168,16 +168,21 @@ async def login_with_password(session: AsyncSession, *, email: str, password: st
     未设置密码 / 密码错误。已知用户（exc.user_id 非空）由调用方写 login.failed；未知 email
     （user_id=None）不写可归属审计。对不存在用户也跑一次 PBKDF2 均衡时间侧信道。
     """
-    from app.services.passwords import dummy_verify, verify_password
+    from app.services.passwords import dummy_verify_async, verify_password_async
 
     user = await load_user_with_roles(session, email=email)
     if user is None:
-        dummy_verify(password)
+        await dummy_verify_async(password)
         raise _InvalidCredentials(user_id=None)
     # 校验密码（无 hash / 非 active 也统一失败；先校验密码再看状态，避免泄露"已设密码"信号）。
-    if not verify_password(password, user.password_hash):
+    verified_hash = user.password_hash
+    if not await verify_password_async(password, verified_hash):
         raise _InvalidCredentials(user_id=user.id)
-    if user.status != "active":
+    # Verification yields to other requests. A password reset or deactivation
+    # completed during that wait must invalidate this attempt before issuing
+    # a session, rather than trusting the pre-verification ORM snapshot.
+    await session.refresh(user, attribute_names=["password_hash", "status"])
+    if user.status != "active" or user.password_hash != verified_hash:
         raise _InvalidCredentials(user_id=user.id)
     # 仅记 user_id（UUID）；绝不记 email / password / hash。
     _logger.info("login_password_success", extra={"user_id": str(user.id)})

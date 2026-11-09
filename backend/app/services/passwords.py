@@ -12,16 +12,24 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import hashlib
 import hmac
 import secrets
+from concurrent.futures import ThreadPoolExecutor
 
 _ALGORITHM = "pbkdf2_sha256"
 _ITERATIONS = 260000
 _SALT_BYTES = 16
 _MIN_LENGTH = 8
+
+# PBKDF2 releases the GIL, but a synchronous call still blocks the API loop.
+# A dedicated, bounded pool keeps password work away from both the loop and
+# shared file-I/O workers. Threads are started lazily; cancellation cannot
+# increase the number of running hashes above this per-process limit.
+_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="kap-password")
 
 
 def _b64e(raw: bytes) -> str:
@@ -76,3 +84,17 @@ _DUMMY_HASH = hash_password(secrets.token_urlsafe(16))
 def dummy_verify(password: str) -> None:
     """对不存在用户也跑一次 PBKDF2，均衡时间侧信道（结果丢弃）。"""
     verify_password(password or "x", _DUMMY_HASH)
+
+
+async def hash_password_async(password: str) -> str:
+    return await asyncio.get_running_loop().run_in_executor(_executor, hash_password, password)
+
+
+async def verify_password_async(password: str, encoded: str | None) -> bool:
+    return await asyncio.get_running_loop().run_in_executor(
+        _executor, verify_password, password, encoded
+    )
+
+
+async def dummy_verify_async(password: str) -> None:
+    await asyncio.get_running_loop().run_in_executor(_executor, dummy_verify, password)

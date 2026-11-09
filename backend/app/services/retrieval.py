@@ -195,7 +195,6 @@ async def recall_assets(
     query = query.strip()
     if not query or not kb_ids or knowledge_ids == []:
         return []
-    policy = await load_access_policy(session)
     identifier = retrieval_lexical.literal_identifier(query)
     queries = [query]
     for alternative in ([] if identifier else (search_queries or []))[:3]:
@@ -232,6 +231,9 @@ async def recall_assets(
             if key not in seen_chunks:
                 seen_chunks.add(key)
                 chunks.append(chunk)
+    # Resolve live policy after upstream I/O, alongside the asset metadata.
+    # A read-only caller can release its earlier DB snapshot before recall.
+    policy = await load_access_policy(session)
     # Title/tag matches are independent of chunk ranking. Do not manufacture
     # original-text evidence: these entries use only the existing safe summary.
     metadata_stmt = (
@@ -830,6 +832,7 @@ async def gather_parent_context(
     trace_id: str | None,
     parent_doc_limit: int | None = None,
     parent_doc_char_limit: int | None = None,
+    before_external: Callable[[], Awaitable[None]] | None = None,
 ) -> list[Evidence]:
     """D1 阶段4：子块召回后按父文件聚合，取治理文本全文（≤N 篇）给 Agent。
 
@@ -852,6 +855,8 @@ async def gather_parent_context(
 
     candidates = [r for r in recalled if r.can_view_original][: max(limit, 0)]
     if not candidates:
+        if before_external is not None:
+            await before_external()
         return await gather_evidence(recalled, desens, trace_id=trace_id)
 
     version_ids = [r.version.id for r in candidates]
@@ -887,6 +892,11 @@ async def gather_parent_context(
                 f"\n\n[内容过长已截断，仅展示前 {char_limit} 字符]"
             )
         jobs.append((r, full_text))
+
+    # Only the caller that owns a read-only session may end its transaction.
+    # Other consumers retain their existing transaction/write ownership.
+    if before_external is not None:
+        await before_external()
 
     async def collect(job: tuple[RecalledAsset, str]) -> list[Evidence]:
         r, full_text = job
@@ -1039,6 +1049,7 @@ async def fetch_stage2_original(
     query: str,
     channel: AccessChannel,
     trace_id: str | None,
+    before_external: Callable[[], Awaitable[None]] | None = None,
 ) -> OriginalResult:
     """取某资产原文（三道过滤）。无原文权限 → available=False（只回卡片+联系人，不给 chunk）。"""
     asset = (
@@ -1113,6 +1124,8 @@ async def fetch_stage2_original(
             maintainer_name=maintainer_name,
         )
 
+    if before_external is not None:
+        await before_external()
     raw_chunks = await weknora.search(
         query=query,
         kb_ids=[version.weknora_kb_id],

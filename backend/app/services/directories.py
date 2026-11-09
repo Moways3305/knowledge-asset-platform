@@ -291,7 +291,25 @@ async def display_path(
     _, rows = published if published is not None else await published_directories(session)
     if published is not None and not any(row.get("directory_key") == directory_key for row in rows):
         rows = await with_library_directories(session, rows)
-    item = next((row for row in rows if row.get("directory_key") == directory_key), None)
+    rows_by_key = {row["directory_key"]: row for row in rows if row.get("directory_key")}
+    item = rows_by_key.get(directory_key)
+    standard = STANDARD_BY_KEY.get(directory_key)
+    scope = item.get("scope") if item else standard.scope if standard else None
+    project = await session.get(Project, project_id) if project_id and scope == "project" else None
+    return format_display_path(
+        directory_key,
+        rows_by_key,
+        project.name if project else None,
+    )
+
+
+def format_display_path(
+    directory_key: str | None, rows_by_key: dict[str, dict], project_name: str | None
+) -> str:
+    """Render a request's directory snapshot without issuing per-card queries."""
+    if not directory_key:
+        return "未分类 / 待治理"
+    item = rows_by_key.get(directory_key)
     if item is None:
         standard = STANDARD_BY_KEY.get(directory_key)
         if standard is None:
@@ -300,14 +318,11 @@ async def display_path(
     else:
         name, scope = str(item.get("display_name") or "未命名目录"), str(item.get("scope"))
         if item.get("parent_key"):
-            parent = next(
-                (row for row in rows if row.get("directory_key") == item["parent_key"]), None
-            )
+            parent = rows_by_key.get(item["parent_key"])
             if parent:
                 name = f"{parent.get('display_name')} / {name}"
     if scope == "project":
-        project = await session.get(Project, project_id) if project_id else None
-        return f"项目库 / {project.name if project else '项目'} / {name}"
+        return f"项目库 / {project_name or '项目'} / {name}"
     return f"{'公司库' if scope == 'company' else '个人库'} / {name}"
 
 
