@@ -115,7 +115,7 @@ it("starts 1301 files after a finished session, preserving sequential ten-file t
   });
   expect(api.appendUploadSessionBatch).toHaveBeenCalledTimes(131);
   expect(maxInFlight).toBe(1);
-  expect(result.current.localUploadQueue).toHaveLength(1301);
+  await waitFor(() => expect(result.current.localUploadQueue).toHaveLength(1301));
   expect(result.current.localUploadQueue.some((item) => item.id === "old-item")).toBe(false);
   unmount();
 });
