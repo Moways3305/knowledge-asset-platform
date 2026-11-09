@@ -412,20 +412,6 @@ class BatchNamingPreviewResponse(BaseModel):
     items: list[BatchNamingPreviewItemResponse]
 
 
-class NamingOptionItem(BaseModel):
-    id: uuid.UUID
-    scope: Literal["project", "company"]
-    primary: str
-    secondary: str
-    prefix: str
-    asset_type: AssetType
-    description: str | None = None
-    default_confidentiality: ConfidentialityLevel
-    enabled: bool = True
-    sort_order: int
-    suggested_directory_key: str | None = None
-
-
 class DirectoryOptionItem(BaseModel):
     directory_key: str
     scope: str
@@ -443,56 +429,3 @@ class NamingOptionsResponse(BaseModel):
     directories: list[DirectoryOptionItem] = Field(default_factory=list)
     default_confidentiality: ConfidentialityLevel | None = None
     message: str | None = None
-
-
-CategorySource = Literal["ai_content", "rule_only_option", "needs_manual", "manual"]
-CategoryConfidence = Literal["high", "medium", "low"]
-
-
-class CategoryClassificationBatchRequest(BaseModel):
-    task_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
-    target_scope: KnowledgeScope
-    target_project_id: uuid.UUID | None = None
-    retry: bool = False
-
-    @model_validator(mode="after")
-    def require_explicit_destination(self) -> CategoryClassificationBatchRequest:
-        if len(set(self.task_ids)) != len(self.task_ids):
-            raise ValueError("task ids must not contain duplicates")
-        if self.target_scope == KnowledgeScope.personal:
-            raise ValueError("personal scope does not use governed category classification")
-        if self.target_scope == KnowledgeScope.project and self.target_project_id is None:
-            raise ValueError("target_project_id is required for project scope")
-        return self
-
-
-class CategoryClassificationItemResponse(BaseModel):
-    task_id: uuid.UUID
-    suggested_category_id: uuid.UUID | None = None
-    category_source: CategorySource
-    category_confidence: CategoryConfidence
-    category_reason: str
-    candidate_rule_revision: int | None = None
-    status: Literal["classified", "needs_manual", "failed", "unchanged"]
-    retryable: bool = False
-
-
-class CategoryClassificationBatchResponse(BaseModel):
-    target_label: str
-    candidate_rule_revision: int | None = None
-    candidate_count: int
-    items: list[CategoryClassificationItemResponse]
-
-
-class ManualCategorySelectionRequest(BaseModel):
-    target_scope: KnowledgeScope
-    target_project_id: uuid.UUID | None = None
-    category_id: uuid.UUID
-
-    @model_validator(mode="after")
-    def require_project(self) -> ManualCategorySelectionRequest:
-        if self.target_scope == KnowledgeScope.personal:
-            raise ValueError("personal scope does not use governed category selection")
-        if self.target_scope == KnowledgeScope.project and self.target_project_id is None:
-            raise ValueError("target_project_id is required for project scope")
-        return self

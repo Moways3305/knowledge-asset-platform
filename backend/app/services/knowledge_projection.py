@@ -45,15 +45,10 @@ from app.services.summary_policy import REDACTED_SUMMARY_LEVELS
 
 _logger = logging.getLogger(__name__)
 
-_INACTIVE_STATUSES = ["processing", AssetStatus.archived.value, AssetStatus.deprecated.value]
-_DELETED_STATUS = AssetStatus.deleted.value
 _REDACTED_LEVELS = REDACTED_SUMMARY_LEVELS
-
-
-_can_delete = knowledge_lifecycle.can_delete
-
-
+_DELETED_STATUS = AssetStatus.deleted.value
 _RETRYABLE_INDEX_STATUSES = {"index_failed", "not_indexed", "skipped"}
+_can_delete = knowledge_lifecycle.can_delete
 
 
 def _index_user_message(ver) -> str | None:
@@ -62,16 +57,6 @@ def _index_user_message(ver) -> str | None:
     if ver is None or ver.index_status != "index_failed":
         return None
     return error_catalog.user_message(ver.index_error_code)
-
-
-_INACTIVE_STATUSES = ["processing", AssetStatus.archived.value, AssetStatus.deprecated.value]
-_DELETED_STATUS = AssetStatus.deleted.value
-
-
-_can_delete = knowledge_lifecycle.can_delete
-
-
-_RETRYABLE_INDEX_STATUSES = {"index_failed", "not_indexed", "skipped"}
 
 
 def can_retry_index(caller: CallerContext, asset: KnowledgeAsset) -> bool:

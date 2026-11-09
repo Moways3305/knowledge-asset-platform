@@ -65,10 +65,6 @@ async def load_user_with_roles(
     return result.scalar_one_or_none()
 
 
-# 向后兼容的私有别名（旧调用点）。
-_load_user = load_user_with_roles
-
-
 @dataclass(frozen=True)
 class WeComProvisionResult:
     user: User
@@ -225,10 +221,10 @@ async def resolve_dev_user(
             parsed = uuid.UUID(dev_user_id)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="invalid_dev_user_id") from exc
-        user = await _load_user(session, user_id=parsed, email=None)
+        user = await load_user_with_roles(session, user_id=parsed, email=None)
     else:
         # 未指定则回退到默认开发用户（按固定邮箱查找）。
-        user = await _load_user(session, user_id=None, email=DEFAULT_DEV_USER_EMAIL)
+        user = await load_user_with_roles(session, user_id=None, email=DEFAULT_DEV_USER_EMAIL)
 
     if user is None:
         raise HTTPException(status_code=404, detail="user_not_found")

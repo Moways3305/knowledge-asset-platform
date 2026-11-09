@@ -100,14 +100,6 @@ class AssetType(str, Enum):
     unclassified = "unclassified"
 
 
-class Visibility(str, Enum):
-    """可见性：public / project_only / confidential。"""
-
-    public = "public"
-    project_only = "project_only"
-    confidential = "confidential"
-
-
 class ConfidentialityLevel(str, Enum):
     """保密级别，L1-L5 敏感度递增。L2 是内部一般资料，不强制脱敏。"""
 
@@ -147,32 +139,6 @@ class VersionStatus(str, Enum):
     superseded = "superseded"
     deprecated = "deprecated"
     archived = "archived"
-
-
-class ChunkStatus(str, Enum):
-    """chunk 状态。invalid / superseded 默认不进入 RAG / Agent 上下文。"""
-
-    active = "active"
-    invalid = "invalid"
-    superseded = "superseded"
-    pending_review = "pending_review"
-
-
-class ChunkType(str, Enum):
-    paragraph = "paragraph"
-    clause = "clause"
-    table_row = "table_row"
-    qa_pair = "qa_pair"
-    policy_article = "policy_article"
-
-
-class FileVariant(str, Enum):
-    """文件变体。original 为原文；preview_render 等由保密等级/场景/授权决定是否实际保存。"""
-
-    original = "original"
-    desensitized = "desensitized"
-    summary = "summary"
-    preview_render = "preview_render"
 
 
 class SummaryType(str, Enum):

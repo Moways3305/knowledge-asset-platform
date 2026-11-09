@@ -657,10 +657,6 @@ async def _visible_chunks(
             return
 
 
-async def _visible_rows(session, caller, **kwargs):
-    return [item async for chunk in _visible_chunks(session, caller, **kwargs) for item in chunk]
-
-
 async def list_notifications(
     session: AsyncSession,
     caller: CallerContext,

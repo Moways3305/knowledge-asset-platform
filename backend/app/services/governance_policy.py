@@ -21,13 +21,6 @@ BUSINESS_COMPANY_ROLES = frozenset(
         CompanyRole.consultant.value,
     }
 )
-PROJECT_MEMBER_ROLES = frozenset(
-    {
-        ProjectRole.project_manager.value,
-        ProjectRole.coach.value,
-        ProjectRole.consultant.value,
-    }
-)
 PROJECT_MANAGER_MANAGED_ROLES = frozenset({ProjectRole.coach.value, ProjectRole.consultant.value})
 
 
@@ -37,17 +30,6 @@ def is_admin(caller: CallerContext) -> bool:
 
 def is_governance(caller: CallerContext) -> bool:
     return caller.is_active and bool(caller.active_company_roles & GOVERNANCE_COMPANY_ROLES)
-
-
-def governance_confirmation_role(caller: CallerContext) -> str | None:
-    """返回调用人可代表的单个确认角色；双角色按稳定顺序返回总经理。"""
-    if not caller.is_active:
-        return None
-    if CompanyRole.boss.value in caller.active_company_roles:
-        return CompanyRole.boss.value
-    if CompanyRole.consulting_director.value in caller.active_company_roles:
-        return CompanyRole.consulting_director.value
-    return None
 
 
 def can_manage_company_role(caller: CallerContext, target_role: str) -> bool:
@@ -73,11 +55,6 @@ def can_manage_company_role(caller: CallerContext, target_role: str) -> bool:
 
 def project_role(caller: CallerContext, project_id: uuid.UUID) -> str | None:
     return caller.active_project_roles.get(project_id)
-
-
-def can_access_project(caller: CallerContext, project_id: uuid.UUID) -> bool:
-    """公司层角色绝不自动形成项目访问权。"""
-    return caller.is_active and project_role(caller, project_id) in PROJECT_MEMBER_ROLES
 
 
 def is_project_manager(caller: CallerContext, project_id: uuid.UUID) -> bool:

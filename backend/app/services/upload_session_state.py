@@ -31,9 +31,3 @@ def task_item_state(task: IngestTask) -> str:
     if task.status == IngestStatus.pending.value and task.processing_stage == "upload_waiting":
         return "waiting"
     return "processing"
-
-
-def session_status(item_states: list[str], *, upload_completed: bool) -> str:
-    if upload_completed and all(state in TERMINAL_ITEM_STATES for state in item_states):
-        return "completed"
-    return "active"
