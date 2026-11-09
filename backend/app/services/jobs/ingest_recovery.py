@@ -14,6 +14,7 @@ from app.db.utils import utc_now
 from app.models.ingest import IngestTask
 from app.schemas.enums import AlertSeverity, AuditAction, AuditLogType, AuditRiskLevel, IngestStatus
 from app.services import audit as audit_service
+from app.services.job_execution import try_execution_lock
 from app.services.jobs.ingest_cancellation import (
     acknowledge_unclaimed_cancellations,
     cleanup_cancelled_tasks,
@@ -136,6 +137,11 @@ async def recover_stale_tasks(
     exhausted = 0
     redispatched = 0
     for task in tasks:
+        # A slow live worker can have an old heartbeat. Its connection-owned
+        # execution lock distinguishes that from a dead worker without stealing
+        # its lease or deleting files it is still processing.
+        if not await try_execution_lock(session, "ingest", task.id):
+            continue
         if task.cancel_requested:
             if not dry_run:
                 await mark_stopped_task_cancelled(session, task)

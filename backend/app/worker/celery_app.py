@@ -108,6 +108,11 @@ def _make_celery() -> Celery:
                 "schedule": float(max(15, s.ingest_recovery_scan_seconds)),
                 "options": {"queue": s.celery_default_queue},
             },
+            "indexing-orphan-recovery": {
+                "task": "indexing.recover_interrupted_jobs",
+                "schedule": 60.0,
+                "options": {"queue": s.celery_default_queue},
+            },
         },
     )
     return app

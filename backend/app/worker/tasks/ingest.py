@@ -28,6 +28,8 @@ async def _run(
     from app.services.ingest_capacity import processing_slot
 
     async with processing_slot(maker, uuid.UUID(task_id_str)) as admitted:
+        if admitted == "duplicate":
+            return "already_running"
         if not admitted:
             from sqlalchemy import update
 

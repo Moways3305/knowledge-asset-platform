@@ -112,6 +112,12 @@ _CATALOG: dict[str, ErrorInfo] = {
         remediation_hint="查看后端日志中对应 trace 定位；资产已保留，可从索引运维面板重试。",
         severity="error",
     ),
+    "index_job_interrupted": ErrorInfo(
+        user_message="索引任务执行中断，已保存的资产和结果保留，请核对状态后重试未完成项。",
+        operator_message="索引作业长期处于运行状态，但已无 Worker 持有执行锁。",
+        remediation_hint="检查 Worker 是否重启或退出；核对各资产索引状态后重试未完成项。",
+        severity="error",
+    ),
     "index_interrupted": ErrorInfo(
         user_message="索引处理中断，资产已保留，可安全恢复索引。",
         operator_message="连续对账无法确认底座解析状态，索引已转入恢复队列。",
@@ -167,6 +173,7 @@ _DIAGNOSTIC_CATEGORIES: dict[str, str] = {
     "weknora_parse_failed": "external_service",
     "weknora_parse_cancelled": "external_service",
     "index_unexpected_error": "platform",
+    "index_job_interrupted": "platform",
     "index_interrupted": "external_service",
     "index_submission_interrupted": "platform",
     "wecom_scan_failed": "external_service",
