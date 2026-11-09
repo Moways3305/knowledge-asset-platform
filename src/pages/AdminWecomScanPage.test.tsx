@@ -101,12 +101,14 @@ describe("AdminWecomScanPage project scan spaces", () => {
     expect(await screen.findByText("Alpha 项目资料")).toBeInTheDocument();
     expect(screen.getByText("项目经理需绑定企微身份")).toBeInTheDocument();
     expect(screen.queryByText(/选择微盘目录|企业空间/)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "新增扫描配置" })).toBeEnabled();
+    await waitFor(() => expect(screen.getByRole("button", { name: "新增扫描配置" })).toBeEnabled());
   });
 
   it("creates with project and owner only and explains identity-link fallback", async () => {
     render(<AdminWecomScanPage />);
-    fireEvent.click(await screen.findByRole("button", { name: "新增扫描配置" }));
+    const createButton = await screen.findByRole("button", { name: "新增扫描配置" });
+    await waitFor(() => expect(createButton).toBeEnabled());
+    fireEvent.click(createButton);
     fireEvent.change(screen.getByLabelText("配置名称"), { target: { value: "新配置" } });
     fireEvent.change(screen.getByRole("combobox", { name: /目标项目/ }), {
       target: { value: "project-1" },
@@ -133,7 +135,9 @@ describe("AdminWecomScanPage project scan spaces", () => {
       new ApiError(502, "raw upstream", "wecom_drive_permission_denied"),
     );
     render(<AdminWecomScanPage />);
-    fireEvent.click(await screen.findByRole("button", { name: "新增扫描配置" }));
+    const createButton = await screen.findByRole("button", { name: "新增扫描配置" });
+    await waitFor(() => expect(createButton).toBeEnabled());
+    fireEvent.click(createButton);
     fireEvent.change(screen.getByLabelText("配置名称"), { target: { value: "新配置" } });
     fireEvent.change(screen.getByRole("combobox", { name: /目标项目/ }), {
       target: { value: "project-1" },
