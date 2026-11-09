@@ -679,7 +679,7 @@ async def set_password(
     if err is not None:
         raise _denied(422, "weak_password", err)
 
-    user.password_hash = password_service.hash_password(req.password)
+    user.password_hash = await password_service.hash_password_async(req.password)
     user.password_set_at = datetime.now(timezone.utc)
     await audit_service.record_event(
         session,

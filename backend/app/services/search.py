@@ -182,16 +182,74 @@ async def _run_search(
     allow_cross_project: bool,
     progress: _SearchProgress,
 ) -> SearchResponse:
+    # Admission/authentication may have updated the session heartbeat. Finish
+    # that short transaction before starting the read-only search. Search
+    # outcomes are audited separately, including the existing deadline path.
+    if not caller.is_active:
+        raise _denied(403, "user_inactive", "用户已停用")
+    if not (req.query or "").strip():
+        raise _denied(422, "query_required", "查询不能为空")
+    await session.commit()
+    async with AsyncSession(bind=session.bind, expire_on_commit=False, autoflush=False) as reads:
+        result = await _read_search(
+            reads,
+            caller,
+            req,
+            weknora=weknora,
+            llm=llm,
+            trace_id=trace_id,
+            channel=channel,
+            asset_guard=asset_guard,
+            allow_cross_project=allow_cross_project,
+            progress=progress,
+        )
+
+    progress.enter("audit", trace_id)
+    await audit_service.record_event(
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.knowledge_searched.value,
+        trace_id=trace_id,
+        target_type="knowledge_search",
+        extra={
+            "intent": result.intent,
+            "scope": req.scope or "all",
+            "card_count": len(result.cards),
+            "answered": result.answer_status == "answered",
+            "answer_status": result.answer_status,
+            "channel": channel.value,
+            "directory_key": req.filters.directory_key,
+        },
+    )
+    await session.commit()
+    progress.enter("complete", trace_id)
+    return result
+
+
+async def _read_search(
+    session: AsyncSession,
+    caller: CallerContext,
+    req: SearchRequest,
+    *,
+    weknora: WeKnoraClient | NullWeKnoraClient,
+    llm: LLMClient | NullLLMClient,
+    trace_id: str | None,
+    channel: AccessChannel,
+    asset_guard: Callable[[Any], bool] | None,
+    allow_cross_project: bool,
+    progress: _SearchProgress,
+) -> SearchResponse:
     """统一检索 / 问答主流程。
 
     channel 决定访问渠道：控制台/人工默认 human；外部 Agent 工具传 agent，使
     A4 原文降级等 Agent 渠道边界生效。权限矩阵仍全由 `decide()` 收口，不在此重写。
     """
-    if not caller.is_active:
-        raise _denied(403, "user_inactive", "用户已停用")
+    # This session only reads. close() ends each read transaction and detaches
+    # its eagerly loaded objects as request-local snapshots before network I/O.
+    # It is reusable for the next read phase; no business writes are committed
+    # or discarded here, and no ORM objects escape in the response.
     query = (req.query or "").strip()
-    if not query:
-        raise _denied(422, "query_required", "查询不能为空")
 
     intent = classify_intent(query, explicit=req.intent)
     desens = LlmOutputDesensitizer(llm)
@@ -209,6 +267,7 @@ async def _run_search(
             query=query,
             channel=channel,
             trace_id=trace_id,
+            before_external=session.close,
         )
         original_out = OriginalOut(
             asset_id=res.asset.id if res.asset is not None else None,
@@ -300,6 +359,7 @@ async def _run_search(
             recalled = []
     if recalled is None:
         progress.enter("query_planning", trace_id)
+        await session.close()
         planned = (
             await search_queries.plan_queries(llm, query, trace_id=trace_id)
             if kb_ids and knowledge_ids != []
@@ -324,11 +384,18 @@ async def _run_search(
     ]
     progress.enter("cards", trace_id)
     projects, users = await retrieval.load_card_aux(session, [r.asset for r in recalled])
+    directory_rows = (
+        (await directories.published_directories(session))[1]
+        if any(directories.version_directory_key(r.version) for r in recalled)
+        else []
+    )
+    rows_by_key = {row["directory_key"]: row for row in directory_rows if row.get("directory_key")}
     cards = []
     directory_paths: dict = {}
     for r in recalled:
         key = directories.version_directory_key(r.version)
-        path = await directories.display_path(session, key, r.asset.project_id)
+        project_name = projects.get(r.asset.project_id) if r.asset.project_id else None
+        path = directories.format_display_path(key, rows_by_key, project_name)
         directory_paths[r.asset.id] = (key, path)
         cards.append(
             SearchCardOut(
@@ -340,6 +407,7 @@ async def _run_search(
 
     progress.cards = cards
     progress.enter("reranking", trace_id)
+    await session.close()
     cards = await search_rerank.rerank_cards(llm, query, cards, trace_id=trace_id)
     progress.cards = cards
     # Evidence follows the same permission-filtered order seen in the cards.
@@ -361,11 +429,13 @@ async def _run_search(
             recalled,
             desens,
             trace_id=trace_id,
+            before_external=session.close,
         )
         await attach_platform_state(
             session, caller, evidences, recalled, channel=channel, asset_guard=asset_guard
         )
         progress.enter("answer", trace_id)
+        await session.close()
         outcome = await knowledge_qa.generate_answer(llm, query, evidences, trace_id=trace_id)
         answer, answer_status, answer_message = outcome.answer, outcome.status, outcome.message
         for order, e in enumerate(evidences, start=1):
@@ -386,28 +456,6 @@ async def _run_search(
                 )
             )
 
-    # ---- 检索审计（operation；只记安全元数据，不记原始 query / kb/doc id）----
-    progress.enter("audit", trace_id)
-    await audit_service.record_event(
-        session,
-        caller=caller,
-        log_type=AuditLogType.operation,
-        action=AuditAction.knowledge_searched.value,
-        trace_id=trace_id,
-        target_type="knowledge_search",
-        extra={
-            "intent": intent.value,
-            "scope": req.scope or "all",
-            "card_count": len(cards),
-            "answered": answer_status == "answered",
-            "answer_status": answer_status,
-            "channel": channel.value,
-            "directory_key": req.filters.directory_key,
-        },
-    )
-    await session.commit()
-
-    progress.enter("complete", trace_id)
     return SearchResponse(
         intent=intent.value,
         cards=cards,
