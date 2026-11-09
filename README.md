@@ -98,6 +98,8 @@ docker compose exec backend python -m app.seed.dev_seed   # 可选：写入开�
 
 后端架构、API 模块、认证与运维细节见 [`backend/README.md`](backend/README.md)。
 
+梳理功能或准备跨模块修改时，先看[全模块地图与修改指南](docs/architecture/MODULE_MAP.md)：按业务模块定位页面、接口、状态归属、依赖和针对性验收，再进入各专题文档。
+
 ## 安全边界
 
 - **不提交真实密钥**：所有外部系统凭证经部署注入，不入仓库；`backend/.env` 已被 Git 忽略。
