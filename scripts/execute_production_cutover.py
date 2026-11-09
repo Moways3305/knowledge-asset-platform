@@ -66,7 +66,7 @@ def sql(r, old, query, database=None):
         env.get("POSTGRES_USER", "postgres"),
         "-d",
         database or env.get("POSTGRES_DB", "postgres"),
-        data=query.encode(),
+        data=("SET standard_conforming_strings=on;\n" + query).encode(),
         timeout=660,
     )
 
@@ -193,6 +193,21 @@ def health(r, name="kap-backend-1", revision=REVISION):
         except Exception:
             time.sleep(3)
     raise RuntimeError("KAP health/release verification failed")
+
+
+def wait_services(runtime, names, timeout=300):
+    deadline = time.monotonic() + timeout
+    while True:
+        ready = True
+        for name in names:
+            item = runtime.owned(runtime.state["new"][name])
+            require(item["State"]["Running"], "service stopped during readiness check")
+            if item["State"].get("Health", {}).get("Status") not in {None, "healthy"}:
+                ready = False
+        if ready:
+            return
+        require(time.monotonic() < deadline, "service health timeout")
+        time.sleep(5)
 
 
 def escape_compose(value):
@@ -645,6 +660,26 @@ def execute(r, stage, out, report, holder):
         "aliyun_shared_key": True,
         "workspace_endpoint_corrected": True,
     }
+    wait_services(runtime, [name for name in START if name not in WORKERS])
+    r.docker(
+        "exec",
+        "kap-backend-1",
+        "python",
+        "-c",
+        "import os,json,urllib.request; assert os.access('/data/uploads',os.R_OK|os.W_OK|os.X_OK); d=json.load(urllib.request.urlopen('http://127.0.0.1:8000/health/config',timeout=10)); assert d.get('production_ready') is True and d.get('production_blockers')==[]",
+    )
+    r.docker(
+        "exec", "WeKnora-app", "sh", "-ec", "test -w /data/files; test -w /app/skills/preloaded"
+    )
+    r.docker(
+        "exec",
+        "kap-backend-1",
+        "python",
+        "-m",
+        "app.commands.sync_release_notes",
+        "--check-only",
+        timeout=60,
+    )
     # Durable boundary BEFORE any original host port is restored. After this marker,
     # failures retain the new databases; never erase possibly accepted user writes.
     report["checkpoint"] = "opening_traffic"
@@ -675,18 +710,7 @@ def execute(r, stage, out, report, holder):
         if name == "kap-backend-1":
             health(r)
     health(r)
-    deadline = time.monotonic() + 300
-    while True:
-        ready = True
-        for name in START:
-            item = runtime.owned(runtime.state["new"][name])
-            require(item["State"]["Running"], "published service stopped")
-            if item["State"].get("Health", {}).get("Status") not in {None, "healthy"}:
-                ready = False
-        if ready:
-            break
-        require(time.monotonic() < deadline, "published service health timeout")
-        time.sleep(5)
+    wait_services(runtime, START)
     r.docker(
         "exec",
         "kap-backend-1",
