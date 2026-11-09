@@ -6,6 +6,7 @@ name: kap-capacity-local
 x-app: &app
   image: ${KAP_CAPACITY_IMAGE:?Build the backend image first}
   entrypoint: []
+  user: "10000:10000"
   environment: &env
     KAP_CAPACITY_ISOLATED: "1"
     APP_ENV: prod
@@ -34,8 +35,14 @@ x-app: &app
     - ../backend/alembic.ini:/app/alembic.ini:ro
     - ../backend/requirements.lock:/locked-requirements.txt:ro
     - ../backend/tools:/probe:ro
-    - uploads:/data/uploads
-    - state:/capacity
+    - type: volume
+      source: uploads
+      target: /data/uploads
+      volume: {nocopy: true}
+    - type: volume
+      source: state
+      target: /capacity
+      volume: {nocopy: true}
   depends_on:
     postgres: {condition: service_healthy}
     redis: {condition: service_healthy}
@@ -69,6 +76,7 @@ services:
     mem_limit: 256m
   init:
     <<: *app
+    user: "0:0"
     command: [python, /probe/capacity_probe.py, seed]
     cpus: 1
     mem_limit: 512m

@@ -15,6 +15,7 @@ import importlib.metadata
 import io
 import json
 import math
+import os
 import re
 import subprocess
 import time
@@ -80,6 +81,12 @@ async def seed():
         )
     subprocess.run(["alembic", "upgrade", "head"], check=True)
     ROOT.mkdir(exist_ok=True)
+    # Only init runs as root, and only these fresh isolated volumes are writable.
+    # All long-lived application/worker/probe processes use uid 10000 regardless
+    # of the cached image's default user or distro-assigned appuser uid.
+    os.chown(ROOT, 10000, 10000)
+    Path("/data/uploads").mkdir(parents=True, exist_ok=True)
+    os.chown("/data/uploads", 10000, 10000)
     if not (ROOT / "cert.pem").exists():
         subprocess.run(
             [
@@ -104,6 +111,7 @@ async def seed():
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+    os.chown(ROOT / "key.pem", 10000, 10000)
     docs, kbs = [], []
     async with get_sessionmaker()() as session:
         if await session.scalar(select(func.count()).select_from(User)):
