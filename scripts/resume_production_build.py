@@ -45,13 +45,20 @@ def digest(path):
         return result.digest()
 
 
-def validate_records(runner, stage, revision):
-    require(not (stage / "PREPARED").exists(), "该轮已准备完成，无需续建")
+def validate_records(runner, stage, revision, *, prepared=False):
     report = read(stage / "prepare-report.json")
-    require(
-        report.get("production_switched") is False and report.get("passed") is False,
-        "不是未切换的失败准备记录",
-    )
+    if prepared:
+        require((stage / "PREPARED").is_file(), "候选准备尚未完成")
+        require(
+            report.get("passed") is True and report.get("production_switched") is False,
+            "不是已准备且未切换的候选记录",
+        )
+    else:
+        require(not (stage / "PREPARED").exists(), "该轮已准备完成，无需续建")
+        require(
+            report.get("production_switched") is False and report.get("passed") is False,
+            "不是未切换的失败准备记录",
+        )
     require(
         report.get("database_archives_readable") is True
         and report.get("running_service_rollback_images_preserved") is True,
