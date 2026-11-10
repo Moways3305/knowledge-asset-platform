@@ -313,7 +313,11 @@ async def login(
                 window_minutes=guard.window_minutes,
                 lockout_minutes=guard.lockout_minutes,
             )
-            await session.commit()
+        # Complete the guard phase, including any blocked-attempt audit, before
+        # password verification waits on the bounded CPU executor. For allowed
+        # attempts this was read-only; the final login outcome remains atomic.
+        await session.commit()
+        if guard.blocked:
             raise _unified_401
 
     try:

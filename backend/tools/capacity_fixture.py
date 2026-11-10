@@ -101,7 +101,13 @@ async def llm(request: Request):
     body = await request.json()
     system = body["messages"][0].get("content", "")
     kind = (
-        "planning" if '"queries"' in system else "answer" if "answer_parts" in system else "content"
+        "planning"
+        if '"queries"' in system
+        else "answer"
+        if "answer_parts" in system
+        else "rerank"
+        if '"order"' in system
+        else "content"
     )
     counts[kind] += 1
     inflight[kind] += 1
@@ -132,6 +138,9 @@ async def llm(request: Request):
                 "inferred_fields": [],
             }
         )
+        if kind == "rerank":
+            candidates = json.loads(body["messages"][-1]["content"])["candidates"]
+            value = {"order": [item["index"] for item in candidates]}
         return {"choices": [{"message": {"content": json.dumps(value)}}]}
     finally:
         inflight[kind] -= 1
