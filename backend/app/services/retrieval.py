@@ -23,7 +23,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TypeVar
 
-from sqlalchemy import and_, case, func, or_, select, true
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -271,7 +271,6 @@ async def recall_assets(
                 ]
             ),
         )
-        .options(selectinload(KnowledgeAsset.summaries), selectinload(KnowledgeAsset.tags))
         .order_by(
             case(
                 # CASE chooses the first true condition, not the lowest value.
@@ -356,58 +355,56 @@ async def recall_assets(
     doc_ids = {c["knowledge_id"] for c in chunks if c.get("knowledge_id")}
     if not doc_ids and not metadata and not literal_bodies:
         return []
-    versions = list(
-        (
-            await session.execute(
-                select(KnowledgeAssetVersion)
-                .where(KnowledgeAssetVersion.weknora_doc_id.in_(doc_ids))
-                .where(KnowledgeAssetVersion.weknora_kb_id.in_(kb_ids))
-                .where(KnowledgeAssetVersion.version_status == _ACTIVE_VERSION)
-                .where(
-                    or_(
-                        KnowledgeAssetVersion.directory_key.is_(None),
-                        KnowledgeAssetVersion.directory_key != "personal.pending",
-                    )
-                )
-                # residual：仅索引成功的 version 可被召回映射；index_failed 等残留旧 doc 丢弃。
-                .where(KnowledgeAssetVersion.index_status == _INDEXED_STATUS)
-                .where(
-                    KnowledgeAssetVersion.weknora_doc_id.in_(knowledge_ids)
-                    if knowledge_ids is not None
-                    else true()
-                )
-            )
+    # Metadata discovery needs only scalar asset fields. Hydrate the union of
+    # retained candidates once, instead of reading summaries/tags on every page
+    # and again for overlapping semantic hits. Recheck all live mapping gates.
+    candidate_version_ids = {version.id for _, version in [*metadata, *literal_bodies]}
+    candidates_stmt = (
+        select(KnowledgeAsset, KnowledgeAssetVersion)
+        .join(KnowledgeAssetVersion, KnowledgeAssetVersion.asset_id == KnowledgeAsset.id)
+        .where(
+            or_(
+                KnowledgeAssetVersion.weknora_doc_id.in_(doc_ids),
+                KnowledgeAssetVersion.id.in_(candidate_version_ids),
+            ),
+            KnowledgeAsset.asset_status == _ACTIVE_ASSET,
+            KnowledgeAssetVersion.weknora_kb_id.in_(kb_ids),
+            KnowledgeAssetVersion.weknora_doc_id.is_not(None),
+            KnowledgeAssetVersion.version_status == _ACTIVE_VERSION,
+            KnowledgeAssetVersion.index_status == _INDEXED_STATUS,
+            or_(
+                KnowledgeAsset.current_version_id == KnowledgeAssetVersion.id,
+                KnowledgeAsset.current_version_id.is_(None),
+            ),
+            or_(
+                KnowledgeAssetVersion.directory_key.is_(None),
+                KnowledgeAssetVersion.directory_key != "personal.pending",
+            ),
         )
-        .scalars()
-        .all()
+        .options(selectinload(KnowledgeAsset.summaries), selectinload(KnowledgeAsset.tags))
     )
-    doc_to_version = {v.weknora_doc_id: v for v in versions}
-    asset_ids = {v.asset_id for v in versions}
-    if not asset_ids and not metadata and not literal_bodies:
-        return []
-    assets = list(
-        (
-            await session.execute(
-                select(KnowledgeAsset)
-                .where(KnowledgeAsset.id.in_(asset_ids))
-                .where(KnowledgeAsset.asset_status == _ACTIVE_ASSET)  # 丢弃 archived/deprecated
-                .options(
-                    selectinload(KnowledgeAsset.summaries),
-                    selectinload(KnowledgeAsset.tags),
-                )
-            )
+    if knowledge_ids is not None:
+        candidates_stmt = candidates_stmt.where(
+            KnowledgeAssetVersion.weknora_doc_id.in_(knowledge_ids)
         )
-        .scalars()
-        .all()
-    )
-    asset_by_id = {a.id: a for a in assets}
+    candidates = (await session.execute(candidates_stmt)).all()
+    doc_to_version = {v.weknora_doc_id: v for _, v in candidates}
+    asset_by_id = {a.id: a for a, _ in candidates}
+    hydrated_versions = {v.id for _, v in candidates}
 
     # 去重到资产级：取最高 score；同资产多 chunk 全部留作证据（阶段2/问答按 chunk 保留）。
     recalled: dict[uuid.UUID, RecalledAsset] = {}
     for rank, (asset, version) in enumerate(metadata, start=1):
-        recalled[asset.id] = RecalledAsset(asset=asset, version=version, score=1 / (60 + rank))
+        if version.id in hydrated_versions:
+            recalled[asset.id] = RecalledAsset(
+                asset=asset_by_id[asset.id], version=version, score=1 / (60 + rank)
+            )
     for asset, version in literal_bodies:
-        recalled.setdefault(asset.id, RecalledAsset(asset=asset, version=version, score=0.0))
+        if version.id in hydrated_versions:
+            recalled.setdefault(
+                asset.id,
+                RecalledAsset(asset=asset_by_id[asset.id], version=version, score=0.0),
+            )
     for c in chunks:
         version = doc_to_version.get(c["knowledge_id"])
         if version is None:  # 孤儿/非 active 版本 → 丢弃，不透出无主内容
