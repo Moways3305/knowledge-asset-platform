@@ -55,6 +55,7 @@ def run_indexing_operation(self, job_id_str: str, trace_id: str | None = None) -
             lambda maker: _run(maker, job_id_str, trace_id),
             label="indexing.run_operation_job",
             trace_id=trace_id,
+            retain_idle_connections=False,
         )
     except Exception as exc:
         if is_retryable(exc) and self.request.retries < self.max_retries:

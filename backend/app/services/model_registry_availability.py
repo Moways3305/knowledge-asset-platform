@@ -8,7 +8,11 @@ from app.services.weknora_model_refs import model_ref
 
 async def approved_knowledge_names(session):
     """Only locally journalled successful bindings may bypass legacy name-prefix rules."""
-    registered = list((await session.scalars(select(RegisteredModel))).all())
+    registered = list(
+        (
+            await session.scalars(select(RegisteredModel).execution_options(populate_existing=True))
+        ).all()
+    )
     return {
         model.weknora_id: model.model_name
         for model in registered
@@ -17,7 +21,11 @@ async def approved_knowledge_names(session):
 
 
 async def filter_knowledge_runtime(session, models):
-    registered = list((await session.scalars(select(RegisteredModel))).all())
+    registered = list(
+        (
+            await session.scalars(select(RegisteredModel).execution_options(populate_existing=True))
+        ).all()
+    )
     by_id = {m.weknora_id: m for m in registered if m.weknora_id}
     result = []
     for raw in models:

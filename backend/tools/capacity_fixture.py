@@ -8,6 +8,7 @@ import asyncio
 import hashlib
 import json
 import time
+import uuid
 from collections import Counter
 
 import uvicorn
@@ -20,7 +21,16 @@ app = FastAPI()
 counts = Counter()
 inflight = Counter()
 peak = Counter()
-settings = {"llm_delay": 0.05, "search_delay": 0.05}
+settings = {
+    "llm_delay": 0.05,
+    "search_delay": 0.05,
+    "models_delay": 0,
+    "create_delay": 0,
+    "initialize_delay": 0,
+    "upload_delay": 0,
+    "delete_delay": 0,
+    "initialize_failures": 0,
+}
 docs = {}
 kbs = {}
 
@@ -38,6 +48,20 @@ async def delay(request, kind, seconds):
 
 def wrap(value):
     return {"success": True, "data": value}
+
+
+async def indexing_wait(request, kind):
+    counts[kind] += 1
+    inflight[kind] += 1
+    peak[kind] = max(peak[kind], inflight[kind])
+    try:
+        if not await delay(request, kind, settings[kind + "_delay"]):
+            raise HTTPException(499)
+        if settings.get(kind + "_failures", 0) > 0:
+            settings[kind + "_failures"] -= 1
+            raise HTTPException(503, "Synthetic initialization failure")
+    finally:
+        inflight[kind] -= 1
 
 
 @app.get("/control")
@@ -104,8 +128,8 @@ async def llm(request: Request):
 
 
 @app.get("/api/v1/models")
-async def models():
-    counts["models"] += 1
+async def models(request: Request):
+    await indexing_wait(request, "models")
     return wrap(
         [
             {
@@ -171,9 +195,9 @@ async def get_doc(doc_id: str):
 
 
 @app.delete("/api/v1/knowledge/{doc_id}")
-async def delete_doc(doc_id: str):
+async def delete_doc(doc_id: str, request: Request):
+    await indexing_wait(request, "delete")
     docs.pop(doc_id, None)
-    counts["delete"] += 1
     return wrap({})
 
 
@@ -182,7 +206,7 @@ async def upload(kb_id: str, request: Request):
     form = await request.form()
     content = await form["file"].read()
     key = hashlib.sha256(kb_id.encode() + content).hexdigest()
-    counts["upload"] += 1
+    await indexing_wait(request, "upload")
     docs[key] = {
         "id": key,
         "knowledge_base_id": kb_id,
@@ -206,8 +230,18 @@ async def kb(kb_id: str):
     return wrap(kbs[kb_id])
 
 
+@app.post("/api/v1/knowledge-bases")
+async def create_kb(request: Request):
+    await indexing_wait(request, "create")
+    body = await request.json()
+    key = "capacity-created-" + uuid.uuid4().hex
+    kbs[key] = {**body, "id": key}
+    return wrap(kbs[key])
+
+
 @app.put("/api/v1/initialization/config/{kb_id}")
 async def update_kb(kb_id: str, request: Request):
+    await indexing_wait(request, "initialize")
     kbs[kb_id].update(await request.json())
     return wrap(kbs[kb_id])
 

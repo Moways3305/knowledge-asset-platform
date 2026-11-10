@@ -34,6 +34,18 @@ class ErrorInfo:
 
 
 _CATALOG: dict[str, ErrorInfo] = {
+    "weknora_kb_busy": ErrorInfo(
+        user_message="知识库正在初始化，资产已保存，请稍后重试索引。",
+        operator_message="等待同一知识库的初始化任务超时。",
+        remediation_hint="等待当前初始化完成后重试，检查知识底座的响应耗时。",
+        severity="warning",
+    ),
+    "weknora_configuration_changed": ErrorInfo(
+        user_message="知识库或模型配置已变化，资产已保存，请重试索引。",
+        operator_message="远程调用期间本地配置已被更新，本次旧结果未回写。",
+        remediation_hint="确认当前知识库和模型配置，再重试索引。",
+        severity="warning",
+    ),
     "weknora_not_configured": ErrorInfo(
         user_message="知识底座未启用，资产已保存，但暂不参与语义检索。",
         operator_message="WeKnora 知识底座未配置。",

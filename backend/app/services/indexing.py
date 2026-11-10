@@ -477,6 +477,7 @@ async def reparse_asset_version(
         content, upload_name, upload_mime, governance_text = _governance_upload(
             file_bytes, source_file_name, source_file_mime
         )
+        await session.commit()
         data = await weknora.reparse_knowledge(
             kb_id=kb_id,
             knowledge_id=knowledge_id,
