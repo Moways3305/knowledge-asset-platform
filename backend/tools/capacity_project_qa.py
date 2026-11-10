@@ -85,6 +85,7 @@ async def load(args):
     clients = [client() for _ in range(args.concurrency + 3)]
     stop, samples = asyncio.Event(), []
     timings, statuses, errors = defaultdict(list), defaultdict(Counter), Counter()
+    denials = Counter()
     uploads = []
     sampler = None
     async with httpx.AsyncClient(trust_env=False) as control:
@@ -155,6 +156,17 @@ async def load(args):
                     uploads.append(body["ingest_task_id"])
             else:
                 errors[kind + "_http_" + str(response.status_code)] += 1
+                try:
+                    reason = response.json().get("detail", {}).get("denied_reason")
+                except (ValueError, AttributeError):
+                    reason = None
+                known = {
+                    "search_busy",
+                    "search_timeout",
+                    "external_llm_unavailable",
+                    "qa_context_changed",
+                }
+                denials[reason if reason in known else "unclassified"] += 1
         except httpx.HTTPError as exc:
             statuses[kind][type(exc).__name__] += 1
             errors[kind + "_" + type(exc).__name__] += 1
@@ -212,6 +224,7 @@ async def load(args):
             "provider_delay_seconds": args.delay,
             "synthetic_only": True,
             "errors": errors,
+            "denials": denials,
             "operations": {
                 k: {"requests": len(v), "statuses": statuses[k], **distribution(v)}
                 for k, v in timings.items()
