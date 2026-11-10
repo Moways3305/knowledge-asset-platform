@@ -14,10 +14,12 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import timedelta
 
-from sqlalchemy import delete, or_, select, update
+import httpx
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.utils import utc_now
@@ -40,7 +42,35 @@ _TERMINAL = TERMINAL_PARSE_STATUSES
 # 心跳保留上限（避免表无限增长；运维页只读最近一条）。
 _HEARTBEAT_KEEP = 500
 _LEASE_SECONDS = 120
-_REQUEST_TIMEOUT_SECONDS = 60
+# A status lookup should not monopolize the shared default worker queue. The
+# batch deadline also bounds a run containing many independently slow documents.
+_REQUEST_TIMEOUT_SECONDS = 10
+_BATCH_TIMEOUT_SECONDS = 20
+_MAX_BATCH = 200
+_IDLE_RELEASE_DELAY_SECONDS = 0.1
+
+
+async def _get_knowledge(
+    weknora: WeKnoraClient | NullWeKnoraClient,
+    document_id: str,
+    *,
+    trace_id: str | None,
+    release_idle: Callable[[], Awaitable[None]] | None,
+) -> dict:
+    # Only a task-owned engine may provide this callback. Fast status queries
+    # reuse its idle connection; a slow query gives it back to PostgreSQL. There
+    # are no business transactions or concurrent DB operations during this wait.
+    request = asyncio.create_task(weknora.get_knowledge(document_id, trace_id=trace_id))
+    try:
+        if release_idle is not None:
+            done, _ = await asyncio.wait({request}, timeout=_IDLE_RELEASE_DELAY_SECONDS)
+            if not done:
+                await release_idle()
+        return await request
+    finally:
+        if not request.done():
+            request.cancel()
+        await asyncio.gather(request, return_exceptions=True)
 
 
 @asynccontextmanager
@@ -97,10 +127,18 @@ async def reconcile_parse_statuses(
     *,
     trace_id: str | None = None,
     limit: int = 200,
+    release_idle: Callable[[], Awaitable[None]] | None = None,
 ) -> dict:
     """对账一批 pending/processing 版本的解析状态。返回安全计数（无 kb/doc id）。"""
-    submission = await index_recovery.detect_submission_interruptions(
-        session, trace_id=trace_id, limit=limit
+    started = time.perf_counter()
+    deadline = started + _BATCH_TIMEOUT_SECONDS
+    batch_limit = max(0, min(int(limit), _MAX_BATCH))
+    submission = (
+        await index_recovery.detect_submission_interruptions(
+            session, trace_id=trace_id, limit=batch_limit
+        )
+        if batch_limit
+        else {"scanned": 0, "identified": 0, "skipped_fresh_jobs": 0, "exceptions": 0}
     )
     if not weknora_enabled():
         # 未配置底座：无可对账项，安全空跑。
@@ -121,7 +159,6 @@ async def reconcile_parse_statuses(
             **{f"submission_{key}": value for key, value in submission.items()},
         }
 
-    started = time.perf_counter()
     rows = list(
         (
             await session.execute(
@@ -145,8 +182,18 @@ async def reconcile_parse_statuses(
                         KnowledgeAssetVersion.parse_reconcile_until <= utc_now(),
                     )
                 )
-                .order_by(KnowledgeAssetVersion.id)
-                .limit(limit)
+                # Released leases retain their last-attempt timestamp. Oldest
+                # unobserved work goes first, including an expired owner. Using
+                # created_at for new rows avoids starving old work when new
+                # documents continuously arrive; ID is only a stable tie-break.
+                .order_by(
+                    func.coalesce(
+                        KnowledgeAssetVersion.parse_reconcile_until,
+                        KnowledgeAssetVersion.created_at,
+                    ),
+                    KnowledgeAssetVersion.id,
+                )
+                .limit(batch_limit)
             )
         ).all()
     )
@@ -154,17 +201,39 @@ async def reconcile_parse_statuses(
     await session.commit()
 
     processed = updated = failed = interrupted = interrupted_recovered = 0
+    budget_exhausted = False
     for snapshot in rows:
+        if time.perf_counter() >= deadline:
+            budget_exhausted = True
+            break
         async with _claim(session, snapshot) as token:
             if token is None:
                 continue
+            remaining = deadline - time.perf_counter()
+            if remaining <= 0:
+                budget_exhausted = True
+                break
+            request_budget = min(_REQUEST_TIMEOUT_SECONDS, remaining)
             upstream_failed = False
             try:
                 data = await asyncio.wait_for(
-                    weknora.get_knowledge(snapshot.weknora_doc_id, trace_id=trace_id),
-                    timeout=_REQUEST_TIMEOUT_SECONDS,
+                    _get_knowledge(
+                        weknora,
+                        snapshot.weknora_doc_id,
+                        trace_id=trace_id,
+                        release_idle=release_idle,
+                    ),
+                    timeout=request_budget,
                 )
-            except (WeKnoraError, asyncio.TimeoutError):
+            except asyncio.TimeoutError:
+                if request_budget < _REQUEST_TIMEOUT_SECONDS:
+                    # Our batch budget is not evidence that provider parsing
+                    # failed. Release/rotate the claim without adding failures.
+                    budget_exhausted = True
+                    break
+                upstream_failed = True
+                data = {}
+            except (WeKnoraError, httpx.RequestError):
                 upstream_failed = True
                 data = {}
             # Re-read under a short lock. Discard responses if retry, archive or another
@@ -273,6 +342,7 @@ async def reconcile_parse_statuses(
         "failed": failed,
         "interrupted": interrupted,
         "interrupted_recovered": interrupted_recovered,
+        "budget_exhausted": budget_exhausted,
         **{f"submission_{key}": value for key, value in submission.items()},
     }
 
