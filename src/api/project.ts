@@ -37,12 +37,18 @@ export async function createProject(
 export async function projectQa(
   projectId: string,
   input: { query: string; modelRef: string },
+  signal?: AbortSignal,
 ): Promise<ProjectQaResponseDTO> {
-  return apiPost<ProjectQaResponseDTO>(`/api/v1/projects/${projectId}/qa`, {
-    query: input.query,
-    model_ref: input.modelRef,
-    capability: "qa",
-  });
+  return apiPost<ProjectQaResponseDTO>(
+    `/api/v1/projects/${projectId}/qa`,
+    {
+      query: input.query,
+      model_ref: input.modelRef,
+      capability: "qa",
+    },
+    {},
+    signal,
+  );
 }
 
 export async function fetchProjectQaModelOptions(

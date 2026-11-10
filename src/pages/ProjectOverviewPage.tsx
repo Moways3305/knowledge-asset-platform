@@ -25,6 +25,7 @@ import {
   projectQa,
 } from "../api/project";
 import { useAuth } from "../auth/AuthContext";
+import { ApiError } from "../api/http";
 import CreateProjectModal from "../components/CreateProjectModal";
 import LoadingError from "../components/LoadingError";
 import { PageHeader, PageSection, ProductPage } from "../components/ProductLayout";
@@ -82,7 +83,7 @@ type ModelState =
 type ConversationState =
   | { status: "idle" }
   | { status: "asking"; question: string }
-  | { status: "error"; question: string }
+  | { status: "error"; question: string; message: string }
   | { status: "answer"; question: string; result: ProjectQaResponseDTO };
 
 function safeErrorMessage(): string {
@@ -133,6 +134,7 @@ function ProjectWorkspace({
   const modelRequest = useRef(0);
   const modelLoaded = useRef(false);
   const qaRequest = useRef(0);
+  const qaAbort = useRef<AbortController | null>(null);
   const [overviewState, setOverviewState] = useState<OverviewState>({ status: "loading" });
   const [modelState, setModelState] = useState<ModelState>({ status: "loading" });
   const [conversation, setConversation] = useState<ConversationState>({ status: "idle" });
@@ -178,7 +180,6 @@ function ProjectWorkspace({
     void loadOverview();
     return () => {
       overviewRequest.current += 1;
-      qaRequest.current += 1;
     };
   }, [loadOverview]);
 
@@ -189,25 +190,54 @@ function ProjectWorkspace({
     };
   }, [loadModels, view]);
 
+  useEffect(() => {
+    if (view !== "qa")
+      setConversation((current) => (current.status === "asking" ? { status: "idle" } : current));
+    return () => {
+      ++qaRequest.current;
+      qaAbort.current?.abort();
+      qaAbort.current = null;
+    };
+  }, [projectId, view]);
+
   const submitQuestion = useCallback(
     async (value: string) => {
       const trimmed = value.trim();
       if (!trimmed || modelState.status !== "ready" || !modelState.selectedRef) return;
       const request = ++qaRequest.current;
+      qaAbort.current?.abort();
+      const controller = new AbortController();
+      qaAbort.current = controller;
       setConversation({ status: "asking", question: trimmed });
       setQuestion("");
       try {
-        const response = await projectQa(projectId, {
-          query: trimmed,
-          modelRef: modelState.selectedRef,
-        });
+        const response = await projectQa(
+          projectId,
+          {
+            query: trimmed,
+            modelRef: modelState.selectedRef,
+          },
+          controller.signal,
+        );
         if (request === qaRequest.current) {
           setConversation({ status: "answer", question: trimmed, result: response });
         }
-      } catch {
-        if (request === qaRequest.current) {
-          setConversation({ status: "error", question: trimmed });
+      } catch (error) {
+        if (request === qaRequest.current && !controller.signal.aborted) {
+          const reason = error instanceof ApiError ? error.deniedReason : undefined;
+          setConversation({
+            status: "error",
+            question: trimmed,
+            message:
+              reason === "search_busy"
+                ? "问答服务繁忙，请稍后重试。"
+                : reason === "search_timeout"
+                  ? "问答处理超时，请稍后重试。"
+                  : "暂时无法完成回答，请稍后重试。",
+          });
         }
+      } finally {
+        if (request === qaRequest.current) qaAbort.current = null;
       }
     },
     [modelState, projectId],
@@ -534,7 +564,7 @@ function ProjectWorkspace({
                       </span>
                       <div>
                         <strong>问答未成功</strong>
-                        <p>暂时无法完成回答，请稍后重试。</p>
+                        <p>{conversation.message}</p>
                         <button
                           type="button"
                           onClick={() => void submitQuestion(conversation.question)}

@@ -9,6 +9,7 @@ import {
   revokeMcpOAuthGrant,
 } from "./mcpOAuth";
 import { fetchPreviewText } from "./preview";
+import { projectQa } from "./project";
 
 const fetcher = vi.fn<typeof fetch>();
 beforeEach(() => {
@@ -72,6 +73,21 @@ describe("shared multipart transport", () => {
 });
 
 describe("extracted domain adapters", () => {
+  it("passes project QA cancellation to the HTTP transport", async () => {
+    const signal = new AbortController().signal;
+    await projectQa("project-id", { query: "synthetic", modelRef: "synthetic-model" }, signal);
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/projects/project-id/qa",
+      expect.objectContaining({
+        signal,
+        body: JSON.stringify({
+          query: "synthetic",
+          model_ref: "synthetic-model",
+          capability: "qa",
+        }),
+      }),
+    );
+  });
   it("preserves the search abort signal through one CSRF refresh", async () => {
     const controller = new AbortController();
     let posts = 0;
