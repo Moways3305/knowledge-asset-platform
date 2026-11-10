@@ -107,6 +107,7 @@ export function useKnowledgeList() {
   const [globalSearchMode, setGlobalSearchMode] = useState(searchParams.get("search") === "global");
   const [contentSearch, setContentSearch] = useState(searchParams.get("query_mode") === "content");
   const semanticRequestRef = useRef(0);
+  const semanticAbortRef = useRef<AbortController | null>(null);
   const directoryKeyFromUrl = searchParams.get("directory_key");
   const visibleDirectoryItems = directoryItems.filter(
     (item) =>
@@ -267,6 +268,8 @@ export function useKnowledgeList() {
   // A scope change invalidates in-flight results as well as the displayed result.
   const invalidateSemanticSearch = useCallback(() => {
     ++semanticRequestRef.current;
+    semanticAbortRef.current?.abort();
+    semanticAbortRef.current = null;
   }, []);
   useEffect(() => {
     invalidateSemanticSearch();
@@ -280,31 +283,49 @@ export function useKnowledgeList() {
     directory?.project_id,
     globalSearchMode,
     includeArchived,
+    contentSearch,
     invalidateSemanticSearch,
   ]);
 
   const runSemanticSearch = async () => {
     if (!semanticQuery.trim()) return;
-    const requestId = ++semanticRequestRef.current;
+    invalidateSemanticSearch();
+    const requestId = semanticRequestRef.current;
+    const controller = new AbortController();
+    semanticAbortRef.current = controller;
     setSemanticBusy(true);
     setSemanticError(null);
     try {
-      const response = await searchKnowledge({
-        query: semanticQuery.trim(),
-        scope: scope || "all",
-        intent: "search",
-        filters: {
-          include_archived: includeArchived,
-          directory_key: globalSearchMode ? undefined : directory?.directory_key,
-          project_id: globalSearchMode ? undefined : directory?.project_id,
+      const response = await searchKnowledge(
+        {
+          query: semanticQuery.trim(),
+          scope: scope || "all",
+          intent: "search",
+          filters: {
+            include_archived: includeArchived,
+            directory_key: globalSearchMode ? undefined : directory?.directory_key,
+            project_id: globalSearchMode ? undefined : directory?.project_id,
+          },
         },
-      });
+        controller.signal,
+      );
       if (requestId === semanticRequestRef.current) setSemanticResult(response);
-    } catch {
-      if (requestId === semanticRequestRef.current)
-        setSemanticError("内容检索暂时无法完成，请重试。");
+    } catch (error) {
+      if (requestId === semanticRequestRef.current && !controller.signal.aborted) {
+        const reason = error instanceof ApiError ? error.deniedReason : undefined;
+        setSemanticError(
+          reason === "search_busy"
+            ? "检索服务繁忙，请稍后重试。"
+            : reason === "search_timeout"
+              ? "检索处理超时，请稍后重试。"
+              : "内容检索暂时无法完成，请重试。",
+        );
+      }
     } finally {
-      if (requestId === semanticRequestRef.current) setSemanticBusy(false);
+      if (requestId === semanticRequestRef.current) {
+        semanticAbortRef.current = null;
+        setSemanticBusy(false);
+      }
     }
   };
 

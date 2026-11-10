@@ -215,6 +215,7 @@ export async function apiPost<T>(
   path: ApiPath<"post">,
   body: unknown,
   extraHeaders: Record<string, string> = {},
+  signal?: AbortSignal,
 ): Promise<T> {
   return withCsrfRetry(async () => {
     const resp = await fetch(`${BASE_URL}${path}`, {
@@ -222,6 +223,7 @@ export async function apiPost<T>(
       headers: await csrfHeaders({ "Content-Type": "application/json", ...extraHeaders }),
       body: JSON.stringify(body),
       credentials: "include",
+      signal,
     });
     const result = await handleResponse<T>(resp);
     invalidateTaskStatus(path);

@@ -3,15 +3,21 @@
 import asyncio
 import json
 import os
+import socket
 import uuid
+from types import SimpleNamespace
 
+import httpx
 import pytest
 import pytest_asyncio
+import uvicorn
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from test_search_api import KA_ALPHA_L4, FakeSearchWeKnora, _insert_alpha_l4
 
 from app.db.base import Base
+from app.db.session import get_db
+from app.main import create_app
 from app.models.audit import AuditEvent
 from app.models.auth_session import UserSession
 from app.models.knowledge import KnowledgeAssetChunk, KnowledgeAssetVersion
@@ -176,3 +182,94 @@ async def test_slow_upstream_releases_database_pool(single_connection_db, stage,
         ) == (0 if cancel else 1)
         stored = await check.scalar(select(UserSession))
         assert stored.last_seen_at == seen_at
+
+
+@pytest.mark.parametrize("trigger", ["disconnect", "timeout"])
+async def test_http_cancellation_returns_checked_out_postgres_connection(
+    single_connection_db, monkeypatch, trigger
+):
+    """Real socket close / 504 through the full middleware + dependency stack."""
+    from app.core import search_load
+    from app.services.generation_models import get_search_llm_client
+    from app.services.weknora_client import get_weknora_client
+
+    sessions = single_connection_db
+    entered, cleaned = asyncio.Event(), asyncio.Event()
+    monkeypatch.setattr(
+        search_load,
+        "get_settings",
+        lambda: SimpleNamespace(search_concurrency_per_worker=1, search_timeout_seconds=0.3),
+    )
+
+    async def database():
+        try:
+            async with sessions() as session:
+                yield session
+        finally:
+            await asyncio.sleep(0)
+            cleaned.set()
+
+    async def stalled(session, *args, **kwargs):
+        # Cover cancellation while a transaction owns the only connection
+        # (e.g. QA/audit work); the earlier tests cover real search upstream I/O.
+        await session.scalar(text("SELECT 1"))
+        entered.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(search, "run_search", stalled)
+    app = create_app()
+    app.dependency_overrides[get_db] = database
+    app.dependency_overrides[get_search_llm_client] = lambda: None
+    app.dependency_overrides[get_weknora_client] = lambda: None
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    server = uvicorn.Server(
+        uvicorn.Config(app, lifespan="off", access_log=False, log_level="error")
+    )
+    serving = asyncio.create_task(server.serve(sockets=[sock]))
+    pending = None
+    try:
+        for _ in range(100):
+            if server.started:
+                break
+            await asyncio.sleep(0.01)
+        assert server.started
+        async with httpx.AsyncClient(
+            base_url=f"http://127.0.0.1:{sock.getsockname()[1]}", trust_env=False
+        ) as client:
+            pending = asyncio.create_task(
+                client.post(
+                    "/api/v1/knowledge/search",
+                    headers={"X-Dev-User-Id": str(USER_CONSULTANT)},
+                    json={"query": "synthetic", "intent": "search"},
+                )
+            )
+            await asyncio.wait_for(entered.wait(), 2)
+            if trigger == "disconnect":
+                pending.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await pending
+            else:
+                response = await asyncio.wait_for(pending, 2)
+                assert response.status_code == 504
+                assert response.json()["detail"]["denied_reason"] == "search_timeout"
+            await asyncio.wait_for(cleaned.wait(), 2)
+            async with sessions() as session:
+                assert await asyncio.wait_for(session.scalar(text("SELECT 1")), 0.5) == 1
+            # A fresh request reaches the handler again, rather than leaking a slot.
+            entered.clear()
+            cleaned.clear()
+            response = await client.post(
+                "/api/v1/knowledge/search",
+                headers={"X-Dev-User-Id": str(USER_CONSULTANT)},
+                json={"query": "synthetic", "intent": "search"},
+            )
+            assert entered.is_set()
+            assert response.status_code == 504
+    finally:
+        if pending and not pending.done():
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
+        server.should_exit = True
+        await asyncio.wait_for(serving, 5)
+        sock.close()

@@ -51,6 +51,7 @@ from app.core.config import get_settings
 from app.core.csrf import CsrfMiddleware
 from app.core.logging import configure_logging
 from app.core.mcp_oauth_boundary import McpOAuthBoundary
+from app.core.search_load import SearchLoadGuard
 from app.core.trace import TraceIdMiddleware
 from app.services.http_pool import outbound_http_pool
 from app.services.workbuddy_remote_mcp import (
@@ -73,6 +74,9 @@ def create_app() -> FastAPI:
 
     # CSRF 中间件：cookie 会话下的 unsafe 请求 fail-closed。先 add → 内层；
     # TraceIdMiddleware 后 add → 外层，确保 CSRF 403 响应仍带 X-Trace-Id。
+    # Innermost user middleware: owns the route/dependencies task and shields
+    # its async cleanup from the outer BaseHTTPMiddleware cancellation scopes.
+    app.add_middleware(SearchLoadGuard)
     app.add_middleware(McpOAuthBoundary)
     app.add_middleware(CsrfMiddleware)
     # trace_id 关联中间件（X-Trace-Id）；它只用于链路关联，不是鉴权机制。
