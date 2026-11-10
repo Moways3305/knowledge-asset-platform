@@ -24,19 +24,21 @@ agent_gateway_decisions / decision_items / citations 权限-审计骨架与全�
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.utils import utc_now
 from app.models.agent import (
     AgentCall,
     AgentCallCitation,
     AgentGatewayDecision,
     AgentGatewayDecisionItem,
 )
-from app.models.identity import Project, User
-from app.models.knowledge import KnowledgeAsset
+from app.models.identity import Project, ProjectMember, User, UserCompanyRole
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.schemas.agent import (
     AgentCallDetailResponse,
     CitationOut,
@@ -71,6 +73,8 @@ from app.services import generation_models, knowledge_qa, retrieval, search_quer
 from app.services.desensitization import LlmOutputDesensitizer
 from app.services.knowledge_evidence_state import attach_platform_state
 from app.services.llm_client import LLMClient, NullLLMClient
+from app.services.permission import decide
+from app.services.permission_rules import load_access_policy
 from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient
 
 # provider：平台抽象标识。已接真实 WeKnora 检索 + 外部 LLM，故 provider 为
@@ -84,6 +88,10 @@ _LEAKY_DENIED_REASONS = {
     DeniedReason.l5_not_discoverable.value,
     DeniedReason.personal_asset_not_owned.value,
 }
+
+
+class _QaContextChanged(Exception):
+    """The request's identity or knowledge snapshot is no longer valid."""
 
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:
@@ -217,8 +225,18 @@ async def run_project_qa(
         raise _denied(422, "query_required", "问题不能为空")
 
     model_key = req.model_ref
+    # Persist the authentication heartbeat before opening a dedicated read-only
+    # session. QA records and audit events are written together only after I/O.
+    await session.commit()
+    started_at = utc_now()
     try:
-        selected_llm = await generation_models.resolve_project_qa_client(session, model_key, llm)
+        async with AsyncSession(
+            bind=session.bind, expire_on_commit=False, autoflush=False
+        ) as reads:
+            selected_llm = await generation_models.resolve_project_qa_client(reads, model_key, llm)
+            recalled, evidences, outcome = await _prepare_project_qa(
+                reads, caller, project_id, query, selected_llm, weknora, trace_id
+            )
     except generation_models.GenerationModelError as exc:
         await audit_service.record_denied(
             session,
@@ -232,7 +250,43 @@ async def run_project_qa(
             project_id=project_id,
         )
         raise _denied(exc.status_code, exc.code, exc.message) from exc
+    except _QaContextChanged as exc:
+        await audit_service.record_denied(
+            session,
+            caller=caller,
+            log_type=AuditLogType.operation,
+            action=AuditAction.agent_denied.value,
+            trace_id=trace_id,
+            target_type="project",
+            target_id=project_id,
+            extra={"denied_reason": "qa_context_changed"},
+        )
+        raise _denied(409, "qa_context_changed", "项目身份或资料已变化，请重新提问") from exc
 
+    # Every outcome (allowed or denied) is persisted atomically. An exception or
+    # cancellation during this short write phase rolls back all four QA tables
+    # and their audit events together; no partially published call survives.
+    async with session.begin():
+        result = await _persist_project_qa(
+            session, caller, project_id, req, trace_id, started_at, recalled, evidences, outcome
+        )
+    if isinstance(result, HTTPException):
+        raise result
+    return result
+
+
+async def _persist_project_qa(
+    session: AsyncSession,
+    caller: CallerContext,
+    project_id: uuid.UUID,
+    req: ProjectQaRequest,
+    trace_id: str | None,
+    started_at: datetime,
+    recalled: list[retrieval.RecalledAsset],
+    evidences: list[retrieval.Evidence],
+    outcome: knowledge_qa.QAOutcome | None,
+) -> ProjectQaResponse | HTTPException:
+    query, model_key = req.query.strip(), req.model_ref
     # ---- 2. 创建 agent_calls ----
     call = AgentCall(
         caller_user_id=caller.user_id,
@@ -243,35 +297,10 @@ async def run_project_qa(
         capability=req.capability.value,
         call_status=AgentCallStatus.denied.value,  # 先置 denied，成功后改 allowed
         trace_id=trace_id,
+        created_at=started_at,
     )
     session.add(call)
     await session.flush()
-
-    # ---- 3. WeKnora chunk 级召回（限定到本项目 KB；映射回资产、去重、逐资产 decide）----
-    kb_ids = await retrieval.resolve_project_kbs(session, project_id)
-    planned_queries = (
-        await search_queries.plan_queries(selected_llm, query, trace_id=trace_id)
-        if kb_ids
-        else [query]
-    )
-    recalled = await retrieval.recall_assets(
-        session,
-        caller,
-        weknora,
-        query=query,
-        kb_ids=kb_ids,
-        channel=AccessChannel.agent,
-        trace_id=trace_id,
-        search_queries=planned_queries,
-    )
-    # Upstream candidates do not grant scope: project QA never expands into
-    # other projects, company knowledge or personal libraries.
-    recalled = [
-        candidate
-        for candidate in recalled
-        if candidate.asset.scope == KnowledgeScope.project.value
-        and candidate.asset.project_id == project_id
-    ]
 
     # ---- 4. 写调用级决策主记录（先占位，逐项判断后回填聚合值）----
     decision = AgentGatewayDecision(
@@ -357,15 +386,6 @@ async def run_project_qa(
         project_id=project_id,
     )
 
-    # ---- 6. 收集放行+脱敏证据（D1 阶段4：子块召回 → 父文件全文给 Agent；引用必经脱敏）----
-    desens = LlmOutputDesensitizer(selected_llm)
-    evidences = await retrieval.gather_parent_context(
-        session,
-        recalled,
-        desens,
-        trace_id=trace_id,
-    )
-
     # 无任何可用证据（全部候选仅发现层 / 脱敏全失败 / 无召回）→ 调用整体拒绝，不编造引用。
     if not evidences:
         decision.discovery_allowed = any_discovery
@@ -387,26 +407,13 @@ async def run_project_qa(
             extra={"denied_reason": "agent_scope_denied"},
             project_id=project_id,
         )
-        await session.commit()
-        raise _denied(
+        return _denied(
             403,
             "agent_scope_denied",
             "调用人权限范围内本项目无可用知识上下文，无法生成回答",
         )
 
-    await attach_platform_state(
-        session,
-        caller,
-        evidences,
-        recalled,
-        channel=AccessChannel.agent,
-        asset_guard=lambda asset: (
-            asset.scope == KnowledgeScope.project.value and asset.project_id == project_id
-        ),
-    )
-
-    # ---- 7. 只用放行+脱敏证据生成结构化回答；引用不合法或模型不可用 → fail closed ----
-    outcome = await knowledge_qa.generate_answer(selected_llm, query, evidences, trace_id=trace_id)
+    assert outcome is not None
     if outcome.status == "unavailable" or not outcome.answer:
         decision.discovery_allowed = any_discovery
         decision.summary_allowed = any_summary
@@ -416,7 +423,7 @@ async def run_project_qa(
         call.call_status = AgentCallStatus.denied.value
         call.denied_reason = "external_llm_unavailable"
         await _emit_a4_denied()
-        await audit_service.record_denied(
+        await audit_service.record_event(
             session,
             caller=caller,
             log_type=AuditLogType.exception,
@@ -427,8 +434,7 @@ async def run_project_qa(
             extra={"denied_reason": "external_llm_unavailable"},
             project_id=project_id,
         )
-        await session.commit()
-        raise _denied(
+        return _denied(
             503,
             "external_llm_unavailable",
             "项目问答模型当前不可用，请稍后重试",
@@ -499,8 +505,6 @@ async def run_project_qa(
         },
         project_id=project_id,
     )
-    await session.commit()
-
     return ProjectQaResponse(
         call_id=call.id,
         response_text=response_text,
@@ -511,6 +515,125 @@ async def run_project_qa(
         trace_id=trace_id,
         created_at=call.created_at,
     )
+
+
+async def _prepare_project_qa(
+    reads: AsyncSession,
+    caller: CallerContext,
+    project_id: uuid.UUID,
+    query: str,
+    llm: LLMClient | NullLLMClient,
+    weknora: WeKnoraClient | NullWeKnoraClient,
+    trace_id: str | None,
+) -> tuple[list[retrieval.RecalledAsset], list[retrieval.Evidence], knowledge_qa.QAOutcome | None]:
+    """Load detached request snapshots; never retain a transaction over model I/O."""
+    kb_ids = await retrieval.resolve_project_kbs(reads, project_id)
+    await reads.close()
+    planned_queries = (
+        await search_queries.plan_queries(llm, query, trace_id=trace_id) if kb_ids else [query]
+    )
+    recalled = await retrieval.recall_assets(
+        reads,
+        caller,
+        weknora,
+        query=query,
+        kb_ids=kb_ids,
+        channel=AccessChannel.agent,
+        trace_id=trace_id,
+        search_queries=planned_queries,
+    )
+    # Upstream candidates do not grant scope.
+    recalled = [
+        candidate
+        for candidate in recalled
+        if candidate.asset.scope == KnowledgeScope.project.value
+        and candidate.asset.project_id == project_id
+    ]
+    await _validate_qa_snapshot(reads, caller, project_id, recalled)
+    evidences = await retrieval.gather_parent_context(
+        reads,
+        recalled,
+        LlmOutputDesensitizer(llm),
+        trace_id=trace_id,
+        before_external=reads.close,
+    )
+    await _validate_qa_snapshot(reads, caller, project_id, recalled)
+    await attach_platform_state(
+        reads,
+        caller,
+        evidences,
+        recalled,
+        channel=AccessChannel.agent,
+        asset_guard=lambda asset: (
+            asset.scope == KnowledgeScope.project.value and asset.project_id == project_id
+        ),
+    )
+    await reads.close()
+    outcome = (
+        await knowledge_qa.generate_answer(llm, query, evidences, trace_id=trace_id)
+        if evidences
+        else None
+    )
+    await _validate_qa_snapshot(reads, caller, project_id, recalled)
+    return recalled, evidences, outcome
+
+
+async def _validate_qa_snapshot(
+    reads: AsyncSession,
+    caller: CallerContext,
+    project_id: uuid.UUID,
+    recalled: list[retrieval.RecalledAsset],
+) -> None:
+    # close() detaches the original snapshots first. Re-querying through the same
+    # identity map would otherwise conceal concurrent membership/asset changes.
+    await reads.close()
+    member = await reads.scalar(
+        select(User.id)
+        .join(UserCompanyRole, UserCompanyRole.user_id == User.id)
+        .join(ProjectMember, ProjectMember.user_id == User.id)
+        .where(
+            User.id == caller.user_id,
+            User.status == "active",
+            UserCompanyRole.status == "active",
+            UserCompanyRole.company_role == caller.active_company_role,
+            ProjectMember.project_id == project_id,
+            ProjectMember.status == "active",
+            ProjectMember.project_role == caller.active_project_roles.get(project_id),
+        )
+    )
+    if member is None:
+        raise _QaContextChanged()
+    if not recalled:
+        await reads.close()
+        return
+    rows = (
+        await reads.execute(
+            select(KnowledgeAsset, KnowledgeAssetVersion)
+            .join(KnowledgeAssetVersion, KnowledgeAssetVersion.asset_id == KnowledgeAsset.id)
+            .where(KnowledgeAssetVersion.id.in_([r.version.id for r in recalled]))
+        )
+    ).all()
+    live = {version.id: (asset, version) for asset, version in rows}
+    policy = await load_access_policy(reads)
+    for candidate in recalled:
+        pair = live.get(candidate.version.id)
+        if pair is None:
+            raise _QaContextChanged()
+        asset, version = pair
+        # Conservative retry on changed content/governance/version metadata.
+        # Do not silently relabel old evidence as the latest approved version.
+        for snapshot, current in ((candidate.asset, asset), (candidate.version, version)):
+            if any(
+                getattr(snapshot, column.key) != getattr(current, column.key)
+                for column in snapshot.__table__.columns
+            ):
+                raise _QaContextChanged()
+        layer, _ = _layer_and_source(candidate)
+        if not decide(
+            caller, asset, AccessLayer(layer), channel=AccessChannel.agent, policy=policy
+        ).allowed:
+            raise _QaContextChanged()
+    await reads.close()
 
 
 async def _load_call_for_view(

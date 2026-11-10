@@ -82,7 +82,7 @@ services:
     mem_limit: 512m
   api:
     <<: *app
-    command: [uvicorn, app.main:app, --host, 0.0.0.0, --port, "8443", --workers, "2", --ssl-keyfile, /capacity/key.pem, --ssl-certfile, /capacity/cert.pem, --no-access-log]
+    command: [uvicorn, capacity_api:app, --host, 0.0.0.0, --port, "8443", --workers, "2", --ssl-keyfile, /capacity/key.pem, --ssl-certfile, /capacity/cert.pem, --no-access-log]
     depends_on:
       init: {condition: service_completed_successfully}
     cpus: 2

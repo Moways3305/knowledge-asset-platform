@@ -66,7 +66,9 @@ async def seed(request: Request):
 async def llm(request: Request):
     body = await request.json()
     system = body["messages"][0].get("content", "")
-    kind = "planning" if '"queries"' in system else "content"
+    kind = (
+        "planning" if '"queries"' in system else "answer" if "answer_parts" in system else "content"
+    )
     counts[kind] += 1
     inflight[kind] += 1
     peak[kind] = max(peak[kind], inflight[kind])
@@ -76,6 +78,13 @@ async def llm(request: Request):
         value = (
             {"queries": []}
             if kind == "planning"
+            else {
+                "status": "answered",
+                "answer_parts": [
+                    {"text": "Synthetic capacity benchmark answer.", "citation_orders": [1]}
+                ],
+            }
+            if kind == "answer"
             else {
                 "topic": "Capacity synthetic document",
                 "one_liner": "Synthetic capacity material",
