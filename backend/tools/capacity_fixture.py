@@ -21,6 +21,9 @@ app = FastAPI()
 counts = Counter()
 inflight = Counter()
 peak = Counter()
+parse_calls = Counter()
+parse_inflight = Counter()
+parse_peak = Counter()
 settings = {
     "llm_delay": 0.05,
     "search_delay": 0.05,
@@ -66,7 +69,14 @@ async def indexing_wait(request, kind):
 
 @app.get("/control")
 async def stats():
-    return {"counts": counts, "inflight": inflight, "peak": peak, "settings": settings}
+    return {
+        "counts": counts,
+        "inflight": inflight,
+        "peak": peak,
+        "settings": settings,
+        "parse_calls": parse_calls,
+        "parse_peak": parse_peak,
+    }
 
 
 @app.post("/control")
@@ -188,10 +198,26 @@ async def search(request: Request):
 
 
 @app.get("/api/v1/knowledge/{doc_id}")
-async def get_doc(doc_id: str):
+async def get_doc(doc_id: str, request: Request):
     if doc_id not in docs:
         raise HTTPException(404)
-    return wrap(docs[doc_id])
+    row = dict(docs[doc_id])
+    counts["parse"] += 1
+    parse_calls[doc_id] += 1
+    parse_inflight[doc_id] += 1
+    parse_peak[doc_id] = max(parse_peak[doc_id], parse_inflight[doc_id])
+    inflight["parse"] += 1
+    peak["parse"] = max(peak["parse"], inflight["parse"])
+    try:
+        if not await delay(request, "parse", float(row.pop("synthetic_delay", 0))):
+            return Response(status_code=499)
+        status = int(row.pop("synthetic_status", 200))
+        if status != 200:
+            raise HTTPException(status)
+        return wrap(row)
+    finally:
+        parse_inflight[doc_id] -= 1
+        inflight["parse"] -= 1
 
 
 @app.delete("/api/v1/knowledge/{doc_id}")
