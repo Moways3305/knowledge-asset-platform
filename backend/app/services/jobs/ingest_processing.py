@@ -75,10 +75,16 @@ from app.worker.enqueue import enqueue_outbox_delivery
 _logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class _GenerationSnapshot:
+    task_id: uuid.UUID
+    state: tuple[object, ...]
+
+
 @dataclass
 class _AttemptState:
     model_attempted: bool = False
-    generation_snapshot: IngestTask | None = None
+    generation_snapshot: _GenerationSnapshot | None = None
 
 
 def _set_stage(task: IngestTask, stage: str) -> None:
@@ -227,32 +233,37 @@ async def _reusable_ai_draft(
     return None
 
 
-async def _reload_generation_task(session: AsyncSession, snapshot: IngestTask) -> IngestTask | str:
-    """Lock fresh state after model I/O; never merge a detached task back into DB."""
+def _generation_state(task: IngestTask) -> tuple[object, ...]:
+    return (
+        task.status,
+        task.processing_attempt,
+        task.processing_job_id,
+        task.processing_worker_id,
+        task.source_file_hash,
+        task.source_file_ref,
+        task.target_scope,
+        task.target_project_id,
+        task.created_by,
+    )
+
+
+async def _reload_generation_task(
+    session: AsyncSession, snapshot: _GenerationSnapshot
+) -> IngestTask | str:
+    """Lock and refresh the identity map; compare with immutable pre-model state."""
     current = await session.scalar(
         select(IngestTask)
-        .where(IngestTask.id == snapshot.id)
+        .where(IngestTask.id == snapshot.task_id)
         .options(selectinload(IngestTask.ai_result), selectinload(IngestTask.canonical_markdown))
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if current is None:
         await session.rollback()
         return "not_found"
     # A cancellation still records the completed provider request's usage, but
     # acknowledge_if_requested prevents publishing its generated content.
-    if not current.cancel_requested and any(
-        getattr(current, field) != getattr(snapshot, field)
-        for field in (
-            "status",
-            "processing_attempt",
-            "processing_job_id",
-            "processing_worker_id",
-            "source_file_hash",
-            "source_file_ref",
-            "target_scope",
-            "target_project_id",
-        )
-    ):
+    if not current.cancel_requested and _generation_state(current) != snapshot.state:
         status = current.status
         await session.rollback()
         return status
@@ -305,7 +316,7 @@ async def _terminalize_persistence_failure(
     model: str | None,
     model_attempted: bool = False,
     failure_stage: str = "processing_state_persistence_failed",
-    expected_snapshot: IngestTask | None = None,
+    expected_snapshot: _GenerationSnapshot | None = None,
 ) -> str:
     """Rollback first, then persist a safe per-file terminal state and usage evidence."""
     await session.rollback()
@@ -410,7 +421,7 @@ async def _process_upload_task_impl(
     actor = await _build_actor(session, task)
 
     model_attempted = False
-    generation_snapshot: IngestTask | None = None
+    generation_snapshot: _GenerationSnapshot | None = None
 
     # ---- 分阶段恢复：已持久化的抽取/OCR/Markdown 事实绝不重做。----
     try:
@@ -795,12 +806,13 @@ async def _process_upload_task_impl(
             fingerprint=generation_fingerprint,
         )
         cache_hit = ai is not None
-        generation_snapshot = task
-        attempt_state.generation_snapshot = task
+        generation_snapshot = _GenerationSnapshot(task.id, _generation_state(task))
+        attempt_state.generation_snapshot = generation_snapshot
         # The cache lookup starts a new transaction after the stage checkpoint.
-        # Detach the loaded snapshot and end that transaction before model I/O.
+        # End it before model I/O without detaching records owned by callers
+        # (e.g. inline WeCom scans). Reload task state explicitly after the call.
         # The worker's separate processing_slot still owns its task/capacity locks.
-        await session.close()
+        await session.commit()
         if ai is not None:
             content_meta = {
                 "status": "llm",

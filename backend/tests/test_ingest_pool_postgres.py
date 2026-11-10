@@ -15,11 +15,13 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import selectinload
 
 from app.models.audit import AuditEvent
+from app.models.identity import User
 from app.models.ingest import IngestTask
 from app.models.llm_usage import LLMUsageEvent
 from app.schemas.enums import AuditAction
 from app.services import generation_models
 from app.services import storage as storage_service
+from app.services.desensitization import NullDesensitizer
 from app.services.job_execution import try_execution_lock
 from app.services.jobs import ingest_processing
 from app.worker import runtime
@@ -60,6 +62,44 @@ async def test_model_wait_returns_business_connection_but_keeps_owner(bounded_jo
     assert pending.result() == "pending_confirmation"
     assert len(calls) == 1
     assert sessions.kw["bind"].pool.checkedout() == 0
+
+
+async def test_inline_caller_keeps_its_records_without_holding_model_transaction(job_db):
+    sessions, storage = job_db
+    async with sessions() as session:
+        caller = await session.get(User, jobs.USER_CONSULTANT)
+        task = IngestTask(
+            source="path_a_wecom",
+            source_file_ref=storage.save(b"synthetic inline caller", original_name="inline.md"),
+            source_file_name="inline.md",
+            source_file_mime_type="text/markdown",
+            created_by=caller.id,
+            status="processing",
+        )
+        session.add(task)
+        await session.commit()
+
+        class Model(TestGenerationLLM):
+            async def chat_completion(self, *args, **kwargs):
+                assert not session.in_transaction()
+                assert caller in session
+                return await super().chat_completion(*args, **kwargs)
+
+        assert (
+            await ingest_processing.process_upload_task(
+                session,
+                task.id,
+                storage=storage,
+                llm=Model(),
+                desensitizer=NullDesensitizer(),
+                trace_id="synthetic-inline",
+            )
+            == "pending_confirmation"
+        )
+        # Inline callers (including WeCom scanning) refresh their own records
+        # after processing each file on this same session.
+        await session.refresh(caller)
+        assert caller.id == jobs.USER_CONSULTANT
 
 
 async def result_state(sessions, task_id):
