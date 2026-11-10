@@ -45,7 +45,8 @@
 
 ## 4. 异步任务与索引运维
 
-- **Celery**（`app/worker/`）：入库处理、解析对账、归档扫描、复用推荐、通知下发、索引批量运维。`CELERY_TASK_ALWAYS_EAGER=true` 时内联同步执行（无需 worker）；接入 worker 时设为 `false` 启用真正异步。生产必须运行轻量 worker、独立 OCR/重型 worker 与 beat。
+- **Celery**（`app/worker/`）：入库处理、解析对账、归档扫描、复用推荐、通知下发、索引批量运维。`CELERY_TASK_ALWAYS_EAGER=true` 时内联同步执行（无需 worker）；接入 worker 时设为 `false` 启用真正异步。生产必须运行轻量 worker、独立 OCR/重型 worker、解析对账 worker 与 beat。
+- **解析对账隔离**：`weknora.parse_reconcile` 经 `CELERY_PARSE_QUEUE`（默认 `parse`）交给独立 `parse_worker`；上传生成、事件投递和心跳继续使用 `default`，重型抽取使用 `ocr`。Compose 默认将原普通 worker 的 1 CPU / 4GiB 分为普通 worker 的 0.75 CPU / 3584MiB 与解析 worker 的 0.25 CPU / 512MiB；已有内存覆盖值需将新增的 512MiB 一起计入总预算。正式发布脚本 `scripts/deploy_release.py` 包含新消费者，手工选择服务时也必须部署它。旧 `default` 中的解析消息仍由原队列排空，不清空 broker。正常停止给解析任务 45 秒退出；子进程异常退出会重新入队，残留的 120 秒租约由后续定时对账接续，终态文档不会重复更新。整台 worker 硬退出时沿用 Redis 的投递恢复机制及每 5 分钟的对账扫描；不缩短共享 broker 的可见性超时。回退到旧版前，应先暂停 beat、让 `parse` 的等待和执行中任务排空，再停止新消费者并恢复旧服务，不能遗留无人消费的队列。
 - **两阶段入库**：人工确认即落库（阶段 1）；推进 WeKnora 索引为阶段 2，建库 / 初始化 / 上传失败不回滚资产，而是标记索引失败并可重试。
 - **索引与解析状态**：`index_status` 的 `indexed` 只表示底座文档已建立；正文解析可读性另由 `weknora_parse_status` 表达。解析失败保持真实 `indexed + failed` 口径并引导重新解析，不伪装成普通索引成功；0 命中维护作业标为 `no_action`。响应 / 审计绝不含 WeKnora kb·doc id / 存储引用 / 原文。
 - **检索可见性**：检索只映射并使用活动版本 `index_status=indexed` 的底座文档；失败 / 跳过的资产不被召回。
@@ -71,7 +72,7 @@
 
 ## 7. 部署 / migration / smoke
 
-- **编排**：`docker-compose.yml`（postgres / redis / migrate / backend / worker / ocr_worker / beat / frontend）。`migrate` 服务一次性执行 `alembic upgrade head`，backend/worker/ocr_worker/beat 依赖其成功后启动。
+- **编排**：`docker-compose.yml`（postgres / redis / migrate / backend / worker / ocr_worker / parse_worker / beat / frontend）。`migrate` 服务一次性执行 `alembic upgrade head`，backend/worker/ocr_worker/parse_worker/beat 依赖其成功后启动。
 - **本地启动**：从仓库根 README 准备根 `.env` 和 `backend/.env`，根配置使用开发模式并设置数据库及 Redis 密码，再运行 `docker compose build` 与 `docker compose up -d --wait`；可选 `docker compose exec backend python -m app.seed.dev_seed`。后端调试端口 `8001`，前端入口 `18080`。
 - **本地 Python**（可选）：推荐 Python 3.12，与 CI/镜像一致。在 `backend/` 创建虚拟环境，执行 `python -m pip install -e ".[dev]"`，配置本机数据库/Redis 后运行 `alembic upgrade head` 和 `uvicorn app.main:app --reload --port 8001`。Linux 可用 `python -m pip install --require-hashes -r requirements-dev.lock` 复现 CI 依赖。OCR/旧版 Office 还依赖系统解析组件，本地完整流程优先用 Docker。
 - **依赖锁定**：生产镜像按带哈希的 `requirements.lock` 安装（再生成命令见该文件头注释）。CI 的 lint / 测试 job 用 `requirements-dev.lock`——以 `-c requirements.lock` 约束、在运行时依赖之上增加 pytest / pytest-asyncio / aiosqlite / ruff，故共享依赖版本与镜像逐一相同。再生成：`uv pip compile pyproject.toml build-requirements.in --extra dev -o requirements-dev.lock --python-version 3.12 --python-platform linux --generate-hashes -c requirements.lock`（也写在文件头注释）。升级运行时依赖时先重生成 `requirements.lock`，再重生成 `requirements-dev.lock`。

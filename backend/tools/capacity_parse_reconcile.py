@@ -90,7 +90,7 @@ async def seed(scenario):
 
 
 async def execute(c, count=1):
-    deliveries = [reconcile_parse.apply_async(queue="default") for _ in range(count)]
+    deliveries = [reconcile_parse.apply_async() for _ in range(count)]
     samples = []
     started = time.monotonic()
     while time.monotonic() - started < 60:

@@ -23,7 +23,9 @@ async def _run(maker, trace_id: str | None) -> None:
         )
 
 
-@celery_app.task(name="weknora.parse_reconcile", bind=True)
+# Only this lease-fenced periodic scan opts into redelivery after a lost child.
+# A killed process's lease expires naturally; subsequent scans reclaim the row.
+@celery_app.task(name="weknora.parse_reconcile", bind=True, reject_on_worker_lost=True)
 def reconcile_parse(self, trace_id: str | None = None) -> None:
     run_task(
         lambda maker: _run(maker, trace_id),
