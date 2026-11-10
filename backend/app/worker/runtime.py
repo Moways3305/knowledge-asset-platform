@@ -57,8 +57,8 @@ def run_task(
                 pool_recycle=settings.db_pool_recycle,
             )
         else:
-            # Ingest has a task-local engine, so idle connections cannot serve a
-            # different worker. Close them on return during slow model calls;
+            # These tasks own their engine, so idle connections cannot serve a
+            # different worker. Close them on return during slow external calls;
             # checked-out ownership/capacity connections remain untouched.
             engine = create_async_engine(
                 settings.database_url,

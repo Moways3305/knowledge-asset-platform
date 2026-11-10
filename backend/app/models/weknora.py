@@ -6,8 +6,8 @@ company 全局）映射到 WeKnora 的知识库 id。
 安全：`weknora_kb_id` 是 WeKnora 底座内部标识，**server-only**，视同 storage_ref，
 绝不进任何 API 响应 / 审计 extra / 日志 / 前端。映射只供后端 scope 路由使用。
 
-唯一约束 `(scope, owner_user_id, project_id)` 保证每个 scope 实体至多一个 KB
-（KB 懒创建幂等的兜底；并发重复确认靠唯一冲突重查）。
+组合唯一约束含可空列，不能阻止 PostgreSQL 中的并发首次建库。
+KB 懒创建及初始化由服务层的作用域锁串行化；历史映射不在此自动合并。
 """
 
 from __future__ import annotations

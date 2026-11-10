@@ -1,7 +1,7 @@
 """scope→KB 映射服务（含初始化）。
 
 把业务 scope 实体映射到 WeKnora 知识库 id；懒创建幂等（同 scope 实体只建一个 KB，
-并发靠唯一约束冲突重查）。映射行**独立提交**（不随后续 asset 上传失败回滚——KB 可复用，
+并发由独立连接持有的作用域锁串行化）。映射行**独立提交**（不随后续 asset 上传失败回滚——KB 可复用，
 不应因单次入库失败而丢弃）。
 
 建 KB 后**立即初始化模型配置**（chat/embedding/rerank/multimodal），确保 KB
@@ -15,16 +15,21 @@ upload，**绝不**写进响应 / 审计 / 日志。模型 id 同为 server-only
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.logging import safe_log_exception
 from app.models.weknora import WeknoraKbMapping
 from app.schemas.enums import KnowledgeScope
+from app.services.job_execution import try_execution_lock
 from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient, WeKnoraError
 from app.services.weknora_model_selection import ResolvedModels
 from app.services.weknora_models import _kb_update_config
@@ -60,20 +65,19 @@ def _locked(existing: WeknoraKbMapping, models: ResolvedModels) -> bool:
 
 
 async def _switch_embedding_model(
-    session: AsyncSession,
     client: WeKnoraClient | NullWeKnoraClient,
-    existing: WeknoraKbMapping,
+    kb_id: str,
     models: ResolvedModels,
     *,
     trace_id: str | None,
 ) -> None:
     """把既有 KB 的 embedding 配置切换到显式指定的新模型（取代旧的锁定拒绝）。
 
-    按当前底座契约 PUT 完整配置（从现有 KB 资源读取合并，避免零值覆盖），成功后回写映射
-    绑定并提交。调用方负责在切换后对存量文档重新解析（重新向量化），新旧向量空间才不会
+    按当前底座契约 PUT 完整配置（从现有 KB 资源读取合并，避免零值覆盖），由调用方重新
+    核对映射后提交绑定。调用方负责对存量文档重新解析（重新向量化），新旧向量空间才不会
     混用。失败抛 WeKnoraError，由调用方进入可诊断的 index_failed（资产保留、可重试）。
     """
-    current_kb = await client.get_kb(existing.weknora_kb_id, trace_id=trace_id)
+    current_kb = await client.get_kb(kb_id, trace_id=trace_id)
     config = _kb_update_config(current_kb)
     if not str(config.get("llmModelId") or "").strip():
         raise WeKnoraError(
@@ -81,11 +85,7 @@ async def _switch_embedding_model(
             "知识库当前未配置问答模型，无法切换嵌入模型",
         )
     config["embeddingModelId"] = models.embedding_model_id
-    await client.update_initialization_config(
-        existing.weknora_kb_id, config=config, trace_id=trace_id
-    )
-    existing.embedding_model_id = models.embedding_model_id
-    await session.commit()
+    await client.update_initialization_config(kb_id, config=config, trace_id=trace_id)
 
 
 async def _write_kb_config_by_ids(
@@ -133,7 +133,94 @@ async def _find(
         stmt = stmt.where(WeknoraKbMapping.project_id.is_(None))
     else:
         stmt = stmt.where(WeknoraKbMapping.project_id == project_id)
-    return (await session.execute(stmt)).scalar_one_or_none()
+    return (
+        await session.execute(stmt.execution_options(populate_existing=True))
+    ).scalar_one_or_none()
+
+
+@asynccontextmanager
+async def _provisioning_lock(
+    session: AsyncSession,
+    scope: str,
+    owner_user_id: uuid.UUID | None,
+    project_id: uuid.UUID | None,
+) -> AsyncIterator[None]:
+    """Serialize first use/configuration without extending a business transaction.
+
+    The composite unique constraint contains NULLs and cannot prevent duplicate
+    first-use mappings on PostgreSQL. All creation entry points use this lock.
+    Other scopes proceed independently; a disconnected owner releases it.
+    """
+    if session.get_bind().dialect.name != "postgresql":
+        yield
+        return
+    identifier = uuid.uuid5(uuid.NAMESPACE_URL, f"kap:kb:{scope}:{owner_user_id}:{project_id}")
+    async with AsyncSession(bind=session.bind) as owner:
+
+        async def acquire() -> None:
+            while not await try_execution_lock(owner, "kb-provision", identifier):
+                # Waiters must not exhaust the pool needed by the current owner
+                # to journal/finish initialization. Only the winner keeps a lease.
+                await owner.rollback()
+                await asyncio.sleep(0.1)
+
+        try:
+            try:
+                await asyncio.wait_for(
+                    acquire(), timeout=min(30, max(0.1, get_settings().weknora_timeout))
+                )
+            except asyncio.TimeoutError as exc:
+                raise WeKnoraError("weknora_kb_busy", "知识库正在初始化，请稍后重试") from exc
+            yield
+        finally:
+            await owner.rollback()
+
+
+async def _initialize_mapping(
+    session: AsyncSession,
+    client: WeKnoraClient | NullWeKnoraClient,
+    mapping: WeknoraKbMapping,
+    models: ResolvedModels,
+    *,
+    trace_id: str | None,
+) -> str:
+    # Capture scalar state before network I/O and refresh under a short row lock
+    # afterwards. Never restore a mapping replaced or migrated during the call.
+    mapping_id = mapping.id
+    kb_id, previous_embedding, status = (
+        mapping.weknora_kb_id,
+        mapping.embedding_model_id,
+        mapping.status,
+    )
+    bound = (
+        models.embedding_model_id
+        if _locked(mapping, models)
+        else (previous_embedding or models.embedding_model_id)
+    )
+    await session.commit()
+    if status == _STATUS_ACTIVE:
+        await _switch_embedding_model(client, kb_id, models, trace_id=trace_id)
+    else:
+        await _write_kb_config_by_ids(
+            client, kb_id, models=models, embedding_model_id=bound, trace_id=trace_id
+        )
+    current = await session.scalar(
+        select(WeknoraKbMapping)
+        .where(WeknoraKbMapping.id == mapping_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if current is None or (current.weknora_kb_id, current.embedding_model_id, current.status) != (
+        kb_id,
+        previous_embedding,
+        status,
+    ):
+        await session.rollback()
+        raise WeKnoraError("weknora_configuration_changed", "知识库配置已变化，请重试")
+    current.embedding_model_id = bound
+    current.status = _STATUS_ACTIVE
+    await session.commit()
+    return kb_id
 
 
 async def resolve_or_create_kb(
@@ -156,7 +243,7 @@ async def resolve_or_create_kb(
     - 命中 active 映射：直接返回（不重复初始化）。explicit_embedding + 模型不匹配 →
       自动切换底座 embedding 配置并回写绑定（存量文档需重新解析以重新向量化）。
     - 命中 init_failed 映射：重试初始化（ensure-initialized），成功翻 active 后返回；失败 raise。
-    - 无映射：create_kb → initialize_kb → 写映射（成功 active / 失败 init_failed 后 raise）。
+    - 无映射：create_kb → 记录 init_failed 映射 → 初始化 → 成功后翻 active。
 
     初始化失败抛 `WeKnoraError`（已持久化 init_failed 映射供重试），由调用方标 index_failed。
 
@@ -172,104 +259,55 @@ async def resolve_or_create_kb(
             "WeKnora 已启用但未配置 embedding 模型，无法初始化知识库",
         )
 
-    existing = await _find(session, scope, owner_user_id, project_id)
-    if existing is not None:
-        if existing.status == "migrating":
-            # 重建迁移期间 fail-closed：新上传/确认暂不接受，避免文档落入迁移中的库。
-            raise WeKnoraError(
-                "weknora_kb_migrating",
-                "知识库正在重建迁移，暂不接受新入库",
-            )
-        if existing.status == _STATUS_ACTIVE:
-            # 显式指定了不同嵌入模型 → 自动切换底座配置并回写绑定（不再锁定拒绝）；
-            # 存量文档需在切换后重新解析以完成重新向量化。
-            # 默认驱动（explicit_embedding=False）永不触发——保留既有 KB。
-            if _locked(existing, models):
-                await _switch_embedding_model(session, client, existing, models, trace_id=trace_id)
-            return existing.weknora_kb_id
-        # init_failed：重试初始化（KB 已存在，只补模型配置）。
-        # 使用已绑定的 embedding id（已建库时确定的模型），chat/rerank/multimodal 用新 models。
-        # 显式指定了不同嵌入模型 → 先切换绑定，再按新绑定初始化；默认驱动可正常恢复。
-        if _locked(existing, models):
-            await _switch_embedding_model(session, client, existing, models, trace_id=trace_id)
-        bound = existing.embedding_model_id or models.embedding_model_id
-        try:
-            await _write_kb_config_by_ids(
-                client,
-                existing.weknora_kb_id,
-                models=models,
-                embedding_model_id=bound,
-                trace_id=trace_id,
-            )
-        except WeKnoraError as exc:
-            _logger.warning(
-                "kb_init_retry_failed",
-                extra={"scope": scope, "error_code": exc.code},
-            )
-            raise
-        existing.status = _STATUS_ACTIVE
-        await session.commit()
-        return existing.weknora_kb_id
+    # Active mappings also wait for an in-flight initialization/model switch.
+    # Release the caller's business transaction before acquiring scope ownership.
+    await session.commit()
+    async with _provisioning_lock(session, scope, owner_user_id, project_id):
+        existing = await _find(session, scope, owner_user_id, project_id)
+        if existing is not None:
+            if existing.status == "migrating":
+                await session.commit()
+                raise WeKnoraError("weknora_kb_migrating", "知识库正在重建迁移，暂不接受新入库")
+            if existing.status == _STATUS_ACTIVE and not _locked(existing, models):
+                kb_id = existing.weknora_kb_id
+                await session.commit()
+                return kb_id
+            return await _initialize_mapping(session, client, existing, models, trace_id=trace_id)
 
-    slug = _kb_name(scope, owner_user_id, project_id)
-    # display_name：personal 必有（给定或默认）；project/company 留空。
-    effective_display = (display_name or "").strip() or None
-    if effective_display is None and scope == KnowledgeScope.personal.value:
-        effective_display = DEFAULT_PERSONAL_KB_NAME
-    # 底座 KB name 用可读名（有则用），否则用 slug（项目/公司懒创建路径）。
-    wk_name = effective_display or slug
-    kb_id = await client.create_kb(
-        name=wk_name, embedding_model_id=models.embedding_model_id, trace_id=trace_id
-    )
-    # 建库后初始化模型配置；失败时不写成 active 假成功，而是持久化 init_failed 供重试。
-    init_error: WeKnoraError | None = None
-    try:
-        await _write_kb_config_by_ids(
-            client,
-            kb_id,
-            models=models,
+        slug = _kb_name(scope, owner_user_id, project_id)
+        effective_display = (display_name or "").strip() or None
+        if effective_display is None and scope == KnowledgeScope.personal.value:
+            effective_display = DEFAULT_PERSONAL_KB_NAME
+        await session.commit()
+        kb_id = await client.create_kb(
+            name=effective_display or slug,
             embedding_model_id=models.embedding_model_id,
             trace_id=trace_id,
         )
-    except WeKnoraError as exc:
-        init_error = exc
-
-    mapping = WeknoraKbMapping(
-        scope=scope,
-        owner_user_id=owner_user_id,
-        project_id=project_id,
-        weknora_kb_id=kb_id,
-        embedding_model_id=models.embedding_model_id,
-        kb_name=slug,
-        display_name=effective_display,
-        status=_STATUS_ACTIVE if init_error is None else _STATUS_INIT_FAILED,
-    )
-    session.add(mapping)
-    try:
-        await session.commit()
-    except IntegrityError:
-        # 并发：另一请求已建映射。回滚本插入，重查取既有 kb_id。
-        await session.rollback()
-        winner = await _find(session, scope, owner_user_id, project_id)
-        if winner is not None:
-            if winner.status == _STATUS_ACTIVE:
-                return winner.weknora_kb_id
-            # 既有映射仍 init_failed：让本次按失败处理（调用方可重试 ensure-initialized）。
-            raise WeKnoraError("weknora_init_failed", "知识库模型初始化未完成") from init_error
-        raise
-    # 仅记 scope + 初始化结果；**绝不**记 weknora_kb_id（server-only）。
-    _logger.info(
-        "kb_created",
-        extra={
-            "scope": scope,
-            "status": "active" if init_error is None else "init_failed",
-            **({"error_code": init_error.code} if init_error is not None else {}),
-        },
-    )
-    if init_error is not None:
-        # 映射已落库为 init_failed，抛出让调用方标 index_failed（资产不回滚）。
-        raise init_error
-    return kb_id
+        # Journal the returned remote identity before initialization. Cancellation
+        # or a timeout during initialization must retry this KB, not create another.
+        mapping = WeknoraKbMapping(
+            scope=scope,
+            owner_user_id=owner_user_id,
+            project_id=project_id,
+            weknora_kb_id=kb_id,
+            embedding_model_id=models.embedding_model_id,
+            kb_name=slug,
+            display_name=effective_display,
+            status=_STATUS_INIT_FAILED,
+        )
+        session.add(mapping)
+        try:
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
+            winner = await _find(session, scope, owner_user_id, project_id)
+            if winner is not None and winner.status == _STATUS_ACTIVE:
+                winner_id = winner.weknora_kb_id
+                await session.commit()
+                return winner_id
+            raise
+        return await _initialize_mapping(session, client, mapping, models, trace_id=trace_id)
 
 
 async def ensure_project_kb(

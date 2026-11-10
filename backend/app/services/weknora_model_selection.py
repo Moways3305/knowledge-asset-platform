@@ -13,9 +13,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services import weknora_defaults
+from app.models.weknora_defaults import WeknoraDefaultModels
 from app.services.weknora_client import WeKnoraError
 from app.services.weknora_models import _alias, _is_valid_model_name, _model_ref
 
@@ -96,6 +97,20 @@ def _require_model(
     return meta
 
 
+async def _default_ids(session: AsyncSession) -> tuple[str | None, ...]:
+    row = (
+        await session.execute(
+            select(
+                WeknoraDefaultModels.default_embedding_model_id,
+                WeknoraDefaultModels.default_chat_model_id,
+                WeknoraDefaultModels.default_rerank_model_id,
+                WeknoraDefaultModels.default_multimodal_model_id,
+            ).limit(1)
+        )
+    ).first()
+    return tuple(row) if row is not None else (None, None, None, None)
+
+
 async def resolve_models_for_kb(
     session: AsyncSession,
     client: WeKnoraClient | NullWeKnoraClient,
@@ -104,17 +119,20 @@ async def resolve_models_for_kb(
     rerank_model_ref: str | None,
     trace_id: str | None,
 ) -> ResolvedModels:
-    defaults = await weknora_defaults.get_defaults(session)
+    defaults = await _default_ids(session)
+    # Callers can own other ORM records on this session. End the transaction,
+    # not the session, before waiting for the foundation's model inventory.
+    await session.commit()
 
     explicit_embedding = bool(embedding_model_ref)
-    default_embedding_id = (defaults.default_embedding_model_id if defaults else None) or ""
+    default_embedding_id = defaults[0] or ""
     if not embedding_model_ref and not default_embedding_id.strip():
         raise WeKnoraError(
             "weknora_default_model_not_configured",
             "尚未配置平台默认嵌入模型，请联系管理员在模型配置中设置",
         )
 
-    chat_id = (defaults.default_chat_model_id if defaults else None) or ""
+    chat_id = defaults[1] or ""
     if not chat_id.strip():
         raise WeKnoraError(
             "weknora_default_model_not_configured",
@@ -126,10 +144,13 @@ async def resolve_models_for_kb(
         filter_knowledge_runtime,
     )
 
+    inventory = await client.list_models(trace_id=trace_id)
+    current_defaults = await _default_ids(session)
     approved_names = await approved_knowledge_names(session)
-    raw_models = await filter_knowledge_runtime(
-        session, await client.list_models(trace_id=trace_id)
-    )
+    raw_models = await filter_knowledge_runtime(session, inventory)
+    await session.commit()
+    if current_defaults != defaults:
+        raise WeKnoraError("weknora_configuration_changed", "模型配置已变化，请重试")
     discovered_models_by_id = {
         meta.model_id: meta
         for meta in (_safe_model_meta(m) for m in raw_models if isinstance(m, dict))
@@ -157,7 +178,7 @@ async def resolve_models_for_kb(
     if rerank_model_ref:
         rerank_id = _resolve_ref(ref_map, rerank_model_ref)
     else:
-        rerank_id = (defaults.default_rerank_model_id if defaults else None) or None
+        rerank_id = defaults[2] or None
     if rerank_id:
         _require_model(
             discovered_models_by_id,
@@ -166,7 +187,7 @@ async def resolve_models_for_kb(
             approved_names=approved_names,
         )
 
-    multimodal_id = (defaults.default_multimodal_model_id if defaults else None) or None
+    multimodal_id = defaults[3] or None
     if multimodal_id:
         _require_model(
             discovered_models_by_id,
