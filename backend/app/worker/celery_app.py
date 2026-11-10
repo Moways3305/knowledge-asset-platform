@@ -53,6 +53,7 @@ def _make_celery() -> Celery:
         task_acks_late=True,
         task_default_queue=s.celery_default_queue,
         task_routes={
+            "weknora.parse_reconcile": {"queue": s.celery_parse_queue},
             "ingest.process_upload": {"queue": s.celery_ocr_queue},
             "ingest.recover_orphans": {"queue": s.celery_default_queue},
         },

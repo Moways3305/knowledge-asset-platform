@@ -42,8 +42,8 @@ _TERMINAL = TERMINAL_PARSE_STATUSES
 # 心跳保留上限（避免表无限增长；运维页只读最近一条）。
 _HEARTBEAT_KEEP = 500
 _LEASE_SECONDS = 120
-# A status lookup should not monopolize the shared default worker queue. The
-# batch deadline also bounds a run containing many independently slow documents.
+# Keep the dedicated parse worker available for later batches. The batch
+# deadline also bounds a run containing many independently slow documents.
 _REQUEST_TIMEOUT_SECONDS = 10
 _BATCH_TIMEOUT_SECONDS = 20
 _MAX_BATCH = 200

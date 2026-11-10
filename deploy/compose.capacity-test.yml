@@ -96,11 +96,19 @@ services:
     mem_limit: 1536m
   light:
     <<: *app
-    command: [celery, -A, capacity_worker:celery_app, worker, -Q, default, --concurrency=2, --prefetch-multiplier=1, --loglevel=WARNING]
+    command: [celery, -A, capacity_worker:celery_app, worker, -Q, default, --hostname=default@%h, --concurrency=2, --prefetch-multiplier=1, --loglevel=WARNING]
     depends_on:
       init: {condition: service_completed_successfully}
-    cpus: 1
-    mem_limit: 768m
+    cpus: 0.75
+    mem_limit: 512m
+  parse:
+    <<: *app
+    command: [celery, -A, capacity_worker:celery_app, worker, -Q, parse, --hostname=parse@%h, --concurrency=1, --prefetch-multiplier=1, --loglevel=WARNING]
+    depends_on:
+      init: {condition: service_completed_successfully}
+    stop_grace_period: 45s
+    cpus: 0.25
+    mem_limit: 256m
   beat:
     <<: *app
     command: [celery, -A, app.worker.celery_app, beat, --schedule=/capacity/beat, --loglevel=WARNING]
