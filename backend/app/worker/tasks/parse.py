@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from sqlalchemy.ext.asyncio import AsyncEngine
+
 from app.worker.celery_app import celery_app
 from app.worker.runtime import run_task
 
@@ -11,8 +13,13 @@ async def _run(maker, trace_id: str | None) -> None:
     from app.services.weknora_client import get_weknora_client
 
     async with maker() as session:
+        # run_task creates an engine exclusively owned by this sequential task.
+        # Dispose only its idle pool during slow HTTP calls; keep fast batches
+        # from opening several fresh PostgreSQL connections per document.
+        engine = session.bind
+        assert isinstance(engine, AsyncEngine)
         await parse_reconcile.reconcile_parse_statuses(
-            session, get_weknora_client(), trace_id=trace_id
+            session, get_weknora_client(), trace_id=trace_id, release_idle=engine.dispose
         )
 
 
@@ -22,5 +29,4 @@ def reconcile_parse(self, trace_id: str | None = None) -> None:
         lambda maker: _run(maker, trace_id),
         label="weknora.parse_reconcile",
         trace_id=trace_id,
-        retain_idle_connections=False,
     )

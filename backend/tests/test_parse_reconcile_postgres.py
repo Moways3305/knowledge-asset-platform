@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 import test_job_execution_postgres as jobs
-from sqlalchemy import select, text
+from sqlalchemy import event, select, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.db.utils import utc_now
@@ -95,12 +95,16 @@ async def test_transport_failure_does_not_abort_remaining_documents(job_db, monk
     async with sessions() as session:
         result = await parse_reconcile.reconcile_parse_statuses(session, Client())
         assert result["failed"] == 1 and result["updated"] == 1
-        rows = list(
+        # Leases are released with a fenced bulk UPDATE. Inspect database values,
+        # not an ORM instance retained by a handled transport exception traceback.
+        tokens = list(
             await session.scalars(
-                select(KnowledgeAssetVersion).where(KnowledgeAssetVersion.id.in_(ids))
+                select(KnowledgeAssetVersion.parse_reconcile_token).where(
+                    KnowledgeAssetVersion.id.in_(ids)
+                )
             )
         )
-        assert all(v.parse_reconcile_token is None for v in rows)
+        assert tokens == [None, None]
 
 
 async def test_batch_count_is_bounded_even_for_large_limit(job_db, monkeypatch):
@@ -297,48 +301,68 @@ async def test_expired_lease_is_reclaimed(job_db, monkeypatch):
         assert result["updated"] == 1 and row.parse_reconcile_token is None
 
 
-async def test_real_worker_retains_no_physical_connections_during_http_wait(job_db, monkeypatch):
+@pytest.mark.parametrize("slow", [True, False])
+async def test_real_worker_reuses_fast_connections_and_releases_slow_waits(
+    job_db, monkeypatch, slow
+):
     sessions, _ = job_db
-    (vid,) = await seed_pending(sessions, 1)
+    ids = await seed_pending(sessions, 1 if slow else 20)
+    vid = ids[0]
     tag = "kap-parse-" + uuid.uuid4().hex
     async with sessions() as session:
         schema = await session.scalar(text("SELECT current_schema()"))
     entered, release = threading.Event(), threading.Event()
+    opened = []
 
     def engine(url, **options):
-        return create_async_engine(
+        owned = create_async_engine(
             url,
             **options,
             connect_args={"server_settings": {"search_path": schema, "application_name": tag}},
         )
+        event.listen(owned.sync_engine, "connect", lambda *_: opened.append(1))
+        return owned
 
     class Client:
         async def get_knowledge(self, knowledge_id, **kwargs):
-            entered.set()
-            await asyncio.to_thread(release.wait)
+            if slow:
+                entered.set()
+                await asyncio.to_thread(release.wait)
             return {"parse_status": "completed"}
 
     monkeypatch.setattr(runtime, "create_async_engine", engine)
     monkeypatch.setattr(
-        runtime, "get_settings", lambda: SimpleNamespace(database_url=sessions.kw["bind"].url)
+        runtime,
+        "get_settings",
+        lambda: SimpleNamespace(
+            database_url=sessions.kw["bind"].url,
+            db_pool_size=5,
+            db_max_overflow=0,
+            db_pool_recycle=1800,
+        ),
     )
     monkeypatch.setattr(weknora_client, "get_weknora_client", lambda: Client())
     monkeypatch.setattr(parse_reconcile, "weknora_enabled", lambda: True)
     pending = asyncio.create_task(asyncio.to_thread(parse_worker.reconcile_parse.run))
     try:
-        assert await asyncio.to_thread(entered.wait, 5)
-        async with sessions() as observer:
-            assert (
-                await observer.scalar(
-                    text("SELECT count(*) FROM pg_stat_activity WHERE application_name=:tag"),
-                    {"tag": tag},
-                )
-                == 0
-            )
-            row = await observer.get(KnowledgeAssetVersion, vid)
-            assert row.parse_reconcile_token and row.parse_reconcile_until > utc_now()
+        if slow:
+            assert await asyncio.to_thread(entered.wait, 5)
+            for _ in range(30):
+                async with sessions() as observer:
+                    connections = await observer.scalar(
+                        text("SELECT count(*) FROM pg_stat_activity WHERE application_name=:tag"),
+                        {"tag": tag},
+                    )
+                if connections == 0:
+                    break
+                await asyncio.sleep(0.05)
+            assert connections == 0
+            async with sessions() as observer:
+                row = await observer.get(KnowledgeAssetVersion, vid)
+                assert row.parse_reconcile_token and row.parse_reconcile_until > utc_now()
         release.set()
         await pending
+        assert len(opened) == (2 if slow else 1)
         async with sessions() as observer:
             row = await observer.get(KnowledgeAssetVersion, vid)
             assert row.index_status == "indexed" and row.parse_reconcile_token is None

@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import timedelta
 
@@ -46,6 +47,30 @@ _LEASE_SECONDS = 120
 _REQUEST_TIMEOUT_SECONDS = 10
 _BATCH_TIMEOUT_SECONDS = 20
 _MAX_BATCH = 200
+_IDLE_RELEASE_DELAY_SECONDS = 0.1
+
+
+async def _get_knowledge(
+    weknora: WeKnoraClient | NullWeKnoraClient,
+    document_id: str,
+    *,
+    trace_id: str | None,
+    release_idle: Callable[[], Awaitable[None]] | None,
+) -> dict:
+    # Only a task-owned engine may provide this callback. Fast status queries
+    # reuse its idle connection; a slow query gives it back to PostgreSQL. There
+    # are no business transactions or concurrent DB operations during this wait.
+    request = asyncio.create_task(weknora.get_knowledge(document_id, trace_id=trace_id))
+    try:
+        if release_idle is not None:
+            done, _ = await asyncio.wait({request}, timeout=_IDLE_RELEASE_DELAY_SECONDS)
+            if not done:
+                await release_idle()
+        return await request
+    finally:
+        if not request.done():
+            request.cancel()
+        await asyncio.gather(request, return_exceptions=True)
 
 
 @asynccontextmanager
@@ -102,6 +127,7 @@ async def reconcile_parse_statuses(
     *,
     trace_id: str | None = None,
     limit: int = 200,
+    release_idle: Callable[[], Awaitable[None]] | None = None,
 ) -> dict:
     """对账一批 pending/processing 版本的解析状态。返回安全计数（无 kb/doc id）。"""
     started = time.perf_counter()
@@ -191,7 +217,12 @@ async def reconcile_parse_statuses(
             upstream_failed = False
             try:
                 data = await asyncio.wait_for(
-                    weknora.get_knowledge(snapshot.weknora_doc_id, trace_id=trace_id),
+                    _get_knowledge(
+                        weknora,
+                        snapshot.weknora_doc_id,
+                        trace_id=trace_id,
+                        release_idle=release_idle,
+                    ),
                     timeout=request_budget,
                 )
             except asyncio.TimeoutError:
