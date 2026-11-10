@@ -4,6 +4,8 @@ from capacity_common import guard
 
 guard()
 
+import capacity_metrics  # noqa: E402, F401
+
 from app.worker import runtime  # noqa: E402
 from app.worker.celery_app import celery_app  # noqa: E402, F401
 

@@ -21,6 +21,8 @@ from capacity_probe import ROOT, client, distribution, drain, login, save
 from sqlalchemy import select, text
 
 guard()
+import capacity_metrics  # noqa: E402, F401
+
 from app.db.session import get_engine, get_sessionmaker  # noqa: E402
 from app.models.identity import Project, ProjectMember, User  # noqa: E402
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion  # noqa: E402
@@ -85,12 +87,22 @@ async def seed():
 async def load(args):
     project_id = json.loads((ROOT / "qa-seed.json").read_text())["project_id"]
     assert 1 <= args.concurrency <= 64 and 1 <= args.seconds <= 120
-    clients = [client() for _ in range(args.concurrency + 3)]
+    search_workers = getattr(args, "search_concurrency", 0)
+    heavy_workers = args.concurrency + search_workers
+    assert 0 <= search_workers and heavy_workers <= 64
+    clients = [client() for _ in range(heavy_workers + 3)]
     stop, samples = asyncio.Event(), []
     timings, statuses, errors = defaultdict(list), defaultdict(Counter), Counter()
+    status_timings = defaultdict(lambda: defaultdict(list))
     denials = Counter()
     uploads = []
     sampler = None
+
+    def metrics_snapshot():
+        return {p.name: json.loads(p.read_text()) for p in ROOT.glob("api-metrics-*.json")}
+
+    metrics_before = metrics_snapshot()
+    wall_started = time.time()
     async with get_sessionmaker()() as session:
         usage_before = dict(
             (
@@ -121,6 +133,23 @@ async def load(args):
                         )
                     )
                 ).all()
+                activity = (
+                    (
+                        await session.execute(
+                            text(
+                                "SELECT pid, state, wait_event_type, wait_event, "
+                                "extract(epoch from clock_timestamp()-xact_start) AS xact_age, "
+                                "extract(epoch from clock_timestamp()-state_change) AS state_age, "
+                                "(regexp_match(query, '(FROM|UPDATE|INTO) ([a-z_]+)'))[2] "
+                                "AS relation FROM pg_stat_activity "
+                                "WHERE datname=current_database() "
+                                "AND application_name='kap-capacity-api' AND state<>'idle'"
+                            )
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
                 worker_rows = (
                     (
                         await session.execute(
@@ -142,6 +171,14 @@ async def load(args):
                 {
                     "elapsed": round(time.monotonic() - started, 3),
                     "states": dict(rows),
+                    "api_activity": [
+                        {
+                            **row,
+                            "xact_age": float(row["xact_age"] or 0),
+                            "state_age": float(row["state_age"] or 0),
+                        }
+                        for row in activity
+                    ],
                     "worker_states": [
                         {**row, "age": float(row["age"]) if row["age"] is not None else None}
                         for row in worker_rows
@@ -155,11 +192,22 @@ async def load(args):
 
     async def operation(c, kind, index):
         tick = time.monotonic()
+        response = None
         try:
             if kind == "qa":
                 response = await c.post(
                     f"/api/v1/projects/{project_id}/qa",
                     json={"query": "Synthetic capacity benchmark question"},
+                )
+            elif kind == "search":
+                response = await c.post(
+                    "/api/v1/knowledge/search",
+                    json={
+                        "query": "Synthetic capacity benchmark question",
+                        "intent": "search",
+                        "scope": "project",
+                        "filters": {"project_id": project_id},
+                    },
                 )
             elif kind == "list":
                 response = await c.get(
@@ -192,6 +240,8 @@ async def load(args):
                     errors["invalid_qa_answer"] += 1
                 elif kind == "list" and len(body.get("items", [])) != 20:
                     errors["incorrect_page"] += 1
+                elif kind == "search" and not body.get("cards"):
+                    errors["invalid_search_cards"] += 1
                 elif kind == "upload":
                     uploads.append(body["ingest_task_id"])
             else:
@@ -211,13 +261,17 @@ async def load(args):
             statuses[kind][type(exc).__name__] += 1
             errors[kind + "_" + type(exc).__name__] += 1
         finally:
-            timings[kind].append(time.monotonic() - tick)
+            elapsed = time.monotonic() - tick
+            timings[kind].append(elapsed)
+            status_timings[kind][
+                str(response.status_code) if response is not None else "transport_error"
+            ].append(elapsed)
 
     async def worker(c, kind, index):
         while time.monotonic() - started < args.seconds:
             await operation(c, kind, index)
             # Bound login attempts/upload volume; QA remains closed-loop.
-            if kind != "qa":
+            if kind not in {"qa", "search"}:
                 await asyncio.sleep(0.5 if kind == "list" else 1)
 
     try:
@@ -241,7 +295,9 @@ async def load(args):
                     c,
                     "qa"
                     if i < args.concurrency
-                    else ("list", "login", "upload")[i - args.concurrency],
+                    else "search"
+                    if i < heavy_workers
+                    else ("list", "login", "upload")[i - heavy_workers],
                     i,
                 )
                 for i, c in enumerate(clients)
@@ -296,9 +352,27 @@ async def load(args):
                 "counts"
             ].get("content", 0)
             assert processing["model_calls"] == len(uploads)
+        await asyncio.sleep(0.2)  # Wait for process-local metric snapshots to flush.
+        measurements = defaultdict(list)
+        metrics_truncated = False
+        metrics_after = metrics_snapshot()
+        for name, snapshot in metrics_after.items():
+            before = metrics_before.get(name, {}).get("counts", {})
+            for key, values in snapshot["metrics"].items():
+                count = snapshot["counts"].get(key, 0) - before.get(key, 0)
+                metrics_truncated |= count > len(values)
+                if count > 0:
+                    measurements[key].extend(v / 1000 for v in values[-count:])
+        worker_metrics = defaultdict(list)
+        for path in ROOT.glob("worker-metrics-*.jsonl"):
+            for line in path.read_text().splitlines():
+                row = json.loads(line)
+                if row["started_at"] >= wall_started:
+                    worker_metrics[f"{row['task']}@{row['queue']}"].append(row)
         report = {
             "label": args.label,
             "qa_concurrency": args.concurrency,
+            "search_concurrency": search_workers,
             "light_workers": 3,
             "requested_seconds": args.seconds,
             "elapsed_seconds": round(elapsed, 2),
@@ -307,7 +381,14 @@ async def load(args):
             "errors": errors,
             "denials": denials,
             "operations": {
-                k: {"requests": len(v), "statuses": statuses[k], **distribution(v)}
+                k: {
+                    "requests": len(v),
+                    "statuses": statuses[k],
+                    **distribution(v),
+                    "latency_by_status": {
+                        code: distribution(items) for code, items in status_timings[k].items()
+                    },
+                }
                 for k, v in timings.items()
             },
             "idle_in_transaction_peak": max(
@@ -322,9 +403,39 @@ async def load(args):
             "upload_task_ids": uploads,
             "upload_acceptance_only": not args.drain_uploads,
             "upload_processing": processing,
+            "api_metrics": {
+                k: {"count": len(v), **distribution(v), "max_ms": round(max(v) * 1000, 3)}
+                for k, v in measurements.items()
+                if v
+            },
+            "api_metrics_truncated": metrics_truncated,
+            "worker_metrics": {
+                key: {
+                    "completed": len(rows),
+                    "states": Counter(r["state"] for r in rows),
+                    "queue": distribution(
+                        [r["queue_seconds"] for r in rows if r["queue_seconds"] is not None]
+                    ),
+                    "runtime": distribution([r["runtime_seconds"] for r in rows]),
+                }
+                for key, rows in worker_metrics.items()
+            },
+            "idle_transaction_max_age_seconds": max(
+                (
+                    r["xact_age"]
+                    for s in samples
+                    for r in s["api_activity"]
+                    if r["state"] == "idle in transaction"
+                ),
+                default=0,
+            ),
         }
         save(f"qa-load-{args.label}", report)
-        assert not errors, dict(errors)
+        if getattr(args, "allow_busy", False):
+            assert set(errors) <= {"qa_http_503", "search_http_503"}, dict(errors)
+            assert sum(errors.values()) == denials.get("search_busy", 0), dict(denials)
+        else:
+            assert not errors, dict(errors)
     finally:
         stop.set()
         if sampler:
@@ -339,9 +450,11 @@ async def main():
     p = sub.add_parser("load")
     p.add_argument("--label", required=True)
     p.add_argument("--concurrency", type=int, default=8)
+    p.add_argument("--search-concurrency", type=int, default=0)
     p.add_argument("--seconds", type=int, default=20)
     p.add_argument("--delay", type=float, default=0.8)
     p.add_argument("--drain-uploads", action="store_true")
+    p.add_argument("--allow-busy", action="store_true", help="Only permit guarded search_busy 503s")
     args = parser.parse_args()
     try:
         await (seed() if args.command == "seed" else load(args))

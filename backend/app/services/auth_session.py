@@ -170,20 +170,30 @@ async def login_with_password(session: AsyncSession, *, email: str, password: st
     """
     from app.services.passwords import dummy_verify_async, verify_password_async
 
-    user = await load_user_with_roles(session, email=email)
-    if user is None:
+    # The endpoint ends its guard-read transaction first. Own this credential
+    # snapshot separately so neither known nor unknown users retain a DB
+    # connection while hashing (including time queued behind other hashes).
+    async with AsyncSession(bind=session.bind) as reads:
+        credentials = (
+            await reads.execute(select(User.id, User.password_hash).where(User.email == email))
+        ).one_or_none()
+    if credentials is None:
         await dummy_verify_async(password)
         raise _InvalidCredentials(user_id=None)
     # 校验密码（无 hash / 非 active 也统一失败；先校验密码再看状态，避免泄露"已设密码"信号）。
-    verified_hash = user.password_hash
+    user_id, verified_hash = credentials
     if not await verify_password_async(password, verified_hash):
-        raise _InvalidCredentials(user_id=user.id)
+        # A deleted user cannot own a failed-attempt foreign key either.
+        exists = await session.scalar(select(User.id).where(User.id == user_id))
+        raise _InvalidCredentials(user_id=exists)
     # Verification yields to other requests. A password reset or deactivation
     # completed during that wait must invalidate this attempt before issuing
     # a session, rather than trusting the pre-verification ORM snapshot.
-    await session.refresh(user, attribute_names=["password_hash", "status"])
-    if user.status != "active" or user.password_hash != verified_hash:
-        raise _InvalidCredentials(user_id=user.id)
+    # Load roles/memberships afresh too: never issue a response using identity
+    # relationships captured before the CPU wait.
+    user = await load_user_with_roles(session, user_id=user_id)
+    if user is None or user.status != "active" or user.password_hash != verified_hash:
+        raise _InvalidCredentials(user_id=user.id if user is not None else None)
     # 仅记 user_id（UUID）；绝不记 email / password / hash。
     _logger.info("login_password_success", extra={"user_id": str(user.id)})
     return user

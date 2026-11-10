@@ -12,4 +12,9 @@ def identify(connection, _record):
     connection.run_async(lambda raw: raw.execute("SET application_name = 'kap-capacity-api'"))
 
 
-from app.main import app as app  # noqa: E402
+from capacity_metrics import MeasuredAPI, install  # noqa: E402
+
+from app.main import app as application  # noqa: E402
+
+install(get_engine().sync_engine)
+app = MeasuredAPI(application)
