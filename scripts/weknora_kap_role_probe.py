@@ -682,7 +682,8 @@ def main():
                         "--concurrency=1",
                         "--pool=prefork",
                         "-Q",
-                        "default,ocr",
+                        # Functional rehearsal only; capacity tests use separate workers.
+                        "default,ocr,parse",
                         "--hostname=kap-rehearsal@fixture",
                         "--without-gossip",
                         "--without-mingle",

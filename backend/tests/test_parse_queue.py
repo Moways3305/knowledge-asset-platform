@@ -1,5 +1,6 @@
 """Publish through Celery's router and guard the matching deployment consumer."""
 
+import ast
 from pathlib import Path
 from queue import Empty
 from uuid import uuid4
@@ -87,6 +88,25 @@ def test_parse_worker_loss_requeues_only_the_idempotent_reconciler():
     assert reconcile_parse.acks_late
     assert reconcile_parse.reject_on_worker_lost
     assert not worker.celery_app.conf.task_reject_on_worker_lost
+
+
+def test_live_upload_rehearsal_consumes_the_new_parse_route():
+    # The functional fixture publishes the real parse task after upload. Without
+    # this consumer it waits forever despite the API and worker both being healthy.
+    source = Path(__file__).resolve().parents[2] / "scripts/weknora_kap_role_probe.py"
+    commands = [
+        [entry.value for entry in node.elts if isinstance(entry, ast.Constant)]
+        for node in ast.walk(ast.parse(source.read_text(encoding="utf-8")))
+        if isinstance(node, ast.List)
+    ]
+    command = next(items for items in commands if "worker" in items and "-Q" in items)
+    queues = set(command[command.index("-Q") + 1].split(","))
+    settings = Settings(_env_file=None)
+    assert {
+        settings.celery_default_queue,
+        settings.celery_ocr_queue,
+        settings.celery_parse_queue,
+    } <= queues
 
 
 def test_compose_dedicated_consumer_is_bounded_and_checked_by_its_own_name():
