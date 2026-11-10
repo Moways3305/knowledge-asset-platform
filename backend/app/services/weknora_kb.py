@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from sqlalchemy import select
@@ -138,7 +139,12 @@ async def _find(
 
 
 @asynccontextmanager
-async def _provisioning_lock(session, scope, owner_user_id, project_id):
+async def _provisioning_lock(
+    session: AsyncSession,
+    scope: str,
+    owner_user_id: uuid.UUID | None,
+    project_id: uuid.UUID | None,
+) -> AsyncIterator[None]:
     """Serialize first use/configuration without extending a business transaction.
 
     The composite unique constraint contains NULLs and cannot prevent duplicate
@@ -151,7 +157,7 @@ async def _provisioning_lock(session, scope, owner_user_id, project_id):
     identifier = uuid.uuid5(uuid.NAMESPACE_URL, f"kap:kb:{scope}:{owner_user_id}:{project_id}")
     async with AsyncSession(bind=session.bind) as owner:
 
-        async def acquire():
+        async def acquire() -> None:
             while not await try_execution_lock(owner, "kb-provision", identifier):
                 # Waiters must not exhaust the pool needed by the current owner
                 # to journal/finish initialization. Only the winner keeps a lease.
@@ -170,7 +176,14 @@ async def _provisioning_lock(session, scope, owner_user_id, project_id):
             await owner.rollback()
 
 
-async def _initialize_mapping(session, client, mapping, models, *, trace_id):
+async def _initialize_mapping(
+    session: AsyncSession,
+    client: WeKnoraClient | NullWeKnoraClient,
+    mapping: WeknoraKbMapping,
+    models: ResolvedModels,
+    *,
+    trace_id: str | None,
+) -> str:
     # Capture scalar state before network I/O and refresh under a short row lock
     # afterwards. Never restore a mapping replaced or migrated during the call.
     mapping_id = mapping.id

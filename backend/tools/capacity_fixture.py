@@ -232,8 +232,8 @@ async def kb(kb_id: str):
 
 @app.post("/api/v1/knowledge-bases")
 async def create_kb(request: Request):
-    await indexing_wait(request, "create")
     body = await request.json()
+    await indexing_wait(request, "create")
     key = "capacity-created-" + uuid.uuid4().hex
     kbs[key] = {**body, "id": key}
     return wrap(kbs[key])
@@ -241,8 +241,9 @@ async def create_kb(request: Request):
 
 @app.put("/api/v1/initialization/config/{kb_id}")
 async def update_kb(kb_id: str, request: Request):
+    body = await request.json()
     await indexing_wait(request, "initialize")
-    kbs[kb_id].update(await request.json())
+    kbs[kb_id].update(body)
     return wrap(kbs[kb_id])
 
 

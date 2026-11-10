@@ -34,11 +34,14 @@ from app.worker.tasks.indexing import run_indexing_operation  # noqa: E402
 async def make_jobs(assets):
     ids = []
     async with get_sessionmaker()() as session:
+        actor_id = await session.scalar(select(User.id).where(User.email == email(98)))
+        assert actor_id is not None
         for asset_id in assets:
             job = IndexingOperationJob(
                 operation_type="retry_index",
                 status="queued",
                 target_asset_id=asset_id,
+                requested_by_user_id=actor_id,
                 scope_filter={"limit": 1},
                 trace_id="synthetic-index-capacity",
             )
@@ -110,8 +113,9 @@ async def seed(count, missing_kb):
 
 
 async def execute(c, ids):
-    for jid in ids:
-        run_indexing_operation.apply_async(args=[str(jid)], queue="default")
+    deliveries = [
+        run_indexing_operation.apply_async(args=[str(jid)], queue="default") for jid in ids
+    ]
     samples = []
     deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
@@ -143,7 +147,24 @@ async def execute(c, ids):
                 for j in jobs
             ]
         samples.append({"inflight": fixture["inflight"], "connections": [dict(r) for r in rows]})
-        if all(j["status"] not in {"queued", "running"} for j in states):
+        if all(j["status"] not in {"queued", "running"} for j in states) and all(
+            delivery.ready() for delivery in deliveries
+        ):
+            assert all(delivery.successful() for delivery in deliveries), (
+                "A terminal job record is not proof that the worker completed its audit"
+            )
+            async with get_sessionmaker()() as session:
+                audits = list(
+                    await session.execute(
+                        text(
+                            "SELECT target_id,count(*) FROM audit_events "
+                            "WHERE target_id=ANY(CAST(:ids AS uuid[])) "
+                            "AND action='knowledge.index_target_retry_completed' GROUP BY target_id"
+                        ),
+                        {"ids": [str(jid) for jid in ids]},
+                    )
+                )
+                assert len(audits) == len(ids) and all(row[1] == 1 for row in audits)
             return states, samples
         await asyncio.sleep(0.1)
     raise RuntimeError("Synthetic index jobs did not finish within the observation deadline")
@@ -206,6 +227,8 @@ async def run(args):
                 "initial_failures": failed,
                 "all_indexed": True,
                 "duplicate_delivery_no_provider_calls": True,
+                "worker_deliveries_succeeded": True,
+                "one_completion_audit_per_job": True,
                 "mapping_count": mapping_count,
                 "provider_calls": delta,
                 "samples": samples,
