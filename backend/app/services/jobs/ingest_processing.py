@@ -17,12 +17,14 @@ weknora id / api_key。
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import inspect
 import logging
 import re
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import timedelta
 
 from sqlalchemy import select, update
@@ -71,6 +73,12 @@ from app.services.storage import LocalFileStorage
 from app.worker.enqueue import enqueue_outbox_delivery
 
 _logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _AttemptState:
+    model_attempted: bool = False
+    generation_snapshot: IngestTask | None = None
 
 
 def _set_stage(task: IngestTask, stage: str) -> None:
@@ -219,6 +227,38 @@ async def _reusable_ai_draft(
     return None
 
 
+async def _reload_generation_task(session: AsyncSession, snapshot: IngestTask) -> IngestTask | str:
+    """Lock fresh state after model I/O; never merge a detached task back into DB."""
+    current = await session.scalar(
+        select(IngestTask)
+        .where(IngestTask.id == snapshot.id)
+        .options(selectinload(IngestTask.ai_result), selectinload(IngestTask.canonical_markdown))
+        .with_for_update()
+    )
+    if current is None:
+        await session.rollback()
+        return "not_found"
+    # A cancellation still records the completed provider request's usage, but
+    # acknowledge_if_requested prevents publishing its generated content.
+    if not current.cancel_requested and any(
+        getattr(current, field) != getattr(snapshot, field)
+        for field in (
+            "status",
+            "processing_attempt",
+            "processing_job_id",
+            "processing_worker_id",
+            "source_file_hash",
+            "source_file_ref",
+            "target_scope",
+            "target_project_id",
+        )
+    ):
+        status = current.status
+        await session.rollback()
+        return status
+    return current
+
+
 def _apply_ai_result(task: IngestTask, ai: dict) -> None:
     """把内容处理草稿 upsert 到 task.ai_result（已存在则更新，**不新建第二行**）。"""
     result = task.ai_result
@@ -265,9 +305,16 @@ async def _terminalize_persistence_failure(
     model: str | None,
     model_attempted: bool = False,
     failure_stage: str = "processing_state_persistence_failed",
+    expected_snapshot: IngestTask | None = None,
 ) -> str:
     """Rollback first, then persist a safe per-file terminal state and usage evidence."""
     await session.rollback()
+    if expected_snapshot is not None:
+        current = await _reload_generation_task(session, expected_snapshot)
+        if isinstance(current, str):
+            return current
+        if await acknowledge_if_requested(session, current, lock=True):
+            return IngestStatus.cancelled.value
     await session.execute(
         update(IngestTask)
         .where(IngestTask.id == task_id)
@@ -308,7 +355,7 @@ async def _process_upload_task_impl(
     llm: LLMClient | NullLLMClient,
     desensitizer: DesensitizationEngine,
     trace_id: str | None,
-    attempt_state: dict[str, bool],
+    attempt_state: _AttemptState,
     worker_id: str | None,
     job_id: str | None,
 ) -> str:
@@ -363,6 +410,7 @@ async def _process_upload_task_impl(
     actor = await _build_actor(session, task)
 
     model_attempted = False
+    generation_snapshot: IngestTask | None = None
 
     # ---- 分阶段恢复：已持久化的抽取/OCR/Markdown 事实绝不重做。----
     try:
@@ -746,6 +794,13 @@ async def _process_upload_task_impl(
             content_hash=content_hash,
             fingerprint=generation_fingerprint,
         )
+        cache_hit = ai is not None
+        generation_snapshot = task
+        attempt_state.generation_snapshot = task
+        # The cache lookup starts a new transaction after the stage checkpoint.
+        # Detach the loaded snapshot and end that transaction before model I/O.
+        # The worker's separate processing_slot still owns its task/capacity locks.
+        await session.close()
         if ai is not None:
             content_meta = {
                 "status": "llm",
@@ -756,20 +811,11 @@ async def _process_upload_task_impl(
                 "desensitization_status": "not_applicable",
                 "desensitization_counts": None,
             }
-            await llm_usage.record(
-                session,
-                scenario="content_generation",
-                provider=getattr(llm, "provider", None),
-                model=getattr(llm, "model", None),
-                batch_size=1,
-                cache_status="hit",
-                outcome="cache_hit",
-            )
         else:
             model_attempted = extraction.status == "extracted" and not isinstance(
                 llm, NullLLMClient
             )
-            attempt_state["model_attempted"] = model_attempted
+            attempt_state.model_attempted = model_attempted
             ai, content_meta = await content_processing.process_content(
                 llm,
                 desensitizer,
@@ -781,35 +827,45 @@ async def _process_upload_task_impl(
                 target_scope=target_scope,
                 target_project_id=target_project,
             )
-            if extraction.status == "extracted" and not isinstance(llm, NullLLMClient):
-                usage_requests = content_meta.get("usage_requests")
-                if not isinstance(usage_requests, list) or not usage_requests:
-                    usage_requests = [
-                        {
-                            "outcome": (
-                                "success" if content_meta.get("status") == "llm" else "failure"
-                            ),
-                            "usage": content_meta.get("usage"),
-                        }
-                    ]
-                for usage_request in usage_requests:
-                    await llm_usage.record(
-                        session,
-                        scenario="content_generation",
-                        provider=content_meta.get("provider") or getattr(llm, "provider", None),
-                        model=content_meta.get("model") or getattr(llm, "model", None),
-                        batch_size=1,
-                        cache_status="miss",
-                        outcome=(
-                            "success"
-                            if isinstance(usage_request, dict)
-                            and usage_request.get("outcome") == "success"
-                            else "failure"
-                        ),
-                        usage=(
-                            usage_request.get("usage") if isinstance(usage_request, dict) else None
-                        ),
-                    )
+        current = await _reload_generation_task(session, generation_snapshot)
+        if isinstance(current, str):
+            return current
+        task = current
+        if cache_hit:
+            await llm_usage.record(
+                session,
+                scenario="content_generation",
+                provider=getattr(llm, "provider", None),
+                model=getattr(llm, "model", None),
+                batch_size=1,
+                cache_status="hit",
+                outcome="cache_hit",
+            )
+        elif model_attempted:
+            usage_requests = content_meta.get("usage_requests")
+            if not isinstance(usage_requests, list) or not usage_requests:
+                usage_requests = [
+                    {
+                        "outcome": "success" if content_meta.get("status") == "llm" else "failure",
+                        "usage": content_meta.get("usage"),
+                    }
+                ]
+            for usage_request in usage_requests:
+                await llm_usage.record(
+                    session,
+                    scenario="content_generation",
+                    provider=content_meta.get("provider") or getattr(llm, "provider", None),
+                    model=content_meta.get("model") or getattr(llm, "model", None),
+                    batch_size=1,
+                    cache_status="miss",
+                    outcome=(
+                        "success"
+                        if isinstance(usage_request, dict)
+                        and usage_request.get("outcome") == "success"
+                        else "failure"
+                    ),
+                    usage=usage_request.get("usage") if isinstance(usage_request, dict) else None,
+                )
         if await acknowledge_if_requested(session, task, lock=True):
             return IngestStatus.cancelled.value
     except Exception as exc:  # noqa: BLE001  # 瞬时处理失败 → 可重试
@@ -821,11 +877,18 @@ async def _process_upload_task_impl(
                 provider=getattr(llm, "provider", None),
                 model=getattr(llm, "model", None),
                 model_attempted=model_attempted,
+                expected_snapshot=generation_snapshot,
             )
         # Even non-database failures may leave pending ORM mutations. Always rollback before
         # writing retry state so a prior failed/partial transaction cannot poison this commit.
         await session.rollback()
-        clean_task = await session.get(IngestTask, task_id)
+        clean_task = (
+            await _reload_generation_task(session, generation_snapshot)
+            if generation_snapshot is not None
+            else await session.get(IngestTask, task_id)
+        )
+        if isinstance(clean_task, str):
+            return clean_task
         if clean_task is None:
             return "not_found"
         if await acknowledge_if_requested(session, clean_task, lock=True):
@@ -879,6 +942,7 @@ async def _process_upload_task_impl(
                 provider=getattr(llm, "provider", None),
                 model=getattr(llm, "model", None),
                 model_attempted=model_attempted,
+                expected_snapshot=generation_snapshot,
             )
         if exhausted:
             await enqueue_outbox_delivery(session)
@@ -933,11 +997,12 @@ async def _process_upload_task_impl(
         safe_log_exception(_logger, "ingest_result_persistence_failed", exc, include_summary=False)
         return await _terminalize_persistence_failure(
             session,
-            task_id=task.id,
+            task_id=task_id,
             provider=content_meta.get("provider") or getattr(llm, "provider", None),
             model=content_meta.get("model") or getattr(llm, "model", None),
             model_attempted=model_attempted,
             failure_stage="content_result_persistence_failed",
+            expected_snapshot=generation_snapshot,
         )
 
     if extraction.status == "extracted":
@@ -990,11 +1055,12 @@ async def _process_upload_task_impl(
         safe_log_exception(_logger, "ingest_result_commit_failed", exc, include_summary=False)
         return await _terminalize_persistence_failure(
             session,
-            task_id=task.id,
+            task_id=task_id,
             provider=content_meta.get("provider") or getattr(llm, "provider", None),
             model=content_meta.get("model") or getattr(llm, "model", None),
             model_attempted=model_attempted,
             failure_stage="content_result_persistence_failed",
+            expected_snapshot=generation_snapshot,
         )
     if failed:
         await enqueue_outbox_delivery(session)
@@ -1013,7 +1079,7 @@ async def process_upload_task(
     job_id: str | None = None,
 ) -> str:
     """Fail-safe wrapper also covers initial task/actor database reads."""
-    attempt_state = {"model_attempted": False}
+    attempt_state = _AttemptState()
     try:
         return await _process_upload_task_impl(
             session,
@@ -1026,6 +1092,9 @@ async def process_upload_task(
             worker_id=worker_id,
             job_id=job_id,
         )
+    except asyncio.CancelledError:
+        await session.rollback()
+        raise
     except SQLAlchemyError as exc:
         safe_log_exception(_logger, "ingest_database_operation_failed", exc, include_summary=False)
         return await _terminalize_persistence_failure(
@@ -1033,5 +1102,6 @@ async def process_upload_task(
             task_id=task_id,
             provider=getattr(llm, "provider", None),
             model=getattr(llm, "model", None),
-            model_attempted=attempt_state["model_attempted"],
+            model_attempted=attempt_state.model_attempted,
+            expected_snapshot=attempt_state.generation_snapshot,
         )

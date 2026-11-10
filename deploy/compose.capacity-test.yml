@@ -89,14 +89,14 @@ services:
     mem_limit: 1g
   worker:
     <<: *app
-    command: [celery, -A, app.worker.celery_app, worker, -Q, ocr, --concurrency=4, --prefetch-multiplier=1, --loglevel=WARNING]
+    command: [celery, -A, capacity_worker:celery_app, worker, -Q, ocr, --concurrency=4, --prefetch-multiplier=1, --loglevel=WARNING]
     depends_on:
       init: {condition: service_completed_successfully}
     cpus: 2
     mem_limit: 1536m
   light:
     <<: *app
-    command: [celery, -A, app.worker.celery_app, worker, -Q, default, --concurrency=2, --prefetch-multiplier=1, --loglevel=WARNING]
+    command: [celery, -A, capacity_worker:celery_app, worker, -Q, default, --concurrency=2, --prefetch-multiplier=1, --loglevel=WARNING]
     depends_on:
       init: {condition: service_completed_successfully}
     cpus: 1
