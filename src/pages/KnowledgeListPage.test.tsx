@@ -546,7 +546,7 @@ describe("KnowledgeListPage reference implementation", () => {
     expect(await screen.findByRole("table", { name: "知识资产列表" })).toBeInTheDocument();
   });
 
-  it("discards a content-search response after leaving its directory", async () => {
+  it("aborts and discards a content-search response after leaving its directory", async () => {
     let resolveSearch!: (result: Awaited<ReturnType<typeof searchKnowledge>>) => void;
     vi.mocked(searchKnowledge).mockImplementationOnce(
       () =>
@@ -561,7 +561,10 @@ describe("KnowledgeListPage reference implementation", () => {
       target: { value: "唯一正文编号" },
     });
     fireEvent.click(screen.getByRole("button", { name: "检索内容" }));
+    const signal = vi.mocked(searchKnowledge).mock.calls[0][1]!;
+    expect(signal.aborted).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "知识资产库" }));
+    expect(signal.aborted).toBe(true);
     await act(async () =>
       resolveSearch({
         intent: "search",
@@ -579,6 +582,51 @@ describe("KnowledgeListPage reference implementation", () => {
     expect(screen.getByRole("button", { name: "检索内容" })).toBeEnabled();
   });
 
+  it.each(["unmount", "mode"])(
+    "aborts content search on %s without showing an error",
+    async (exit) => {
+      vi.mocked(searchKnowledge).mockImplementationOnce(
+        (_input, signal) =>
+          new Promise((_resolve, reject) => {
+            signal?.addEventListener("abort", () =>
+              reject(new DOMException("Aborted", "AbortError")),
+            );
+          }),
+      );
+      const page = renderPage();
+      await screen.findByText(restrictedAsset.title);
+      fireEvent.click(screen.getByRole("button", { name: "正文与摘要" }));
+      fireEvent.change(screen.getByLabelText("正文关键词或内容描述"), {
+        target: { value: "合成检索" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "检索内容" }));
+      const signal = vi.mocked(searchKnowledge).mock.calls[0][1]!;
+      if (exit === "unmount") page.unmount();
+      else fireEvent.click(screen.getByRole("button", { name: "标题与标签" }));
+      await waitFor(() => expect(signal.aborted).toBe(true));
+      expect(screen.queryByText("内容检索暂时无法完成，请重试。")).not.toBeInTheDocument();
+    },
+  );
+
+  it.each([
+    [503, "search_busy", "检索服务繁忙，请稍后重试。"],
+    [504, "search_timeout", "检索处理超时，请稍后重试。"],
+  ])("shows a safe %s message without automatic retry", async (status, reason, message) => {
+    vi.mocked(searchKnowledge).mockRejectedValueOnce(
+      new ApiError(Number(status), "private upstream", String(reason)),
+    );
+    renderPage("/knowledge");
+    await screen.findByLabelText("正文关键词或内容描述");
+    fireEvent.change(screen.getByLabelText("正文关键词或内容描述"), {
+      target: { value: "合成检索" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "检索内容" }));
+    expect(await screen.findByText(String(message))).toBeInTheDocument();
+    expect(screen.queryByText("private upstream")).not.toBeInTheDocument();
+    expect(searchKnowledge).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "检索内容" })).toBeEnabled();
+  });
+
   it("searches all visible scopes only after the user submits the home search", async () => {
     renderPage("/knowledge");
     await screen.findByLabelText("正文关键词或内容描述");
@@ -589,16 +637,19 @@ describe("KnowledgeListPage reference implementation", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "检索内容" }));
     await waitFor(() =>
-      expect(searchKnowledge).toHaveBeenCalledWith({
-        query: "跨目录方法",
-        scope: "all",
-        intent: "search",
-        filters: {
-          include_archived: false,
-          directory_key: undefined,
-          project_id: undefined,
+      expect(searchKnowledge).toHaveBeenCalledWith(
+        {
+          query: "跨目录方法",
+          scope: "all",
+          intent: "search",
+          filters: {
+            include_archived: false,
+            directory_key: undefined,
+            project_id: undefined,
+          },
         },
-      }),
+        expect.any(AbortSignal),
+      ),
     );
     expect(fetchKnowledgePage).not.toHaveBeenCalled();
   });
@@ -1081,16 +1132,19 @@ describe("KnowledgeListPage reference implementation", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "检索内容" }));
     await waitFor(() =>
-      expect(searchKnowledge).toHaveBeenCalledWith({
-        query: "项目复盘方法",
-        scope: "company",
-        intent: "search",
-        filters: {
-          include_archived: false,
-          directory_key: "company.methodology",
-          project_id: null,
+      expect(searchKnowledge).toHaveBeenCalledWith(
+        {
+          query: "项目复盘方法",
+          scope: "company",
+          intent: "search",
+          filters: {
+            include_archived: false,
+            directory_key: "company.methodology",
+            project_id: null,
+          },
         },
-      }),
+        expect.any(AbortSignal),
+      ),
     );
     expect(await screen.findByText("当前检索没有匹配结果")).toBeInTheDocument();
     expect(screen.queryByText("当前条件没有匹配资料")).not.toBeInTheDocument();

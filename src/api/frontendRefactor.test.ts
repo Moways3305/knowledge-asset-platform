@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { apiUpload, clearCsrfToken } from "./http";
-import { createKnowledgeDirectory, fetchPreviewEntry } from "./knowledge";
+import { createKnowledgeDirectory, fetchPreviewEntry, searchKnowledge } from "./knowledge";
 import { fetchReview } from "./review";
 import {
   decideMcpConsent,
@@ -9,6 +9,7 @@ import {
   revokeMcpOAuthGrant,
 } from "./mcpOAuth";
 import { fetchPreviewText } from "./preview";
+import { projectQa } from "./project";
 
 const fetcher = vi.fn<typeof fetch>();
 beforeEach(() => {
@@ -72,6 +73,59 @@ describe("shared multipart transport", () => {
 });
 
 describe("extracted domain adapters", () => {
+  it("passes project QA cancellation to the HTTP transport", async () => {
+    const signal = new AbortController().signal;
+    await projectQa("project-id", { query: "synthetic", modelRef: "synthetic-model" }, signal);
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/projects/project-id/qa",
+      expect.objectContaining({
+        signal,
+        body: JSON.stringify({
+          query: "synthetic",
+          model_ref: "synthetic-model",
+          capability: "qa",
+        }),
+      }),
+    );
+  });
+  it("preserves the search abort signal through one CSRF refresh", async () => {
+    const controller = new AbortController();
+    let posts = 0;
+    fetcher.mockImplementation(async (url, init) => {
+      if (String(url).endsWith("/csrf"))
+        return new Response(JSON.stringify({ csrf_token: "synthetic" }));
+      if (++posts === 1)
+        return new Response(JSON.stringify({ detail: { denied_reason: "csrf_token_mismatch" } }), {
+          status: 403,
+        });
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () =>
+          reject(new DOMException("Aborted", "AbortError")),
+        );
+      });
+    });
+    const pending = searchKnowledge({ query: "synthetic", intent: "search" }, controller.signal);
+    const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    await vi.waitFor(() => expect(posts).toBe(2));
+    controller.abort();
+    await rejected;
+    const requests = fetcher.mock.calls.filter(([, init]) => init?.method === "POST");
+    expect(requests).toHaveLength(2);
+    requests.forEach(([, init]) => expect(init?.signal).toBe(controller.signal));
+  });
+
+  it.each([503, 504])("does not retry search after HTTP %s", async (status) => {
+    fetcher.mockImplementation(async (url) =>
+      String(url).endsWith("/csrf")
+        ? new Response(JSON.stringify({ csrf_token: "synthetic" }))
+        : new Response(JSON.stringify({ detail: { denied_reason: "search_busy" } }), { status }),
+    );
+    await expect(searchKnowledge({ query: "synthetic", intent: "search" })).rejects.toMatchObject({
+      status,
+    });
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  });
+
   it("loads a specific review with cookies without querying a list", async () => {
     await fetchReview("id/with space");
     expect(fetcher).toHaveBeenCalledTimes(1);

@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { Link, MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ProjectOverviewPage from "./ProjectOverviewPage";
+import { ApiError } from "../api/http";
 
 const api = vi.hoisted(() => ({
   fetchProjects: vi.fn(),
@@ -349,10 +350,14 @@ describe("ProjectOverviewPage project assistant workspace", () => {
     );
     expect(screen.getByText("资料区")).toBeInTheDocument();
     expect(screen.getByText("内容待审核，请谨慎参考")).toBeInTheDocument();
-    expect(api.projectQa).toHaveBeenCalledWith(PROJECT_A, {
-      query: "客户当前最关注什么？",
-      modelRef: "qa-default-secret",
-    });
+    expect(api.projectQa).toHaveBeenCalledWith(
+      PROJECT_A,
+      {
+        query: "客户当前最关注什么？",
+        modelRef: "qa-default-secret",
+      },
+      expect.any(AbortSignal),
+    );
     expect(document.body).not.toHaveTextContent(
       /call-secret-78|trace-secret-78|qa-default-secret|allowed|asset-secret-78|summary|original text/,
     );
@@ -439,15 +444,56 @@ describe("ProjectOverviewPage project assistant workspace", () => {
     fireEvent.change(input, { target: { value: "项目 A 的风险？" } });
     fireEvent.click(screen.getByRole("button", { name: "提问" }));
     expect(screen.getByText("项目 A 的风险？")).toBeInTheDocument();
+    const signal = api.projectQa.mock.calls[0][2] as AbortSignal;
+    expect(signal.aborted).toBe(false);
 
     fireEvent.change(screen.getByLabelText("切换项目"), { target: { value: PROJECT_B } });
     expect(await screen.findByRole("heading", { name: "年度辅导项目" })).toBeInTheDocument();
+    expect(signal.aborted).toBe(true);
     expect(screen.queryByText("项目 A 的风险？")).not.toBeInTheDocument();
     expect(screen.getByText("可以围绕“年度辅导项目”的项目知识提问。")).toBeInTheDocument();
     lateAnswer.resolve(qaAnswer);
 
     await waitFor(() => expect(screen.queryByText(qaAnswer.response_text)).not.toBeInTheDocument());
     expect(api.fetchProjectQaModelOptions).toHaveBeenLastCalledWith(PROJECT_B);
+  });
+
+  it.each(["unmount", "overview"])("cancels the pending question on %s", async (exit) => {
+    api.projectQa.mockImplementationOnce(
+      (_project, _body, signal: AbortSignal) =>
+        new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+        }),
+    );
+    const page = renderPage();
+    const input = await screen.findByRole("textbox", { name: "向项目 AI 助手提问" });
+    fireEvent.change(input, { target: { value: "合成问题" } });
+    fireEvent.click(screen.getByRole("button", { name: "提问" }));
+    const signal = api.projectQa.mock.calls[0][2] as AbortSignal;
+    if (exit === "unmount") page.unmount();
+    else fireEvent.click(screen.getByRole("link", { name: "项目概览" }));
+    await waitFor(() => expect(signal.aborted).toBe(true));
+    if (exit === "overview") {
+      fireEvent.click(screen.getByRole("link", { name: "项目问答" }));
+      expect(await screen.findByRole("textbox", { name: "向项目 AI 助手提问" })).toBeEnabled();
+      expect(screen.queryByText("问答未成功")).not.toBeInTheDocument();
+    }
+  });
+
+  it.each([
+    [503, "search_busy", "问答服务繁忙，请稍后重试。"],
+    [504, "search_timeout", "问答处理超时，请稍后重试。"],
+  ])("handles %s without automatic resubmission", async (status, reason, message) => {
+    api.projectQa.mockRejectedValueOnce(
+      new ApiError(Number(status), "private detail", String(reason)),
+    );
+    renderPage();
+    const input = await screen.findByRole("textbox", { name: "向项目 AI 助手提问" });
+    fireEvent.change(input, { target: { value: "合成问题" } });
+    fireEvent.click(screen.getByRole("button", { name: "提问" }));
+    expect(await screen.findByText(String(message))).toBeInTheDocument();
+    expect(api.projectQa).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("private detail")).not.toBeInTheDocument();
   });
 
   it("keeps project list, inaccessible and overview failures separate and retryable", async () => {

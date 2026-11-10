@@ -7,11 +7,13 @@ fake success. No real model credentials, external requests or business data.
 import asyncio
 import hashlib
 import json
+import time
 from collections import Counter
 
 import uvicorn
 from capacity_common import guard
 from fastapi import FastAPI, HTTPException, Request
+from starlette.responses import Response
 
 guard()
 app = FastAPI()
@@ -21,6 +23,17 @@ peak = Counter()
 settings = {"llm_delay": 0.05, "search_delay": 0.05}
 docs = {}
 kbs = {}
+
+
+async def delay(request, kind, seconds):
+    """Observe socket closure, not a guarantee that real providers stop computing."""
+    until = time.monotonic() + seconds
+    while time.monotonic() < until:
+        if await request.is_disconnected():
+            counts[kind + "_disconnected"] += 1
+            return False
+        await asyncio.sleep(min(0.05, max(0, until - time.monotonic())))
+    return True
 
 
 def wrap(value):
@@ -58,7 +71,8 @@ async def llm(request: Request):
     inflight[kind] += 1
     peak[kind] = max(peak[kind], inflight[kind])
     try:
-        await asyncio.sleep(settings["llm_delay"])
+        if not await delay(request, kind, settings["llm_delay"]):
+            return Response(status_code=499)
         value = (
             {"queries": []}
             if kind == "planning"
@@ -113,7 +127,13 @@ async def batch(request: Request):
 async def search(request: Request):
     counts["search"] += 1
     body = await request.json()
-    await asyncio.sleep(settings["search_delay"])
+    inflight["search"] += 1
+    peak["search"] = max(peak["search"], inflight["search"])
+    try:
+        if not await delay(request, "search", settings["search_delay"]):
+            return Response(status_code=499)
+    finally:
+        inflight["search"] -= 1
     allowed = set(body.get("knowledge_base_ids", []))
     ids = body.get("knowledge_ids")
     matches = [

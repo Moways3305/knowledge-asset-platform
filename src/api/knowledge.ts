@@ -258,8 +258,11 @@ export async function fetchKnowledgeOpsInsights(params?: {
 
 // 统一语义检索 / 问答。后端经权限网关裁剪、脱敏与审计，响应只含安全字段
 // （业务标识 + 安全摘要 + 相关度 + 脱敏引用），不含任何 WeKnora id / storage 引用 / 原文全文。
-export async function searchKnowledge(input: SearchRequestDTO): Promise<SearchResponseDTO> {
-  return apiPost<SearchResponseDTO>(`/api/v1/knowledge/search`, input);
+export async function searchKnowledge(
+  input: SearchRequestDTO,
+  signal?: AbortSignal,
+): Promise<SearchResponseDTO> {
+  return apiPost<SearchResponseDTO>(`/api/v1/knowledge/search`, input, {}, signal);
 }
 
 // ---- 受控预览 ----

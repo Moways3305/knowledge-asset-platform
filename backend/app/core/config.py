@@ -91,6 +91,11 @@ class Settings(BaseSettings):
     db_max_overflow: int = 10
     db_pool_recycle: int = 3600
 
+    # Expensive HTTP search/QA requests, per API worker; excess requests do not queue.
+    # Two workers x 8 matches the measured two-CPU isolated throughput knee.
+    search_concurrency_per_worker: int = Field(default=8, ge=1, le=256)
+    search_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
+
     # 会话有效期（小时）。决定 user_sessions.expires_at 与会话 cookie max-age。
     session_ttl_hours: int = 12
 
