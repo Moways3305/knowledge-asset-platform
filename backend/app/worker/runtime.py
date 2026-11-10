@@ -18,6 +18,7 @@ from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
 from app.core.logging import bind_trace_id
@@ -33,6 +34,7 @@ def run_task(
     *,
     label: str = "task",
     trace_id: str | None = None,
+    retain_idle_connections: bool = True,
 ) -> _T:
     """在**全新事件循环 + loop-local engine** 上跑一个 worker 任务体，并记录生命周期日志。
 
@@ -44,15 +46,26 @@ def run_task(
 
     async def _main() -> _T:
         settings = get_settings()
-        # 与 API engine 同套连接池配置（worker/beat 也是重度 DB 使用者，生产调参需一致生效）。
-        engine = create_async_engine(
-            settings.database_url,
-            future=True,
-            pool_pre_ping=True,
-            pool_size=settings.db_pool_size,
-            max_overflow=settings.db_max_overflow,
-            pool_recycle=settings.db_pool_recycle,
-        )
+        if retain_idle_connections:
+            # Default workers share the API's configured pool limits.
+            engine = create_async_engine(
+                settings.database_url,
+                future=True,
+                pool_pre_ping=True,
+                pool_size=settings.db_pool_size,
+                max_overflow=settings.db_max_overflow,
+                pool_recycle=settings.db_pool_recycle,
+            )
+        else:
+            # Ingest has a task-local engine, so idle connections cannot serve a
+            # different worker. Close them on return during slow model calls;
+            # checked-out ownership/capacity connections remain untouched.
+            engine = create_async_engine(
+                settings.database_url,
+                future=True,
+                pool_pre_ping=True,
+                poolclass=NullPool,
+            )
         maker = async_sessionmaker(bind=engine, expire_on_commit=False)
         try:
             async with outbound_http_pool():

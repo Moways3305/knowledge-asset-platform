@@ -112,6 +112,7 @@ def process_ingest_upload(self, task_id_str: str, trace_id: str | None = None) -
             ),
             label="ingest.process_upload",
             trace_id=trace_id,
+            retain_idle_connections=False,
         )
         if result == "capacity_wait":
             # Capacity is not a failed processing attempt. Preserve recovery job identity.

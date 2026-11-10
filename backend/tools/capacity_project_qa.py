@@ -4,6 +4,8 @@ Use after capacity_probe.py seed in compose.capacity-test.yml. Run `seed` once,
 then `load --label before --concurrency 8 --seconds 20` on each source revision.
 Reports include all HTTP outcomes, response validity and database transaction
 samples. Synthetic HTTP providers measure application contention, not model speed.
+Pass --drain-uploads with real isolated workers to verify generation, confirmation,
+indexing, one audit per file and the content-generation usage delta as well.
 """
 
 import argparse
@@ -15,7 +17,7 @@ from collections import Counter, defaultdict
 
 import httpx
 from capacity_common import FIXTURE, PASSWORD, email, guard
-from capacity_probe import ROOT, client, distribution, login, save
+from capacity_probe import ROOT, client, distribution, drain, login, save
 from sqlalchemy import select, text
 
 guard()
@@ -23,6 +25,7 @@ from app.db.session import get_engine, get_sessionmaker  # noqa: E402
 from app.models.identity import Project, ProjectMember, User  # noqa: E402
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion  # noqa: E402
 from app.models.weknora import WeknoraKbMapping  # noqa: E402
+from app.schemas.enums import AuditAction  # noqa: E402
 
 
 async def seed():
@@ -88,6 +91,17 @@ async def load(args):
     denials = Counter()
     uploads = []
     sampler = None
+    async with get_sessionmaker()() as session:
+        usage_before = dict(
+            (
+                await session.execute(
+                    text(
+                        "SELECT outcome,count(*) FROM llm_usage_events "
+                        "WHERE scenario='content_generation' GROUP BY outcome"
+                    )
+                )
+            ).all()
+        )
     async with httpx.AsyncClient(trust_env=False) as control:
         response = await control.post(
             FIXTURE + "/control", json={"llm_delay": args.delay, "search_delay": args.delay}
@@ -107,7 +121,33 @@ async def load(args):
                         )
                     )
                 ).all()
-            samples.append({"elapsed": round(time.monotonic() - started, 3), "states": dict(rows)})
+                worker_rows = (
+                    (
+                        await session.execute(
+                            text(
+                                "SELECT state, count(*) AS connections, "
+                                "count(*) FILTER (WHERE EXISTS (SELECT 1 FROM pg_locks l "
+                                "WHERE l.pid=a.pid AND l.locktype='advisory' AND l.granted)) "
+                                "AS lock_owners, "
+                                "max(extract(epoch from clock_timestamp()-xact_start)) AS age "
+                                "FROM pg_stat_activity a WHERE datname=current_database() "
+                                "AND application_name='kap-capacity-worker' GROUP BY state"
+                            )
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+            samples.append(
+                {
+                    "elapsed": round(time.monotonic() - started, 3),
+                    "states": dict(rows),
+                    "worker_states": [
+                        {**row, "age": float(row["age"]) if row["age"] is not None else None}
+                        for row in worker_rows
+                    ],
+                }
+            )
             try:
                 await asyncio.wait_for(stop.wait(), 0.1)
             except asyncio.TimeoutError:
@@ -208,6 +248,42 @@ async def load(args):
             )
         )
         elapsed = time.monotonic() - started
+        processing = None
+        if args.drain_uploads:
+            # Same authenticated uploader; keep sampling the real workers through
+            # generation, user confirmation and asynchronous indexing completion.
+            await drain(clients[-1], uploads, started)
+            processing = json.loads((ROOT / "uploads.json").read_text())
+            async with get_sessionmaker()() as session:
+                audits = await session.execute(
+                    text(
+                        "SELECT target_id, count(*) FROM audit_events "
+                        "WHERE action=:action "
+                        "AND target_id=ANY(CAST(:ids AS uuid[])) GROUP BY target_id"
+                    ),
+                    {"ids": uploads, "action": AuditAction.ingest_ai_extracted.value},
+                )
+                counts = [row[1] for row in audits]
+                usage_after = dict(
+                    (
+                        await session.execute(
+                            text(
+                                "SELECT outcome,count(*) FROM llm_usage_events "
+                                "WHERE scenario='content_generation' GROUP BY outcome"
+                            )
+                        )
+                    ).all()
+                )
+            processing["usage_delta"] = {
+                key: value - usage_before.get(key, 0)
+                for key, value in usage_after.items()
+                if value != usage_before.get(key, 0)
+            }
+            processing["one_generation_audit_per_upload"] = len(counts) == len(uploads) and all(
+                n == 1 for n in counts
+            )
+            assert processing["one_generation_audit_per_upload"]
+            assert processing["usage_delta"] == {"success": len(uploads)}
         stop.set()
         await sampler
         # Continue observing the ordinary endpoint after QA load has drained.
@@ -215,6 +291,11 @@ async def load(args):
             await operation(clients[0], "list", 0)
         async with httpx.AsyncClient(trust_env=False) as control:
             fixture_after = (await control.get(FIXTURE + "/control")).json()
+        if processing is not None:
+            processing["model_calls"] = fixture_after["counts"].get("content", 0) - fixture_before[
+                "counts"
+            ].get("content", 0)
+            assert processing["model_calls"] == len(uploads)
         report = {
             "label": args.label,
             "qa_concurrency": args.concurrency,
@@ -239,7 +320,8 @@ async def load(args):
             "fixture_before": fixture_before,
             "fixture_after": fixture_after,
             "upload_task_ids": uploads,
-            "upload_acceptance_only": True,
+            "upload_acceptance_only": not args.drain_uploads,
+            "upload_processing": processing,
         }
         save(f"qa-load-{args.label}", report)
         assert not errors, dict(errors)
@@ -259,6 +341,7 @@ async def main():
     p.add_argument("--concurrency", type=int, default=8)
     p.add_argument("--seconds", type=int, default=20)
     p.add_argument("--delay", type=float, default=0.8)
+    p.add_argument("--drain-uploads", action="store_true")
     args = parser.parse_args()
     try:
         await (seed() if args.command == "seed" else load(args))
