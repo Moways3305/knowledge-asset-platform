@@ -168,3 +168,161 @@ async def test_next_recipient_is_reloaded_after_network_wait(job_db, kind):
             )
         )
         assert sorted(helpers.status(row) for row in rows) == ["failed", "sent"]
+
+
+async def test_worker_continues_both_backlogs_after_releasing_connections(job_db, monkeypatch):
+    from app.core.config import get_settings
+    from app.services import notification_delivery as delivery
+    from app.services import wecom_notification
+    from app.worker.tasks import notifications as worker
+
+    sessions, _ = job_db
+    ids = {}
+    async with sessions() as setup:
+        for channel in ("ops", "business"):
+            ids[channel] = await helpers.seed(setup, channel, 5)
+    sender = helpers.Sender()
+    monkeypatch.setattr(delivery, "MAX_BATCH", 2)
+    monkeypatch.setattr(wecom_notification, "get_wecom_notification_sender", lambda: sender)
+    settings = get_settings().model_copy(update={"celery_task_always_eager": False})
+    monkeypatch.setattr("app.core.config.get_settings", lambda: settings)
+    wakeups = []
+
+    def publish(**kwargs):
+        assert sessions.kw["bind"].pool.checkedout() == 0
+        wakeups.append(kwargs)
+
+    monkeypatch.setattr(worker.dispatch_pending, "apply_async", publish)
+    await worker._run(sessions, "synthetic-trace")
+    assert len(sender.calls) == 4
+    assert len(wakeups) == 1
+    for _ in range(3):
+        if not wakeups:
+            break
+        message = wakeups.pop(0)
+        await worker._run(sessions, **message["kwargs"])
+    assert not wakeups and len(sender.calls) == 10
+    async with sessions() as check:
+        for channel, keys in ids.items():
+            rows = list(
+                await check.scalars(
+                    select(helpers.model(channel)).where(helpers.model(channel).id.in_(keys))
+                )
+            )
+            assert all(helpers.status(r) == "sent" and helpers.attempts(r) == 1 for r in rows)
+            audits = list(
+                await check.scalars(select(AuditEvent).where(AuditEvent.target_id.in_(keys)))
+            )
+            assert len(audits) == len(keys)
+
+
+@pytest.mark.parametrize("sender_kind", ["disabled", "retry"])
+async def test_worker_does_not_spin_when_disabled_or_waiting_for_retry(
+    job_db, monkeypatch, sender_kind
+):
+    from app.core.config import get_settings
+    from app.services import wecom_notification
+    from app.services.wecom_client import WeComError
+    from app.worker.tasks import notifications as worker
+
+    sessions, _ = job_db
+    settings = get_settings().model_copy(update={"celery_task_always_eager": False})
+    monkeypatch.setattr("app.core.config.get_settings", lambda: settings)
+    async with sessions() as setup:
+        for channel in ("ops", "business"):
+            await helpers.seed(setup, channel)
+    sender = (
+        wecom_notification.NullWeComNotificationSender()
+        if sender_kind == "disabled"
+        else helpers.Sender(WeComError("wecom_network_error", "synthetic"))
+    )
+    monkeypatch.setattr(wecom_notification, "get_wecom_notification_sender", lambda: sender)
+    wakeups = []
+    monkeypatch.setattr(
+        worker.dispatch_pending, "apply_async", lambda **kwargs: wakeups.append(kwargs)
+    )
+    await worker._run(sessions, None)
+    assert not wakeups
+    await worker._run(sessions, None)
+    assert not wakeups
+    if sender_kind == "retry":
+        assert len(sender.calls) == 2
+
+
+@pytest.mark.parametrize(
+    "condition", ["ready", "backoff", "leased", "exhausted", "abandoned", "locked"]
+)
+async def test_continuation_only_sees_immediately_claimable_rows(job_db, kind, condition):
+    from app.services import notification_delivery as delivery
+
+    sessions, _ = job_db
+    async with sessions() as setup:
+        (key,) = await helpers.seed(setup, kind)
+        row = await setup.get(helpers.model(kind), key)
+        if condition == "backoff":
+            row.delivery_available_at = utc_now() + timedelta(seconds=120)
+        elif condition == "leased":
+            row.delivery_until = utc_now() + timedelta(seconds=120)
+            row.delivery_token = str(uuid.uuid4())
+        elif condition in {"exhausted", "abandoned"}:
+            setattr(row, "delivery_attempts" if kind == "business" else "send_attempts", 3)
+            if condition == "abandoned":
+                row.delivery_until = utc_now() - timedelta(seconds=1)
+                row.delivery_token = str(uuid.uuid4())
+        await setup.commit()
+    async with sessions() as locked, sessions() as check:
+        if condition == "locked":
+            await locked.scalar(
+                select(helpers.model(kind)).where(helpers.model(kind).id == key).with_for_update()
+            )
+        assert await asyncio.wait_for(delivery.has_ready(check), 1) is (
+            condition in {"ready", "abandoned"}
+        )
+        assert not check.in_transaction()
+
+
+async def test_time_budget_continues_and_broker_failure_keeps_committed_results(
+    job_db, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from app.core.config import get_settings
+    from app.services import notification_delivery as delivery
+    from app.services import wecom_notification
+    from app.worker.tasks import notifications as worker
+
+    sessions, _ = job_db
+    async with sessions() as setup:
+        keys = await helpers.seed(setup, "ops", 2)
+    clock = [0.0]
+    calls = []
+
+    class Slow:
+        async def send(self, **kwargs):
+            calls.append(1)
+            clock[0] += delivery.BATCH_SECONDS
+
+    monkeypatch.setattr(delivery, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    monkeypatch.setattr(wecom_notification, "get_wecom_notification_sender", Slow)
+    settings = get_settings().model_copy(update={"celery_task_always_eager": False})
+    monkeypatch.setattr("app.core.config.get_settings", lambda: settings)
+    failed_wakeups = []
+
+    def unavailable(**kwargs):
+        assert sessions.kw["bind"].pool.checkedout() == 0
+        failed_wakeups.append(1)
+        raise ConnectionError("synthetic broker unavailable")
+
+    monkeypatch.setattr(worker.dispatch_pending, "apply_async", unavailable)
+    await worker._run(sessions, None)
+    assert len(calls) == len(failed_wakeups) == 1
+    async with sessions() as check:
+        rows = list(
+            await check.scalars(
+                select(helpers.model("ops")).where(helpers.model("ops").id.in_(keys))
+            )
+        )
+        assert sorted(helpers.status(r) for r in rows) == ["pending", "sent"]
+    # A subsequent periodic tick finds remaining work even if publication failed.
+    await worker._run(sessions, None)
+    assert len(calls) == 2 and len(failed_wakeups) == 1

@@ -89,6 +89,13 @@ _LEAKY_DENIED_REASONS = {
     DeniedReason.personal_asset_not_owned.value,
 }
 
+# Scan progress and usage statistics do not change an answer's source content,
+# permission or governance state. All other fields (including future additions)
+# remain subject to the conservative snapshot check.
+_QA_ASSET_OPERATIONAL_FIELDS = frozenset(
+    {"archive_scan_checked_at", "review_scan_checked_at", "reuse_scan_checked_at", "last_called_at"}
+)
+
 
 class _QaContextChanged(Exception):
     """The request's identity or knowledge snapshot is no longer valid."""
@@ -626,6 +633,10 @@ async def _validate_qa_snapshot(
             if any(
                 getattr(snapshot, column.key) != getattr(current, column.key)
                 for column in snapshot.__table__.columns
+                if not (
+                    isinstance(snapshot, KnowledgeAsset)
+                    and column.key in _QA_ASSET_OPERATIONAL_FIELDS
+                )
             ):
                 raise _QaContextChanged()
         layer, _ = _layer_and_source(candidate)

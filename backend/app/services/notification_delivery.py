@@ -74,6 +74,43 @@ def _safe_failure(exc: WeComError) -> Failure:
     return Failure(code)
 
 
+def _ready_query(model: type[Row], status_name: str, attempts_name: str):
+    now = utc_now()
+    return (
+        select(model)
+        .where(
+            model.channel == "wecom",
+            getattr(model, status_name).in_(("pending", "failed")),
+            or_(model.delivery_until.is_(None), model.delivery_until <= now),
+            or_(model.delivery_available_at.is_(None), model.delivery_available_at <= now),
+            or_(getattr(model, attempts_name) < MAX_ATTEMPTS, model.delivery_token.is_not(None)),
+        )
+        .order_by(model.created_at, model.id)
+        .with_for_update(skip_locked=True)
+        .limit(1)
+    )
+
+
+async def has_ready(session: AsyncSession) -> bool:
+    """Check immediately claimable work, excluding backoff and another owner's locks.
+
+    This is a scheduling hint, not a claim. Release the probe's locks/connection
+    before publishing the continuation; the consumer rechecks every condition.
+    """
+    if session.new or session.dirty or session.deleted:
+        raise ValueError("notification_readiness_requires_committed_changes")
+    try:
+        for query in (
+            _ready_query(NotificationRecord, "send_status", "send_attempts"),
+            _ready_query(BusinessNotification, "delivery_status", "delivery_attempts"),
+        ):
+            if await session.scalar(query) is not None:
+                return True
+        return False
+    finally:
+        await session.rollback()
+
+
 async def dispatch(
     session: AsyncSession, *, policy: Policy[Row], sender, trace_id: str | None, limit: int
 ) -> dict[str, int]:
@@ -89,27 +126,11 @@ async def dispatch(
     result = {"processed": 0, "sent": 0, "failed": 0, "expired": 0}
     deadline = time.monotonic() + BATCH_SECONDS
     model = policy.model
-    status = getattr(model, policy.status)
-    attempts = getattr(model, policy.attempts)
     for _ in range(max(0, min(limit, MAX_BATCH))):
         if time.monotonic() >= deadline:
             break
         async with sessions() as claim:
-            now = utc_now()
-            row = await claim.scalar(
-                select(model)
-                .where(
-                    model.channel == "wecom",
-                    status.in_(("pending", "failed")),
-                    or_(model.delivery_until.is_(None), model.delivery_until <= now),
-                    or_(model.delivery_available_at.is_(None), model.delivery_available_at <= now),
-                    # An exhausted, abandoned claim still needs a terminal result.
-                    or_(attempts < MAX_ATTEMPTS, model.delivery_token.is_not(None)),
-                )
-                .order_by(model.created_at, model.id)
-                .with_for_update(skip_locked=True)
-                .limit(1)
-            )
+            row = await claim.scalar(_ready_query(model, policy.status, policy.attempts))
             if row is None:
                 break
             attempt = getattr(row, policy.attempts)
