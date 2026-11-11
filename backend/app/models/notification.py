@@ -57,6 +57,11 @@ class BusinessNotification(Base):
     channel: Mapped[str] = mapped_column(String(20), nullable=False, default="in_app")
     delivery_status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     delivery_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    delivery_token: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    delivery_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    delivery_available_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     failure_code: Mapped[str | None] = mapped_column(String(60), nullable=True)
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

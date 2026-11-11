@@ -25,7 +25,7 @@
 ### 1.1 版本一致性
 
 - [ ] 确认要部署的 **git commit**：`git rev-parse HEAD`（记录到发布单）。
-- [ ] 确认镜像 **tag** 与该 commit 对应；`backend` / `worker` / `ocr_worker` / `parse_worker` / `beat` / `migrate` / `frontend` 六个角色**必须来自同一代码版本**。
+- [ ] 确认镜像 **tag** 与该 commit 对应；`backend` / `worker` / `ocr_worker` / `parse_worker` / `beat` / `migrate` / `frontend` 七个角色**必须来自同一代码版本**。
   - 本仓库 `backend` / `worker` / `ocr_worker` / `parse_worker` / `beat` / `migrate` 共用 `./backend` 镜像（compose 中同一 `build: ./backend`，仅 `command` 不同）；`frontend` 用 `Dockerfile.frontend` 多阶段构建。
   - 因此「同版本」= 用同一次 `docker compose build`（或同一 commit 的 CI 构建）产出的镜像，不要混用旧镜像。
 - [ ] 确认 **migration head** 与该 commit 一致：迁移文件在 `backend/alembic/versions/`，使用 `alembic heads` 核对该提交的迁移图 head，不按文件名或修改时间猜测（部署时由 `migrate` 服务执行 `alembic upgrade head`）。
@@ -105,6 +105,9 @@
      `cleared_pending_markers` 应全部为 `0`。`pending` 可非零，需后续补齐源摘要再重跑。
    - 本回填只更新当前版本摘要行/安全待处理标记，不删除资产，不触发重索引、重新入库或
      WeKnora 调用。异常时停止放流量并从本节第 2 步数据库备份恢复相关摘要数据。
+   - **升级至 `0084_notification_delivery_lease` 或回退时**：先暂停 beat，等待旧 worker 中正在执行的 `notifications.dispatch_pending` 结束，再停止旧普通 worker、执行迁移并启动同版本消费者；不要让未使用租约的旧通知代码与新代码混跑。回退也需先排空新通知任务，再删除新增租约字段。保留数据库和 broker，不清空待发通知。
+   - 通知发送期间不持有数据库连接。每条最多尝试 3 次，失败至少间隔 120 秒；异常退出留下的领取租约在 120 秒后由后续派发回收，派发仍按原 2 分钟周期触发。这不是恢复时间上限。超时或已发送但结果未落库时可能再次发送，系统不承诺外部消息 exactly-once；`delivery_outcome_unknown` 表示该边界。关闭企微通知开关时，两类通知均保留待发状态，不消耗尝试次数。
+
 5. **启动服务**：`backend` → `worker` / `ocr_worker` / `parse_worker` → `beat` → `frontend`（compose `depends_on` 已编排：postgres/redis healthy → migrate 完成 → backend/worker/ocr_worker/parse_worker/beat → frontend）。
    ```powershell
    docker compose up -d

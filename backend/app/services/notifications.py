@@ -11,7 +11,7 @@ import uuid
 from collections.abc import Iterable
 
 from fastapi import HTTPException
-from sqlalchemy import or_, select, update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -29,7 +29,6 @@ from app.schemas.enums import (
     AuditLogType,
     CompanyRole,
     MemberStatus,
-    NotificationChannel,
     NotificationStatus,
     ProjectRole,
     ReviewTaskStatus,
@@ -44,13 +43,13 @@ from app.schemas.notification import (
 )
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
+from app.services import notification_delivery as delivery
 from app.services.notification_targets import VisibleNotificationTarget, preload_targets
 from app.services.notification_targets import resolve as resolve_notification_target
 from app.services.permission import build_caller_context
 from app.services.storage import LocalFileStorage
-from app.services.wecom_client import WeComError
+from app.services.wecom_notification import NullWeComNotificationSender
 
-MAX_DELIVERY_ATTEMPTS = 3
 _ACTIONABLE_REVIEW_STATUSES = {
     ReviewTaskStatus.pending_reviewer.value,
     ReviewTaskStatus.approval_failed.value,
@@ -834,92 +833,54 @@ async def dispatch_pending(
     session: AsyncSession, *, sender, trace_id: str | None = None, limit: int = 100
 ) -> dict[str, int]:
     """Retry safe external delivery after revalidating the recipient and target."""
-    rows = list(
-        (
-            await session.execute(
-                select(BusinessNotification)
-                .where(
-                    BusinessNotification.channel == NotificationChannel.wecom.value,
-                    or_(
-                        BusinessNotification.delivery_status == NotificationStatus.pending.value,
-                        (BusinessNotification.delivery_status == NotificationStatus.failed.value)
-                        & (BusinessNotification.delivery_attempts < MAX_DELIVERY_ATTEMPTS),
-                    ),
-                )
-                .order_by(BusinessNotification.created_at)
-                .limit(limit)
-                .with_for_update(skip_locked=True)
+    if isinstance(sender, NullWeComNotificationSender):
+        return {"processed": 0, "sent": 0, "failed": 0, "expired": 0}
+    return await delivery.dispatch(
+        session,
+        policy=delivery.Policy(
+            model=BusinessNotification,
+            status="delivery_status",
+            attempts="delivery_attempts",
+            failure="failure_code",
+            delivered="delivered_at",
+            prepare=_prepare_delivery,
+            audit=_record_delivery,
+        ),
+        sender=sender,
+        trace_id=trace_id,
+        limit=limit,
+    )
+
+
+async def _prepare_delivery(session: AsyncSession, row: BusinessNotification):
+    user = (
+        await session.execute(
+            select(User)
+            .where(User.id == row.recipient_user_id)
+            .options(
+                selectinload(User.company_roles),
+                selectinload(User.project_members).selectinload(ProjectMember.project),
             )
         )
-        .scalars()
-        .all()
-    )
-    sent = failed = expired = 0
-    for row in rows:
-        row.delivery_attempts += 1
-        user = (
-            await session.execute(
-                select(User)
-                .where(User.id == row.recipient_user_id)
-                .options(
-                    selectinload(User.company_roles),
-                    selectinload(User.project_members).selectinload(ProjectMember.project),
-                )
-            )
-        ).scalar_one_or_none()
-        if user is None or user.status != "active":
-            row.delivery_status = NotificationStatus.failed.value
-            row.failure_code = "recipient_unavailable"
-            failed += 1
-            await _audit_delivery(session, row, failed=True, trace_id=trace_id)
-            continue
-        caller = build_caller_context(user)
-        visible = await resolve_notification_target(session, caller, row)
-        pending_action_event = row.event_type in {
-            "review.project_pending",
-            "review.company_confirmation_pending",
-            "original_access.pending",
-        }
-        if visible is None or (pending_action_event and not visible.action_required):
-            row.delivery_status = NotificationStatus.failed.value
-            row.failure_code = "target_unavailable"
-            row.delivery_attempts = MAX_DELIVERY_ATTEMPTS
-            expired += 1
-            await _audit_delivery(session, row, failed=True, trace_id=trace_id)
-            continue
-        try:
-            if not user.wecom_user_id:
-                raise WeComError("recipient_unavailable", "recipient unavailable")
-            await sender.send(
-                wecom_user_id=user.wecom_user_id,
-                title=row.title,
-                content=row.summary,
-                trace_id=trace_id,
-            )
-        except WeComError as exc:
-            row.delivery_status = NotificationStatus.failed.value
-            row.failure_code = (
-                exc.code
-                if exc.code
-                in {
-                    "recipient_unavailable",
-                    "wecom_network_error",
-                    "wecom_token_failed",
-                    "wecom_no_agent_id",
-                }
-                else "delivery_failed"
-            )
-            failed += 1
-            delivery_failed = True
-        else:
-            row.delivery_status = NotificationStatus.sent.value
-            row.failure_code = None
-            row.delivered_at = utc_now()
-            sent += 1
-            delivery_failed = False
-        await _audit_delivery(session, row, failed=delivery_failed, trace_id=trace_id)
-    await session.commit()
-    return {"processed": len(rows), "sent": sent, "failed": failed, "expired": expired}
+    ).scalar_one_or_none()
+    if user is None or user.status != "active":
+        return delivery.Failure("recipient_unavailable")
+    caller = build_caller_context(user)
+    visible = await resolve_notification_target(session, caller, row)
+    pending_action_event = row.event_type in {
+        "review.project_pending",
+        "review.company_confirmation_pending",
+        "original_access.pending",
+    }
+    if visible is None or (pending_action_event and not visible.action_required):
+        return delivery.Failure("target_unavailable", terminal=True, expired=True)
+    if not user.wecom_user_id:
+        return delivery.Failure("recipient_unavailable")
+    return delivery.Message(user.wecom_user_id, row.title, row.summary)
+
+
+async def _record_delivery(session, row, failed: bool, trace_id: str | None):
+    await _audit_delivery(session, row, failed=failed, trace_id=trace_id)
 
 
 async def _audit_delivery(

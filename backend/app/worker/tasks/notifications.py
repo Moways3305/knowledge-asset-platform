@@ -27,4 +27,5 @@ def dispatch_pending(self, trace_id: str | None = None) -> None:
         lambda maker: _run(maker, trace_id),
         label="notifications.dispatch_pending",
         trace_id=trace_id,
+        retain_idle_connections=False,
     )

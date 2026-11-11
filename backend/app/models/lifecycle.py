@@ -112,5 +112,10 @@ class NotificationRecord(Base):
     send_status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     # 真实下发的投递元数据（安全）。send_attempts 计重试；failure_reason 仅安全 code/文案。
     send_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    delivery_token: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    delivery_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    delivery_available_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     failure_reason: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
