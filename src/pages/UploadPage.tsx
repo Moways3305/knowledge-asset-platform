@@ -12,6 +12,11 @@ import "./UploadPage.css";
 
 export default function UploadPage() {
   const flow = useUploadFlow();
+  const loadHistoricalImports = flow.loadPending;
+  useEffect(() => {
+    // Discover existing imports without clearing a local-upload review selection.
+    void loadHistoricalImports(false);
+  }, [loadHistoricalImports]);
   const [searchParams, setSearchParams] = useSearchParams();
   const [rejectError, setRejectError] = useState<string | null>(null);
   const historyOpen = searchParams.get("view") === "history";
@@ -152,7 +157,7 @@ export default function UploadPage() {
             <ol>
               <li aria-current={!confirmationOpen ? "step" : undefined}>
                 <strong>选择资料</strong>
-                <p>从本地文件或企微微盘开始。</p>
+                <p>选择本地文件，或继续处理历史待确认资料。</p>
               </li>
               <li aria-current={confirmReady && !confirmSubmitted ? "step" : undefined}>
                 <strong>核对信息</strong>
@@ -198,29 +203,31 @@ export default function UploadPage() {
                 当前项目：{sourceProject.projectName}。确认入库时仍可核对目标。
               </p>
             )}
-            {!historyOpen && !confirmationOpen && (
-              <div className="upload77-source-toolbar">
-                <span className="upload77-source-label">资料来源</span>
-                <div className="upload77-source-switch" role="group" aria-label="资料来源">
-                  <button
-                    className={activePath === "b" ? "is-active" : ""}
-                    aria-pressed={activePath === "b"}
-                    onClick={() => selectSource("b")}
-                    type="button"
-                  >
-                    本地上传
-                  </button>
-                  <button
-                    className={activePath === "a" ? "is-active" : ""}
-                    aria-pressed={activePath === "a"}
-                    onClick={() => selectSource("a")}
-                    type="button"
-                  >
-                    企微微盘待确认
-                  </button>
+            {!historyOpen &&
+              !confirmationOpen &&
+              (flow.pendingTasks.length > 0 || activePath === "a" || flow.pendingError) && (
+                <div className="upload77-source-toolbar">
+                  <span className="upload77-source-label">资料来源</span>
+                  <div className="upload77-source-switch" role="group" aria-label="资料来源">
+                    <button
+                      className={activePath === "b" ? "is-active" : ""}
+                      aria-pressed={activePath === "b"}
+                      onClick={() => selectSource("b")}
+                      type="button"
+                    >
+                      本地上传
+                    </button>
+                    <button
+                      className={activePath === "a" ? "is-active" : ""}
+                      aria-pressed={activePath === "a"}
+                      onClick={() => selectSource("a")}
+                      type="button"
+                    >
+                      历史导入待确认
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
             {historyOpen && (
               <MyUploadsPanel onClose={() => setHistoryOpen(false)} onReupload={handleReset} />

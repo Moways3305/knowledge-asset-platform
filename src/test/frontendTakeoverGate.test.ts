@@ -125,13 +125,6 @@ const routes: RouteContract[] = [
     apiModules: ["admin", "http", "ingest"],
   },
   {
-    route: "/admin/wecom-scan",
-    component: "AdminWecomScanPage",
-    guard: "viewWecomScan",
-    owners: ["pages/AdminWecomScanPage.tsx", "pages/wecomScan/WecomScanConfigForm.tsx"],
-    apiModules: ["admin", "http"],
-  },
-  {
     route: "/admin/weknora-models",
     component: "AdminWeKnoraModelsPage",
     guard: "viewModels",

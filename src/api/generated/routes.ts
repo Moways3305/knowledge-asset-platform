@@ -21,16 +21,14 @@ export interface ApiRoutes {
     | `/api/v1/admin/model-registry`
     | `/api/v1/admin/model-registry/catalog`
     | `/api/v1/admin/naming-rules`
+    | `/api/v1/admin/operation-options/projects`
+    | `/api/v1/admin/operation-options/users`
     | `/api/v1/admin/people`
     | `/api/v1/admin/people/${string}`
     | `/api/v1/admin/people/${string}/project-memberships`
     | `/api/v1/admin/permissions/agent-whitelist`
     | `/api/v1/admin/permissions/rules`
     | `/api/v1/admin/release-notes`
-    | `/api/v1/admin/wecom-scan/configs`
-    | `/api/v1/admin/wecom-scan/configs/${string}/records`
-    | `/api/v1/admin/wecom-scan/owner-options`
-    | `/api/v1/admin/wecom-scan/project-options`
     | `/api/v1/admin/weknora/default-models`
     | `/api/v1/admin/weknora/kb-configs`
     | `/api/v1/admin/weknora/models`
@@ -141,8 +139,6 @@ export interface ApiRoutes {
     | `/api/v1/admin/permissions/agent-whitelist`
     | `/api/v1/admin/release-notes`
     | `/api/v1/admin/release-notes/${string}/publish`
-    | `/api/v1/admin/wecom-scan/configs`
-    | `/api/v1/admin/wecom-scan/configs/${string}/scan`
     | `/api/v1/admin/weknora/kb-configs/${string}/migrate`
     | `/api/v1/admin/weknora/models`
     | `/api/v1/admin/weknora/models/check`
@@ -239,7 +235,6 @@ export interface ApiRoutes {
     | `/api/v1/admin/people/${string}/project-memberships/${string}`
     | `/api/v1/admin/permissions/agent-whitelist/${string}`
     | `/api/v1/admin/permissions/rules/${string}`
-    | `/api/v1/admin/wecom-scan/configs/${string}`
     | `/api/v1/knowledge/${string}/metadata`
     | `/api/v1/knowledge/${string}/trust/policy`
     | `/api/v1/my/knowledge/${string}`

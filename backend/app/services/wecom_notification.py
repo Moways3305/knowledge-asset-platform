@@ -115,7 +115,7 @@ def get_wecom_notification_sender() -> WeComNotificationSender | NullWeComNotifi
         corp_id=s.wecom_corp_id,
         agent_id=s.wecom_agent_id,
         app_secret=s.wecom_app_secret,
-        base_url=s.wecom_drive_base_url,
+        base_url=s.wecom_api_base_url,
         timeout=s.wecom_timeout,
     )
 

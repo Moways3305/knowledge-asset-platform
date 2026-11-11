@@ -2,7 +2,7 @@
 
 注册全部业务路由：健康检查与运维、身份会话、知识读写与检索问答、个人知识、
 原文访问授权、入库、审核、预览、外部 Agent 网关（WorkBuddy 主接入面）、审计、
-生命周期、告警、微盘扫描、人员 / 权限 / 项目管理、WeKnora 管理，
+生命周期、告警、人员 / 权限 / 项目管理、WeKnora 管理，
 并挂载 CSRF 与 trace_id 中间件。
 """
 
@@ -32,6 +32,7 @@ from app.api import (
     my_knowledge,
     naming,
     notifications,
+    operation_options,
     ops,
     original_access,
     people,
@@ -42,7 +43,6 @@ from app.api import (
     release_notes,
     review,
     search,
-    wecom_scan,
     weknora_admin,
     weknora_options,
     workbench,
@@ -110,7 +110,7 @@ def create_app() -> FastAPI:
     app.include_router(audit.router)
     app.include_router(lifecycle.router)
     app.include_router(alert.router)
-    app.include_router(wecom_scan.router)
+    app.include_router(operation_options.router)
     app.include_router(people.router)
     app.include_router(permissions.router)
     app.include_router(projects.router)

@@ -27,7 +27,7 @@ if any(
         "WECOM_CORP_ID": "synthetic-only",
         "WECOM_AGENT_ID": "1",
         "WECOM_APP_SECRET": "synthetic-only",
-        "WECOM_DRIVE_BASE_URL": FIXTURE,
+        "WECOM_API_BASE_URL": FIXTURE,
         "WECOM_TIMEOUT": "8",
     }.items()
 ):

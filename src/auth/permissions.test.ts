@@ -140,12 +140,7 @@ describe("can (nav / route capability predicates)", () => {
   });
 
   it("shows shared system views to admin or governance", () => {
-    for (const pred of [
-      can.viewAudit,
-      can.viewIngestAdmin,
-      can.viewPermissions,
-      can.viewWecomScan,
-    ]) {
+    for (const pred of [can.viewAudit, can.viewIngestAdmin, can.viewPermissions]) {
       expect(pred(admin)).toBe(true);
       expect(pred(governance)).toBe(true);
       expect(pred(consultant)).toBe(false);

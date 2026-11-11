@@ -460,7 +460,7 @@ class AuditAction(str, Enum):
     access_original_grant_revoked = "access.original_grant_revoked"
     # 跨项目复用升格推荐（异步扫描，仅产生人审候选信号，不自动升格）。
     knowledge_upgrade_recommended = "knowledge.upgrade_recommended"
-    # 企微微盘扫描（Path A）：配置创建 / 变更 / 触发 / 完成 / 失败。
+    # 历史扫描审计值保留，供已发生事件读取；扫描功能已移除。
     wecom_scan_config_created = "wecom_scan.config_created"
     wecom_scan_config_updated = "wecom_scan.config_updated"
     wecom_scan_triggered = "wecom_scan.triggered"
@@ -594,7 +594,7 @@ class NotificationStatus(str, Enum):
 
 
 class IngestSource(str, Enum):
-    """入库来源。path_a_wecom = 企业微信微盘扫描；path_b_upload = 本地上传。"""
+    """入库来源。path_a_wecom = 历史导入（扫描已移除）；path_b_upload = 本地上传。"""
 
     path_a_wecom = "path_a_wecom"
     path_b_upload = "path_b_upload"

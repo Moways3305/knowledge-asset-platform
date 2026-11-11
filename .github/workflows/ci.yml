@@ -237,8 +237,6 @@ jobs:
         run: npm run test:ui:admin-operations
       - name: UI QA (model and knowledge foundation security)
         run: npm run test:ui:model-foundation
-      - name: UI QA (WeCom scan operations and browser safety)
-        run: npm run test:ui:wecom-scan
       - name: UI QA (audit and security operations workspace)
         run: npm run test:ui:audit-security
       - name: UI QA (people and permissions governance)

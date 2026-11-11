@@ -38,7 +38,7 @@ def _make_celery() -> Celery:
             "app.worker.tasks.parse",
             "app.worker.tasks.lifecycle",
             "app.worker.tasks.upgrade",
-            "app.worker.tasks.wecom",
+            "app.worker.tasks.retired",
             "app.worker.tasks.notifications",
             "app.worker.tasks.original_access",
             "app.worker.tasks.indexing",

@@ -34,7 +34,6 @@ export const managementEntries: WorkspaceEntry[] = [
   { to: "/admin/people", label: "人员权限", cap: can.viewPeople, section: "组织与知识" },
   { to: "/admin/naming-rules", label: "目录治理", cap: can.viewNamingRules, section: "组织与知识" },
   { to: "/admin/ingest", label: "入库管理", cap: can.viewIngestAdmin, section: "运行与接入" },
-  { to: "/admin/wecom-scan", label: "微盘扫描", cap: can.viewWecomScan, section: "运行与接入" },
   { to: "/admin/weknora-models", label: "模型配置", cap: can.viewModels, section: "运行与接入" },
   { to: "/admin/audit", label: "审计日志", cap: can.viewAudit, section: "安全与规则" },
   {

@@ -963,7 +963,7 @@ async def list_pending(
 ) -> PendingIngestListResponse:
     """业务侧待确认任务列表。
 
-    `?source=path_a_wecom` 拉取企微微盘扫描创建的待确认任务。
+    `?source=path_a_wecom` 拉取扫描功能移除前已创建的历史待确认任务。
     只返回调用人本人创建的待确认任务；纯 admin → 403。
     """
     items = await ingest_service.list_pending(session, caller, source=source, storage=storage)

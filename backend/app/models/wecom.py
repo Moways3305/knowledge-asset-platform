@@ -1,16 +1,7 @@
-"""企业微信微盘扫描 ORM 模型（Path A）。
+"""Retired scan table metadata. Preserve historical rows, foreign keys and migrations.
 
-两张表（wecom_scan_configs / wecom_scan_records）：
-- wecom_scan_configs：扫描目录配置（目录、scope、关联项目、启用、归属人）。
-- wecom_scan_records：每次扫描的运行记录（计数 + 状态，仅安全运营元数据）。
-
-安全红线：
-- **绝不**存企微临时下载 URL / access_token / 授权码 / secret / 微盘 file_id 等敏感载体。
-- 去重用内容 hash（落到 ingest_tasks.source_file_hash），本表不持有 file_id。
-- error_message 仅安全文案，不含上游原始 payload / URL / token。
-
-字段命名：采用 discovered/new/duplicate/failed_count + scan_status + error_type/message；
-命名差异见 README。
+No active feature creates configs, spaces or scan records. The legacy task drain
+only finalizes already-queued running records. Imported assets keep their source.
 """
 
 from __future__ import annotations

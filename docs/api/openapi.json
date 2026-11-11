@@ -11081,6 +11081,87 @@
         "title": "NotificationsResponse",
         "type": "object"
       },
+      "OperationProjectOption": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "OperationProjectOption",
+        "type": "object"
+      },
+      "OperationProjectOptions": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OperationProjectOption"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "OperationProjectOptions",
+        "type": "object"
+      },
+      "OperationUserOption": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "role_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role Label"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "name"
+        ],
+        "title": "OperationUserOption",
+        "type": "object"
+      },
+      "OperationUserOptions": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OperationUserOption"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "OperationUserOptions",
+        "type": "object"
+      },
       "OriginalAccessBulkActionRequest": {
         "properties": {
           "action": {
@@ -18433,458 +18514,6 @@
         "title": "WecomAuthorizeOut",
         "type": "object"
       },
-      "WecomOwnerOptionOut": {
-        "description": "业务归属人候选（仅安全字段）：active 业务用户。\n\nproject_ids / is_governance 供前端按 target_scope 做候选提示；后端最终校验为准。\n绝不含 token / session / wecom_user_id 明文 / ip / device。",
-        "properties": {
-          "is_governance": {
-            "default": false,
-            "title": "Is Governance",
-            "type": "boolean"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "project_ids": {
-            "default": [],
-            "items": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "title": "Project Ids",
-            "type": "array"
-          },
-          "role_label": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Role Label"
-          },
-          "user_id": {
-            "format": "uuid",
-            "title": "User Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "user_id",
-          "name"
-        ],
-        "title": "WecomOwnerOptionOut",
-        "type": "object"
-      },
-      "WecomOwnerOptionsResponse": {
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/WecomOwnerOptionOut"
-            },
-            "title": "Items",
-            "type": "array"
-          }
-        },
-        "required": [
-          "items"
-        ],
-        "title": "WecomOwnerOptionsResponse",
-        "type": "object"
-      },
-      "WecomProjectOptionOut": {
-        "description": "项目候选项（仅安全字段：id + 名称），供创建/编辑配置时选择目标项目。",
-        "properties": {
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "manager_access_status": {
-            "title": "Manager Access Status",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "scan_space_status": {
-            "title": "Scan Space Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "name",
-          "scan_space_status",
-          "manager_access_status"
-        ],
-        "title": "WecomProjectOptionOut",
-        "type": "object"
-      },
-      "WecomProjectOptionsResponse": {
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/WecomProjectOptionOut"
-            },
-            "title": "Items",
-            "type": "array"
-          }
-        },
-        "required": [
-          "items"
-        ],
-        "title": "WecomProjectOptionsResponse",
-        "type": "object"
-      },
-      "WecomScanConfigCreateBody": {
-        "description": "创建项目扫描配置；扫描根固定为服务端项目扫描空间根目录。",
-        "properties": {
-          "enabled": {
-            "default": true,
-            "title": "Enabled",
-            "type": "boolean"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "target_project_id": {
-            "format": "uuid",
-            "title": "Target Project Id",
-            "type": "string"
-          },
-          "task_owner_user_id": {
-            "format": "uuid",
-            "title": "Task Owner User Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "name",
-          "target_project_id",
-          "task_owner_user_id"
-        ],
-        "title": "WecomScanConfigCreateBody",
-        "type": "object"
-      },
-      "WecomScanConfigOut": {
-        "properties": {
-          "created_at": {
-            "format": "date-time",
-            "title": "Created At",
-            "type": "string"
-          },
-          "created_by": {
-            "format": "uuid",
-            "title": "Created By",
-            "type": "string"
-          },
-          "enabled": {
-            "title": "Enabled",
-            "type": "boolean"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "last_scan_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Scan At"
-          },
-          "manager_access_status": {
-            "title": "Manager Access Status",
-            "type": "string"
-          },
-          "name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Name"
-          },
-          "related_project_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Related Project Id"
-          },
-          "related_project_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Related Project Name"
-          },
-          "scan_frequency": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Scan Frequency"
-          },
-          "scan_space_status": {
-            "title": "Scan Space Status",
-            "type": "string"
-          },
-          "scope_type": {
-            "title": "Scope Type",
-            "type": "string"
-          },
-          "task_owner_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Task Owner Name"
-          },
-          "task_owner_role_label": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Task Owner Role Label"
-          },
-          "updated_at": {
-            "format": "date-time",
-            "title": "Updated At",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "name",
-          "scope_type",
-          "related_project_id",
-          "scan_space_status",
-          "manager_access_status",
-          "enabled",
-          "created_by",
-          "scan_frequency",
-          "last_scan_at",
-          "created_at",
-          "updated_at"
-        ],
-        "title": "WecomScanConfigOut",
-        "type": "object"
-      },
-      "WecomScanConfigUpdateBody": {
-        "description": "编辑项目扫描配置；项目和扫描空间不可由浏览器修改。",
-        "properties": {
-          "enabled": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Enabled"
-          },
-          "name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Name"
-          },
-          "task_owner_user_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Task Owner User Id"
-          }
-        },
-        "title": "WecomScanConfigUpdateBody",
-        "type": "object"
-      },
-      "WecomScanConfigsResponse": {
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/WecomScanConfigOut"
-            },
-            "title": "Items",
-            "type": "array"
-          }
-        },
-        "required": [
-          "items"
-        ],
-        "title": "WecomScanConfigsResponse",
-        "type": "object"
-      },
-      "WecomScanRecordOut": {
-        "properties": {
-          "config_id": {
-            "format": "uuid",
-            "title": "Config Id",
-            "type": "string"
-          },
-          "created_at": {
-            "format": "date-time",
-            "title": "Created At",
-            "type": "string"
-          },
-          "discovered_count": {
-            "title": "Discovered Count",
-            "type": "integer"
-          },
-          "duplicate_count": {
-            "title": "Duplicate Count",
-            "type": "integer"
-          },
-          "error_message": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Error Message"
-          },
-          "error_type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Error Type"
-          },
-          "failed_count": {
-            "title": "Failed Count",
-            "type": "integer"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "new_count": {
-            "title": "New Count",
-            "type": "integer"
-          },
-          "scan_completed_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Scan Completed At"
-          },
-          "scan_started_at": {
-            "format": "date-time",
-            "title": "Scan Started At",
-            "type": "string"
-          },
-          "scan_status": {
-            "title": "Scan Status",
-            "type": "string"
-          },
-          "trace_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Trace Id"
-          }
-        },
-        "required": [
-          "id",
-          "config_id",
-          "trace_id",
-          "scan_started_at",
-          "scan_completed_at",
-          "discovered_count",
-          "new_count",
-          "duplicate_count",
-          "failed_count",
-          "scan_status",
-          "error_type",
-          "error_message",
-          "created_at"
-        ],
-        "title": "WecomScanRecordOut",
-        "type": "object"
-      },
-      "WecomScanRecordsResponse": {
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/WecomScanRecordOut"
-            },
-            "title": "Items",
-            "type": "array"
-          }
-        },
-        "required": [
-          "items"
-        ],
-        "title": "WecomScanRecordsResponse",
-        "type": "object"
-      },
       "WorkbenchKnowledgeCard": {
         "description": "可见知识资产的安全卡片（discovery + 安全 one_liner）。绝不含原文 / 内部引用。",
         "properties": {
@@ -25547,6 +25176,168 @@
         ]
       }
     },
+    "/api/v1/admin/operation-options/projects": {
+      "get": {
+        "operationId": "projects_api_v1_admin_operation_options_projects_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationProjectOptions"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Projects",
+        "tags": [
+          "operation-options"
+        ]
+      }
+    },
+    "/api/v1/admin/operation-options/users": {
+      "get": {
+        "operationId": "users_api_v1_admin_operation_options_users_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationUserOptions"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Users",
+        "tags": [
+          "operation-options"
+        ]
+      }
+    },
     "/api/v1/admin/people": {
       "get": {
         "operationId": "list_people_api_v1_admin_people_get",
@@ -27369,640 +27160,6 @@
         "summary": "Publish",
         "tags": [
           "release-notes"
-        ]
-      }
-    },
-    "/api/v1/admin/wecom-scan/configs": {
-      "get": {
-        "operationId": "list_configs_api_v1_admin_wecom_scan_configs_get",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "X-Dev-User-Id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Dev-User-Id"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Session"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_active_company_role",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Active Company Role"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WecomScanConfigsResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Configs",
-        "tags": [
-          "wecom-scan"
-        ]
-      },
-      "post": {
-        "description": "创建扫描目录配置（仅 admin，配置操作人 = 审计 actor）。`created_by` 写入校验通过的\n业务归属人（task_owner_user_id），即扫描产物 path_a_wecom 任务的归属人。",
-        "operationId": "create_config_api_v1_admin_wecom_scan_configs_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "X-Dev-User-Id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Dev-User-Id"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Session"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_active_company_role",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Active Company Role"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/WecomScanConfigCreateBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WecomScanConfigOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Create Config",
-        "tags": [
-          "wecom-scan"
-        ]
-      }
-    },
-    "/api/v1/admin/wecom-scan/configs/{config_id}": {
-      "patch": {
-        "operationId": "update_config_api_v1_admin_wecom_scan_configs__config_id__patch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "config_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Config Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Dev-User-Id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Dev-User-Id"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Session"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_active_company_role",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Active Company Role"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/WecomScanConfigUpdateBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WecomScanConfigOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Update Config",
-        "tags": [
-          "wecom-scan"
-        ]
-      }
-    },
-    "/api/v1/admin/wecom-scan/configs/{config_id}/records": {
-      "get": {
-        "operationId": "list_records_api_v1_admin_wecom_scan_configs__config_id__records_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "config_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Config Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Dev-User-Id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Dev-User-Id"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Session"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_active_company_role",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Active Company Role"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WecomScanRecordsResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Records",
-        "tags": [
-          "wecom-scan"
-        ]
-      }
-    },
-    "/api/v1/admin/wecom-scan/configs/{config_id}/scan": {
-      "post": {
-        "operationId": "trigger_scan_api_v1_admin_wecom_scan_configs__config_id__scan_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "config_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Config Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "Idempotency-Key",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Idempotency-Key"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Dev-User-Id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Dev-User-Id"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Session"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_active_company_role",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Active Company Role"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WecomScanRecordOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Trigger Scan",
-        "tags": [
-          "wecom-scan"
-        ]
-      }
-    },
-    "/api/v1/admin/wecom-scan/owner-options": {
-      "get": {
-        "description": "业务归属人候选（active 业务用户，排除纯 admin）。读权限同配置读。",
-        "operationId": "list_owner_options_api_v1_admin_wecom_scan_owner_options_get",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "X-Dev-User-Id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Dev-User-Id"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Session"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_active_company_role",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Active Company Role"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WecomOwnerOptionsResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Owner Options",
-        "tags": [
-          "wecom-scan"
-        ]
-      }
-    },
-    "/api/v1/admin/wecom-scan/project-options": {
-      "get": {
-        "description": "目标项目候选（active 项目 id + 名称），供创建/编辑配置选择。读权限同配置读。",
-        "operationId": "list_project_options_api_v1_admin_wecom_scan_project_options_get",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "X-Dev-User-Id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Dev-User-Id"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Session"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_active_company_role",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Active Company Role"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WecomProjectOptionsResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Project Options",
-        "tags": [
-          "wecom-scan"
         ]
       }
     },
@@ -33278,7 +32435,7 @@
     },
     "/api/v1/ingest/pending": {
       "get": {
-        "description": "业务侧待确认任务列表。\n\n`?source=path_a_wecom` 拉取企微微盘扫描创建的待确认任务。\n只返回调用人本人创建的待确认任务；纯 admin → 403。",
+        "description": "业务侧待确认任务列表。\n\n`?source=path_a_wecom` 拉取扫描功能移除前已创建的历史待确认任务。\n只返回调用人本人创建的待确认任务；纯 admin → 403。",
         "operationId": "list_pending_api_v1_ingest_pending_get",
         "parameters": [
           {

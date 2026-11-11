@@ -2,7 +2,7 @@
 
 由 `npm run api:frontend:generate` 生成，契约来源 `docs/api/openapi.json`，人工复核来源 `frontend-api-review.json`。
 
-共 252 个 HTTP 操作；静态调用已接入 203，已有替代流程 14，系统集成 32，传输基础设施 1，动态资源 2。
+共 247 个 HTTP 操作；静态调用已接入 198，已有替代流程 14，系统集成 32，传输基础设施 1，动态资源 2。
 
 静态调用仅表示找到了封装及直接导入/转导出，不代表每个接口都有独立按钮，也不证明真实环境全流程通过。动态资源单列；请求/响应 DTO 仍由领域适配器和测试校验。
 
@@ -67,6 +67,8 @@
 | `GET /api/v1/admin/naming-rules` | 静态调用已接入 | `src/api/naming.ts#fetchNamingRuleCenter` → `src/pages/AdminNamingRulesPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `PUT /api/v1/admin/naming-rules/draft` | 静态调用已接入 | `src/api/naming.ts#saveNamingRuleDraft` → `src/pages/AdminNamingRulesPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `POST /api/v1/admin/naming-rules/publish` | 静态调用已接入 | `src/api/naming.ts#publishNamingRuleDraft` → `src/pages/AdminNamingRulesPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `GET /api/v1/admin/operation-options/projects` | 静态调用已接入 | `src/api/admin.ts#fetchOperationProjectOptions` → `src/components/operations/AgentRegistration.tsx`、`src/components/operations/IngestTools.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `GET /api/v1/admin/operation-options/users` | 静态调用已接入 | `src/api/admin.ts#fetchOperationUserOptions` → `src/components/operations/AgentRegistration.tsx`、`src/components/operations/SessionTools.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `GET /api/v1/admin/people` | 静态调用已接入 | `src/api/admin.ts#fetchPeople` → `src/components/CreateProjectModal.tsx`、`src/pages/controllers/AdminPeople/useAdminPeople.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `GET /api/v1/admin/people/{user_id}` | 静态调用已接入 | `src/api/admin.ts#fetchPerson` → `src/pages/controllers/AdminPeople/useAdminPeople.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `POST /api/v1/admin/people/{user_id}/company-roles` | 静态调用已接入 | `src/api/admin.ts#setCompanyRole` → `src/pages/AdminPeoplePage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
@@ -85,13 +87,6 @@
 | `POST /api/v1/admin/release-notes` | 静态调用已接入 | `src/api/releaseNotes.ts#saveReleaseNote` → `src/pages/AdminReleaseNotesPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `PUT /api/v1/admin/release-notes/{note_id}` | 静态调用已接入 | `src/api/releaseNotes.ts#saveReleaseNote` → `src/pages/AdminReleaseNotesPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `POST /api/v1/admin/release-notes/{note_id}/publish` | 静态调用已接入 | `src/api/releaseNotes.ts#publishReleaseNote` → `src/pages/AdminReleaseNotesPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
-| `GET /api/v1/admin/wecom-scan/configs` | 静态调用已接入 | `src/api/admin.ts#fetchWecomScanConfigs` → `src/pages/AdminWecomScanPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
-| `POST /api/v1/admin/wecom-scan/configs` | 静态调用已接入 | `src/api/admin.ts#createWecomScanConfig` → `src/pages/wecomScan/WecomScanConfigForm.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
-| `PATCH /api/v1/admin/wecom-scan/configs/{config_id}` | 静态调用已接入 | `src/api/admin.ts#updateWecomScanConfig` → `src/pages/AdminWecomScanPage.tsx`、`src/pages/wecomScan/WecomScanConfigForm.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
-| `GET /api/v1/admin/wecom-scan/configs/{config_id}/records` | 静态调用已接入 | `src/api/admin.ts#fetchWecomScanRecords` → `src/pages/AdminWecomScanPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
-| `POST /api/v1/admin/wecom-scan/configs/{config_id}/scan` | 静态调用已接入 | `src/api/admin.ts#triggerWecomScan` → `src/pages/AdminWecomScanPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
-| `GET /api/v1/admin/wecom-scan/owner-options` | 静态调用已接入 | `src/api/admin.ts#fetchWecomScanOwnerOptions` → `src/components/operations/AgentRegistration.tsx`、`src/components/operations/SessionTools.tsx`、`src/pages/AdminWecomScanPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
-| `GET /api/v1/admin/wecom-scan/project-options` | 静态调用已接入 | `src/api/admin.ts#fetchWecomScanProjectOptions` → `src/components/operations/AgentRegistration.tsx`、`src/components/operations/IngestTools.tsx`、`src/pages/AdminWecomScanPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `GET /api/v1/admin/weknora/default-models` | 静态调用已接入 | `src/api/admin.ts#fetchWeknoraDefaultModels` → `src/pages/controllers/AdminWeKnoraModels/useAdminWeKnoraModels.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `PUT /api/v1/admin/weknora/default-models` | 静态调用已接入 | `src/api/admin.ts#updateWeknoraDefaultModels` → `src/pages/controllers/AdminWeKnoraModels/useAdminWeKnoraModels.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `GET /api/v1/admin/weknora/kb-configs` | 静态调用已接入 | `src/api/admin.ts#fetchWeknoraKbConfigs` → `src/pages/controllers/AdminWeKnoraModels/useAdminWeKnoraModels.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |

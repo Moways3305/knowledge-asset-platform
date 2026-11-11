@@ -44,7 +44,6 @@ const staticRoutes: Array<[RegExp, (capabilities: Capabilities) => boolean]> = [
   [/^\/original-access$/, can.viewOriginalAccess],
   [/^\/original-access\/grants$/, can.viewOriginalAccess],
   [/^\/admin\/ingest$/, can.viewIngestAdmin],
-  [/^\/admin\/wecom-scan$/, can.viewWecomScan],
   [/^\/admin\/weknora-models$/, can.viewModels],
   [/^\/admin\/audit$/, can.viewAudit],
   [/^\/admin\/auth-security$/, can.viewAuthSecurity],

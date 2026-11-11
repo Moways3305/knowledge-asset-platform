@@ -35,7 +35,7 @@
 - `ingest`：入库任务、AI 抽取结果、确认入库；`lifecycle`：归档 / 重新启用。
 - `people`、`projects`、`permissions`：人员与项目成员、项目设置、权限规则与外部 Agent 接入注册。
 - `ops`：健康探针与运维端点（索引运维、审计、登录风控、会话撤销、企业微信身份对账等，挂在 `/admin/ops` 与 `/health`）。
-- `wecom_scan`、`weknora_admin`、`weknora_options`：微盘扫描配置 / 触发 / 记录；WeKnora 模型与建库配置中心（admin），含平台默认模型读写 `GET|PUT /api/v1/admin/weknora/default-models`（读 admin / 治理，写仅 admin）；以及顾问只读模型选项 `GET /api/v1/weknora/model-options`（业务用户可读，供入库时选模型）。三者对外只用对底座 id 不可逆的 `model_ref`，绝不回真实 `model_id` / `api_key` / `base_url`。
+- `weknora_admin`、`weknora_options`：WeKnora 模型与建库配置中心（admin），含平台默认模型读写 `GET|PUT /api/v1/admin/weknora/default-models`（读 admin / 治理，写仅 admin）；以及顾问只读模型选项 `GET /api/v1/weknora/model-options`（业务用户可读，供入库时选模型）。模型接口对外只用对底座 id 不可逆的 `model_ref`，绝不回真实 `model_id` / `api_key` / `base_url`。
 - `agent_gateway`：provider 中立外部 Agent 网关（**WorkBuddy MCP 主接入面**）——Bearer token 绑定 KAP 用户，caller 仅从 token 绑定解析。检索/问答：`/api/v1/agent-gateway/tools/knowledge-search`、`/projects`。只读知识应用工具全部经同一 `require_bound_caller` 和实时 `decide()`；其中 `/knowledge/{asset_id}/content` 仅在 original 放行后按当前版本受控源文件抽取并分页返回文本，绝不返回文件、存储引用或预览/下载 URL。
 - `dify`：**legacy** 兼容适配器（仅承载 Dify 线缆形态；保留可用、不强删，新接入改用 agent_gateway）。
 
@@ -57,7 +57,7 @@
 
 - **WeKnora**（向量检索 / 索引底座）：`base_url + api_key` 配齐启用；建库随模型配置初始化。模型选择（PBC-38）：优先级为「请求显式 `model_ref` > 平台默认模型（DB `weknora_default_models`，模型配置中心维护）> fail-closed」——已不再用 `WEKNORA_EMBEDDING_MODEL_ID` 等 `.env` 项作为生产建库兜底（保留仅 legacy / 测试隔离，见 `.env.example`）；启用 WeKnora 但未配置平台默认 embedding 时，`/health/config` 阻断项列出 `WEKNORA_DEFAULT_EMBEDDING_MODEL`，入库 fail-closed（资产保留、可补配置后重试索引）。每个 KB 建库时绑定其 embedding 模型；显式传入不一致的 `embedding_model_ref` 会按当前底座契约**自动切换** KB 的 embedding 配置并回写绑定（存量文档需在切换后重新解析以重新向量化，避免新旧向量空间混用）。`model_id` / `api_key` / `base_url` / kb_id / doc_id 视同内部标识，绝不进任何响应 / 审计 / 日志。
 - **外部 LLM**（内容处理）：优先由模型管理页维护加密的 KAP 内容生成模型及平台默认模型；产品配置存在后不回退旧环境默认值。仅未建立产品配置时兼容 `LLM_*` 环境配置；用于分类 / 三层摘要 / 标签 / 关键知识点；缺失则回退确定性草稿，上传不失败。入库建议由该受信外部 API 处理，**不再前置脱敏**（保留客户/金额等上下文以提升命名与摘要质量）；规则脱敏引擎保留为备用，待本地大模型资源到位后可重新接入。**对外输出仍按权限与脱敏策略收口**：检索原文 chunk / Agent 引用在权限放行后做输出脱敏。
-- **企业微信**：OAuth 登录（按 `users.wecom_user_id` 解析，不自动建用户）、微盘扫描（平台后端下载字节落受控存储 → 建入库任务）、通知下发（受总开关控制，默认仅站内）、成员身份生命周期同步。
+- **企业微信**：OAuth 登录（按 `users.wecom_user_id` 解析，不自动建用户）、通知下发（受总开关控制，默认仅站内）、成员身份生命周期同步。
 - **ONLYOFFICE**：只读预览，返回受控取件 URL（Document Server 凭短时 token 经平台回取字节），不暴露存储地址 / 完整 token / JWT 密钥。
 - **文件存储**：当前 `services/storage.py` 使用 `LocalFileStorage`，生产通过共享持久卷保存字节，backend / worker / ocr_worker 必须读取同一存储。S3/OSS/MinIO 适配尚未实现，不能仅填云存储环境变量完成切换；存储引用保持 server-only。
 

@@ -2,7 +2,7 @@ import type { UserSessions } from "../../api/admin";
 import { fetchAuthMe } from "../../api/auth";
 import { useState } from "react";
 import {
-  fetchWecomScanOwnerOptions,
+  fetchOperationUserOptions,
   reconcileWecomIdentity,
   revokeUserSessions,
 } from "../../api/admin";
@@ -18,7 +18,7 @@ function AccountTool({ mode }: { mode: "sessions" | "identity" }) {
     <ReadResult
       refreshLabel="刷新账号列表"
       load={async () => {
-        const [owners, me] = await Promise.all([fetchWecomScanOwnerOptions(), fetchAuthMe()]);
+        const [owners, me] = await Promise.all([fetchOperationUserOptions(), fetchAuthMe()]);
         return {
           items: [
             { user_id: me.userId, name: me.name, role_label: "当前账号" },

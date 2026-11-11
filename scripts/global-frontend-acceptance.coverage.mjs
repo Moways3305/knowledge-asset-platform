@@ -85,7 +85,7 @@ export const routeDefinitions = [
     suite: "upload",
     states: [
       { name: "normal", scenario: "local-queue" },
-      { name: "empty", scenario: "wecom-empty" },
+      { name: "empty", scenario: "historical-empty" },
       { name: "failure", scenario: "local-upload-failure-retry" },
     ],
   },
@@ -96,16 +96,6 @@ export const routeDefinitions = [
       { name: "normal", scenario: "normal-trend" },
       { name: "empty", scenario: "empty" },
       { name: "failure", scenario: "health-error" },
-      { name: "forbidden", scenario: "forbidden" },
-    ],
-  },
-  {
-    route: "/admin/wecom-scan",
-    suite: "wecom-scan",
-    states: [
-      { name: "normal", scenario: "normal" },
-      { name: "empty", scenario: "empty" },
-      { name: "action-failure", scenario: "scan-failure" },
       { name: "forbidden", scenario: "forbidden" },
     ],
   },

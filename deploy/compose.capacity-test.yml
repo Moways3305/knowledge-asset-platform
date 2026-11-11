@@ -31,7 +31,7 @@ x-app: &app
     WECOM_CORP_ID: synthetic-only
     WECOM_AGENT_ID: "1"
     WECOM_APP_SECRET: synthetic-only
-    WECOM_DRIVE_BASE_URL: http://fixture:9000
+    WECOM_API_BASE_URL: http://fixture:9000
     INGEST_LEASE_TIMEOUT_SECONDS: "30"
     INGEST_RECOVERY_SCAN_SECONDS: "15"
     INGEST_RECOVERY_BASE_DELAY_SECONDS: "1"

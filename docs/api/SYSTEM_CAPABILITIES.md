@@ -44,7 +44,7 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 
 ## 3. 核心流程
 
-1. **入库（Ingest）**：上传文件（Path B）或企微微盘扫描（Path A）→ 外部 LLM 内容处理
+1. **入库（Ingest）**：上传文件（Path B）→ 外部 LLM 内容处理
    （未配置则降级为确定性草稿，不伪装成功）→ 待确认任务 → 确认人确认入库。
 2. **索引与检索**：入库确认后经 WeKnora 建立索引（未配置则跳过、降级）→ 两阶段检索
    （发现/摘要层召回 + 原文层受权限网关约束）。
@@ -74,7 +74,7 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 ### 4.2 身份与会话（auth）
 - 🔓 `POST /api/v1/auth/login`、`GET /api/v1/auth/csrf`、`GET /api/v1/auth/wecom/start`、`GET /api/v1/auth/wecom/callback`。
 - 🔐 `GET /api/v1/auth/me`、`POST /api/v1/auth/logout`。
-- 密码登录带失败风控（锁定/限流）；企微 OAuth 走 Path A 身份；会话为 httpOnly cookie。
+- 密码登录带失败风控（锁定/限流）；企微 OAuth 解析企业成员身份；会话为 httpOnly cookie。
 
 ### 4.3 知识读 / 检索 / 生命周期 / 预览（knowledge, search, lifecycle, preview）
 - 🔐 `GET /api/v1/workbench/overview` — 第一方浏览器会话工作台聚合；待办、运营摘要、active 成员项目和近期知识动态分别报告可用、空、无权或失败状态。该路由不使用 Agent Gateway，项目与知识字段均按调用人权限裁剪。
@@ -135,13 +135,12 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 - 🔐 `POST /api/v1/dify/external-knowledge/retrieval`、`POST /api/v1/dify/tools/knowledge-search` — **Dify 兼容适配器（legacy）**，保留可用、不强删；新接入用 agent-gateway。
 - 核心是 **provider 中立网关**；Agent **不**拥有独立权限，完全跟随调用人。
 
-### 4.9 治理与管理后台（audit, alert, people, permissions, wecom_scan, weknora_admin）
+### 4.9 治理与管理后台（audit, alert, people, permissions, weknora_admin）
 - 🛡️ 审计：`GET /api/v1/admin/audit`(+`/trace/{trace_id}`,`/{event_id}/mark-processed`)。
 - 🛡️ 告警：`GET /api/v1/admin/alerts/{rules|notifications}`、`PATCH .../rules/{rule_id}`。
 - 🛡️ 人员：`/api/v1/admin/people/...` 仅总经理 / 咨询总监可读。总经理可管理总经理 / 咨询总监 / 顾问；咨询总监可管理咨询总监 / 顾问，但不可修改总经理。总经理 / 咨询总监任命或撤销项目经理；项目经理独立管理本项目任意 active 用户的辅导老师与顾问关系。技术 `admin` 角色不提供浏览器维护路径；admin 仅保留审计与必要系统运行视图。
 - 🛡️ 公司知识库：`GET|POST /api/v1/company/knowledge-base` 仅总经理 / 咨询总监可用；显式创建复用受控 WeKnora 适配层且幂等，响应只含安全名称、状态、创建时间与可用性。非 `active` 公司库不能用于公司范围入库。
 - 🛡️ 权限规则：`/api/v1/admin/permissions/{rules|agent-whitelist}`。
-- 🛡️ 微盘扫描：`/api/v1/admin/wecom-scan/...`（配置、扫描、目录/空间、归属选项）。
 - 🛡️ WeKnora 管理：`/api/v1/admin/weknora/{models|kb-configs|providers}`（模型经不可逆 `model_ref` 对前端暴露，内部 model id 不外泄）。
 - 🛡️ 平台默认模型（PBC-38）：`GET|PUT /api/v1/admin/weknora/default-models`（读 admin / 治理角色，写仅 admin；只用 `model_ref`）。建库 / 入库选模型优先级：请求显式 `model_ref` > 平台默认（DB `weknora_default_models`）> fail-closed，不再用 `.env` 的 `WEKNORA_*_MODEL_ID` 兜底；默认模型变更不会自动迁移既有 KB；当前实现允许显式指定不同 embedding 模型时切换绑定，存量文档须随后重新解析以重新向量化，不能把切换配置当作重索引完成。
 - 🛡️ KAP 内容生成模型（PBC-46）：`/api/v1/admin/generation/models` 支持管理员新增、编辑、启停、删除与安全连接测试，`PUT /api/v1/admin/generation/default-model` 保存平台默认；API 地址与 API key 使用 Fernet 密文落库，所有响应和审计只暴露安全 `model_ref` 与展示字段。业务侧 `GET /api/v1/generation/model-options` 只读安全选项。
@@ -178,7 +177,7 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 |---|---|---|
 | **WeKnora** | 知识底座 / 嵌入与索引 / 两阶段检索 | 跳过索引，检索降级 |
 | **外部 LLM** | 入库内容处理（摘要/抽取/改写） | 降级为确定性草稿，上传不失败 |
-| **企业微信（WeCom）** | OAuth 身份、微盘扫描（Path A）、治理通知 | OAuth/扫描未启用，通知仅本地 in_app |
+| **企业微信（WeCom）** | OAuth 身份、治理通知 | OAuth 未启用，通知仅本地 in_app |
 | **ONLYOFFICE** | 受控只读原文预览 | 预览安全降级，不泄露原文 URL |
 | **本地持久卷 / WeKnora** | 受控上传字节存储 / 向量索引 | 当前字节存储使用 `LocalFileStorage`；S3/OSS/MinIO 适配未实现，不能通过配置直接启用 |
 

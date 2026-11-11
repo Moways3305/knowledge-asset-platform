@@ -13,6 +13,8 @@ const flow = vi.hoisted(() => ({
     confirmSubmitted: false,
     awaitingProjectReview: false,
     taskId: "test-task-id",
+    pendingTasks: [] as Array<{ id: string }>,
+    loadPending: vi.fn(),
     projects: [] as Array<{ projectId: string; projectName: string }>,
     targetLibrary: "",
     targetLocked: false,
@@ -58,6 +60,7 @@ function NavigationProbe() {
 describe("UploadPage reference workflow", () => {
   beforeEach(() => {
     flow.current.activePath = "b";
+    flow.current.pendingTasks = [];
     flow.current.confirmReady = false;
     flow.current.confirmSubmitted = false;
     flow.current.awaitingProjectReview = false;
@@ -74,13 +77,21 @@ describe("UploadPage reference workflow", () => {
   });
 
   it("starts with the local upload workspace and switches source through the flow", () => {
+    flow.current.pendingTasks = [{ id: "historical-import" }];
     renderPage();
 
     expect(screen.getByRole("heading", { name: "上传资料" })).toBeInTheDocument();
     expect(screen.getByText("本地文件上传区")).toBeInTheDocument();
     expect(screen.queryByText("企微待确认列表")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "企微微盘待确认" }));
+    fireEvent.click(screen.getByRole("button", { name: "历史导入待确认" }));
     expect(flow.current.switchPath).toHaveBeenCalledWith("a");
+  });
+
+  it("shows no retired scan or history entry when there are no imported tasks", () => {
+    renderPage();
+    expect(screen.getByText("本地文件上传区")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "历史导入待确认" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/微盘扫描|企微微盘/)).not.toBeInTheDocument();
   });
 
   it("returns to upload history from a detail link and keeps the source through tab and browser navigation", () => {

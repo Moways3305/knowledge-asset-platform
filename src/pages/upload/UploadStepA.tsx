@@ -50,7 +50,7 @@ export default function UploadStepA({ flow }: { flow: UploadFlow }) {
     <section className="upload77-wecom" aria-labelledby="wecom-pending-title">
       <div className="upload77-section-head">
         <div>
-          <h2 id="wecom-pending-title">企微微盘待确认</h2>
+          <h2 id="wecom-pending-title">历史导入待确认</h2>
           <p>选择一项待确认资料，进入同一核对与入库流程。</p>
         </div>
         <button
@@ -84,7 +84,7 @@ export default function UploadStepA({ flow }: { flow: UploadFlow }) {
       ) : pendingTasks.length === 0 ? (
         <div className="upload77-state">
           <strong>暂无待确认资料</strong>
-          <span>当前没有需要你处理的企微微盘文件。</span>
+          <span>当前没有需要你处理的历史导入文件。</span>
         </div>
       ) : (
         <>

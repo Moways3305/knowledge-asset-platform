@@ -888,36 +888,6 @@ export const HELP_GUIDES: HelpGuide[] = [
     related: ["upload-history", "models", "audit"],
   },
   {
-    id: "wecom-scan",
-    group: "运行与系统管理",
-    summary: "从受控目录发现文件，再进入正常入库流程。",
-    audience: "有对应扫描配置权限的人；项目经理限本人项目",
-    entry: "管理中心 → 微盘扫描；上传 → 企微微盘待确认",
-    to: "/admin/wecom-scan",
-    capability: "viewWecomScan",
-    title: "配置微盘扫描",
-    sections: [
-      {
-        id: "steps",
-        title: "配置微盘扫描",
-        steps: [
-          "确认企业微信连接已配置，在微盘扫描新建或编辑允许范围的目录配置。",
-          "指定目录、业务范围和合法的待确认归属人，核对后保存。",
-          "按页面运行入口发起扫描或查看记录，检查是否生成任务。",
-          "归属人在上传工作区选择「企微微盘待确认」，打开文件核对建议与必填字段，再提交入库。",
-        ],
-        after: "扫描生成待确认任务，不绕过人工核对或项目审批。",
-      },
-    ],
-    faq: [
-      {
-        question: "扫描后为什么没有待确认文件？",
-        answer: "未发现文件时检查目录权限、连接和归属人资格；运维身份不因此获得业务原文权。",
-      },
-    ],
-    related: ["ingest", "ingest-admin"],
-  },
-  {
     id: "models",
     group: "运行与系统管理",
     summary: "生成服务、底座模型和具体知识库分别配置。",

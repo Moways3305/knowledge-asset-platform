@@ -88,12 +88,11 @@
 
 | 配置项名 | 状态 | /health/config | 缺失 / 误配症状 |
 |---|---|---|---|
-| `WECOM_CORP_ID` | conditional | `integrations.wecom_enabled`；notify 启用缺则 blocker/missing `WECOM_CORP_ID/WECOM_APP_SECRET` | 缺失 → OAuth/扫描未启用、企微登录不可用 |
+| `WECOM_CORP_ID` | conditional | `integrations.wecom_enabled`；notify 启用缺则 blocker/missing `WECOM_CORP_ID/WECOM_APP_SECRET` | 缺失 → OAuth 未启用、企微登录不可用 |
 | `WECOM_APP_SECRET` | conditional | 同上 | 同上；**绝不外泄** |
 | `WECOM_AGENT_ID` | conditional | — | 按企微应用需要 |
 | `WECOM_REDIRECT_URI` | conditional | — | OAuth callback 与企微登记 / 可信回调域名须一致，否则 callback 失败 |
-| `WECOM_DRIVE_BASE_URL` | optional | — | 缺省企微 API 域 |
-| `WECOM_SCAN_PAGE_SIZE` | optional | — | 缺省 100 |
+| `WECOM_API_BASE_URL` | optional | — | 缺省企微 API 域；兼容旧 `WECOM_DRIVE_BASE_URL`，新字段优先 |
 | `WECOM_TIMEOUT` | optional | — | 缺省 30s |
 | `WECOM_NOTIFY_ENABLED` | optional (默认 false) | `integrations.wecom_notify_enabled`；启用缺 corp/secret → blocker | 关 → 仅本地 in_app 通知；开但缺 corp/secret → 通知无法下发 |
 

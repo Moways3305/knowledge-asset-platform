@@ -1,16 +1,8 @@
 import type { AuditEventDTO } from "../types/audit";
 // 管理与运营领域：索引运维 / 登录风控 / 会话运维 / 企微身份对账 / WeKnora 模型配置 /
-// 审计 / 告警 / 人员与角色 / 权限规则 / 外部 Agent 注册 / 企微微盘扫描 / 企微 OAuth 启动。
+// 审计 / 告警 / 人员与角色 / 权限规则 / 外部 Agent 注册 / 企微 OAuth 启动。
 // 所有响应只含安全运营/治理元数据；前端不构造、不展示任何内部标识（后端本就不返回）。
-import {
-  apiGet,
-  apiPost,
-  apiPatch,
-  apiPut,
-  apiDelete,
-  apiPostNoBody,
-  createIdempotencyKey,
-} from "./http";
+import { apiGet, apiPost, apiPatch, apiPut, apiDelete, apiPostNoBody } from "./http";
 import type {
   IndexingJobListResponseDTO,
   IndexingJobSummaryDTO,
@@ -60,17 +52,7 @@ import type {
   PermissionRulesResponseDTO,
   PermissionRuleUpdateDTO,
 } from "../types/permission";
-import type {
-  WecomAuthorizeDTO,
-  WecomOwnerOptionsResponseDTO,
-  WecomProjectOptionsResponseDTO,
-  WecomScanConfigCreateBody,
-  WecomScanConfigDTO,
-  WecomScanConfigsResponseDTO,
-  WecomScanConfigUpdateBody,
-  WecomScanRecordDTO,
-  WecomScanRecordsResponseDTO,
-} from "../types/wecom";
+import type { WecomAuthorizeDTO } from "../types/wecom";
 
 // ---- 索引运维 ----
 // 注：ops 路由不带 /api/v1 前缀（与 /admin/ops/summary 一致）。
@@ -429,52 +411,17 @@ export async function setAgentRegistryEnabled(
   return resp.rule;
 }
 
-// ---- 企微微盘扫描（Path A） ----
-// 响应只含安全运营元数据，前端不构造/展示任何内部 id。
-// 读 configs/records：admin / boss / 咨询总监；启停 + 触发：admin。前端不复制后端权限逻辑，403 由 UI 提示。
-export async function fetchWecomScanConfigs(): Promise<WecomScanConfigsResponseDTO> {
-  return apiGet<WecomScanConfigsResponseDTO>(`/api/v1/admin/wecom-scan/configs`);
+// ---- 管理工具候选项（后端按当前角色和项目范围过滤） ----
+export async function fetchOperationProjectOptions(): Promise<{
+  items: { id: string; name: string }[];
+}> {
+  return apiGet(`/api/v1/admin/operation-options/projects`);
 }
 
-// 目标项目候选（active 项目 id + 名称）。读权限同配置读（admin / boss / 咨询总监）。
-export async function fetchWecomScanProjectOptions(): Promise<WecomProjectOptionsResponseDTO> {
-  return apiGet<WecomProjectOptionsResponseDTO>(`/api/v1/admin/wecom-scan/project-options`);
-}
-
-// 业务归属人候选（active 业务用户，排除纯 admin）。读权限同配置读。
-export async function fetchWecomScanOwnerOptions(): Promise<WecomOwnerOptionsResponseDTO> {
-  return apiGet<WecomOwnerOptionsResponseDTO>(`/api/v1/admin/wecom-scan/owner-options`);
-}
-
-// 创建扫描配置（仅 admin，配置操作人 = 审计 actor）。created_by = 业务归属人
-// （task_owner_user_id，后端校验合法性写入），扫描产物任务归属该业务归属人。
-export async function createWecomScanConfig(
-  body: WecomScanConfigCreateBody,
-): Promise<WecomScanConfigDTO> {
-  return apiPost<WecomScanConfigDTO>(`/api/v1/admin/wecom-scan/configs`, body);
-}
-
-// 编辑项目配置：项目与服务端扫描空间不可变。
-export async function updateWecomScanConfig(
-  configId: string,
-  body: WecomScanConfigUpdateBody,
-): Promise<WecomScanConfigDTO> {
-  return apiPatch<WecomScanConfigDTO>(`/api/v1/admin/wecom-scan/configs/${configId}`, body);
-}
-
-export async function triggerWecomScan(configId: string): Promise<WecomScanRecordDTO> {
-  // 浏览器侧生成幂等 key（非敏感），并发同 key 由后端去重；不发送任何业务负载。
-  return apiPostNoBody<WecomScanRecordDTO>(`/api/v1/admin/wecom-scan/configs/${configId}/scan`, {
-    "Idempotency-Key": createIdempotencyKey(),
-  });
-}
-
-export async function fetchWecomScanRecords(
-  configId: string,
-): Promise<WecomScanRecordsResponseDTO> {
-  return apiGet<WecomScanRecordsResponseDTO>(
-    `/api/v1/admin/wecom-scan/configs/${configId}/records`,
-  );
+export async function fetchOperationUserOptions(): Promise<{
+  items: { user_id: string; name: string; role_label: string | null }[];
+}> {
+  return apiGet(`/api/v1/admin/operation-options/users`);
 }
 
 // ---- 企微 OAuth 启动 ----
