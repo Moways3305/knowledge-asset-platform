@@ -44,6 +44,7 @@ from app.schemas.notification import (
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
 from app.services import notification_delivery as delivery
+from app.services.notification_recipients import RecipientPage
 from app.services.notification_targets import VisibleNotificationTarget, preload_targets
 from app.services.notification_targets import resolve as resolve_notification_target
 from app.services.permission import build_caller_context
@@ -196,6 +197,8 @@ async def _active_project_user_ids(
     project_id: uuid.UUID,
     *,
     roles: set[str] | None = None,
+    user_id: uuid.UUID | None = None,
+    page: RecipientPage | None = None,
 ) -> list[uuid.UUID]:
     stmt = (
         select(ProjectMember.user_id)
@@ -208,25 +211,36 @@ async def _active_project_user_ids(
     )
     if roles:
         stmt = stmt.where(ProjectMember.project_role.in_(roles))
+    if user_id is not None:
+        stmt = stmt.where(ProjectMember.user_id == user_id)
+    if page is not None:
+        return await page.select(session, stmt, ProjectMember.user_id)
     return list((await session.execute(stmt)).scalars().all())
 
 
-async def _active_company_user_ids(session: AsyncSession, roles: set[str]) -> list[uuid.UUID]:
-    return list(
-        (
-            await session.execute(
-                select(UserCompanyRole.user_id)
-                .join(User, User.id == UserCompanyRole.user_id)
-                .where(
-                    UserCompanyRole.company_role.in_(roles),
-                    UserCompanyRole.status == RoleStatus.active.value,
-                    User.status == "active",
-                )
-                .distinct()
-            )
+async def _active_company_user_ids(
+    session: AsyncSession, roles: set[str], *, page: RecipientPage | None = None
+) -> list[uuid.UUID]:
+    stmt = (
+        select(UserCompanyRole.user_id)
+        .join(User, User.id == UserCompanyRole.user_id)
+        .where(
+            UserCompanyRole.company_role.in_(roles),
+            UserCompanyRole.status == RoleStatus.active.value,
+            User.status == "active",
         )
-        .scalars()
-        .all()
+        .distinct()
+    )
+    if page is not None:
+        return await page.select(session, stmt, UserCompanyRole.user_id)
+    return list(await session.scalars(stmt))
+
+
+async def ops_signal_recipients(session: AsyncSession, page: RecipientPage | None = None):
+    return await _active_company_user_ids(
+        session,
+        {CompanyRole.boss.value, CompanyRole.consulting_director.value, CompanyRole.admin.value},
+        page=page,
     )
 
 
@@ -298,6 +312,8 @@ async def notify_ops_signal(
     *,
     signal: str,
     count: int,
+    recipients: list[uuid.UUID] | None = None,
+    hour_bucket: str | None = None,
 ) -> None:
     """运维告警信号 → 治理角色业务通知（铃铛）。
 
@@ -308,16 +324,12 @@ async def notify_ops_signal(
     event_type = _OPS_SIGNAL_EVENTS.get(signal)
     if event_type is None:
         return
-    governance = await _active_company_user_ids(
-        session, {CompanyRole.boss.value, CompanyRole.consulting_director.value}
-    )
-    admins = await _active_company_user_ids(session, {CompanyRole.admin.value})
-    recipients = list(dict.fromkeys([*governance, *admins]))
+    if recipients is None:
+        recipients = await ops_signal_recipients(session)
     if not recipients:
         return
     target_id = uuid.uuid5(uuid.NAMESPACE_URL, f"kap:ops:{signal}")
-    now = utc_now()
-    dedup_key = f"{event_type}:{target_id}:{now.strftime('%Y%m%d%H')}"
+    dedup_key = f"{event_type}:{target_id}:{hour_bucket or utc_now().strftime('%Y%m%d%H')}"
     await _record(
         session,
         recipients=recipients,
@@ -329,30 +341,41 @@ async def notify_ops_signal(
     )
 
 
-async def notify_review_pending(session: AsyncSession, task: ReviewTask) -> None:
+async def notify_review_pending(
+    session: AsyncSession, task: ReviewTask, *, page: RecipientPage | None = None
+) -> None:
     """Map a review fact to the least-privileged current recipient set."""
     if task.status not in _ACTIONABLE_REVIEW_STATUSES:
         return
     if task.review_type == ReviewType.project_to_company.value:
         recipients = await _active_company_user_ids(
-            session, {CompanyRole.boss.value, CompanyRole.consulting_director.value}
+            session, {CompanyRole.boss.value, CompanyRole.consulting_director.value}, page=page
         )
         event_type = "review.company_confirmation_pending"
     elif task.target_project_id is not None:
         # Project notifications never fan out from company roles. Even an assigned reviewer
         # must still be an active manager of this project at delivery/read time.
-        active_managers = set(
+        assigned = (
             await _active_project_user_ids(
                 session,
                 task.target_project_id,
                 roles={ProjectRole.project_manager.value},
+                user_id=task.reviewer_user_id,
             )
+            if task.reviewer_user_id is not None
+            else []
         )
-        recipients = (
-            [task.reviewer_user_id]
-            if task.reviewer_user_id is not None and task.reviewer_user_id in active_managers
-            else list(active_managers)
-        )
+        if assigned:
+            recipients = [
+                u for u in assigned if page is None or page.after is None or u > page.after
+            ]
+        else:
+            recipients = await _active_project_user_ids(
+                session,
+                task.target_project_id,
+                roles={ProjectRole.project_manager.value},
+                page=page,
+            )
         event_type = "review.project_pending"
     else:
         return
@@ -367,7 +390,7 @@ async def notify_review_pending(session: AsyncSession, task: ReviewTask) -> None
 
 
 async def notify_original_access_pending(
-    session: AsyncSession, request: OriginalAccessRequest
+    session: AsyncSession, request: OriginalAccessRequest, *, page: RecipientPage | None = None
 ) -> None:
     if request.status != AccessRequestStatus.pending.value:
         return
@@ -376,10 +399,11 @@ async def notify_original_access_pending(
             session,
             request.project_id,
             roles={ProjectRole.project_manager.value, ProjectRole.coach.value},
+            page=page,
         )
     else:
         recipients = await _active_company_user_ids(
-            session, {CompanyRole.boss.value, CompanyRole.consulting_director.value}
+            session, {CompanyRole.boss.value, CompanyRole.consulting_director.value}, page=page
         )
     await _record(
         session,
@@ -401,7 +425,9 @@ async def notify_ingest_failed(session: AsyncSession, task: IngestTask) -> None:
         if task.target_project_id is None:
             recipients = [user.id]
         else:
-            active = await _active_project_user_ids(session, task.target_project_id)
+            active = await _active_project_user_ids(
+                session, task.target_project_id, user_id=user.id
+            )
             if user.id in active:
                 recipients = [user.id]
     await _record(
@@ -425,7 +451,7 @@ async def _active_domain_recipient(
     if user is None or user.status != "active":
         return []
     if project_id is not None and user_id not in await _active_project_user_ids(
-        session, project_id
+        session, project_id, user_id=user_id
     ):
         return []
     return [user_id]

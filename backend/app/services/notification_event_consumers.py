@@ -19,6 +19,7 @@ from app.models.review import ReviewTask
 from app.schemas.enums import CompanyRole
 from app.services import alert as alert_service
 from app.services import domain_events, notifications
+from app.services.notification_recipients import RecipientPage
 from app.services.wecom_notification import default_notification_channel
 
 
@@ -91,6 +92,7 @@ async def _consume_ops_admin_alert(
     signal: str,
     audit_event_id: uuid.UUID,
     alert_rule_id: uuid.UUID,
+    recipient_ids: list[uuid.UUID] | None = None,
 ) -> None:
     audit_event = await session.get(AuditEvent, audit_event_id)
     if audit_event is None:
@@ -130,6 +132,7 @@ async def _consume_ops_admin_alert(
                     User.status == "active",
                     UserCompanyRole.company_role == CompanyRole.admin.value,
                     UserCompanyRole.status == "active",
+                    *([User.id.in_(recipient_ids)] if recipient_ids is not None else []),
                 )
                 .distinct()
             )
@@ -150,7 +153,9 @@ async def _consume_ops_admin_alert(
         )
 
 
-async def consume_notification_event(session: AsyncSession, event: DomainEventOutbox) -> None:
+async def consume_notification_event(
+    session: AsyncSession, event: DomainEventOutbox, *, page: RecipientPage | None = None
+) -> None:
     """Create recipient-scoped hints; never advances another domain's state.
 
     Every event advertised in ``NOTIFICATION_EVENT_TYPES`` has an explicit
@@ -161,7 +166,7 @@ async def consume_notification_event(session: AsyncSession, event: DomainEventOu
         review_task = await session.get(ReviewTask, event.aggregate_id)
         if review_task is None:
             raise LookupError("review_event_aggregate_missing")
-        await notifications.notify_review_pending(session, review_task)
+        await notifications.notify_review_pending(session, review_task, page=page)
     elif event.event_type == domain_events.REVIEW_DECIDED:
         review_task = await session.get(ReviewTask, event.aggregate_id)
         if review_task is None:
@@ -173,7 +178,7 @@ async def consume_notification_event(session: AsyncSession, event: DomainEventOu
         request = await session.get(OriginalAccessRequest, event.aggregate_id)
         if request is None:
             raise LookupError("original_access_event_aggregate_missing")
-        await notifications.notify_original_access_pending(session, request)
+        await notifications.notify_original_access_pending(session, request, page=page)
     elif event.event_type == domain_events.ORIGINAL_ACCESS_DECIDED:
         request = await session.get(OriginalAccessRequest, event.aggregate_id)
         if request is None:
@@ -215,13 +220,23 @@ async def consume_notification_event(session: AsyncSession, event: DomainEventOu
         alert_rule_id = event.payload.get("alert_rule_id")
         if signal is None or count is None or audit_event_id is None or alert_rule_id is None:
             raise ValueError("ops_signal_event_payload_invalid")
+        recipients = (
+            await notifications.ops_signal_recipients(session, page) if page is not None else None
+        )
         await _consume_ops_admin_alert(
             session,
             signal=signal,
             audit_event_id=uuid.UUID(audit_event_id),
             alert_rule_id=uuid.UUID(alert_rule_id),
+            recipient_ids=recipients,
         )
-        await notifications.notify_ops_signal(session, signal=signal, count=int(count))
+        await notifications.notify_ops_signal(
+            session,
+            signal=signal,
+            count=int(count),
+            recipients=recipients,
+            hour_bucket=event.payload.get("hour_bucket") or event.created_at.strftime("%Y%m%d%H"),
+        )
     elif event.event_type == domain_events.KNOWLEDGE_TRUST_ACTION_REQUIRED:
         asset = await session.get(KnowledgeAsset, event.aggregate_id)
         recipient_id = event.payload.get("recipient_id")
