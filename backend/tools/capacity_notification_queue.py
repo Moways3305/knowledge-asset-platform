@@ -161,7 +161,7 @@ async def mixed(args):
                     seconds=20,
                     delay=0.8,
                     drain_uploads=True,
-                    allow_busy=False,
+                    allow_busy=args.allow_search_busy,
                 )
             )
         )
@@ -187,6 +187,8 @@ async def mixed(args):
             {
                 "passed": True,
                 "synthetic_only": True,
+                "clean_start": args.clean_start,
+                "allow_search_busy": args.allow_search_busy,
                 "marker_seconds": marker_seconds,
                 "recovery_seconds": recovery_seconds,
                 "notification_state": before,
@@ -280,6 +282,7 @@ if __name__ == "__main__":
     parser.add_argument("--delay", type=float, default=6)
     parser.add_argument("--normal", action="store_true")
     parser.add_argument("--clean-start", action="store_true")
+    parser.add_argument("--allow-search-busy", action="store_true")
     parser.add_argument("--lost", action="store_true")
     args = parser.parse_args()
     asyncio.run(globals()[args.command](args))
