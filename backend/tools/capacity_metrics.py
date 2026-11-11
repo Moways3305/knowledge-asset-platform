@@ -179,14 +179,23 @@ class MeasuredAPI:
 
     async def sample(self):
         tick = time.perf_counter()
-        flush_at = tick + 1
         path = Path(f"/capacity/api-metrics-{os.getpid()}-{uuid.uuid4().hex}.jsonl")
-        while True:
-            await asyncio.sleep(0.1)
-            now = time.perf_counter()
-            record_value("event_loop_lag_ms", round(max(0, now - tick - 0.1) * 1000, 3))
-            tick = now  # Include measurement work in the following lag sample.
-            if now >= flush_at:
+
+        async def flush():
+            while True:
+                await asyncio.sleep(1)
                 frame = buffer.drain(time.monotonic())
                 await asyncio.to_thread(append_frame, path, frame)
-                flush_at = time.perf_counter() + 1
+
+        writer = asyncio.create_task(flush())
+        try:
+            while True:
+                await asyncio.sleep(0.1)
+                now = time.perf_counter()
+                record_value("event_loop_lag_ms", round(max(0, now - tick - 0.1) * 1000, 3))
+                tick = now
+        finally:
+            # Writer I/O waits are not event-loop lag. A separate heartbeat can
+            # still observe scheduling stalls while serialization is in flight.
+            writer.cancel()
+            await asyncio.gather(writer, return_exceptions=True)

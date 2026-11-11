@@ -1,7 +1,9 @@
 """Regression for measurement overhead and incomplete capacity evidence."""
 
+import asyncio
 import importlib.util
 import json
+import threading
 from pathlib import Path
 
 import pytest
@@ -84,8 +86,8 @@ def test_new_process_cannot_supply_missing_history_after_restart(stream, tmp_pat
     assert stream.read_window(tmp_path, 6, 8)[1]["complete"]
 
 
-@pytest.mark.asyncio
-async def test_off_mode_bypasses_api_measurement_hooks_and_sampler(monkeypatch):
+@pytest.fixture
+def metrics_module(monkeypatch):
     from celery import signals
 
     # Importing the tool must not register its worker log handlers in the test
@@ -103,14 +105,24 @@ async def test_off_mode_bypasses_api_measurement_hooks_and_sampler(monkeypatch):
         "LLM_BASE_URL": "http://fixture:9000/v1",
         "LLM_API_KEY": "synthetic-only",
         "STORAGE_ROOT": "/data/uploads",
-        "KAP_CAPACITY_API_METRICS": "off",
     }.items():
         monkeypatch.setenv(name, value)
-    spec = importlib.util.spec_from_file_location(
-        "isolated_test_metrics", TOOLS / "capacity_metrics.py"
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+
+    def load(mode):
+        monkeypatch.setenv("KAP_CAPACITY_API_METRICS", mode)
+        spec = importlib.util.spec_from_file_location(
+            "isolated_test_metrics", TOOLS / "capacity_metrics.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    return load
+
+
+@pytest.mark.asyncio
+async def test_off_mode_bypasses_api_measurement_hooks_and_sampler(metrics_module):
+    module = metrics_module("off")
     module.install(object())  # An engine would be accessed if hooks were installed.
     calls = []
 
@@ -122,3 +134,31 @@ async def test_off_mode_bypasses_api_measurement_hooks_and_sampler(monkeypatch):
         await measured({"type": kind}, None, None)
     assert calls == ["http", "lifespan"]
     assert module.buffer.drain(0)["samples"] == {}
+
+
+@pytest.mark.asyncio
+async def test_slow_writer_does_not_pause_event_loop_heartbeat(metrics_module, monkeypatch):
+    module = metrics_module("stream")
+    loop = asyncio.get_running_loop()
+    entered = asyncio.Event()
+    release = threading.Event()
+
+    def write(_path, _frame):
+        loop.call_soon_threadsafe(entered.set)
+        assert release.wait(5)
+
+    monkeypatch.setattr(module, "append_frame", write)
+    sampler = asyncio.create_task(module.MeasuredAPI(None).sample())
+    try:
+        await asyncio.wait_for(entered.wait(), 3)
+        # The first batch has been detached. New ticks must still be recorded
+        # while the deliberately blocked writer owns the previous batch.
+        for _ in range(20):
+            if len(module.buffer.samples["event_loop_lag_ms"]) >= 2:
+                break
+            await asyncio.sleep(0.05)
+        assert len(module.buffer.samples["event_loop_lag_ms"]) >= 2
+    finally:
+        release.set()
+        sampler.cancel()
+        await asyncio.gather(sampler, return_exceptions=True)
