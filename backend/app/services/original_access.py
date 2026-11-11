@@ -22,9 +22,8 @@ from sqlalchemy import and_, case, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.logging import safe_log_exception
 from app.db.utils import utc_now
-from app.models.identity import User
+from app.models.identity import ProjectMember, User, UserCompanyRole
 from app.models.knowledge import KnowledgeAsset
 from app.models.original_access import AccessGrant, OriginalAccessRequest
 from app.models.permission_rule import PermissionRule
@@ -51,7 +50,7 @@ from app.schemas.permission import AccessLayer, CallerContext
 from app.services import audit as audit_service
 from app.services import domain_events
 from app.services.permission import build_caller_context, decide, discovery_filter
-from app.services.permission_rules import access_request_timeout_hours, load_access_policy
+from app.services.permission_rules import load_access_policy
 from app.worker.enqueue import enqueue_outbox_delivery
 
 _logger = logging.getLogger(__name__)
@@ -196,6 +195,7 @@ async def _ensure_active_grant_for_request(
     granted_by_user_id: uuid.UUID,
     now: datetime,
     days: int,
+    nonblocking: bool = False,
 ) -> AccessGrant:
     """确保 grantee+asset 有一条 live active 原文授权（人工审批 / 超时自动审批共用）。
 
@@ -218,7 +218,7 @@ async def _ensure_active_grant_for_request(
                     AccessGrant.grant_type == AccessGrantType.original_access.value,
                     AccessGrant.status == AccessGrantStatus.active.value,
                 )
-                .with_for_update()
+                .with_for_update(nowait=nonblocking)
                 .execution_options(populate_existing=True)
             )
         )
@@ -608,7 +608,7 @@ async def list_requests(
 # 审批 / 拒绝
 # ---------------------------------------------------------------------------
 async def _lock_request(
-    session: AsyncSession, request_id: uuid.UUID
+    session: AsyncSession, request_id: uuid.UUID, *, nonblocking: bool = False
 ) -> OriginalAccessRequest | None:
     # Match asset deletion/lifecycle writes: asset -> request -> existing grant.
     # request.asset_id is immutable; read just that key before taking locks.
@@ -623,7 +623,7 @@ async def _lock_request(
         asset = await session.scalar(
             select(KnowledgeAsset)
             .where(KnowledgeAsset.id == asset_id)
-            .with_for_update()
+            .with_for_update(nowait=nonblocking)
             .execution_options(populate_existing=True)
         )
         if asset is None:
@@ -632,7 +632,7 @@ async def _lock_request(
             await session.execute(
                 select(OriginalAccessRequest)
                 .where(OriginalAccessRequest.id == request_id)
-                .with_for_update()
+                .with_for_update(nowait=nonblocking)
                 .execution_options(populate_existing=True)
             )
         ).scalar_one_or_none()
@@ -863,7 +863,23 @@ async def revoke_grant(
 _L1_L2_LEVELS = {ConfidentialityLevel.L1.value, ConfidentialityLevel.L2.value}
 
 
-async def _load_requester_ctx(session: AsyncSession, user_id: uuid.UUID) -> CallerContext | None:
+async def _load_requester_ctx(
+    session: AsyncSession, user_id: uuid.UUID, *, nonblocking: bool = False
+) -> CallerContext | None:
+    if nonblocking:
+        # Keep the current identity/role facts stable through this single grant
+        # transaction. Conflicting edits defer the request, never wait in a worker.
+        for model, predicate in (
+            (User, User.id == user_id),
+            (UserCompanyRole, UserCompanyRole.user_id == user_id),
+            (ProjectMember, ProjectMember.user_id == user_id),
+        ):
+            await session.execute(
+                select(model.id)
+                .where(predicate)
+                .order_by(model.id)
+                .with_for_update(read=True, nowait=True)
+            )
     user = (
         await session.execute(
             select(User)
@@ -887,13 +903,15 @@ async def _auto_approve_one(
     timeout_hours: float,
     policy,
     trace_id: str,
+    commit: bool = True,
+    nonblocking: bool = False,
 ) -> str:
     """对一条超时 pending 申请尝试自动审批。返回统计桶名。
 
     保守跳过：机密资产（非 L1/L2）/ 资产不存在/已删除/归档/废弃 / 申请人 inactive 或非业务用户 /
     资产对申请人不可发现 / 即使授权也拿不到 original（L5、他人 personal 等硬边界）。
     """
-    req = await _lock_request(session, request_id)
+    req = await _lock_request(session, request_id, nonblocking=nonblocking)
     if req is None or req.status != AccessRequestStatus.pending.value:
         return "skipped_invalid"
     created_at = _as_aware(req.created_at)
@@ -911,7 +929,7 @@ async def _auto_approve_one(
     # 机密资产除外：仅 L1/L2 自动审批，L3/L4/L5 一律跳过。
     if asset.confidentiality_level not in _L1_L2_LEVELS:
         return "skipped_confidential"
-    ctx = await _load_requester_ctx(session, req.requester_user_id)
+    ctx = await _load_requester_ctx(session, req.requester_user_id, nonblocking=nonblocking)
     if ctx is None or not ctx.is_active or not ctx.is_business_user:
         return "skipped_invalid"
     # 资产仍可被申请人发现（移出项目 / 不再可见则不放行）。
@@ -938,6 +956,7 @@ async def _auto_approve_one(
         granted_by_user_id=req.requester_user_id,
         now=now,
         days=days,
+        nonblocking=nonblocking,
     )
     await audit_service.record_system_event(
         session,
@@ -958,8 +977,9 @@ async def _auto_approve_one(
         },
     )
     await _publish_original_access_decided(session, req)
-    await session.commit()
-    await enqueue_outbox_delivery(session)
+    if commit:
+        await session.commit()
+        await enqueue_outbox_delivery(session)
     return "approved"
 
 
@@ -969,65 +989,9 @@ async def auto_approve_timed_out_original_access_requests(
     trace_id: str,
     now: datetime | None = None,
     limit: int = 100,
+    resume_only: bool = False,
 ) -> dict:
-    """超时自动审批 L1/L2 pending 原文申请。返回安全统计，不含原文/refs/secret。
+    """One fair timeout-scan batch; each decision and cursor commit together."""
+    from app.services.jobs.original_access_scan import scan
 
-    仅当 `access_request_timeout_hours` 规则 enabled、numeric、>0 时启用；否则不处理。
-    只处理创建时间早于 now-timeout 的 pending 申请；逐条独立提交，单条失败不阻断整批。
-    """
-    stats = {
-        "checked": 0,
-        "approved": 0,
-        "skipped_confidential": 0,
-        "skipped_invalid": 0,
-        "errors": 0,
-    }
-    now = now or utc_now()
-    timeout_hours = await access_request_timeout_hours(session)
-    if timeout_hours is None:
-        return {**stats, "enabled": False}
-
-    cutoff = now - timedelta(hours=timeout_hours)
-    request_ids = list(
-        (
-            await session.execute(
-                select(OriginalAccessRequest.id)
-                .where(OriginalAccessRequest.status == AccessRequestStatus.pending.value)
-                .where(OriginalAccessRequest.created_at < cutoff)
-                .order_by(OriginalAccessRequest.created_at, OriginalAccessRequest.id)
-                .limit(limit)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    days = await _grant_duration_days(session)
-    policy = await load_access_policy(session)
-    for request_id in request_ids:
-        stats["checked"] += 1
-        try:
-            outcome = await _auto_approve_one(
-                session,
-                request_id,
-                now=now,
-                days=days,
-                timeout_hours=timeout_hours,
-                policy=policy,
-                trace_id=trace_id,
-            )
-            if outcome != "approved":
-                # Release this skipped request's lock before processing another
-                # item. IDs remain usable after a later rollback expires ORM rows.
-                await session.commit()
-            stats[outcome] += 1
-        except Exception as exc:  # noqa: BLE001  # 单条失败不阻断整批；不泄露业务原文
-            safe_log_exception(
-                _logger,
-                "auto_approve_item_failed",
-                exc,
-                include_summary=False,
-                level=logging.WARNING,
-            )
-            await session.rollback()
-            stats["errors"] += 1
-    return {**stats, "enabled": True, "timeout_hours": timeout_hours}
+    return await scan(session, trace_id=trace_id, now=now, limit=limit, resume_only=resume_only)

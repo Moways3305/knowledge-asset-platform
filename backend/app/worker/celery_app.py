@@ -100,6 +100,11 @@ def _make_celery() -> Celery:
                 "task": "access.auto_approve_timed_out",
                 "schedule": 1800.0,  # 每 30 分钟扫描超时 pending 原文申请
             },
+            "original-access-resume": {
+                "task": "access.auto_approve_timed_out",
+                "schedule": 60.0,
+                "kwargs": {"resume_only": True},
+            },
             "ops-alerts-scan": {
                 "task": "ops.alerts_scan",
                 "schedule": 600.0,  # 每 10 分钟检查运维告警信号（超阈值经通知链路告警）

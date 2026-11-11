@@ -39,6 +39,13 @@ class OriginalAccessRequest(Base):
         ),
         Index("ix_oar_asset_status", "asset_id", "status"),
         Index("ix_oar_reviewer_status", "reviewer_user_id", "status"),
+        Index(
+            "ix_oar_pending_scan",
+            "created_at",
+            "id",
+            sqlite_where=text("status = 'pending'"),
+            postgresql_where=text("status = 'pending'"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)

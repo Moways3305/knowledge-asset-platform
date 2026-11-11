@@ -1,4 +1,4 @@
-"""Durable daily scan cycles; their row locks live for one bounded batch only."""
+"""Durable scheduled scan cycles; row locks live for one bounded transaction."""
 
 from datetime import datetime
 
