@@ -14,10 +14,11 @@
 
 from __future__ import annotations
 
+import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.knowledge import KnowledgeAsset
@@ -32,6 +33,7 @@ from app.schemas.enums import (
 from app.services import alert as alert_service
 from app.services import audit as audit_service
 from app.services import operation_events
+from app.services.jobs import governance_scan
 from app.worker.enqueue import enqueue_outbox_delivery
 
 # 阈值回退默认值（与 alert.DEFAULT_ARCHIVE_RULES 一致；仅在规则缺失/停用时使用）。
@@ -55,21 +57,6 @@ async def _rule_threshold(session: AsyncSession, rule_name: str, default: int) -
     if rule is None or not rule.enabled or rule.threshold is None:
         return default
     return int(rule.threshold)
-
-
-async def _latest_event_at(
-    session: AsyncSession, asset_id: uuid.UUID, event_type: str
-) -> datetime | None:
-    row = (
-        await session.execute(
-            select(AssetLifecycleEvent.created_at)
-            .where(AssetLifecycleEvent.asset_id == asset_id)
-            .where(AssetLifecycleEvent.event_type == event_type)
-            .order_by(AssetLifecycleEvent.created_at.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    return _to_naive_utc(row) if row is not None else None
 
 
 async def _emit(
@@ -131,57 +118,75 @@ async def scan_archive_candidates(
     *,
     trace_id: str | None = None,
     now: datetime | None = None,
+    resume_only: bool = False,
 ) -> dict:
-    """扫描 active 资产产生归档预警/候选（去重，不改状态）。返回安全计数。"""
-    await alert_service.ensure_default_rules(session)
-    now_naive = _to_naive_utc(now or datetime.now(timezone.utc))
-    inactivity_days = await _rule_threshold(session, _RULE_INACTIVITY, _DEFAULT_INACTIVITY_DAYS)
-    warning_days = await _rule_threshold(session, _RULE_WARNING_PERIOD, _DEFAULT_WARNING_DAYS)
-
-    assets = list(
-        (
-            await session.execute(
-                select(KnowledgeAsset).where(
-                    KnowledgeAsset.asset_status == AssetStatus.active.value
+    """Process one bounded batch; later tasks resume the durable daily cycle."""
+    started = time.monotonic()
+    run = await governance_scan.begin_cycle(session, "archive", resume_only=resume_only, now=now)
+    if run is None:
+        return {"warnings": 0, "candidates": 0, "scanned": 0}
+    try:
+        if not run.parameters:
+            await alert_service.ensure_default_rules(session, commit=False)
+            run.parameters = {
+                "inactivity_days": await _rule_threshold(
+                    session, _RULE_INACTIVITY, _DEFAULT_INACTIVITY_DAYS
+                ),
+                "warning_days": await _rule_threshold(
+                    session, _RULE_WARNING_PERIOD, _DEFAULT_WARNING_DAYS
+                ),
+            }
+        inactivity_days = run.parameters["inactivity_days"]
+        warning_days = run.parameters["warning_days"]
+        now_naive = _to_naive_utc(run.cutoff_at)
+        conditions = (
+            KnowledgeAsset.asset_status == AssetStatus.active.value,
+            func.coalesce(KnowledgeAsset.last_called_at, KnowledgeAsset.created_at)
+            <= run.cutoff_at - timedelta(days=inactivity_days),
+        )
+        assets = await governance_scan.claim_assets(session, run, *conditions)
+        latest = {}
+        if assets:
+            rows = (
+                await session.execute(
+                    select(
+                        AssetLifecycleEvent.asset_id,
+                        AssetLifecycleEvent.event_type,
+                        func.max(AssetLifecycleEvent.created_at),
+                    )
+                    .where(
+                        AssetLifecycleEvent.asset_id.in_([asset.id for asset in assets]),
+                        AssetLifecycleEvent.event_type.in_(
+                            ["archive_warning", "archive_candidate"]
+                        ),
+                    )
+                    .group_by(AssetLifecycleEvent.asset_id, AssetLifecycleEvent.event_type)
                 )
-            )
-        )
-        .scalars()
-        .all()
-    )
-
-    warnings = candidates = 0
-    for asset in assets:
-        last = asset.last_called_at or asset.created_at
-        if last is None:
-            continue
-        inactive_days = (now_naive - _to_naive_utc(last)).days
-        if inactive_days < inactivity_days:
-            continue
-
-        last_warning = await _latest_event_at(
-            session, asset.id, LifecycleEventType.archive_warning.value
-        )
-        if last_warning is None:
-            # 首次预警。
-            await _emit(
-                session,
-                asset,
-                event_type=LifecycleEventType.archive_warning.value,
-                action=AuditAction.lifecycle_archive_warning.value,
-                inactive_days=inactive_days,
-                trace_id=trace_id,
-            )
-            warnings += 1
-            continue
-
-        # 已预警：预警期已过且尚无（更新的）候选 → 升级为候选（去重）。
-        warning_age = (now_naive - last_warning).days
-        if warning_age >= warning_days:
-            last_candidate = await _latest_event_at(
-                session, asset.id, LifecycleEventType.archive_candidate.value
-            )
-            if last_candidate is None or last_candidate < last_warning:
+            ).all()
+            latest = {(asset_id, kind): _to_naive_utc(at) for asset_id, kind, at in rows}
+        warnings = candidates = 0
+        processed: list[uuid.UUID] = []
+        for asset in assets:
+            if governance_scan.budget_exhausted(started, processed):
+                break
+            inactive_days = (
+                now_naive - _to_naive_utc(asset.last_called_at or asset.created_at)
+            ).days
+            last_warning = latest.get((asset.id, "archive_warning"))
+            last_candidate = latest.get((asset.id, "archive_candidate"))
+            if last_warning is None:
+                await _emit(
+                    session,
+                    asset,
+                    event_type=LifecycleEventType.archive_warning.value,
+                    action=AuditAction.lifecycle_archive_warning.value,
+                    inactive_days=inactive_days,
+                    trace_id=trace_id,
+                )
+                warnings += 1
+            elif (now_naive - last_warning).days >= warning_days and (
+                last_candidate is None or last_candidate < last_warning
+            ):
                 await _emit(
                     session,
                     asset,
@@ -191,8 +196,12 @@ async def scan_archive_candidates(
                     trace_id=trace_id,
                 )
                 candidates += 1
-        # 预警期内重复扫描 → 去重跳过。
-
-    await session.commit()
-    await enqueue_outbox_delivery(session)
-    return {"warnings": warnings, "candidates": candidates, "scanned": len(assets)}
+            processed.append(asset.id)
+        await governance_scan.finish_batch(session, run, processed, *conditions)
+    except BaseException:
+        # Cancellation must roll back the current events AND their watermarks.
+        await session.rollback()
+        raise
+    if warnings or candidates:
+        await enqueue_outbox_delivery(session)
+    return {"warnings": warnings, "candidates": candidates, "scanned": len(processed)}

@@ -16,6 +16,7 @@ from app.models.auth_security import AuthLoginAttempt
 from app.models.auth_session import UserSession
 from app.models.directory_migration import DirectoryMigrationCandidate
 from app.models.generation_model import ContentGenerationModel, ContentGenerationSettings
+from app.models.governance_scan import GovernanceScanRun
 from app.models.identity import (
     Project,
     ProjectMember,
@@ -67,6 +68,7 @@ from app.models.weknora import WeknoraKbMapping
 from app.models.weknora_defaults import WeknoraDefaultModels
 
 __all__ = [
+    "GovernanceScanRun",
     "ProviderConnection",
     "RegisteredModel",
     "KnowledgeDirectory",

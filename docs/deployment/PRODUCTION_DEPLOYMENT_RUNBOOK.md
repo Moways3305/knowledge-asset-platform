@@ -94,6 +94,7 @@
    - **启用通知独立队列时**：先暂停 beat，等待并排空旧 default 队列中的通知任务，再停止旧普通 worker；新普通 worker 仍可处理已入 default 的历史消息，停止宽限为 150 秒。启动通知消费者并确认其定向健康检查、队列订阅正常后，再启动新版 beat。不得仅修改生产者路由而漏启消费者。
    - **回退通知队列隔离时**：先暂停 beat，排空 notifications 队列并等待当前任务完成，再停止通知消费者，最后恢复旧路由和 beat。排空检查同时覆盖队列长度、active/reserved 和 broker 未确认消息，不能只看 LLEN。若消费者已异常退出，保留 broker 与数据库及兼容消费者，等待租约恢复、未确认消息按原 Redis 可见性超时回投并完成确认后，再移除通知消费者；不能删队列或提前停止唯一消费者。
    - **升级至 `0084_notification_delivery_lease` 或回退时**：先暂停 beat，等待旧 worker 中正在执行的 `notifications.dispatch_pending` 结束，再停止旧普通 worker、执行迁移并启动同版本消费者；不要让未使用租约的旧通知代码与新代码混跑。回退也需先排空新通知任务，再删除新增租约字段。保留数据库和 broker，不清空待发通知。
+   - **升级至 `0085_governance_scan_batches`**：暂停 beat，等待旧 `lifecycle.archive_scan` 完成并停止旧普通 worker，再迁移、启动同版本普通 worker 和 beat；旧扫描代码不会遵守新批次行锁，不可混跑。每日仍开启一次归档预警/到期复核周期，每条任务最多各处理 50 份候选资料，资产间检查 2 秒批次预算（不是单条 SQL 的硬超时）。批次提交后释放连接并重新入队；每分钟的 resume 调度只续跑未完成周期，不另开周期。被其他事务锁住的资产保持待处理，不会被游标跳过。进度与事件同事务保存，新增扫描时间戳不会改变资料的 updated_at、复核基线或治理状态。回退时先暂停 beat，待周期完成并排空普通队列中的扫描续跑消息，再停止普通 worker、回退迁移及代码；不要让含 resume_only 参数的新消息交给旧消费者。无需清除业务事件或待发通知。
    - 通知发送期间不持有数据库连接。每条最多尝试 3 次，失败至少间隔 120 秒；异常退出留下的领取租约在 120 秒后由后续派发回收，派发仍按原 2 分钟周期触发。这不是恢复时间上限。超时或已发送但结果未落库时可能再次发送，系统不承诺外部消息 exactly-once；`delivery_outcome_unknown` 表示该边界。关闭企微通知开关时，两类通知均保留待发状态，不消耗尝试次数。
    - 本仓库由一次性 `migrate` 服务执行 `python -m alembic upgrade head`；`backend` / `worker` / `ocr_worker` / `parse_worker` / `notification_worker` / `beat` 依赖其 `service_completed_successfully` 才启动。
    - 不要手动在多个副本各自 `alembic upgrade`。

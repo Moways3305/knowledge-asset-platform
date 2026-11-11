@@ -73,6 +73,12 @@ def _make_celery() -> Celery:
                 "task": "lifecycle.archive_scan",
                 "schedule": 86400.0,  # 每日扫描归档预警/候选
             },
+            "lifecycle-resume-scan": {
+                "task": "lifecycle.archive_scan",
+                "schedule": 60.0,
+                # Resume an unfinished daily cycle, never start a new one.
+                "kwargs": {"resume_only": True},
+            },
             "reuse-upgrade-scan": {
                 "task": "reuse.upgrade_scan",
                 "schedule": 86400.0,  # 每日跨项目复用统计 + 升格推荐
