@@ -749,6 +749,9 @@ async def test_delivery_failure_retries_with_safe_audit_and_revalidates_target(d
     sender = _FlakySender()
 
     failed = await dispatch_pending(db_session, sender=sender, trace_id="trace-secret-test")
+    await db_session.refresh(row)
+    row.delivery_available_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    await db_session.commit()
     sent = await dispatch_pending(db_session, sender=sender, trace_id="trace-secret-test")
     await db_session.refresh(row)
     audits = list(

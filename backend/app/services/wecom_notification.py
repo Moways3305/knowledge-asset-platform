@@ -14,24 +14,19 @@
 from __future__ import annotations
 
 import httpx
-from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.db.utils import utc_now
 from app.models.identity import User
 from app.models.lifecycle import NotificationRecord
 from app.schemas.enums import (
     AuditAction,
     AuditLogType,
     NotificationChannel,
-    NotificationStatus,
 )
 from app.services import audit as audit_service
+from app.services import notification_delivery as delivery
 from app.services.wecom_client import WeComError, wecom_enabled
-
-# 重试上限：超过则不再下发（失败终态）。
-MAX_SEND_ATTEMPTS = 3
 
 
 def wecom_send_enabled() -> bool:
@@ -63,15 +58,18 @@ class WeComNotificationSender:
     ) -> None:  # pragma: no cover - 真实网络
         if not self._agent_id:
             raise WeComError("wecom_no_agent_id", "企微 agentid 未配置")
+        sending = False
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 tok = await client.get(
                     f"{self._base}/cgi-bin/gettoken",
                     params={"corpid": self._corp_id, "corpsecret": self._app_secret},
                 )
+                tok.raise_for_status()
                 token = (tok.json() or {}).get("access_token")
                 if not token:
                     raise WeComError("wecom_token_failed", "企微 access_token 获取失败")
+                sending = True
                 resp = await client.post(
                     f"{self._base}/cgi-bin/message/send",
                     params={"access_token": token},
@@ -84,13 +82,17 @@ class WeComNotificationSender:
                         "text": {"content": f"{title}\n{content}"},
                     },
                 )
+                resp.raise_for_status()
                 data = resp.json() or {}
         except httpx.HTTPError as exc:
             raise WeComError(
-                "wecom_network_error", f"企微网络错误（{type(exc).__name__}）"
+                "delivery_outcome_unknown" if sending else "wecom_network_error",
+                f"企微网络错误（{type(exc).__name__}）",
             ) from exc
-        errcode = data.get("errcode", 0)
-        if errcode and int(errcode) != 0:
+        errcode = data.get("errcode")
+        if type(errcode) is not int:
+            raise WeComError("delivery_outcome_unknown", "企微消息响应缺少结果码")
+        if errcode != 0:
             # 不回显上游 errmsg（可能含敏感串）。
             raise WeComError(f"wecom_msg_{int(errcode)}", "企微消息下发失败")
 
@@ -132,55 +134,39 @@ async def dispatch_pending(
     """
     if isinstance(sender, NullWeComNotificationSender):
         return {"sent": 0, "failed": 0, "processed": 0, "skipped": "wecom_notify_disabled"}
-    rows = list(
-        (
-            await session.execute(
-                select(NotificationRecord)
-                .where(NotificationRecord.channel == NotificationChannel.wecom.value)
-                .where(
-                    or_(
-                        NotificationRecord.send_status == NotificationStatus.pending.value,
-                        (NotificationRecord.send_status == NotificationStatus.failed.value)
-                        & (NotificationRecord.send_attempts < MAX_SEND_ATTEMPTS),
-                    )
-                )
-                .order_by(NotificationRecord.created_at)
-                .limit(limit)
-            )
-        )
-        .scalars()
-        .all()
+    result = await delivery.dispatch(
+        session,
+        policy=delivery.Policy(
+            model=NotificationRecord,
+            status="send_status",
+            attempts="send_attempts",
+            failure="failure_reason",
+            delivered="sent_at",
+            prepare=_prepare_delivery,
+            audit=_audit_delivery,
+        ),
+        sender=sender,
+        trace_id=trace_id,
+        limit=limit,
     )
-    sent = failed = 0
-    for rec in rows:
-        rec.send_attempts = (rec.send_attempts or 0) + 1
-        user = await session.get(User, rec.recipient_user_id)
-        if user is None or user.status != "active" or not user.wecom_user_id:
-            rec.send_status = NotificationStatus.failed.value
-            rec.failure_reason = "recipient_unavailable"
-            failed += 1
-            await _audit(session, AuditAction.notification_failed.value, rec, trace_id)
-            continue
-        try:
-            await sender.send(
-                wecom_user_id=user.wecom_user_id,
-                title=rec.title,
-                content=rec.content,
-                trace_id=trace_id,
-            )
-        except WeComError as exc:
-            rec.send_status = NotificationStatus.failed.value
-            rec.failure_reason = exc.code  # 安全 code，不存原始 payload
-            failed += 1
-            await _audit(session, AuditAction.notification_failed.value, rec, trace_id)
-            continue
-        rec.send_status = NotificationStatus.sent.value
-        rec.sent_at = utc_now()
-        rec.failure_reason = None
-        sent += 1
-        await _audit(session, AuditAction.notification_sent.value, rec, trace_id)
-    await session.commit()
-    return {"sent": sent, "failed": failed, "processed": len(rows)}
+    result.pop("expired")
+    return result
+
+
+async def _prepare_delivery(session: AsyncSession, row: NotificationRecord):
+    user = await session.get(User, row.recipient_user_id)
+    if user is None or user.status != "active" or not user.wecom_user_id:
+        return delivery.Failure("recipient_unavailable")
+    return delivery.Message(user.wecom_user_id, row.title, row.content)
+
+
+async def _audit_delivery(session, row, failed: bool, trace_id: str | None):
+    await _audit(
+        session,
+        AuditAction.notification_failed.value if failed else AuditAction.notification_sent.value,
+        row,
+        trace_id,
+    )
 
 
 async def _audit(

@@ -372,6 +372,9 @@ async def test_dispatch_upstream_failure_and_no_duplicate_send(db_session):
     assert res1["failed"] == 1
     await db_session.refresh(rec)
     assert rec.send_status == "failed" and rec.send_attempts == 1
+    # Advance the durable retry schedule; duplicate tasks cannot bypass backoff.
+    rec.delivery_available_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    await db_session.commit()
     # 重试（可重试，attempts<max）→ 成功 sent。
     ok = FakeSender()
     res2 = await wecom_notification.dispatch_pending(db_session, sender=ok)
