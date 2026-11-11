@@ -272,7 +272,9 @@ async def load_access_policy(session: AsyncSession) -> DefaultAccessPolicy:
     rows = (
         (
             await session.execute(
-                select(PermissionRule).where(PermissionRule.rule_key.in_(_RUNTIME_TOGGLE_KEYS))
+                select(PermissionRule)
+                .where(PermissionRule.rule_key.in_(_RUNTIME_TOGGLE_KEYS))
+                .execution_options(populate_existing=True)
             )
         )
         .scalars()
@@ -295,7 +297,9 @@ async def access_request_timeout_hours(session: AsyncSession) -> float | None:
     """
     rule = (
         await session.execute(
-            select(PermissionRule).where(PermissionRule.rule_key == _TIMEOUT_RULE_KEY)
+            select(PermissionRule)
+            .where(PermissionRule.rule_key == _TIMEOUT_RULE_KEY)
+            .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
     if rule is None or not rule.enabled or rule.rule_type != RULE_NUMERIC:
