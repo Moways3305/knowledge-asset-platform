@@ -5,9 +5,10 @@ import asyncio
 import pytest
 import test_search_pool_postgres as pool_tests
 from fastapi import HTTPException
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
 from test_search_api import KA_ALPHA_L4, FakeSearchWeKnora
 
+from app.db.utils import utc_now
 from app.models.agent import (
     AgentCall,
     AgentCallCitation,
@@ -318,3 +319,60 @@ async def test_concurrent_revocation_or_edit_rejects_stale_answer(
                 pending.cancel()
             await asyncio.gather(pending, return_exceptions=True)
     await assert_no_partial_outcome(sessions, denied=True)
+
+
+@pytest.mark.parametrize("stage", ["scrub", "answer"])
+@pytest.mark.parametrize(
+    "field,allowed",
+    [
+        ("archive_scan_checked_at", True),
+        ("review_scan_checked_at", True),
+        ("reuse_scan_checked_at", True),
+        ("last_called_at", True),
+        ("review_due_at", False),
+        ("verified_at", False),
+        ("verified_updated_at", False),
+        ("archived_at", False),
+    ],
+)
+async def test_scan_progress_does_not_invalidate_evidence_but_governance_changes_do(
+    single_connection_db, stage, field, allowed
+):
+    sessions = single_connection_db
+    model = ControlledModel(stage)
+    async with sessions() as session:
+        pending = asyncio.create_task(request_qa(session, model))
+        try:
+            await asyncio.wait_for(model.entered.wait(), 5)
+            async with sessions() as writer:
+                # Matches the scan update: bookkeeping preserves the business
+                # edit timestamp. Governance changes must be checked even if
+                # their writer likewise preserves that timestamp.
+                await writer.execute(
+                    update(KnowledgeAsset)
+                    .where(KnowledgeAsset.id == KA_ALPHA_L4)
+                    .values(
+                        {
+                            field: utc_now(),
+                            "updated_at": KnowledgeAsset.updated_at,
+                        }
+                    )
+                )
+                await writer.commit()
+            model.release.set()
+            if allowed:
+                result = await asyncio.wait_for(pending, 5)
+                assert result.answer_status == "answered"
+                assert [c.asset_id for c in result.citations] == [KA_ALPHA_L4]
+            else:
+                with pytest.raises(HTTPException) as denied:
+                    await asyncio.wait_for(pending, 5)
+                assert denied.value.status_code == 409
+                assert denied.value.detail["denied_reason"] == "qa_context_changed"
+        finally:
+            model.release.set()
+            if not pending.done():
+                pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
+    if not allowed:
+        await assert_no_partial_outcome(sessions, denied=True)
