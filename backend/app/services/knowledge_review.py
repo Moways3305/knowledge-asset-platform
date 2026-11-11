@@ -1,6 +1,7 @@
 """Knowledge trust loop. Due dates never archive content; corrections never grant access."""
 
 import json
+import time
 import uuid
 from datetime import timezone
 from hashlib import sha256
@@ -29,6 +30,7 @@ from app.schemas.knowledge_review import (
 )
 from app.schemas.lifecycle import ArchiveConfirmBody
 from app.services import audit, lifecycle, operation_events
+from app.services.jobs import governance_scan
 from app.services.permission import (
     AccessLayer,
     build_caller_context,
@@ -159,7 +161,7 @@ async def fingerprint(session, asset):
     return sha256(json.dumps(data, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
-async def _maintainers(session, asset):
+async def _maintainer_contexts(session):
     users = (
         await session.scalars(
             select(User)
@@ -167,21 +169,39 @@ async def _maintainers(session, asset):
             .options(selectinload(User.company_roles), selectinload(User.project_members))
         )
     ).all()
-    result = []
-    for user in users:
-        # Any assigned active business identity may qualify, regardless of default identity.
-        if any(
-            role.status == "active"
-            and can_manage(build_caller_context(user, active_company_role=role.company_role), asset)
-            for role in user.company_roles
-        ):
-            result.append({"id": str(user.id), "name": user.name})
-    return result
+    return [
+        (
+            user,
+            [
+                build_caller_context(user, active_company_role=role.company_role)
+                for role in user.company_roles
+                if role.status == "active"
+            ],
+        )
+        for user in users
+    ]
+
+
+def _eligible_maintainers(asset, candidates):
+    # Any assigned active business identity may qualify, regardless of default identity.
+    return [
+        {"id": str(user.id), "name": user.name}
+        for user, contexts in candidates
+        if any(can_manage(ctx, asset) for ctx in contexts)
+    ]
+
+
+async def _maintainers(session, asset):
+    return _eligible_maintainers(asset, await _maintainer_contexts(session))
+
+
+def _responsible_for(asset, candidates):
+    ids = [uuid.UUID(item["id"]) for item in _eligible_maintainers(asset, candidates)]
+    return [asset.maintainer_user_id] if asset.maintainer_user_id in ids else ids
 
 
 async def responsible_recipients(session, asset):
-    ids = [uuid.UUID(item["id"]) for item in await _maintainers(session, asset)]
-    return [asset.maintainer_user_id] if asset.maintainer_user_id in ids else ids
+    return _responsible_for(asset, await _maintainer_contexts(session))
 
 
 def freshness(asset):
@@ -583,29 +603,38 @@ async def transition(session, caller, asset_id, correction_id, req, trace_id):
     return await get_state(session, caller, asset_id)
 
 
-async def scan_due_reviews(session):
-    assets = (
-        await session.scalars(
-            select(KnowledgeAsset)
-            .where(
-                KnowledgeAsset.review_due_at <= utc_now(),
-                KnowledgeAsset.deleted_at.is_(None),
-                KnowledgeAsset.asset_status.in_(["active", "needs_update"]),
+async def scan_due_reviews(session, *, resume_only=False):
+    """Publish one batch of due reminders with the original permission policy."""
+    started = time.monotonic()
+    run = await governance_scan.begin_cycle(session, "review", resume_only=resume_only)
+    if run is None:
+        return 0
+    try:
+        conditions = (
+            KnowledgeAsset.review_due_at <= run.cutoff_at,
+            KnowledgeAsset.asset_status.in_(["active", "needs_update"]),
+        )
+        assets = await governance_scan.claim_assets(session, run, *conditions)
+        candidates = await _maintainer_contexts(session) if assets else []
+        processed = []
+        for asset in assets:
+            if governance_scan.budget_exhausted(started, processed):
+                break
+            await operation_events.publish_knowledge_trust(
+                session,
+                asset,
+                _responsible_for(asset, candidates),
+                "due",
+                str(asset.review_due_at),
             )
-            .with_for_update(skip_locked=True)
-        )
-    ).all()
-    for asset in assets:
-        await operation_events.publish_knowledge_trust(
-            session,
-            asset,
-            await responsible_recipients(session, asset),
-            "due",
-            str(asset.review_due_at),
-        )
-    await session.commit()
-    await enqueue_outbox_delivery(session)
-    return len(assets)
+            processed.append(asset.id)
+        await governance_scan.finish_batch(session, run, processed, *conditions)
+    except BaseException:
+        await session.rollback()
+        raise
+    if processed:
+        await enqueue_outbox_delivery(session)
+    return len(processed)
 
 
 async def list_maintenance(session, caller, *, page=1, page_size=25):

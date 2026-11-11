@@ -118,7 +118,7 @@ def _require_operator(caller: CallerContext) -> None:
         raise _denied(403, "alert_operator_required", "仅总经理或咨询总监可管理告警设置")
 
 
-async def ensure_default_rules(session: AsyncSession) -> None:
+async def ensure_default_rules(session: AsyncSession, *, commit: bool = True) -> None:
     """幂等创建默认告警规则（归档阈值 + 运维信号；按 rule_name 去重）。"""
     for spec in DEFAULT_ARCHIVE_RULES + DEFAULT_OPS_ALERT_RULES:
         exists = (
@@ -138,7 +138,10 @@ async def ensure_default_rules(session: AsyncSession) -> None:
                     dedup_strategy=spec["dedup_strategy"],
                 )
             )
-    await session.commit()
+    if commit:
+        await session.commit()
+    else:
+        await session.flush()
 
 
 def _rule_out(rule: AlertRule) -> AlertRuleOut:

@@ -82,6 +82,9 @@ class KnowledgeAsset(Base):
     lifecycle_phase_key: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     last_called_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Operational watermarks, never a content edit or a governance decision.
+    archive_scan_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    review_scan_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     review_due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     verified_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -101,6 +104,27 @@ class KnowledgeAsset(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_assets_archive_scan",
+            "archive_scan_checked_at",
+            "id",
+            postgresql_where=text("asset_status = 'active' AND deleted_at IS NULL"),
+            sqlite_where=text("asset_status = 'active' AND deleted_at IS NULL"),
+        ),
+        Index(
+            "ix_assets_review_scan",
+            "review_scan_checked_at",
+            "id",
+            postgresql_where=text(
+                "asset_status IN ('active', 'needs_update') AND deleted_at IS NULL AND review_due_at IS NOT NULL"
+            ),
+            sqlite_where=text(
+                "asset_status IN ('active', 'needs_update') AND deleted_at IS NULL AND review_due_at IS NOT NULL"
+            ),
+        ),
     )
 
     # 容器关系（一对多）。删除资产时级联清理其版本/分块/文件/摘要/标签。
