@@ -34,7 +34,7 @@
 
 - [ ] `CELERY_TASK_ALWAYS_EAGER=false`（生产必须接真实 worker；eager 会让长作业阻塞请求、丢异步语义）。`APP_ENV=prod` 下若仍为 `true`，`/health/config.production_blockers` 会报 `CELERY_TASK_ALWAYS_EAGER`。
 - [ ] **worker、ocr_worker、parse_worker、notification_worker 与 beat 必须真实运行**（不是只起 backend）：
-  - `worker`：文本入库与内容生成 / 事件投递 / 心跳 / 归档扫描 / 升格推荐 / 通知下发；
+  - `worker`：文本入库与内容生成 / 事件投递 / 心跳 / 归档扫描 / 升格推荐，并兼容升级前已入 default 的历史通知；
   - `ocr_worker`：消费独立 `ocr` 队列，执行 Office/PDF/图片等重型解析与 OCR；
   - `parse_worker`：单进程消费独立 `parse` 队列，只负责 WeKnora 解析对账；无需上传文件卷，健康检查须指向自身。与普通和通知 worker 合计默认 1 CPU / 4GiB；
   - `notification_worker`：单进程、预取 1 条，只消费 `notifications`，无需上传文件卷，健康检查指向自身。普通 worker 默认 0.5 CPU / 3GiB，解析和通知各 0.25 CPU / 512MiB；已有 `INGEST_WORKER_MEMORY_LIMIT` 覆盖需同步重算；
