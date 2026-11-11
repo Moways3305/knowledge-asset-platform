@@ -26,10 +26,10 @@ vi.mock("../../api/admin", () => ({
   backfillMarkdown: vi.fn(),
   fetchOpsSummary: vi.fn(),
   fetchAuditTrace: vi.fn(),
-  fetchWecomScanOwnerOptions: vi.fn(),
+  fetchOperationUserOptions: vi.fn(),
   revokeUserSessions: vi.fn(),
   reconcileWecomIdentity: vi.fn(),
-  fetchWecomScanProjectOptions: vi.fn(),
+  fetchOperationProjectOptions: vi.fn(),
   fetchAlertNotifications: vi.fn(),
 }));
 vi.mock("../../api/knowledge", () => ({
@@ -90,25 +90,21 @@ beforeEach(() => {
   vi.mocked(admin.fetchPeople).mockResolvedValue({ items: [user], total: 1 } as Awaited<
     ReturnType<typeof admin.fetchPeople>
   >);
-  vi.mocked(admin.fetchWecomScanProjectOptions).mockResolvedValue({
+  vi.mocked(admin.fetchOperationProjectOptions).mockResolvedValue({
     items: [
       {
         id: "project-a",
         name: "验收项目",
-        scan_space_status: "ready",
-        manager_access_status: "ready",
       },
     ],
   });
   vi.mocked(operations.fetchUserSessions).mockResolvedValue(sessions);
-  vi.mocked(admin.fetchWecomScanOwnerOptions).mockResolvedValue({
+  vi.mocked(admin.fetchOperationUserOptions).mockResolvedValue({
     items: [
       {
         user_id: "user-a",
         name: "验收用户",
         role_label: "顾问",
-        project_ids: [],
-        is_governance: false,
       },
     ],
   });
@@ -129,7 +125,7 @@ describe("account operations", () => {
         }),
     );
     render(<SessionTools />);
-    expect(admin.fetchWecomScanOwnerOptions).not.toHaveBeenCalled();
+    expect(admin.fetchOperationUserOptions).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "会话管理" }));
     await screen.findByRole("option", { name: /验收用户/ });
     fireEvent.change(screen.getByLabelText("选择账号"), { target: { value: "user-a" } });
@@ -246,7 +242,7 @@ describe("asset and ingestion operations", () => {
 
 describe("read-only tools and registration", () => {
   it("blocks a backfill form submission while the required project cannot load", async () => {
-    vi.mocked(admin.fetchWecomScanProjectOptions).mockRejectedValue(new Error("unavailable"));
+    vi.mocked(admin.fetchOperationProjectOptions).mockRejectedValue(new Error("unavailable"));
     render(<IngestTools />);
     fireEvent.click(await screen.findByRole("button", { name: "历史正文回填" }));
     fireEvent.change(screen.getByLabelText("资料范围"), { target: { value: "project" } });
@@ -301,13 +297,13 @@ describe("read-only tools and registration", () => {
   });
 
   it("does not advance registration when required project choices cannot load, including after retry", async () => {
-    vi.mocked(admin.fetchWecomScanProjectOptions).mockRejectedValue(new Error("unavailable"));
+    vi.mocked(admin.fetchOperationProjectOptions).mockRejectedValue(new Error("unavailable"));
     render(<AgentRegistrationButton onCreated={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "新增助手" }));
     fireEvent.change(screen.getByLabelText("助手名称"), { target: { value: "测试助手" } });
     fireEvent.change(screen.getByLabelText("接入标识"), { target: { value: "qa-helper" } });
     fireEvent.click(await screen.findByRole("button", { name: "重试" }));
-    await waitFor(() => expect(admin.fetchWecomScanProjectOptions).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(admin.fetchOperationProjectOptions).toHaveBeenCalledTimes(2));
     expect(screen.getByRole("button", { name: "核对并创建" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "确认创建" })).not.toBeInTheDocument();
     expect(operations.registerAgent).not.toHaveBeenCalled();

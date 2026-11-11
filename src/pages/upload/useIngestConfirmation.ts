@@ -439,7 +439,7 @@ export function useIngestConfirmation({
         if (blockClosedTask(ai)) return;
         if (ai.status === "processing") {
           setProcessingNote(
-            "后台仍在处理该企微微盘文件（抽取 / LLM 内容处理），请稍后刷新重试，暂不可确认。",
+            "后台仍在处理该历史导入文件（抽取 / LLM 内容处理），请稍后刷新重试，暂不可确认。",
           );
           setFlowState("processing");
           return;

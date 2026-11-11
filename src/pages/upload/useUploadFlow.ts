@@ -807,7 +807,7 @@ export function useUploadFlow() {
   const canSubmit = confirmReady && requiredFieldsOk && namingPreviewReady && !models.blockSubmit;
   const confirmSubmitted = flowState === "submitted";
   const awaitingProjectReview = confirmSubmitted && submitReviewId !== null;
-  const sourceLabel = activePath === "a" ? "企微微盘" : "本地上传";
+  const sourceLabel = activePath === "a" ? "历史导入" : "本地上传";
   const sourceFile = activePath === "a" ? selectedTaskName : fileName;
   const hasFile = flowState !== "idle";
 

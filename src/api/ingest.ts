@@ -1,4 +1,4 @@
-// 入库流水线：Path B 真实文件上传、AI 处理结果轮询、Path A（企微微盘）待确认任务、
+// 入库流水线：Path B 真实文件上传、AI 处理结果轮询、历史导入待确认任务、
 // 统一确认入库，以及 admin 入库运营列表。响应只含安全元数据（不含任何存储引用 / 路径 / URL）。
 import { apiDelete, apiGet, apiPost, apiPostNoBody, apiUpload } from "./http";
 import type {
@@ -215,7 +215,7 @@ export async function retryIngestTask(taskId: string): Promise<IngestTaskStatusD
   return apiPostNoBody<IngestTaskStatusDTO>(`/api/v1/ingest/${taskId}/retry`);
 }
 
-// Path A（企微微盘）+ Path B（本地上传）待确认任务列表。后端按权限只返回调用人可确认的任务，
+// 历史导入+ Path B（本地上传）待确认任务列表。后端按权限只返回调用人可确认的任务，
 // 仅安全元数据；纯 admin 403。前端不复制权限逻辑，只展示接口结果。
 // 不再硬编码 source 过滤——默认获取所有来源的待确认任务。
 export async function fetchPendingIngestTasks(source?: string): Promise<PendingIngestItemDTO[]> {

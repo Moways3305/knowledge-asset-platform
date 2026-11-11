@@ -52,26 +52,29 @@ export function usePendingIngest(activePath: PathBranch) {
     );
   }, []);
 
-  const loadPending = useCallback(async () => {
-    const requestId = ++pendingRequestRef.current;
-    setPendingLoading(true);
-    setPendingError(null);
-    try {
-      const tasks = await fetchPendingIngestTasks("path_a_wecom");
-      if (pendingRequestRef.current === requestId) {
-        setPendingTasks(tasks);
-        reconcileBatchState(tasks);
+  const loadPending = useCallback(
+    async (reconcile = true) => {
+      const requestId = ++pendingRequestRef.current;
+      setPendingLoading(true);
+      setPendingError(null);
+      try {
+        const tasks = await fetchPendingIngestTasks("path_a_wecom");
+        if (pendingRequestRef.current === requestId) {
+          setPendingTasks(tasks);
+          if (reconcile) reconcileBatchState(tasks);
+        }
+      } catch (error) {
+        if (pendingRequestRef.current === requestId) {
+          setPendingError(
+            error instanceof ApiError ? error.message : "待确认任务暂时无法加载，请稍后重试",
+          );
+        }
+      } finally {
+        if (pendingRequestRef.current === requestId) setPendingLoading(false);
       }
-    } catch (error) {
-      if (pendingRequestRef.current === requestId) {
-        setPendingError(
-          error instanceof ApiError ? error.message : "待确认任务暂时无法加载，请稍后重试",
-        );
-      }
-    } finally {
-      if (pendingRequestRef.current === requestId) setPendingLoading(false);
-    }
-  }, [reconcileBatchState]);
+    },
+    [reconcileBatchState],
+  );
 
   const loadLocalPending = useCallback(async () => {
     const requestId = ++localPendingRequestRef.current;

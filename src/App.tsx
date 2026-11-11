@@ -18,7 +18,6 @@ const KnowledgeMaintenancePage = lazy(() => import("./pages/KnowledgeMaintenance
 const MyKnowledgePage = lazy(() => import("./pages/MyKnowledgePage"));
 const UploadPage = lazy(() => import("./pages/UploadPage"));
 const AdminIngestPage = lazy(() => import("./pages/AdminIngestPage"));
-const AdminWecomScanPage = lazy(() => import("./pages/AdminWecomScanPage"));
 const AdminWeKnoraModelsPage = lazy(() => import("./pages/AdminWeKnoraModelsPage"));
 const AdminAuditPage = lazy(() => import("./pages/AdminAuditPage"));
 const AdminAuthSecurityPage = lazy(() => import("./pages/AdminAuthSecurityPage"));
@@ -121,14 +120,6 @@ export default function App() {
               element={
                 <RouteGuard cap={can.viewIngestAdmin}>
                   <AdminIngestPage />
-                </RouteGuard>
-              }
-            />
-            <Route
-              path="admin/wecom-scan"
-              element={
-                <RouteGuard cap={can.viewWecomScan}>
-                  <AdminWecomScanPage />
                 </RouteGuard>
               }
             />

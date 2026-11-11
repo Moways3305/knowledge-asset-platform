@@ -96,11 +96,6 @@ const suites = [
     evidence: "model-foundation",
   },
   {
-    name: "wecom-scan",
-    script: "wecom-scan.ui-qa.mjs",
-    evidence: "wecom-scan",
-  },
-  {
     name: "security-operations",
     script: "security-operations.ui-qa.mjs",
     evidence: "security-operations",

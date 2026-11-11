@@ -34,10 +34,10 @@ const scenarios = [
   "project-naming-ready",
   "project-submitted",
   "personal-submitted",
-  "wecom-list",
-  "wecom-empty",
-  "wecom-failure",
-  "wecom-selected",
+  "historical-list",
+  "historical-empty",
+  "historical-failure",
+  "historical-selected",
 ];
 const scenarioFilter = new Set(
   (process.env.UI_QA_SCENARIOS || "")
@@ -227,10 +227,10 @@ function assertResult(result) {
   if (result.scenario === "personal-submitted") {
     return result.assetLinkVisible && result.confirmPayloadValid;
   }
-  if (result.scenario === "wecom-list") return result.wecomRowVisible;
-  if (result.scenario === "wecom-empty") return result.wecomEmptyVisible;
-  if (result.scenario === "wecom-failure") return result.wecomRetryVisible;
-  if (result.scenario === "wecom-selected") return result.confirmVisible && result.wecomCalls === 2;
+  if (result.scenario === "historical-list") return result.wecomRowVisible;
+  if (result.scenario === "historical-empty") return result.historyEntryAbsent;
+  if (result.scenario === "historical-failure") return result.wecomRetryVisible;
+  if (result.scenario === "historical-selected") return result.confirmVisible && result.wecomCalls === 3;
   return false;
 }
 
@@ -522,7 +522,7 @@ try {
         }
         if (url.pathname === "/api/v1/ingest/pending") {
           wecomCalls += 1;
-          if (scenario === "wecom-failure") {
+          if (scenario === "historical-failure") {
             return fulfill({ detail: { message: "待确认列表暂时不可用" } }, 503);
           }
           const local = url.searchParams.get("source") === "path_b_upload";
@@ -549,9 +549,9 @@ try {
                   ? [{ ...localPendingTask, naming_parsed_fields: batchNamingFields }]
                   : [localPendingTask]
               : []
-            : scenario === "wecom-empty"
-              ? []
-              : [pendingTask];
+            : scenario.startsWith("historical-") && scenario !== "historical-empty"
+              ? [pendingTask]
+              : [];
           if (
             local &&
             localPendingAvailable &&
@@ -754,22 +754,22 @@ try {
 
       const page = await context.newPage();
       page.on("request", (request) => {
-        if (/bulk-category-classification|category_id|asset_type/.test(request.url()))
+        if (/wecom-scan|bulk-category-classification|category_id|asset_type/.test(request.url()))
           retiredBusinessRequests.push(request.url());
       });
       await page.goto(`${base}/upload`, { waitUntil: "networkidle" });
 
-      const isWecom = scenario.startsWith("wecom-");
+      const isWecom = scenario.startsWith("historical-");
       if (isWecom) {
-        await page.getByRole("button", { name: "企微微盘待确认" }).click();
-        if (scenario === "wecom-list" || scenario === "wecom-selected") {
+        if (scenario !== "historical-empty") await page.getByRole("button", { name: "历史导入待确认" }).click();
+        if (scenario === "historical-list" || scenario === "historical-selected") {
           await page.getByRole("button", { name: "企微客户访谈纪要.docx" }).waitFor();
-        } else if (scenario === "wecom-empty") {
-          await page.getByText("暂无待确认资料").waitFor();
+        } else if (scenario === "historical-empty") {
+          if (await page.getByRole("button", { name: "历史导入待确认" }).count()) throw new Error("Empty history entry must be hidden");
         } else {
           await page.getByRole("button", { name: "重试" }).waitFor();
         }
-        if (scenario === "wecom-selected") {
+        if (scenario === "historical-selected") {
           await page.getByRole("button", { name: "企微客户访谈纪要.docx" }).click();
           await page.getByRole("heading", { name: "内容建议预览" }).waitFor();
         }
@@ -1177,7 +1177,7 @@ try {
             claimsProjectComplete: text.includes("已进入项目知识库"),
             assetLinkVisible: text.includes("查看资产"),
             wecomRowVisible: text.includes("企微客户访谈纪要.docx"),
-            wecomEmptyVisible: text.includes("暂无待确认资料"),
+            historyEntryAbsent: !text.includes("历史导入待确认"),
             wecomRetryVisible: text.includes("待确认列表暂时不可用") && text.includes("重试"),
             fakeFeatureVisible:
               /保存草稿|Import from URL|从 URL|上传速度|剩余时间|AI 健康度|最近活动|手动扫描|扫描配置/.test(

@@ -41,7 +41,6 @@ describe("product layout and route contract", () => {
   it("keeps every administration workspace on the shared page heading hierarchy", () => {
     for (const page of [
       "AdminIngestPage.tsx",
-      "AdminWecomScanPage.tsx",
       "AdminWeKnoraModelsPage.tsx",
       "AdminAuditPage.tsx",
       "AdminAuthSecurityPage.tsx",
@@ -113,7 +112,7 @@ describe("product layout and route contract", () => {
   it("shows a continuous, product-facing upload flow", () => {
     const source = read("src/pages/UploadPage.tsx");
     expect(source).toContain("本地上传");
-    expect(source).toContain("企微微盘待确认");
+    expect(source).toContain("历史导入待确认");
     expect(source).toContain("confirmReady || confirmSubmitted");
     expect(source).toContain("<UploadConfirmPanel");
     expect(source).not.toContain("storage_ref");
@@ -135,7 +134,6 @@ describe("product layout and route contract", () => {
       "/project/:id/settings",
       "/admin",
       "/admin/ingest",
-      "/admin/wecom-scan",
       "/admin/weknora-models",
       "/admin/audit",
       "/admin/auth-security",

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchAuthMe } from "../../api/auth";
-import { fetchWecomScanProjectOptions } from "../../api/admin";
+import { fetchOperationProjectOptions } from "../../api/admin";
 import { backfillMarkdown } from "../../api/admin";
 import { OperationPanel, ReadResult, useOperation } from "./OperationPanel";
 import { OpsSummaryButton, KnowledgeInsightsButton } from "./ReadTools";
@@ -42,7 +42,7 @@ function BackfillForm({ onJobCreated }: { onJobCreated?: () => void }) {
           </select>
         </label>
         {scope === "project" && (
-          <ReadResult refreshLabel={false} load={fetchWecomScanProjectOptions}>
+          <ReadResult refreshLabel={false} load={fetchOperationProjectOptions}>
             {(data) => (
               <label>
                 项目

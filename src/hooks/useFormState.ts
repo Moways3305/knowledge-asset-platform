@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 
-// 表单字段收拢：把页面里成片的表单 useState（UploadPage / AdminWecomScanPage 等）
+// 表单字段收拢：把页面里成片的表单 useState（UploadPage 等）
 // 归并到一个对象里，提供 set（单字段）/ setMany（批量）/ reset（回到初值或指定值）。
 // 初值用 ref 固定，使 reset 标识稳定（不随父组件每次渲染变化）。
 export interface FormState<T> {

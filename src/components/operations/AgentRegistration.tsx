@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { fetchWecomScanOwnerOptions, fetchWecomScanProjectOptions } from "../../api/admin";
+import { fetchOperationUserOptions, fetchOperationProjectOptions } from "../../api/admin";
 import { registerAgent, type AgentRegistration as Registration } from "../../api/admin";
 import { OperationPanel, ReadResult, useOperation } from "./OperationPanel";
 
@@ -92,7 +92,7 @@ function RegistrationForm({ onCreated }: { onCreated: () => void }) {
             <option value="workbuddy">WorkBuddy</option>
           </select>
         </label>
-        <ReadResult refreshLabel={false} load={() => fetchWecomScanOwnerOptions()}>
+        <ReadResult refreshLabel={false} load={() => fetchOperationUserOptions()}>
           {(data) => (
             <label>
               绑定业务用户
@@ -127,7 +127,7 @@ function RegistrationForm({ onCreated }: { onCreated: () => void }) {
           </select>
         </label>
         {draft.allowed_scope === "project" && (
-          <ReadResult refreshLabel={false} load={fetchWecomScanProjectOptions}>
+          <ReadResult refreshLabel={false} load={fetchOperationProjectOptions}>
             {(data) => (
               <label>
                 项目

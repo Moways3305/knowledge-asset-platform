@@ -98,12 +98,10 @@ python scripts/production_smoke.py --base-url <prod-url> --expect-prod-ready --j
 - 可观察审计：`access.original_*`（申请/审批/拒绝/撤销）
 - 不应出现：拒绝态下的原文 / chunk / 存储引用；项目组成员看本项目原文为设计内（审计但不需额外申请）
 
-### B10. WeCom scan config 配置页可打开且安全显示
-- 操作人：admin（启停/触发） / boss / 咨询总监（读配置/记录）
-- 步骤：打开 `/admin/wecom-scan`，查看 `GET /configs`、`GET /configs/{id}/records`
-- 预期：配置页可打开；未配企微租户时按提示安全降级（前端已接 ≠ 真实租户可用）
-- 可观察：仅安全运营元数据
-- 不应出现：WeCom 文件 id、download URL、access_token、`WECOM_APP_SECRET`、扫描到的业务文件名
+### B10. 已移除的扫描入口与历史资料
+- 旧 `/admin/wecom-scan` 页面无管理入口，旧扫描 API 返回 404。
+- 没有历史导入任务时，上传工作区只显示本地上传；已有历史任务仍可按原权限确认。
+- 企业微信 OAuth 登录、成员核对和通知下发按各自验收项执行。
 
 ### B11. ONLYOFFICE 预览（启用时）
 - 操作人：有原文层权限的业务用户

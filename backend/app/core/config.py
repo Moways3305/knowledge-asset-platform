@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field, model_validator
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -212,14 +212,22 @@ class Settings(BaseSettings):
     ocr_max_rendered_pixels: int = 20_000_000
     ocr_max_total_pixels: int = 100_000_000
 
-    # 企业微信 OAuth 真身份 + 微盘扫描。corp_id + app_secret 配齐才启用真实集成；
+    # 企业微信 OAuth 身份与应用消息。corp_id + app_secret 配齐才启用真实集成；
     # 否则降级（OAuth 端点返回未配置，扫描走注入的 fake/Null）。**secret 绝不外泄**。
     wecom_corp_id: str = ""
     wecom_agent_id: str = ""
     wecom_app_secret: str = ""
     wecom_redirect_uri: str = ""
-    wecom_drive_base_url: str = "https://qyapi.weixin.qq.com"
-    wecom_scan_page_size: int = 100
+    # Historical deployment name remains an input alias for OAuth/notifications.
+    wecom_api_base_url: str = Field(
+        default="https://qyapi.weixin.qq.com",
+        validation_alias=AliasChoices(
+            "WECOM_API_BASE_URL",
+            "WECOM_DRIVE_BASE_URL",
+            "wecom_api_base_url",
+            "wecom_drive_base_url",
+        ),
+    )
     wecom_timeout: float = 30.0
     # 开启后生命周期/复用通知按 wecom 渠道落库并由 worker 真实下发；默认关（仅 in_app）。
     wecom_notify_enabled: bool = False
