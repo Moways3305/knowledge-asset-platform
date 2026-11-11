@@ -86,6 +86,12 @@ def test_new_process_cannot_supply_missing_history_after_restart(stream, tmp_pat
 
 @pytest.mark.asyncio
 async def test_off_mode_bypasses_api_measurement_hooks_and_sampler(monkeypatch):
+    from celery import signals
+
+    # Importing the tool must not register its worker log handlers in the test
+    # suite's shared Celery process. This case exercises only API measurement.
+    for signal in (signals.before_task_publish, signals.task_prerun, signals.task_postrun):
+        monkeypatch.setattr(signal, "connect", lambda receiver: receiver)
     monkeypatch.syspath_prepend(str(TOOLS))
     for name, value in {
         "KAP_CAPACITY_ISOLATED": "1",
