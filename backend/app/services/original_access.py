@@ -994,4 +994,13 @@ async def auto_approve_timed_out_original_access_requests(
     """One fair timeout-scan batch; each decision and cursor commit together."""
     from app.services.jobs.original_access_scan import scan
 
-    return await scan(session, trace_id=trace_id, now=now, limit=limit, resume_only=resume_only)
+    return await scan(
+        session,
+        trace_id=trace_id,
+        now=now,
+        limit=limit,
+        resume_only=resume_only,
+        approve_one=_auto_approve_one,
+        grant_duration=_grant_duration_days,
+        wake_outbox=enqueue_outbox_delivery,
+    )

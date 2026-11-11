@@ -9,6 +9,7 @@ back both the decision and cursor, so resume retries that same position.
 import logging
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, or_, select
@@ -19,7 +20,6 @@ from app.db.utils import utc_now
 from app.models.governance_scan import GovernanceScanRun
 from app.models.original_access import OriginalAccessRequest
 from app.models.permission_rule import PermissionRule
-from app.services import original_access
 from app.services.jobs import governance_scan
 from app.services.permission_rules import access_request_timeout_hours, load_access_policy
 
@@ -113,10 +113,15 @@ async def scan(
     session: AsyncSession,
     *,
     trace_id: str,
+    approve_one: Callable[..., Awaitable[str]],
+    grant_duration: Callable[[AsyncSession], Awaitable[int]],
+    wake_outbox: Callable[[AsyncSession], Awaitable[None]],
     now: datetime | None = None,
     limit: int = BATCH_SIZE,
     resume_only: bool = False,
 ) -> dict:
+    # The approval facade supplies domain behavior; this module owns only the
+    # sweep/transaction boundaries and never imports that facade back.
     stats: dict = {
         "checked": 0,
         "approved": 0,
@@ -167,11 +172,11 @@ async def scan(
                     break
                 key = (_aware(candidate.created_at), candidate.id)
                 stats["checked"] += 1
-                outcome = await original_access._auto_approve_one(
+                outcome = await approve_one(
                     session,
                     candidate.id,
                     now=now or utc_now(),
-                    days=await original_access._grant_duration_days(session),
+                    days=await grant_duration(session),
                     timeout_hours=timeout,
                     policy=await load_access_policy(session),
                     trace_id=trace_id,
@@ -216,5 +221,5 @@ async def scan(
         await session.rollback()
         raise
     if stats["approved"]:
-        await original_access.enqueue_outbox_delivery(session)
+        await wake_outbox(session)
     return stats
