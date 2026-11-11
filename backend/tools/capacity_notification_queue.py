@@ -256,6 +256,9 @@ async def finish(args):
                     "passed": True,
                     "state": result,
                     "lost_worker": args.lost,
+                    "original_delivery_states": [
+                        celery_app.AsyncResult(i).state for i in data["deliveries"]
+                    ],
                     "marker_seconds": marker_seconds,
                     "elapsed": round(time.time() - data["started_at"], 3),
                 },
