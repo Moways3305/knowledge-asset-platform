@@ -18,8 +18,8 @@ ReviewTask——现有审核流 approve/reject 仅实现 material_to_asset 语�
 
 from __future__ import annotations
 
+import time
 import uuid
-from datetime import datetime, timezone
 
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,16 +37,11 @@ from app.schemas.enums import (
 )
 from app.services import audit as audit_service
 from app.services import operation_events
+from app.services.jobs import governance_scan
 from app.worker.enqueue import enqueue_outbox_delivery
 
 _DEFAULT_MIN_PROJECTS = 2  # 被 >=2 个项目复用
 _DEFAULT_MIN_CALLS = 3  # 或调用次数 >= 3
-
-
-def _to_naive_utc(dt: datetime) -> datetime:
-    if dt.tzinfo is not None:
-        return dt.astimezone(timezone.utc).replace(tzinfo=None)
-    return dt
 
 
 async def _governance_recipients(session: AsyncSession) -> list[uuid.UUID]:
@@ -65,103 +60,132 @@ async def _governance_recipients(session: AsyncSession) -> list[uuid.UUID]:
     return list({r[0] for r in rows})
 
 
-async def _already_recommended(session: AsyncSession, asset_id: uuid.UUID) -> bool:
-    row = (
-        await session.execute(
-            select(AuditEvent.id)
-            .where(AuditEvent.action == AuditAction.knowledge_upgrade_recommended.value)
-            .where(AuditEvent.target_id == asset_id)
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    return row is not None
-
-
 async def scan_reuse_and_recommend(
     session: AsyncSession,
     *,
     trace_id: str | None = None,
     min_projects: int = _DEFAULT_MIN_PROJECTS,
     min_calls: int = _DEFAULT_MIN_CALLS,
+    resume_only: bool = False,
 ) -> dict:
-    """计算复用信号、回写 last_called_at、对合格 project 资产推一条升格推荐。返回安全计数。"""
-    # 聚合：每个被引用资产的 最近使用时间 / 调用次数 / 去重项目数。
-    rows = (
-        await session.execute(
+    """One bounded batch; usage, recommendations and progress commit together.
+
+    Count citation rows (the existing threshold rule), not distinct calls. Both
+    calls and citations newer than the cycle cutoff wait for the next cycle.
+    Assets remain locked through the recommendation check and durable writes.
+    """
+    started = time.monotonic()
+    counts = {"usage_updated": 0, "recommended": 0, "assets": 0}
+    try:
+        run = await governance_scan.begin_cycle(session, "reuse", resume_only=resume_only)
+        if run is None:
+            return counts
+        if not run.parameters:
+            run.parameters = {"min_projects": min_projects, "min_calls": min_calls}
+        min_projects = run.parameters["min_projects"]
+        min_calls = run.parameters["min_calls"]
+        citation_scope = (
+            AgentCallCitation.created_at <= run.cutoff_at,
+            AgentCall.created_at <= run.cutoff_at,
+        )
+        has_citations = (
+            select(AgentCallCitation.id)
+            .join(AgentCall, AgentCall.id == AgentCallCitation.call_id)
+            .where(AgentCallCitation.cited_asset_id == KnowledgeAsset.id, *citation_scope)
+            .exists()
+        )
+        assets = await governance_scan.claim_assets(session, run, has_citations)
+        ids = [asset.id for asset in assets]
+        if not ids:
+            await governance_scan.finish_batch(session, run, [], has_citations)
+            return counts
+        # Restrict the input before GROUP BY, rather than grouping all history
+        # and applying LIMIT afterwards. The asset/date/call index serves both
+        # this aggregation and the correlated candidate EXISTS.
+        aggregates = (
             select(
-                AgentCallCitation.cited_asset_id,
-                func.max(AgentCall.created_at),
-                func.count(AgentCallCitation.id),
-                func.count(func.distinct(AgentCall.project_id)),
+                AgentCallCitation.cited_asset_id.label("asset_id"),
+                func.max(AgentCall.created_at).label("last_used"),
+                func.count(AgentCallCitation.id).label("call_count"),
+                func.count(func.distinct(AgentCall.project_id)).label("project_count"),
             )
             .join(AgentCall, AgentCall.id == AgentCallCitation.call_id)
+            .where(AgentCallCitation.cited_asset_id.in_(ids), *citation_scope)
             .group_by(AgentCallCitation.cited_asset_id)
-        )
-    ).all()
-
-    recipients = await _governance_recipients(session)
-    updated = recommended = 0
-    for asset_id, last_used, call_count, project_count in rows:
-        asset = await session.get(KnowledgeAsset, asset_id)
-        if asset is None:
-            continue
-        # 回写 last_called_at（取更晚者）。
-        if last_used is not None:
-            lu = _to_naive_utc(last_used)
-            cur = _to_naive_utc(asset.last_called_at) if asset.last_called_at else None
-            if cur is None or lu > cur:
-                # Usage telemetry is not a content edit. Preserve the database's
-                # current baseline (not a possibly stale ORM value), and never
-                # move usage backwards if another scan has already advanced it.
-                changed = await session.scalar(
-                    update(KnowledgeAsset)
-                    .where(
-                        KnowledgeAsset.id == asset.id,
-                        or_(
-                            KnowledgeAsset.last_called_at.is_(None),
-                            KnowledgeAsset.last_called_at < last_used,
-                        ),
-                    )
-                    .values(last_called_at=last_used, updated_at=KnowledgeAsset.updated_at)
-                    .returning(KnowledgeAsset.id)
+        ).subquery()
+        stats = {row.asset_id: row for row in (await session.execute(select(aggregates))).all()}
+        already = set(
+            await session.scalars(
+                select(AuditEvent.target_id).where(
+                    AuditEvent.action == AuditAction.knowledge_upgrade_recommended.value,
+                    AuditEvent.target_id.in_(ids),
                 )
-                if changed is not None:
-                    await session.refresh(asset, attribute_names=["last_called_at", "updated_at"])
-                    updated += 1
-
-        # 仅 active project 资产、达到复用阈值、且未推过 → 推一条人审升格推荐。
-        qualifies = (project_count >= min_projects) or (call_count >= min_calls)
-        if (
-            asset.scope == KnowledgeScope.project.value
-            and asset.asset_status == AssetStatus.active.value
-            and qualifies
-            and not await _already_recommended(session, asset.id)
-        ):
-            audit_event = await audit_service.record_system_event(
-                session,
-                log_type=AuditLogType.operation,
-                action=AuditAction.knowledge_upgrade_recommended.value,
-                trace_id=trace_id or "",
-                target_type="knowledge_asset",
-                target_id=asset.id,
-                extra={
-                    "scope": asset.scope,
-                    "reuse_project_count": int(project_count),
-                    "reuse_call_count": int(call_count),
-                    "recommendation": "project_to_company",
-                },
             )
-            await session.flush()
-            for uid in recipients:
-                await operation_events.publish_local_notification(
+        )
+        recipients = await _governance_recipients(session)
+        processed: list[uuid.UUID] = []
+        for asset in assets:
+            if governance_scan.budget_exhausted(started, processed):
+                break
+            row = stats.get(asset.id)
+            qualifies = row is not None and (
+                row.project_count >= min_projects or row.call_count >= min_calls
+            )
+            if (
+                row is not None
+                and qualifies
+                and asset.id not in already
+                and asset.scope == KnowledgeScope.project.value
+                and asset.asset_status == AssetStatus.active.value
+            ):
+                audit_event = await audit_service.record_system_event(
                     session,
-                    notice_type="reuse_upgrade",
-                    recipient_id=uid,
-                    asset_id=asset.id,
-                    audit_event_id=audit_event.id,
+                    log_type=AuditLogType.operation,
+                    action=AuditAction.knowledge_upgrade_recommended.value,
+                    trace_id=trace_id or "",
+                    target_type="knowledge_asset",
+                    target_id=asset.id,
+                    extra={
+                        "scope": asset.scope,
+                        "reuse_project_count": int(row.project_count),
+                        "reuse_call_count": int(row.call_count),
+                        "recommendation": "project_to_company",
+                    },
                 )
-            recommended += 1
-
-    await session.commit()
-    await enqueue_outbox_delivery(session)
-    return {"usage_updated": updated, "recommended": recommended, "assets": len(rows)}
+                await session.flush()
+                for uid in recipients:
+                    await operation_events.publish_local_notification(
+                        session,
+                        notice_type="reuse_upgrade",
+                        recipient_id=uid,
+                        asset_id=asset.id,
+                        audit_event_id=audit_event.id,
+                    )
+                counts["recommended"] += 1
+            processed.append(asset.id)
+        # Update the processed batch in one statement. Preserve the database's
+        # content baseline and never move usage backwards, even with stale ORM
+        # state. No remote operation occurs while these asset locks are held.
+        changed = await session.scalars(
+            update(KnowledgeAsset)
+            .where(
+                KnowledgeAsset.id.in_(processed),
+                KnowledgeAsset.id == aggregates.c.asset_id,
+                or_(
+                    KnowledgeAsset.last_called_at.is_(None),
+                    KnowledgeAsset.last_called_at < aggregates.c.last_used,
+                ),
+            )
+            .values(last_called_at=aggregates.c.last_used, updated_at=KnowledgeAsset.updated_at)
+            .returning(KnowledgeAsset.id)
+            .execution_options(synchronize_session=False)
+        )
+        counts["usage_updated"] = len(changed.all())
+        counts["assets"] = len(processed)
+        await governance_scan.finish_batch(session, run, processed, has_citations)
+    except BaseException:
+        await session.rollback()
+        raise
+    if counts["recommended"]:
+        await enqueue_outbox_delivery(session)
+    return counts

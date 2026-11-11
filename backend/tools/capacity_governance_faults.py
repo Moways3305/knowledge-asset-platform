@@ -1,7 +1,7 @@
 """Opt-in disposable consumer for deterministic child-loss recovery verification.
 
 Use instead of capacity_worker ONLY in the guarded isolated environment. The
-host writes /capacity/governance-pause containing archive or review, waits for
+host writes /capacity/governance-pause containing archive, review or reuse, waits for
 governance-paused.json, kills that child, then removes the pause and resumes.
 """
 

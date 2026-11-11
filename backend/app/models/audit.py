@@ -43,6 +43,7 @@ class AuditEvent(Base):
         Index("ix_audit_events_logtype_created", "log_type", "created_at"),
         Index("ix_audit_events_action_created", "action", "created_at"),
         Index("ix_audit_events_actor", "actor_user_id"),
+        Index("ix_audit_events_action_target", "action", "target_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)

@@ -83,6 +83,11 @@ def _make_celery() -> Celery:
                 "task": "reuse.upgrade_scan",
                 "schedule": 86400.0,  # 每日跨项目复用统计 + 升格推荐
             },
+            "reuse-resume-scan": {
+                "task": "reuse.upgrade_scan",
+                "schedule": 60.0,
+                "kwargs": {"resume_only": True},
+            },
             "notifications-dispatch": {
                 "task": "notifications.dispatch_pending",
                 "schedule": 120.0,  # 每 2 分钟下发待发 wecom 通知

@@ -141,7 +141,10 @@ class AgentCallCitation(Base):
     """
 
     __tablename__ = "agent_call_citations"
-    __table_args__ = (Index("ix_agent_citations_call", "call_id"),)
+    __table_args__ = (
+        Index("ix_agent_citations_call", "call_id"),
+        Index("ix_agent_citations_asset_created_call", "cited_asset_id", "created_at", "call_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     call_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("agent_calls.id"), nullable=False)
