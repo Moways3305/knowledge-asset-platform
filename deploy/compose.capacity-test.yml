@@ -26,6 +26,12 @@ x-app: &app
     LLM_TIMEOUT: "5"
     WEKNORA_BASE_URL: http://fixture:9000
     WEKNORA_API_KEY: sk-synthetic-only
+    WECOM_NOTIFY_ENABLED: "true"
+    WECOM_TIMEOUT: "8"
+    WECOM_CORP_ID: synthetic-only
+    WECOM_AGENT_ID: "1"
+    WECOM_APP_SECRET: synthetic-only
+    WECOM_DRIVE_BASE_URL: http://fixture:9000
     INGEST_LEASE_TIMEOUT_SECONDS: "30"
     INGEST_RECOVERY_SCAN_SECONDS: "15"
     INGEST_RECOVERY_BASE_DELAY_SECONDS: "1"
@@ -72,12 +78,21 @@ services:
   fixture:
     <<: *app
     command: [python, /probe/capacity_fixture.py]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/control', timeout=2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
     cpus: 1
     mem_limit: 256m
   init:
     <<: *app
     user: "0:0"
     command: [python, /probe/capacity_probe.py, seed]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      fixture: {condition: service_healthy}
     cpus: 1
     mem_limit: 512m
   api:
@@ -99,7 +114,8 @@ services:
     command: [celery, -A, capacity_worker:celery_app, worker, -Q, default, --hostname=default@%h, --concurrency=2, --prefetch-multiplier=1, --loglevel=WARNING]
     depends_on:
       init: {condition: service_completed_successfully}
-    cpus: 0.75
+    stop_grace_period: 150s
+    cpus: 0.5
     mem_limit: 512m
   parse:
     <<: *app
@@ -107,6 +123,14 @@ services:
     depends_on:
       init: {condition: service_completed_successfully}
     stop_grace_period: 45s
+    cpus: 0.25
+    mem_limit: 256m
+  notifications:
+    <<: *app
+    command: [celery, -A, capacity_worker:celery_app, worker, -Q, notifications, --hostname=notifications@%h, --concurrency=1, --prefetch-multiplier=1, --loglevel=WARNING]
+    depends_on:
+      init: {condition: service_completed_successfully}
+    stop_grace_period: 150s
     cpus: 0.25
     mem_limit: 256m
   beat:

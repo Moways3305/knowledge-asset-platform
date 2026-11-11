@@ -21,10 +21,12 @@ app = FastAPI()
 counts = Counter()
 inflight = Counter()
 peak = Counter()
+notification_calls = Counter()
 parse_calls = Counter()
 parse_inflight = Counter()
 parse_peak = Counter()
 settings = {
+    "notification_delay": 0,
     "llm_delay": 0.05,
     "search_delay": 0.05,
     "models_delay": 0,
@@ -74,6 +76,7 @@ async def stats():
         "inflight": inflight,
         "peak": peak,
         "settings": settings,
+        "notification_calls": notification_calls,
         "parse_calls": parse_calls,
         "parse_peak": parse_peak,
     }
@@ -280,6 +283,27 @@ async def update_kb(kb_id: str, request: Request):
     await indexing_wait(request, "initialize")
     kbs[kb_id].update(body)
     return wrap(kbs[kb_id])
+
+
+@app.get("/cgi-bin/gettoken")
+async def notification_token():
+    return {"access_token": "synthetic-only"}
+
+
+@app.post("/cgi-bin/message/send")
+async def send_notification(request: Request):
+    body = await request.json()
+    title = body["text"]["content"].split("\n")[0]
+    notification_calls[title] += 1
+    counts["notification"] += 1
+    inflight["notification"] += 1
+    peak["notification"] = max(peak["notification"], inflight["notification"])
+    try:
+        if not await delay(request, "notification", settings["notification_delay"]):
+            return Response(status_code=499)
+        return {"errcode": 0}
+    finally:
+        inflight["notification"] -= 1
 
 
 if __name__ == "__main__":

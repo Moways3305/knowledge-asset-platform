@@ -59,7 +59,7 @@ Copy-Item backend/.env.example backend/.env
 # 检查根 .env：本地 APP_ENV=dev；设置 POSTGRES_PASSWORD、REDIS_PASSWORD。
 # 示例密码仅供本地开发。外部集成可留空，相关功能会显示不可用或降级。
 docker compose build
-docker compose up -d --wait # postgres/redis → migrate → backend/worker/ocr_worker/parse_worker/beat → frontend
+docker compose up -d --wait # postgres/redis → migrate → backend/worker/ocr_worker/parse_worker/notification_worker/beat → frontend
 docker compose exec backend python -m app.seed.dev_seed   # 可选：写入开发种子数据（仅 dev/test）
 ```
 
@@ -87,7 +87,7 @@ docker compose exec backend python -m app.seed.dev_seed   # 可选：写入开�
 
 ## 部署说明
 
-`docker-compose.yml` 提供后端 + Postgres + Redis + Celery worker/ocr_worker/parse_worker/beat + 前端 nginx 的单机编排（编排内凭证仅本地开发用，**绝非生产凭证**）。生产上线需要真实域名、HTTPS/TLS 证书与反向代理、企业微信可信回调域名、外部系统密钥注入、持久卷备份与监控接入等运维动作；这些不在仓库内完成。
+`docker-compose.yml` 提供后端 + Postgres + Redis + Celery worker/ocr_worker/parse_worker/notification_worker/beat + 前端 nginx 的单机编排（编排内凭证仅本地开发用，**绝非生产凭证**）。生产上线需要真实域名、HTTPS/TLS 证书与反向代理、企业微信可信回调域名、外部系统密钥注入、持久卷备份与监控接入等运维动作；这些不在仓库内完成。
 
 仓库内提供可执行的部署手册与安全清单，作为上线前的操作依据：
 

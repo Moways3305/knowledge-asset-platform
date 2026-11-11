@@ -12,7 +12,15 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
-APPLICATION_SERVICES = ("backend", "worker", "ocr_worker", "parse_worker", "beat", "frontend")
+APPLICATION_SERVICES = (
+    "backend",
+    "worker",
+    "ocr_worker",
+    "parse_worker",
+    "notification_worker",
+    "beat",
+    "frontend",
+)
 SERVICES = ("migrate", *APPLICATION_SERVICES)
 
 

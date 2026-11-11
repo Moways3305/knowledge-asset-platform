@@ -25,18 +25,19 @@
 ### 1.1 版本一致性
 
 - [ ] 确认要部署的 **git commit**：`git rev-parse HEAD`（记录到发布单）。
-- [ ] 确认镜像 **tag** 与该 commit 对应；`backend` / `worker` / `ocr_worker` / `parse_worker` / `beat` / `migrate` / `frontend` 七个角色**必须来自同一代码版本**。
-  - 本仓库 `backend` / `worker` / `ocr_worker` / `parse_worker` / `beat` / `migrate` 共用 `./backend` 镜像（compose 中同一 `build: ./backend`，仅 `command` 不同）；`frontend` 用 `Dockerfile.frontend` 多阶段构建。
+- [ ] 确认镜像 **tag** 与该 commit 对应；`backend` / `worker` / `ocr_worker` / `parse_worker` / `notification_worker` / `beat` / `migrate` / `frontend` 八个角色**必须来自同一代码版本**。
+  - 本仓库 `backend` / `worker` / `ocr_worker` / `parse_worker` / `notification_worker` / `beat` / `migrate` 共用 `./backend` 镜像（compose 中同一 `build: ./backend`，仅 `command` 不同）；`frontend` 用 `Dockerfile.frontend` 多阶段构建。
   - 因此「同版本」= 用同一次 `docker compose build`（或同一 commit 的 CI 构建）产出的镜像，不要混用旧镜像。
 - [ ] 确认 **migration head** 与该 commit 一致：迁移文件在 `backend/alembic/versions/`，使用 `alembic heads` 核对该提交的迁移图 head，不按文件名或修改时间猜测（部署时由 `migrate` 服务执行 `alembic upgrade head`）。
 
 ### 1.2 运行模式
 
 - [ ] `CELERY_TASK_ALWAYS_EAGER=false`（生产必须接真实 worker；eager 会让长作业阻塞请求、丢异步语义）。`APP_ENV=prod` 下若仍为 `true`，`/health/config.production_blockers` 会报 `CELERY_TASK_ALWAYS_EAGER`。
-- [ ] **worker、ocr_worker、parse_worker 与 beat 必须真实运行**（不是只起 backend）：
+- [ ] **worker、ocr_worker、parse_worker、notification_worker 与 beat 必须真实运行**（不是只起 backend）：
   - `worker`：文本入库与内容生成 / 事件投递 / 心跳 / 归档扫描 / 升格推荐 / 通知下发；
   - `ocr_worker`：消费独立 `ocr` 队列，执行 Office/PDF/图片等重型解析与 OCR；
-  - `parse_worker`：单进程消费独立 `parse` 队列，只负责 WeKnora 解析对账；无需上传文件卷，健康检查须指向自身。默认与普通 worker 合计 1 CPU / 4GiB，已有内存覆盖需将新消费者的 512MiB 一起计入；
+  - `parse_worker`：单进程消费独立 `parse` 队列，只负责 WeKnora 解析对账；无需上传文件卷，健康检查须指向自身。与普通和通知 worker 合计默认 1 CPU / 4GiB；
+  - `notification_worker`：单进程、预取 1 条，只消费 `notifications`，无需上传文件卷，健康检查指向自身。普通 worker 默认 0.5 CPU / 3GiB，解析和通知各 0.25 CPU / 512MiB；已有 `INGEST_WORKER_MEMORY_LIMIT` 覆盖需同步重算；
   - `beat`：上述作业的定时调度。
 - [ ] `APP_ENV=prod`（启用 prod 守卫：cookie 强制 Secure、blockers 仅在 prod 评估）。
 
@@ -89,9 +90,11 @@
    - 执行你环境的 PG 备份（如 `pg_dump`）。**备份产物含业务数据，按密级存放，不入仓库 / 不贴日志。**
    - 记录备份位置与时间到发布单。
 3. **运行 migration**
+   - **启用通知独立队列时**：先暂停 beat，等待并排空旧 default 队列中的通知任务，再停止旧普通 worker；新普通 worker 仍可处理已入 default 的历史消息，停止宽限为 150 秒。启动通知消费者并确认其定向健康检查、队列订阅正常后，再启动新版 beat。不得仅修改生产者路由而漏启消费者。
+   - **回退通知队列隔离时**：先暂停 beat，排空 notifications 队列并等待当前任务完成，再停止通知消费者，最后恢复旧路由和 beat。若消费者已异常退出，保留 broker 与数据库，让兼容消费者按通知租约恢复；不能删队列或提前停止唯一消费者。
    - **升级至 `0084_notification_delivery_lease` 或回退时**：先暂停 beat，等待旧 worker 中正在执行的 `notifications.dispatch_pending` 结束，再停止旧普通 worker、执行迁移并启动同版本消费者；不要让未使用租约的旧通知代码与新代码混跑。回退也需先排空新通知任务，再删除新增租约字段。保留数据库和 broker，不清空待发通知。
    - 通知发送期间不持有数据库连接。每条最多尝试 3 次，失败至少间隔 120 秒；异常退出留下的领取租约在 120 秒后由后续派发回收，派发仍按原 2 分钟周期触发。这不是恢复时间上限。超时或已发送但结果未落库时可能再次发送，系统不承诺外部消息 exactly-once；`delivery_outcome_unknown` 表示该边界。关闭企微通知开关时，两类通知均保留待发状态，不消耗尝试次数。
-   - 本仓库由一次性 `migrate` 服务执行 `python -m alembic upgrade head`；`backend` / `worker` / `ocr_worker` / `parse_worker` / `beat` 依赖其 `service_completed_successfully` 才启动。
+   - 本仓库由一次性 `migrate` 服务执行 `python -m alembic upgrade head`；`backend` / `worker` / `ocr_worker` / `parse_worker` / `notification_worker` / `beat` 依赖其 `service_completed_successfully` 才启动。
    - 不要手动在多个副本各自 `alembic upgrade`。
 4. **从缺少完整授权摘要的历史版本升级时，按需回填 L3/L4 摘要**
    - 这是历史迁移修复，不是每次发布必做步骤；已完成的部署先 dry-run 核对，不反复无条件写入。
@@ -108,14 +111,14 @@
    - 本回填只更新当前版本摘要行/安全待处理标记，不删除资产，不触发重索引、重新入库或
      WeKnora 调用。异常时停止放流量并从本节第 2 步数据库备份恢复相关摘要数据。
 
-5. **启动服务**：`backend` → `worker` / `ocr_worker` / `parse_worker` → `beat` → `frontend`（compose `depends_on` 已编排：postgres/redis healthy → migrate 完成 → backend/worker/ocr_worker/parse_worker/beat → frontend）。
+5. **启动服务**：`backend` → `worker` / `ocr_worker` / `parse_worker` / `notification_worker` → `beat` → `frontend`（compose `depends_on` 已编排：postgres/redis healthy → migrate 完成 → backend/worker/ocr_worker/parse_worker/notification_worker/beat → frontend）。
    ```powershell
    docker compose up -d
    ```
 6. **执行 health / ready / config**（见 §4.1）。
 7. **执行 live smoke**（见 [`LIVE_SMOKE_CHECKLIST.md`](./LIVE_SMOKE_CHECKLIST.md)）。
 8. **观察日志与关键审计事件**：
-   - worker / ocr_worker / parse_worker 是否消费各自队列、beat 是否正常调度（无堆积、无反复重启）；
+   - worker / ocr_worker / parse_worker / notification_worker 是否消费各自队列、beat 是否正常调度（无堆积、无反复重启）；
    - 关键审计 action 是否正常落库：`login.success` / `login.failed`、`ingest.ai_extracted` / `ingest.failed`、`access.original_*`、`auth.*`（系统安全事件）；
    - 审计与日志**不应**出现 raw email / password / token / cookie / 原始 IP / WeKnora id / 原文。
 
@@ -191,9 +194,9 @@ python scripts/production_smoke.py --base-url <prod-url> --expect-prod-ready --j
 
 | 症状 | 首查 | 处置 / 回滚 |
 |---|---|---|
-| **migration 失败** | `migrate` 服务日志（不贴含连接串的整段，截关键错误行）；确认 DB 可达、目标 head 正确 | 修复后重跑 `migrate`；若已部分应用且不可逆，从部署步骤第 2 步的备份恢复后再上新版本；backend/worker/ocr_worker/parse_worker/beat 因依赖 migrate 不会带半迁移库启动 |
+| **migration 失败** | `migrate` 服务日志（不贴含连接串的整段，截关键错误行）；确认 DB 可达、目标 head 正确 | 修复后重跑 `migrate`；若已部分应用且不可逆，从部署步骤第 2 步的备份恢复后再上新版本；backend/worker/ocr_worker/parse_worker/notification_worker/beat 因依赖 migrate 不会带半迁移库启动 |
 | **backend 起不来** | backend 日志、`/health` 是否 200、`depends_on`（postgres/redis healthy、migrate 完成） | 修依赖或配置；确认 `DATABASE_URL` / `REDIS_URL` 项已注入（**不打印值**）；必要时回退镜像 tag |
-| **worker / ocr_worker / parse_worker / beat 不处理任务** | 对应消费者是否运行并订阅正确队列、是否连到 broker、`CELERY_TASK_ALWAYS_EAGER` 是否误为 true、`/admin/ops/indexing` 是否堆积 | 确保 `false` 且三个消费者与 beat 在跑；与 backend 使用同一 Redis，worker/ocr_worker 还需共享上传存储；解析子进程异常后允许 120 秒租约到期并等待后续定时扫描，勿清空 broker |
+| **worker / ocr_worker / parse_worker / notification_worker / beat 不处理任务** | 对应消费者是否运行并订阅正确队列、是否连到 broker、`CELERY_TASK_ALWAYS_EAGER` 是否误为 true、`/admin/ops/indexing` 是否堆积 | 确保 `false` 且四个消费者与 beat 在跑；与 backend 使用同一 Redis，worker/ocr_worker 还需共享上传存储；解析子进程异常后允许 120 秒租约到期并等待后续定时扫描，勿清空 broker |
 | **`/health/config` 有 blocker** | 读 `production_blockers` 项名 | 按 [`PRODUCTION_SECRET_CHECKLIST.md`](./PRODUCTION_SECRET_CHECKLIST.md) 补对应项（只注入值、不打印值）后重启相关服务 |
 | **CSRF 403** | 是否 cookie 会话下的 unsafe 请求缺 `X-CSRF-Token`；前端是否先取 `GET /api/v1/auth/csrf`；prod 是否配 `CSRF_TOKEN_SECRET` | 确认前端自动取/附带 token；确认反代未吞掉 `X-CSRF-Token` 头；补 `CSRF_TOKEN_SECRET` |
 | **Secure cookie 在 HTTP 环境无法登录** | 入口是否真 HTTPS、`X-Forwarded-Proto` 是否透传 | 走真实 HTTPS 入口；prod 下不要试图关 Secure（运行时强制）；修反代转发头 |
