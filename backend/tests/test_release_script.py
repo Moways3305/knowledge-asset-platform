@@ -108,20 +108,22 @@ def test_failed_build_migration_or_health_never_registers(monkeypatch, failed_st
             "docker-compose.prod.yml",
         ]
         assert all(call[: len(prefix)] == prefix for call in calls)
-        assert calls[0][-7:] == [
+        assert calls[0][-8:] == [
             "migrate",
             "backend",
             "worker",
             "ocr_worker",
             "parse_worker",
+            "notification_worker",
             "beat",
             "frontend",
         ]
-        assert calls[4][-6:] == [
+        assert calls[4][-7:] == [
             "backend",
             "worker",
             "ocr_worker",
             "parse_worker",
+            "notification_worker",
             "beat",
             "frontend",
         ]

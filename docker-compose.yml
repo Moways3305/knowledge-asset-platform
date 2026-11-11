@@ -5,8 +5,8 @@
 #   cp .env.example .env            # 本地 APP_ENV=dev；设置 POSTGRES_PASSWORD 和 REDIS_PASSWORD
 #   cp backend/.env.example backend/.env # 已有配置不要覆盖；集成配置由此注入
 #   docker compose build
-#   docker compose up -d            # postgres/redis 起后，migrate 一次性跑迁移，backend/worker/ocr_worker/parse_worker/beat 随后启动
-#   # 迁移已由 migrate 服务自动执行（backend/worker/ocr_worker/parse_worker/beat 依赖其成功完成），无需手动 alembic
+#   docker compose up -d            # postgres/redis 起后，migrate 一次性跑迁移，backend/worker/ocr_worker/parse_worker/notification_worker/beat 随后启动
+#   # 迁移已由 migrate 服务自动执行（backend/worker/ocr_worker/parse_worker/notification_worker/beat 依赖其成功完成），无需手动 alembic
 #   # 可选 seed（仅 dev/test）：docker compose exec backend python -m app.seed.dev_seed
 #   # 冒烟：GET http://localhost:8001/health 与 /health/ready
 #
@@ -17,7 +17,7 @@
 # 不宜过保守；首次上线后按 `docker stats` 实测调整（直接改本文件，或用 prod overlay
 # `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d` 覆盖）。
 
-# 共享运行时环境（避免各服务重复 env 块）。worker/ocr_worker/parse_worker/beat 与 backend 用同一份环境，
+# 共享运行时环境（避免各服务重复 env 块）。worker/ocr_worker/parse_worker/notification_worker/beat 与 backend 用同一份环境，
 # 确保 WeKnora / LLM / WeCom / ONLYOFFICE 等外部集成开关一致。
 x-backend-build: &backend-build
   context: ./backend
@@ -45,6 +45,7 @@ x-backend-env: &backend-env
   CELERY_DEFAULT_QUEUE: default
   CELERY_OCR_QUEUE: ocr
   CELERY_PARSE_QUEUE: parse
+  CELERY_NOTIFICATION_QUEUE: notifications
   INGEST_LEASE_TIMEOUT_SECONDS: ${INGEST_LEASE_TIMEOUT_SECONDS:-900}
   INGEST_PROCESSING_WINDOW: ${INGEST_PROCESSING_WINDOW:-5}
   INGEST_HEAVY_PROCESSING_WINDOW: ${INGEST_HEAVY_PROCESSING_WINDOW:-1}
@@ -117,7 +118,7 @@ services:
           cpus: "0.5"
           memory: 512M
 
-  # 一次性迁移服务。只此一处跑 alembic upgrade head，backend/worker/ocr_worker/parse_worker/beat 依赖其成功完成，
+  # 一次性迁移服务。只此一处跑 alembic upgrade head，backend/worker/ocr_worker/parse_worker/notification_worker/beat 依赖其成功完成，
   # 避免每个副本并发迁移；它退出即完成（restart=no）。
   migrate:
     build: *backend-build
@@ -166,7 +167,7 @@ services:
           cpus: "1.5"
           memory: 1G
 
-  # 轻量 Celery worker：只消费 default；不运行 Office/PDF/图片及未知二进制解析。
+  # 普通 Celery worker：消费 default，上传生成与短作业；外部通知使用独立消费者。
   worker:
     build: *backend-build
     restart: unless-stopped
@@ -175,8 +176,8 @@ services:
       --queues=default --hostname=default@%h --prefetch-multiplier=1
       --concurrency=${INGEST_WORKER_CONCURRENCY:-1}
       --max-tasks-per-child=20 --max-memory-per-child=524288
-    # Also drain legacy parse messages already queued on default during an upgrade.
-    stop_grace_period: 45s
+    # Drain legacy parse/notification deliveries already queued on default.
+    stop_grace_period: 150s
     env_file:
       - ./backend/.env
     environment: *backend-env
@@ -193,8 +194,8 @@ services:
       migrate:
         condition: service_completed_successfully
     healthcheck:
-      # inspect ping 经 broker 广播，自身 worker 回 pong 即视为健康。
-      test: ["CMD-SHELL", "celery -A app.worker.celery_app.celery_app inspect ping || exit 1"]
+      # A different queue consumer must not make a stopped ordinary worker look healthy.
+      test: ["CMD-SHELL", "celery -A app.worker.celery_app.celery_app inspect ping --destination=default@$$HOSTNAME || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -202,11 +203,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.75"
-          memory: ${INGEST_WORKER_MEMORY_LIMIT:-3584M}
+          cpus: "0.5"
+          memory: ${INGEST_WORKER_MEMORY_LIMIT:-3072M}
 
   # Polling WeKnora must not consume upload/outbox/heartbeat worker slots.
-  # Together with default worker: 1 CPU / 4GiB by default, unchanged total budget.
+  # Default + parse + notification consumers share 1 CPU / 4GiB by default.
   parse_worker:
     build: *backend-build
     restart: unless-stopped
@@ -231,6 +232,41 @@ services:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "celery -A app.worker.celery_app.celery_app inspect ping --destination=parse@$$HOSTNAME || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 512M
+
+  # Slow external notifications must not occupy upload, outbox or recovery worker slots.
+  notification_worker:
+    build: *backend-build
+    restart: unless-stopped
+    command: >-
+      celery -A app.worker.celery_app.celery_app worker --loglevel=INFO
+      --queues=notifications --hostname=notifications@%h --pool=prefork
+      --concurrency=1 --prefetch-multiplier=1
+      --max-tasks-per-child=100 --max-memory-per-child=262144
+    env_file:
+      - ./backend/.env
+    environment: *backend-env
+    # Two 60-second delivery batches plus database finalization; preserve late acknowledgements.
+    stop_grace_period: 150s
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.worker.celery_app.celery_app inspect ping --destination=notifications@$$HOSTNAME || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5

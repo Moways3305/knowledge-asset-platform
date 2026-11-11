@@ -113,10 +113,22 @@ class Settings(BaseSettings):
     celery_ocr_queue: str = "ocr"
     celery_parse_queue: str = Field(default="parse", pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 
+    celery_notification_queue: str = Field(
+        default="notifications", pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+    )
+
     @model_validator(mode="after")
-    def _separate_parse_queue(self) -> Settings:
+    def _separate_background_queues(self) -> Settings:
         if self.celery_parse_queue in {self.celery_default_queue, self.celery_ocr_queue}:
             raise ValueError("CELERY_PARSE_QUEUE must differ from the default and OCR queues")
+        if self.celery_notification_queue in {
+            self.celery_default_queue,
+            self.celery_ocr_queue,
+            self.celery_parse_queue,
+        }:
+            raise ValueError(
+                "CELERY_NOTIFICATION_QUEUE must differ from default, OCR and parse queues"
+            )
         return self
 
     # 入库业务租约。worker 进程被 OOM/SIGKILL 时 Python finally 不会执行，因此由
