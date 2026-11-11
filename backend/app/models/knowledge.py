@@ -85,6 +85,7 @@ class KnowledgeAsset(Base):
     # Operational watermarks, never a content edit or a governance decision.
     archive_scan_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     review_scan_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reuse_scan_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     review_due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     verified_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -107,6 +108,13 @@ class KnowledgeAsset(Base):
     )
 
     __table_args__ = (
+        Index(
+            "ix_assets_reuse_scan",
+            "reuse_scan_checked_at",
+            "id",
+            postgresql_where=text("deleted_at IS NULL"),
+            sqlite_where=text("deleted_at IS NULL"),
+        ),
         Index(
             "ix_assets_archive_scan",
             "archive_scan_checked_at",

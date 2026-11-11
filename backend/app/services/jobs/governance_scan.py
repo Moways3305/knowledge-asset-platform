@@ -168,10 +168,14 @@ async def finish_batch(session: AsyncSession, run: GovernanceScanRun, processed,
     await session.commit()
 
 
-async def has_pending(session: AsyncSession) -> bool:
+async def has_pending(
+    session: AsyncSession, names: tuple[str, ...] = ("archive", "review")
+) -> bool:
     result = bool(
         await session.scalar(
-            select(GovernanceScanRun.name).where(GovernanceScanRun.completed_at.is_(None)).limit(1)
+            select(GovernanceScanRun.name)
+            .where(GovernanceScanRun.name.in_(names), GovernanceScanRun.completed_at.is_(None))
+            .limit(1)
         )
     )
     await session.rollback()
