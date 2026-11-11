@@ -89,6 +89,8 @@
    - 执行你环境的 PG 备份（如 `pg_dump`）。**备份产物含业务数据，按密级存放，不入仓库 / 不贴日志。**
    - 记录备份位置与时间到发布单。
 3. **运行 migration**
+   - **升级至 `0084_notification_delivery_lease` 或回退时**：先暂停 beat，等待旧 worker 中正在执行的 `notifications.dispatch_pending` 结束，再停止旧普通 worker、执行迁移并启动同版本消费者；不要让未使用租约的旧通知代码与新代码混跑。回退也需先排空新通知任务，再删除新增租约字段。保留数据库和 broker，不清空待发通知。
+   - 通知发送期间不持有数据库连接。每条最多尝试 3 次，失败至少间隔 120 秒；异常退出留下的领取租约在 120 秒后由后续派发回收，派发仍按原 2 分钟周期触发。这不是恢复时间上限。超时或已发送但结果未落库时可能再次发送，系统不承诺外部消息 exactly-once；`delivery_outcome_unknown` 表示该边界。关闭企微通知开关时，两类通知均保留待发状态，不消耗尝试次数。
    - 本仓库由一次性 `migrate` 服务执行 `python -m alembic upgrade head`；`backend` / `worker` / `ocr_worker` / `parse_worker` / `beat` 依赖其 `service_completed_successfully` 才启动。
    - 不要手动在多个副本各自 `alembic upgrade`。
 4. **从缺少完整授权摘要的历史版本升级时，按需回填 L3/L4 摘要**
@@ -105,8 +107,6 @@
      `cleared_pending_markers` 应全部为 `0`。`pending` 可非零，需后续补齐源摘要再重跑。
    - 本回填只更新当前版本摘要行/安全待处理标记，不删除资产，不触发重索引、重新入库或
      WeKnora 调用。异常时停止放流量并从本节第 2 步数据库备份恢复相关摘要数据。
-   - **升级至 `0084_notification_delivery_lease` 或回退时**：先暂停 beat，等待旧 worker 中正在执行的 `notifications.dispatch_pending` 结束，再停止旧普通 worker、执行迁移并启动同版本消费者；不要让未使用租约的旧通知代码与新代码混跑。回退也需先排空新通知任务，再删除新增租约字段。保留数据库和 broker，不清空待发通知。
-   - 通知发送期间不持有数据库连接。每条最多尝试 3 次，失败至少间隔 120 秒；异常退出留下的领取租约在 120 秒后由后续派发回收，派发仍按原 2 分钟周期触发。这不是恢复时间上限。超时或已发送但结果未落库时可能再次发送，系统不承诺外部消息 exactly-once；`delivery_outcome_unknown` 表示该边界。关闭企微通知开关时，两类通知均保留待发状态，不消耗尝试次数。
 
 5. **启动服务**：`backend` → `worker` / `ocr_worker` / `parse_worker` → `beat` → `frontend`（compose `depends_on` 已编排：postgres/redis healthy → migrate 完成 → backend/worker/ocr_worker/parse_worker/beat → frontend）。
    ```powershell
