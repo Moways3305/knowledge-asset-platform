@@ -139,6 +139,12 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Render Compose defaults and worker CPU overrides
+        # Synthetic example values only; config validates without starting services.
+        run: |
+          cp backend/.env.example backend/.env
+          docker compose --env-file .env.example config --quiet
+          INGEST_WORKER_CPU_LIMIT=1 NOTIFICATION_WORKER_CPU_LIMIT=0.5 INGEST_WORKER_CONCURRENCY=2 docker compose --env-file .env.example config --quiet
       - name: Build backend image and verify release metadata
         run: python3 scripts/check_release_image.py backend
 

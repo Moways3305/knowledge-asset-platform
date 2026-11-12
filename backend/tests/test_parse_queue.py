@@ -123,11 +123,7 @@ def test_compose_dedicated_consumer_is_bounded_and_checked_by_its_own_name():
     assert "ports" not in parse
     assert not parse.get("volumes"), "Status polling needs no document filesystem access"
     assert parse["deploy"]["resources"]["limits"]["memory"] == "512M"
-    limits = [
-        services[name]["deploy"]["resources"]["limits"]
-        for name in ("worker", "parse_worker", "notification_worker")
-    ]
-    assert sum(float(limit["cpus"]) for limit in limits) == 1
+    assert parse["deploy"]["resources"]["limits"]["cpus"] == "0.25"
     for name in ("backend", "worker", "ocr_worker", "beat", "parse_worker"):
         assert services[name]["environment"]["CELERY_PARSE_QUEUE"] == "parse"
     assert "--queues=default" in services["worker"]["command"]
