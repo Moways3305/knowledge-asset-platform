@@ -18,6 +18,7 @@ x-app: &app
     CSRF_TOKEN_SECRET: synthetic-capacity-csrf-secret
     KAP_PUBLIC_BASE_URL: https://api:8443
     PYTHONPATH: /app:/probe
+    KAP_CAPACITY_API_METRICS: ${KAP_CAPACITY_API_METRICS:-stream}
     STORAGE_ROOT: /data/uploads
     LLM_PROVIDER: custom
     LLM_BASE_URL: http://fixture:9000/v1

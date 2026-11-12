@@ -9,19 +9,22 @@ import asyncio
 import json
 import os
 import time
-from collections import Counter, defaultdict, deque
+import uuid
 from contextvars import ContextVar
 from pathlib import Path
 
 import httpx
 from capacity_common import guard
+from capacity_metric_stream import MetricBuffer, append_frame
 from celery.signals import before_task_publish, task_postrun, task_prerun
 from sqlalchemy import event
 
 guard()
+MODE = os.environ.get("KAP_CAPACITY_API_METRICS", "stream")
+if MODE not in {"stream", "off"}:
+    raise ValueError("KAP_CAPACITY_API_METRICS must be stream or off")
 route = ContextVar("capacity_route", default="other")
-values = defaultdict(lambda: deque(maxlen=20000))
-counts = Counter()
+buffer = MetricBuffer(started=time.monotonic())
 task_starts = {}
 
 
@@ -58,8 +61,7 @@ def record(kind, elapsed):
 
 
 def record_value(key, value):
-    counts[key] += 1
-    values[key].append(value)
+    buffer.add(key, value, time.monotonic())
 
 
 def install(engine):
@@ -77,6 +79,9 @@ def install(engine):
             return compute(*args)
 
         passwords._pbkdf2 = delayed_hash
+
+    if MODE == "off":
+        return
 
     # Test harness only. QueuePool has no public before-checkout event. Wrap its
     # acquisition boundary so queueing is measured separately from holding it.
@@ -139,6 +144,8 @@ class MeasuredAPI:
         self.app = app
 
     async def __call__(self, scope, receive, send):
+        if MODE == "off":
+            return await self.app(scope, receive, send)
         if scope["type"] == "lifespan":
             sampler = asyncio.create_task(self.sample())
             try:
@@ -172,27 +179,23 @@ class MeasuredAPI:
 
     async def sample(self):
         tick = time.perf_counter()
-        path = Path(f"/capacity/api-metrics-{os.getpid()}.json")
-        while True:
-            await asyncio.sleep(0.1)
-            now = time.perf_counter()
-            record_value("event_loop_lag_ms", round(max(0, now - tick - 0.1) * 1000, 3))
-            payload = json.dumps(
-                {
-                    "pid": os.getpid(),
-                    "monotonic": now,
-                    "cpu_seconds": time.process_time(),
-                    "metrics": {k: list(v) for k, v in values.items()},
-                    "counts": dict(counts),
-                }
-            )
+        path = Path(f"/capacity/api-metrics-{os.getpid()}-{uuid.uuid4().hex}.jsonl")
 
-            # Atomic files make cross-process reads consistent. This task has no
-            # app DB session and writes only to the disposable capacity volume.
-            def write(payload=payload):
-                temporary = path.with_suffix(".tmp")
-                temporary.write_text(payload)
-                temporary.replace(path)
+        async def flush():
+            while True:
+                await asyncio.sleep(1)
+                frame = buffer.drain(time.monotonic())
+                await asyncio.to_thread(append_frame, path, frame)
 
-            await asyncio.to_thread(write)
-            tick = time.perf_counter()
+        writer = asyncio.create_task(flush())
+        try:
+            while True:
+                await asyncio.sleep(0.1)
+                now = time.perf_counter()
+                record_value("event_loop_lag_ms", round(max(0, now - tick - 0.1) * 1000, 3))
+                tick = now
+        finally:
+            # Writer I/O waits are not event-loop lag. A separate heartbeat can
+            # still observe scheduling stalls while serialization is in flight.
+            writer.cancel()
+            await asyncio.gather(writer, return_exceptions=True)

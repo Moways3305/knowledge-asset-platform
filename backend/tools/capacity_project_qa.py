@@ -17,6 +17,7 @@ from collections import Counter, defaultdict
 
 import httpx
 from capacity_common import FIXTURE, PASSWORD, email, guard
+from capacity_metric_stream import read_window
 from capacity_probe import ROOT, client, distribution, drain, login, save
 from sqlalchemy import select, text
 
@@ -98,10 +99,7 @@ async def load(args):
     uploads = []
     sampler = None
 
-    def metrics_snapshot():
-        return {p.name: json.loads(p.read_text()) for p in ROOT.glob("api-metrics-*.json")}
-
-    metrics_before = metrics_snapshot()
+    metrics_started = time.monotonic()
     wall_started = time.time()
     async with get_sessionmaker()() as session:
         usage_before = dict(
@@ -352,17 +350,23 @@ async def load(args):
                 "counts"
             ].get("content", 0)
             assert processing["model_calls"] == len(uploads)
-        await asyncio.sleep(0.2)  # Wait for process-local metric snapshots to flush.
-        measurements = defaultdict(list)
-        metrics_truncated = False
-        metrics_after = metrics_snapshot()
-        for name, snapshot in metrics_after.items():
-            before = metrics_before.get(name, {}).get("counts", {})
-            for key, values in snapshot["metrics"].items():
-                count = snapshot["counts"].get(key, 0) - before.get(key, 0)
-                metrics_truncated |= count > len(values)
-                if count > 0:
-                    measurements[key].extend(v / 1000 for v in values[-count:])
+        metrics_ended = time.monotonic()
+        metrics_state = {"mode": capacity_metrics.MODE, "complete": None, "dropped": 0}
+        measurements = {}
+        if capacity_metrics.MODE != "off":
+            deadline = time.monotonic() + 5
+            while True:
+                # compose.capacity-test.yml runs two API processes. Missing one
+                # writer must not silently turn into a successful measurement.
+                measured, state = read_window(
+                    ROOT, metrics_started, metrics_ended, expected_writers=2
+                )
+                metrics_state.update(state)
+                if state["complete"] or time.monotonic() >= deadline:
+                    break
+                await asyncio.sleep(0.2)
+            measurements = {key: [v / 1000 for v in rows] for key, rows in measured.items()}
+        metrics_truncated = bool(metrics_state["dropped"]) or metrics_state["complete"] is False
         worker_metrics = defaultdict(list)
         for path in ROOT.glob("worker-metrics-*.jsonl"):
             for line in path.read_text().splitlines():
@@ -409,6 +413,7 @@ async def load(args):
                 if v
             },
             "api_metrics_truncated": metrics_truncated,
+            "api_metrics_capture": metrics_state,
             "worker_metrics": {
                 key: {
                     "completed": len(rows),
@@ -431,6 +436,7 @@ async def load(args):
             ),
         }
         save(f"qa-load-{args.label}", report)
+        assert not metrics_truncated, metrics_state
         if getattr(args, "allow_busy", False):
             assert set(errors) <= {"qa_http_503", "search_http_503"}, dict(errors)
             assert sum(errors.values()) == denials.get("search_busy", 0), dict(denials)
