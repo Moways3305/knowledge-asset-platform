@@ -115,7 +115,7 @@ async def test_hybrid_wire_uses_supported_post_and_parameter_names(wire, thresho
 
 
 @pytest.mark.parametrize("method", ["search", "hybrid_search"])
-@pytest.mark.parametrize("status_code", [400, 403, 404, 500])
+@pytest.mark.parametrize("status_code", [400, 403, 404, 429, 500, 502])
 async def test_rejected_requests_do_not_retry_with_broader_scope(wire, method, status_code):
     client, requests, response, status = wire
     status[0] = status_code

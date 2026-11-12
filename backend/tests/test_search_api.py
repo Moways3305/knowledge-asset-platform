@@ -1305,3 +1305,40 @@ async def test_optional_query_failure_preserves_primary_hits(client, monkeypatch
     assert [card["asset_id"] for card in response.json()["cards"]] == [str(KA_COMPANY_L2)]
     assert "SECRET" not in response.text + caplog.text
     assert "retrieval_optional_query_unavailable" in caplog.text
+
+
+@pytest.mark.parametrize("intent,original", [("search", False), ("qa", False), ("search", True)])
+async def test_primary_upstream_failure_is_safe_and_next_request_recovers(
+    client, db_session, caplog, intent, original
+):
+    from sqlalchemy import select
+
+    from app.models.audit import AuditEvent
+    from app.services.weknora_client import WeKnoraError
+
+    class Unavailable(FakeSearchWeKnora):
+        async def search(self, **kwargs):
+            raise WeKnoraError("SECRET-code", "SECRET upstream URL and sk-synthetic")
+
+    _install(Unavailable([]), FakeScrubLLM())
+    body = {"query": "synthetic", "scope": "company", "intent": intent}
+    if original:
+        await _insert_alpha_l4(db_session)
+        body.update(scope="project", want_original=True, asset_id=str(KA_ALPHA_L4))
+    failed = await client.post(SEARCH, headers=_hdr(USER_CONSULTANT), json=body)
+    assert failed.status_code == 503
+    assert failed.json()["detail"]["denied_reason"] == "search_upstream_unavailable"
+    assert "SECRET" not in failed.text + caplog.text
+    _assert_no_leak(failed.text)
+    audit = await db_session.scalar(
+        select(AuditEvent).where(AuditEvent.action == "knowledge.searched")
+    )
+    assert audit is not None
+    assert audit.extra["answer_status"] == "unavailable"
+    assert audit.extra["upstream_failure_stage"] == ("original" if original else "recall")
+    assert "SECRET" not in json.dumps(audit.extra)
+    _install(FakeSearchWeKnora([_doc(KA_COMPANY_L2, _COMPANY_KB, "safe")]), FakeScrubLLM())
+    body = {"query": "synthetic", "scope": "company", "intent": intent}
+    healthy = await client.post(SEARCH, headers=_hdr(USER_CONSULTANT), json=body)
+    assert healthy.status_code == 200
+    assert [r["asset_id"] for r in healthy.json()["cards"]] == [str(KA_COMPANY_L2)]

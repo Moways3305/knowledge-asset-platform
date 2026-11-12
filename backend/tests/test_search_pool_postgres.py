@@ -5,6 +5,7 @@ import json
 import os
 import socket
 import uuid
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import httpx
@@ -270,6 +271,101 @@ async def test_http_cancellation_returns_checked_out_postgres_connection(
         if pending and not pending.done():
             pending.cancel()
             await asyncio.gather(pending, return_exceptions=True)
+        server.should_exit = True
+        await asyncio.wait_for(serving, 5)
+        sock.close()
+
+
+@pytest.mark.parametrize("recover_on_retry", [False, True])
+async def test_upstream_read_failure_keeps_tcp_and_database_pool_usable(
+    single_connection_db, monkeypatch, caplog, recover_on_retry
+):
+    """Exercise actual API sockets, a one-slot admission limit and a one-connection DB."""
+    from app.core import search_load
+    from app.services import weknora_client
+    from app.services.generation_models import get_search_llm_client
+    from app.services.llm_client import NullLLMClient
+
+    sessions = single_connection_db
+    attempts = []
+    peers = []
+    failure_count = 1 if recover_on_retry else 2
+    monkeypatch.setattr(
+        search_load,
+        "get_settings",
+        lambda: SimpleNamespace(search_concurrency_per_worker=1, search_timeout_seconds=3),
+    )
+
+    async def handle(request):
+        attempts.append(request)
+        assert request.url.path == "/api/v1/knowledge-search"
+        # Network waits/retries must not occupy the API's only SQL connection.
+        async with sessions() as check:
+            assert await asyncio.wait_for(check.scalar(text("SELECT 1")), 0.5) == 1
+        if len(attempts) <= failure_count:
+            raise httpx.ReadError("SECRET upstream URL and key", request=request)
+        return httpx.Response(200, json={"success": True, "data": []})
+
+    @asynccontextmanager
+    async def upstream_pool(*, timeout):
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as upstream:
+            yield upstream
+
+    monkeypatch.setattr(weknora_client, "pooled_http_client", upstream_pool)
+
+    async def database():
+        async with sessions() as session:
+            yield session
+
+    app = create_app()
+    app.dependency_overrides[get_db] = database
+    app.dependency_overrides[get_search_llm_client] = NullLLMClient
+    app.dependency_overrides[weknora_client.get_weknora_client] = lambda: (
+        weknora_client.WeKnoraClient(base_url="https://upstream.invalid", api_key="sk-synthetic")
+    )
+
+    async def capture(scope, receive, send):
+        if scope["type"] == "http":
+            peers.append(scope["client"])
+        await app(scope, receive, send)
+
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    server = uvicorn.Server(
+        uvicorn.Config(capture, lifespan="off", access_log=False, log_level="error")
+    )
+    serving = asyncio.create_task(server.serve(sockets=[sock]))
+    try:
+        for _ in range(100):
+            if server.started:
+                break
+            await asyncio.sleep(0.01)
+        assert server.started
+        async with httpx.AsyncClient(
+            base_url=f"http://127.0.0.1:{sock.getsockname()[1]}", trust_env=False
+        ) as client:
+            body = {"query": "synthetic transport", "scope": "company", "intent": "search"}
+            headers = {"X-Dev-User-Id": str(USER_CONSULTANT)}
+            first = await client.post("/api/v1/knowledge/search", json=body, headers=headers)
+            assert first.status_code == (200 if recover_on_retry else 503), first.text
+            if not recover_on_retry:
+                assert first.json()["detail"]["denied_reason"] == "search_upstream_unavailable"
+            second = await client.post("/api/v1/knowledge/search", json=body, headers=headers)
+            assert second.status_code == 200
+            assert len(attempts) == 3
+            assert len(peers) == 2 and peers[0] == peers[1]
+            assert "SECRET" not in first.text + second.text + caplog.text
+        async with sessions() as check:
+            audits = list(
+                await check.scalars(
+                    select(AuditEvent).where(AuditEvent.action == "knowledge.searched")
+                )
+            )
+            assert len(audits) == 2
+            assert sum(a.extra.get("answer_status") == "unavailable" for a in audits) == (
+                0 if recover_on_retry else 1
+            )
+    finally:
         server.should_exit = True
         await asyncio.wait_for(serving, 5)
         sock.close()
