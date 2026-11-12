@@ -20,6 +20,8 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import Awaitable, Callable
+from functools import partial
 from typing import Any
 from urllib.parse import quote
 
@@ -62,6 +64,25 @@ class WeKnoraDuplicateError(WeKnoraError):
     def __init__(self, existing_knowledge_id: str | None) -> None:
         self.existing_knowledge_id = existing_knowledge_id
         super().__init__("knowledge_duplicate", "文件内容已存在于该知识库")
+
+
+async def _read_only_search(operation: Callable[[], Awaitable[httpx.Response]]) -> httpx.Response:
+    """Retry a broken search connection once, preserving the exact request scope.
+
+    Only membership GETs and read-only search POSTs use this helper. Timeouts,
+    HTTP errors, cancellation and write operations must not be replayed here.
+    """
+    try:
+        try:
+            return await operation()
+        except (httpx.NetworkError, httpx.RemoteProtocolError) as exc:
+            _logger.warning(
+                "weknora_search_transport_retry", extra={"error_type": type(exc).__name__}
+            )
+            await asyncio.sleep(0.05)
+            return await operation()
+    except httpx.RequestError as exc:
+        raise WeKnoraError("weknora_network_error", "知识检索连接暂时不可用，请稍后重试。") from exc
 
 
 class WeKnoraClient:
@@ -472,10 +493,13 @@ class WeKnoraClient:
                 allowed_kbs = set(kb_ids)
                 for offset in range(0, len(requested), 100):
                     batch = requested[offset : offset + 100]
-                    scope_resp = await client.get(
-                        f"{self._base}/knowledge/batch",
-                        params=[("ids", doc) for doc in batch],
-                        headers=self._headers(trace_id),
+                    scope_resp = await _read_only_search(
+                        partial(
+                            client.get,
+                            f"{self._base}/knowledge/batch",
+                            params=[("ids", doc) for doc in batch],
+                            headers=self._headers(trace_id),
+                        )
                     )
                     rows = self._unwrap(scope_resp)
                     if not isinstance(rows, list):
@@ -496,8 +520,10 @@ class WeKnoraClient:
                 payload["knowledge_ids"] = [doc for doc in requested if doc in allowed_docs]
             if keyword_only:
                 payload.update(disable_vector_match=True, rerank={"enabled": False})
-            resp = await client.post(
-                f"{self._base}/knowledge-search", json=payload, headers=self._headers(trace_id)
+            resp = await _read_only_search(
+                lambda: client.post(
+                    f"{self._base}/knowledge-search", json=payload, headers=self._headers(trace_id)
+                )
             )
         chunks = self._normalize_chunks(self._unwrap(resp))
         if allowed_docs is not None:
@@ -527,10 +553,12 @@ class WeKnoraClient:
         if keyword_threshold is not None:
             body["keyword_threshold"] = keyword_threshold
         async with pooled_http_client(timeout=self._timeout) as client:
-            resp = await client.post(
-                f"{self._base}/knowledge-bases/{kb_id}/hybrid-search",
-                json=body,
-                headers=self._headers(trace_id),
+            resp = await _read_only_search(
+                lambda: client.post(
+                    f"{self._base}/knowledge-bases/{kb_id}/hybrid-search",
+                    json=body,
+                    headers=self._headers(trace_id),
+                )
             )
         return self._normalize_chunks(self._unwrap(resp))
 

@@ -1,14 +1,20 @@
 """Project QA must not hold PostgreSQL connections across slow model calls."""
 
 import asyncio
+import socket
+from contextlib import asynccontextmanager
 
+import httpx
 import pytest
 import test_search_pool_postgres as pool_tests
+import uvicorn
 from fastapi import HTTPException
 from sqlalchemy import func, select, text, update
 from test_search_api import KA_ALPHA_L4, FakeSearchWeKnora
 
+from app.db.session import get_db
 from app.db.utils import utc_now
+from app.main import create_app
 from app.models.agent import (
     AgentCall,
     AgentCallCitation,
@@ -25,6 +31,112 @@ from app.services import agent, auth_session
 from app.services.identity import load_user_with_roles
 from app.services.llm_client import LLMError
 from app.services.permission import build_caller_context
+
+
+@pytest.mark.parametrize("recover_on_retry", [False, True])
+async def test_project_qa_transport_failure_keeps_tcp_and_pool_usable(
+    single_connection_db, monkeypatch, caplog, recover_on_retry
+):
+    from app.services import weknora_client
+    from app.services.llm_client import get_llm_client
+
+    sessions = single_connection_db
+    attempts, peers = [], []
+    failure_count = 1 if recover_on_retry else 2
+
+    async def handle(request):
+        attempts.append(request)
+        assert request.url.path == "/api/v1/knowledge-search"
+        async with sessions() as check:
+            assert await asyncio.wait_for(check.scalar(text("SELECT 1")), 0.5) == 1
+        if len(attempts) <= failure_count:
+            raise httpx.ReadError("SECRET upstream URL and key", request=request)
+        return httpx.Response(
+            200,
+            json={
+                "success": True,
+                "data": [
+                    {
+                        "knowledge_id": f"wk-doc-{KA_ALPHA_L4}",
+                        "kb_id": f"wk-kb-proj-{PROJECT_ALPHA}",
+                        "content": "合成资料内容。",
+                    }
+                ],
+            },
+        )
+
+    @asynccontextmanager
+    async def upstream_pool(*, timeout):
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as upstream:
+            yield upstream
+
+    monkeypatch.setattr(weknora_client, "pooled_http_client", upstream_pool)
+
+    async def database():
+        async with sessions() as session:
+            yield session
+
+    app = create_app()
+    app.dependency_overrides[get_db] = database
+    app.dependency_overrides[get_llm_client] = ControlledModel
+    app.dependency_overrides[weknora_client.get_weknora_client] = lambda: (
+        weknora_client.WeKnoraClient(base_url="https://upstream.invalid", api_key="sk-synthetic")
+    )
+
+    async def capture(scope, receive, send):
+        if scope["type"] == "http":
+            peers.append(scope["client"])
+        await app(scope, receive, send)
+
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    server = uvicorn.Server(
+        uvicorn.Config(capture, lifespan="off", access_log=False, log_level="error")
+    )
+    serving = asyncio.create_task(server.serve(sockets=[sock]))
+    try:
+        for _ in range(100):
+            if server.started:
+                break
+            await asyncio.sleep(0.01)
+        assert server.started
+        async with httpx.AsyncClient(
+            base_url=f"http://127.0.0.1:{sock.getsockname()[1]}", trust_env=False
+        ) as client:
+            headers = {"X-Dev-User-Id": str(USER_CONSULTANT)}
+            path = f"/api/v1/projects/{PROJECT_ALPHA}/qa"
+            first = await client.post(path, json={"query": "合成项目问答"}, headers=headers)
+            assert first.status_code == (200 if recover_on_retry else 503), first.text
+            if not recover_on_retry:
+                assert first.json()["detail"]["denied_reason"] == "qa_retrieval_unavailable"
+                async with sessions() as check:
+                    for model in (
+                        AgentCall,
+                        AgentGatewayDecision,
+                        AgentGatewayDecisionItem,
+                        AgentCallCitation,
+                    ):
+                        assert await check.scalar(select(func.count()).select_from(model)) == 0
+            second = await client.post(path, json={"query": "合成项目问答"}, headers=headers)
+            assert second.status_code == 200, second.text
+            assert len(attempts) == 3
+            assert len(peers) == 2 and peers[0] == peers[1]
+            assert "SECRET" not in first.text + second.text + caplog.text
+        async with sessions() as check:
+            assert await check.scalar(select(func.count()).select_from(AgentCall)) == (
+                2 if recover_on_retry else 1
+            )
+            denied = list(
+                await check.scalars(select(AuditEvent).where(AuditEvent.action == "agent.denied"))
+            )
+            assert len(denied) == (0 if recover_on_retry else 1)
+            if denied:
+                assert denied[0].extra == {"denied_reason": "qa_retrieval_unavailable"}
+    finally:
+        server.should_exit = True
+        await asyncio.wait_for(serving, 5)
+        sock.close()
+
 
 single_connection_db = pool_tests.single_connection_db
 

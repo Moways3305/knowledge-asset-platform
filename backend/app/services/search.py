@@ -36,7 +36,7 @@ from app.services.desensitization import LlmOutputDesensitizer
 from app.services.intent import classify_intent, wants_answer
 from app.services.knowledge_evidence_state import attach_platform_state
 from app.services.llm_client import LLMClient, NullLLMClient
-from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient
+from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient, WeKnoraError
 
 _logger = logging.getLogger(__name__)
 
@@ -114,13 +114,34 @@ async def run_search(
         allow_cross_project=allow_cross_project,
         progress=progress,
     )
-    if not wants_answer(intent):
-        return await operation
     remote_limit = max(1.0, get_settings().workbuddy_remote_timeout_seconds)
     budget = _qa_timeout_seconds(remote_limit)
     started = time.monotonic()
     try:
+        if not wants_answer(intent):
+            return await operation
         return await asyncio.wait_for(operation, timeout=budget)
+    except WeKnoraError:
+        # Never expose upstream messages/identifiers or keep a failed read
+        # transaction alive. All callers (including MCP) receive the same error.
+        _logger.warning(
+            "knowledge_search_upstream_unavailable",
+            extra={"stage": progress.stage, "trace_id": trace_id},
+        )
+        await session.rollback()
+        await _record_unavailable(
+            session,
+            caller,
+            req,
+            intent.value,
+            channel,
+            progress,
+            trace_id,
+            stage_key="upstream_failure_stage",
+        )
+        raise _denied(
+            503, "search_upstream_unavailable", "知识检索服务暂时不可用，请稍后重试。"
+        ) from None
     except asyncio.TimeoutError:
         _logger.warning(
             "knowledge_qa_deadline",
@@ -135,7 +156,16 @@ async def run_search(
         cleanup_budget = min(2.0, remote_limit * 0.05)
         await asyncio.wait_for(session.rollback(), timeout=cleanup_budget)
         await asyncio.wait_for(
-            _record_deadline(session, caller, req, intent.value, channel, progress, trace_id),
+            _record_unavailable(
+                session,
+                caller,
+                req,
+                intent.value,
+                channel,
+                progress,
+                trace_id,
+                stage_key="timeout_stage",
+            ),
             timeout=cleanup_budget,
         )
         return SearchResponse(
@@ -147,7 +177,17 @@ async def run_search(
         )
 
 
-async def _record_deadline(session, caller, req, intent, channel, progress, trace_id) -> None:
+async def _record_unavailable(
+    session,
+    caller,
+    req,
+    intent,
+    channel,
+    progress,
+    trace_id,
+    *,
+    stage_key: Literal["timeout_stage", "upstream_failure_stage"],
+) -> None:
     await audit_service.record_event(
         session,
         caller=caller,
@@ -163,7 +203,7 @@ async def _record_deadline(session, caller, req, intent, channel, progress, trac
             "answer_status": "unavailable",
             "channel": channel.value,
             "directory_key": req.filters.directory_key,
-            "timeout_stage": progress.stage,
+            stage_key: progress.stage,
         },
     )
     await session.commit()
