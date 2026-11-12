@@ -75,7 +75,7 @@ from app.services.knowledge_evidence_state import attach_platform_state
 from app.services.llm_client import LLMClient, NullLLMClient
 from app.services.permission import decide
 from app.services.permission_rules import load_access_policy
-from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient
+from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient, WeKnoraError
 
 # provider：平台抽象标识。已接真实 WeKnora 检索 + 外部 LLM，故 provider 为
 # weknora_llm（非 internal_stub 桩）。仍是平台内部抽象，不暴露 provider / WeKnora / LLM
@@ -244,6 +244,23 @@ async def run_project_qa(
             recalled, evidences, outcome = await _prepare_project_qa(
                 reads, caller, project_id, query, selected_llm, weknora, trace_id
             )
+    except WeKnoraError as exc:
+        # The read session is closed before writing the failure audit. No
+        # partially published QA call or provider-controlled detail survives.
+        await audit_service.record_denied(
+            session,
+            caller=caller,
+            log_type=AuditLogType.operation,
+            action=AuditAction.agent_denied.value,
+            trace_id=trace_id,
+            target_type="project",
+            target_id=project_id,
+            extra={"denied_reason": "qa_retrieval_unavailable"},
+            project_id=project_id,
+        )
+        raise _denied(
+            503, "qa_retrieval_unavailable", "项目知识检索暂时不可用，请稍后重试"
+        ) from exc
     except generation_models.GenerationModelError as exc:
         await audit_service.record_denied(
             session,
