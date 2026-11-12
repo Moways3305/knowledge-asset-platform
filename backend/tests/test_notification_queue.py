@@ -105,7 +105,9 @@ def test_notification_consumer_and_producers_match_without_adding_total_resource
         services[n]["deploy"]["resources"]["limits"]
         for n in ("worker", "parse_worker", "notification_worker")
     ]
-    assert sum(float(item["cpus"]) for item in limits) == 1
+    # Check the unchanged fallback budget; Compose resolves explicit overrides.
+    # Actual Compose rendering is also checked in the backend-image CI job.
+    assert sum(float(item["cpus"].rsplit(":-", 1)[-1].removesuffix("}")) for item in limits) == 1
     assert limits[0]["memory"] == "${INGEST_WORKER_MEMORY_LIMIT:-3072M}"
     assert limits[1]["memory"] == limits[2]["memory"] == "512M"
     for name in ("backend", "worker", "parse_worker", "notification_worker", "ocr_worker", "beat"):

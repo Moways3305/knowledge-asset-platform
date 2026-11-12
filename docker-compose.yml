@@ -203,7 +203,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.5"
+          cpus: "${INGEST_WORKER_CPU_LIMIT:-0.5}"
           memory: ${INGEST_WORKER_MEMORY_LIMIT:-3072M}
 
   # Polling WeKnora must not consume upload/outbox/heartbeat worker slots.
@@ -274,7 +274,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.25"
+          cpus: "${NOTIFICATION_WORKER_CPU_LIMIT:-0.25}"
           memory: 512M
 
   # 重型解析/OCR prefork worker。DOCX/PPTX/XLSX、PDF、图片和旧版 Office 均走此队列。
