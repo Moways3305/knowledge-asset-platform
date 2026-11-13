@@ -69,6 +69,63 @@ class PayloadTests(unittest.TestCase):
 
 
 class EntrypointRecoveryTests(unittest.TestCase):
+    def runtime(self, tags):
+        class TagRunner:
+            def image_identity(self, tag):
+                return tags.get(tag)
+
+            def docker(self, *args):
+                if args[0] == "tag":
+                    tags[args[2]] = args[1]
+                elif args[:2] == ("image", "rm"):
+                    tags.pop(args[2])
+                else:
+                    raise AssertionError(args)
+
+        runtime = object.__new__(Runtime)
+        runtime.r = TagRunner()
+        runtime.state = {"config_replacements": [], "tag_replacements": []}
+        runtime.save = lambda: None
+        return runtime
+
+    def test_new_consumer_tags_resume_without_losing_original_journal(self):
+        tags = {"kap-backend:latest": "new", "kap-parse_worker:latest": "old-parse"}
+        runtime = self.runtime(tags)
+        original = {"tag": "kap-backend:latest", "old": "old-backend", "new": "new"}
+        runtime.state["tag_replacements"].append(original.copy())
+        images = {"backend": "new", "parse_worker": "new", "notification_worker": "new"}
+        runtime.configure_entrypoints([], None, images)
+        runtime.configure_entrypoints([], None, images)
+        self.assertEqual(len(runtime.state["tag_replacements"]), 3)
+        self.assertEqual(runtime.state["tag_replacements"][0], original)
+        self.assertEqual(set(tags.values()), {"new"})
+        runtime.restore_entrypoints()
+        self.assertEqual(
+            tags, {"kap-backend:latest": "old-backend", "kap-parse_worker:latest": "old-parse"}
+        )
+
+    def test_unknown_service_rejected_before_any_tag_change(self):
+        tags = {"kap-backend:latest": "old"}
+        runtime = self.runtime(tags)
+        with self.assertRaisesRegex(RuntimeError, "unexpected operational image"):
+            runtime.configure_entrypoints([], None, {"backend": "new", "unrecognized": "new"})
+        self.assertEqual(tags, {"kap-backend:latest": "old"})
+        self.assertEqual(runtime.state["tag_replacements"], [])
+
+    def test_changed_or_duplicated_journal_refused_before_updates(self):
+        for records in (
+            [{"tag": "kap-worker:latest", "old": "old", "new": "wrong"}],
+            [{"tag": "kap-worker:latest", "old": "old", "new": "new"}] * 2,
+            [{"tag": "kap-worker:latest", "old": "other", "new": "new"}],
+        ):
+            with self.subTest(records=records):
+                tags = {"kap-backend:latest": "old", "kap-worker:latest": "old"}
+                runtime = self.runtime(tags)
+                runtime.state["tag_replacements"] = records
+                with self.assertRaises(RuntimeError):
+                    runtime.configure_entrypoints([], None, {"backend": "new", "worker": "new"})
+                self.assertEqual(tags, {"kap-backend:latest": "old", "kap-worker:latest": "old"})
+
     def test_configuration_and_mutable_tags_are_restored_together(self):
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp).resolve()

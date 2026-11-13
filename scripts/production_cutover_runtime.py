@@ -7,7 +7,6 @@ permitted only before the durable traffic-opening boundary. No volumes are delet
 import copy
 import hashlib
 import os
-import re
 import shutil
 import http.client
 import json
@@ -19,6 +18,16 @@ from prepare_production_release import require
 
 LABEL = "kap.production.cutover"
 OPERATIONAL_DIRECTORIES = {Path("/data/weknora/repo"), Path("/data/weknora/releases/v0.7.1")}
+OPERATIONAL_SERVICES = {
+    "backend",
+    "worker",
+    "ocr_worker",
+    "parse_worker",
+    "notification_worker",
+    "beat",
+    "frontend",
+    "migrate",
+}
 
 
 class UnixConnection(http.client.HTTPConnection):
@@ -338,6 +347,21 @@ class Runtime:
         self.save()
 
     def configure_entrypoints(self, paths, managed_weknora, images):
+        # Validate the whole request before changing any config or mutable tag.
+        require(set(images) <= OPERATIONAL_SERVICES, "unexpected operational image")
+        planned = []
+        for service, image in images.items():
+            tag = "kap-" + service + ":latest"
+            current = self.r.image_identity(tag)
+            saved = [r for r in self.state["tag_replacements"] if r["tag"] == tag]
+            require(len(saved) <= 1, "duplicate operational tag journal")
+            if saved:
+                record = saved[0]
+                require(record["new"] == image, "operational tag target changed")
+                require(current in {record["old"], image}, "operational tag concurrently changed")
+            else:
+                record = {"tag": tag, "old": current, "new": image}
+            planned.append((record, bool(saved), current))
         for index, target in enumerate(paths):
             target = Path(target)
             require(
@@ -361,17 +385,16 @@ class Runtime:
             with temporary.open("rb+") as stream:
                 os.fsync(stream.fileno())
             temporary.replace(target)
-        for service, image in images.items():
+        for record, saved, current in planned:
+            if not saved:
+                self.state["tag_replacements"].append(record)
+                self.save()
+            if current != record["new"]:
+                self.r.docker("tag", record["new"], record["tag"])
             require(
-                service in {"backend", "worker", "ocr_worker", "beat", "frontend", "migrate"},
-                "unexpected operational image",
+                self.r.image_identity(record["tag"]) == record["new"],
+                "operational image tag changed",
             )
-            tag = "kap-" + service + ":latest"
-            old = self.r.image_identity(tag)
-            self.state["tag_replacements"].append({"tag": tag, "old": old, "new": image})
-            self.save()
-            self.r.docker("tag", image, tag)
-            require(self.r.image_identity(tag) == image, "operational image tag changed")
 
     def restore_entrypoints(self):
         for entry in self.state.get("config_replacements", []):
@@ -391,9 +414,7 @@ class Runtime:
             temporary.replace(target)
         for entry in self.state.get("tag_replacements", []):
             require(
-                re.fullmatch(
-                    r"kap-(backend|worker|ocr_worker|beat|frontend|migrate):latest", entry["tag"]
-                ),
+                entry["tag"] in {"kap-" + service + ":latest" for service in OPERATIONAL_SERVICES},
                 "unexpected operational tag",
             )
             current = self.r.image_identity(entry["tag"])
