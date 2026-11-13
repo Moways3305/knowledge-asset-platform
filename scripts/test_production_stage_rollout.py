@@ -169,6 +169,26 @@ class ConfigGuards(unittest.TestCase):
 
 
 class RecoveryGuards(unittest.TestCase):
+    def test_saved_recovery_rejects_changed_storage_target(self):
+        old = {n: original(n) for n in deploy.ORIGINAL_START}
+        state = {
+            "originals": old,
+            "passed": False,
+            "traffic_opening": False,
+            "backups": [
+                {"mount": old[deploy.INFRA[0]]["Mounts"][0], "volume": "kap-cold-1234567890-0"}
+            ],
+        }
+        deploy.validate_recovery_state(state, old, "release-1234567890")
+        state["backups"][0]["mount"] = {"Type": "bind", "Source": "/unexpected"}
+        with self.assertRaisesRegex(RuntimeError, "recovery_backup_target_changed"):
+            deploy.validate_recovery_state(state, old, "release-1234567890")
+
+    def test_saved_recovery_refuses_postopening_journal(self):
+        for state in ({"passed": True}, {"traffic_opening": True}):
+            with self.assertRaisesRegex(RuntimeError, "automatic data rollback forbidden"):
+                deploy.validate_recovery_state(state, {}, "release-1234567890")
+
     def test_after_boundary_recovery_refuses_before_any_docker_operation(self):
         runtime = object.__new__(deploy.StageRuntime)
         runtime.state = {"traffic_opening": True}

@@ -625,12 +625,48 @@ def execute(r, inventory, out, report, holder):
     )
 
 
+def validate_recovery_state(state, old, token):
+    require(
+        not state.get("passed") and not state.get("traffic_opening"),
+        "traffic boundary crossed; automatic data rollback forbidden",
+    )
+    require(state["originals"] == {n: old[n] for n in ORIGINAL_START}, "recovery_originals_changed")
+    mounts = [m for item in state["originals"].values() for m in item.get("Mounts", [])]
+    for index, backup in enumerate(state["backups"]):
+        require(
+            backup["mount"] in mounts
+            and backup["volume"] == "kap-cold-" + token[-10:] + "-" + str(index),
+            "recovery_backup_target_changed",
+        )
+
+
+def recover_record(r, inventory, out):
+    state = json.loads((out / "state-private.json").read_text())
+    old = json.loads((inventory / "runtime-private.json").read_text())
+    validate_recovery_state(state, old, out.name)
+    images = json.loads((out / "candidate-image-ids.json").read_text())
+    require(
+        r.image_identity(images["backend"]) == images["backend"], "recovery_helper_image_missing"
+    )
+    runtime = object.__new__(StageRuntime)
+    runtime.r, runtime.api, runtime.directory = r, Engine(r.log), out
+    runtime.token, runtime.helper_image, runtime.state = out.name, images["backend"], state
+    runtime.recover(ORIGINAL_START)
+    wait_healthy(r, ORIGINAL_START)
+    public_health(r, old["kap-backend-1"]["Id"], BASELINE, "v1.0.1")
+
+
 def main():
     import fcntl
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--inventory", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument(
+        "--recover",
+        action="store_true",
+        help="Resume recovery only before workers or traffic were opened",
+    )
     args = parser.parse_args()
     os.umask(0o077)
     inventory, out = args.inventory.resolve(strict=True), args.output.resolve(strict=True)
@@ -650,6 +686,27 @@ def main():
     holder = []
     with (ROOT / "deployment.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if args.recover:
+            recovery = {
+                "phase": "production_stage_recovery",
+                "passed": False,
+                "raw_logs_included": False,
+            }
+            with (out / "private.log").open("ab") as log:
+                try:
+                    recover_record(Runner(log), inventory, out)
+                    recovery.update(
+                        passed=True, previous_release_recovered=True, production_switched=False
+                    )
+                except BaseException:
+                    log.write(traceback.format_exc().encode())
+                    recovery.update(
+                        error="recovery_failed_or_refused_private_details_retained",
+                        manual_recovery_required=True,
+                    )
+                write(out / "recovery-report.json", recovery)
+                print(json.dumps(recovery, ensure_ascii=False, indent=2), flush=True)
+            return 0 if recovery["passed"] else 1
         (out / "ATTEMPTED").open("x").close()
         with (out / "private.log").open("ab") as log:
             r = Runner(log)
