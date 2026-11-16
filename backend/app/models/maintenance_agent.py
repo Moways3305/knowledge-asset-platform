@@ -60,11 +60,29 @@ class MaintenanceRun(Base):
     incomplete_count: Mapped[int] = mapped_column(Integer, default=0)
     skipped_count: Mapped[int] = mapped_column(Integer, default=0)
     reasons: Mapped[dict] = mapped_column(JSON, default=dict)
+    scope_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     claim_token: Mapped[str | None] = mapped_column(String(36))
     lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     last_progress_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class MaintenanceRunItem(Base):
+    """Frozen target membership and per-run outcomes; never stores source text."""
+
+    __tablename__ = "maintenance_agent_run_items"
+    __table_args__ = (UniqueConstraint("run_id", "asset_id", name="uq_maintenance_run_asset"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    run_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("maintenance_agent_runs.id"))
+    asset_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("knowledge_assets.id"))
+    version_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    coverage: Mapped[dict] = mapped_column(JSON, default=dict)
+    findings: Mapped[dict] = mapped_column(JSON, default=dict)
+    reasons: Mapped[list] = mapped_column(JSON, default=list)
+    checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class MaintenanceCheck(Base):

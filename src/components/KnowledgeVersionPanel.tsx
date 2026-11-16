@@ -166,7 +166,7 @@ export default function KnowledgeVersionPanel({
       <TaskModal
         open={open === "upload"}
         title="更新这份资料"
-        description="新版沿用原库、资料区、目录和密级。上传不会归档旧版；完成入库和复核后再确认替代。"
+        description="新版沿用原库、目录和密级。上传不会归档旧版；完成入库和复核后再确认替代。"
         busy={busy}
         onClose={() => setOpen(null)}
       >

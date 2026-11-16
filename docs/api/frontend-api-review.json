@@ -196,6 +196,10 @@
     "POST /api/v1/projects/{project_id}/knowledge/bulk-confirm-asset": {
       "status": "已有替代流程",
       "note": "项目资料选择栏已有批量资产化入口：assetization-preflight → 登记缺失证据 → assetization-submit，同样创建/复用资产化审核，并返回逐项证据和资格结果。保留更完整的后端预检流程，不增加重复按钮。"
+    },
+    "POST /api/v1/my/knowledge/{asset_id}/confirm-asset": {
+      "status": "系统集成",
+      "note": "取消资料分区后保留旧客户端兼容接口：校验本人权限并返回无需确认，不再修改资料；新版页面移除该入口。"
     }
   },
   "dynamicCalls": {

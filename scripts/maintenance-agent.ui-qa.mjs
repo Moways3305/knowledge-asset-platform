@@ -20,10 +20,13 @@ const item = { id: "issue", asset_id: "asset", title: "项目交付标准与质�
 const run = { id: "run", policy_id: "policy", kind: "full", status: "partial", target_count: 138, completed_count: 132, incomplete_count: 6, skipped_count: 0, reasons: { content_not_authorized: 4, model_unavailable: 2 }, started_at: "2026-11-16T02:00:00Z", finished_at: "2026-11-16T02:20:00Z" };
 try {
   for (const width of [1440, 1024, 390]) {
-    for (const scenario of ["normal", "empty", "failure", "forbidden", "setup", "readonly", "model_missing", "model_error"]) {
+    for (const scenario of ["normal", "empty", "failure", "forbidden", "setup", "readonly", "model_missing", "model_error", "legacy_run", "zero_run"]) {
       const context = await browser.newContext({ viewport: { width, height: 1000 } });
       let actions = 0, saved = 0, maintenanceRequests = 0;
       let currentPolicy = { ...policy };
+      const activeRun = ["legacy_run", "zero_run"].includes(scenario) ? { ...run, target_count: 0, completed_count: 0, incomplete_count: 0, reasons: {}, status: scenario === "zero_run" ? "empty" : "completed" } : run;
+      const scope = { assessed_at: run.started_at, visible_count: scenario === "zero_run" ? 2 : 140, target_count: activeRun.target_count, excluded_counts: { archived: 2 } };
+      const detail = { ...activeRun, last_progress_at: run.finished_at, library_key: "company", historical_details_available: scenario !== "legacy_run", scope_snapshot: scenario === "legacy_run" ? null : scope, current_scope: scope, content_authorized: true, settings, total: activeRun.target_count ? 1 : 0, page: 1, page_size: 25, items: activeRun.target_count ? [{ asset_id: "asset", title: item.title, status: "incomplete", version_id: "v1", current_version_matches: true, coverage: { integrity: "complete", availability: "complete", maintenance: "complete", duplicates: "complete", quality: "model_unavailable" }, findings: { missing_review_date: 1 }, reasons: ["model_unavailable"], checked_at: run.finished_at }] : [] };
       let started = 0;
       if (scenario === "setup") currentPolicy = { ...policy, id: null, revision: 0, enabled: false, content_authorized: false };
       if (scenario === "readonly") currentPolicy = { ...policy, can_configure: false };
@@ -43,9 +46,10 @@ try {
         if (p === "/api/v1/maintenance-agent/policies") body = [currentPolicy];
         if (p === "/api/v1/maintenance-agent/issues") body = { items: ["empty", "setup"].includes(scenario) ? [] : [item], total: ["empty", "setup"].includes(scenario) ? 0 : 1, page: 1, page_size: 25 };
         if (p.endsWith("/policies/company/runs")) {
-          body = scenario === "setup" ? (started ? [{ ...run, status: "queued" }] : []) : [run];
+          body = scenario === "setup" ? (started ? [{ ...run, status: "queued" }] : []) : [activeRun];
           if (route.request().method() === "POST") { started += 1; body = { ...run, status: "queued" }; }
         }
+        if (p.endsWith("/policies/company/runs/run")) body = detail;
         if (p.endsWith("/issues/issue")) body = { ...item, evidence: { quote: "目录第一章：交付标准；第二章：质量复核。", offset: 0 }, evidence_available: true, current_version_matches: true, history: [{ action: "detected", reason: "", created_at: item.first_seen_at }] };
         if (p.endsWith("/issues/issue/actions")) {
           const data = route.request().postDataJSON();
@@ -108,6 +112,14 @@ try {
         await page.getByRole("button", { name: "巡检记录", exact: true }).click();
         await page.getByText("部分未完成", { exact: true }).waitFor();
         await page.screenshot({ path: path.join(out, `runs-normal-${width}.png`), fullPage: true, animations: "disabled" });
+        await page.getByRole("button", { name: "查看巡检详情", exact: true }).click();
+        await page.getByRole("heading", { name: "逐项检查结果" }).waitFor();
+        await page.getByRole("link", { name: item.title, exact: true }).waitFor();
+        await page.getByLabel("检查结果筛选").selectOption("incomplete");
+        await page.getByRole("heading", { name: "逐项检查结果" }).waitFor();
+        await page.screenshot({ path: path.join(out, `run-detail-${width}.png`), fullPage: true, animations: "disabled" });
+        assert.equal(await page.getByRole("dialog").evaluate(el => el.scrollWidth <= el.clientWidth + 1), true);
+        await page.getByRole("button", { name: "关闭详情" }).click();
       }
       if (scenario === "setup") {
         const setup = page.getByRole("button", { name: "配置并开始", exact: true });
@@ -123,8 +135,18 @@ try {
         await page.getByRole("button", { name: "保存并开始巡检", exact: true }).click();
         await page.getByText("巡检已加入后台队列，可在巡检记录中查看进度。", { exact: true }).waitFor();
         assert.equal(saved, 1); assert.equal(started, 1);
+        await page.getByRole("button", { name: "关闭详情" }).click();
         await page.getByRole("button", { name: "查看巡检进度", exact: true }).click();
         assert.equal(started, 1);
+      }
+      if (["legacy_run", "zero_run"].includes(scenario)) {
+        await page.getByRole("button", { name: "巡检记录", exact: true }).click();
+        await page.getByText("没有可巡检资产", { exact: true }).waitFor();
+        await page.getByRole("button", { name: "查看巡检详情" }).click();
+        if (scenario === "legacy_run") await page.getByText(/这是一条旧版巡检记录/).waitFor();
+        else await page.getByText(/没有符合条件的资料/).first().waitFor();
+        await page.screenshot({ path: path.join(out, `run-${scenario}-${width}.png`), fullPage: true, animations: "disabled" });
+        await page.getByRole("button", { name: "关闭详情" }).click();
       }
       if (scenario === "readonly") {
         await page.getByText("需由公司知识治理人员或该项目经理操作", { exact: true }).waitFor();

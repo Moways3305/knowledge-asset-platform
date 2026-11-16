@@ -78,7 +78,40 @@ export interface ScanRun {
   reasons: Record<string, number>;
   started_at: string;
   finished_at: string | null;
+  last_progress_at?: string;
 }
+export interface ScanScope {
+  assessed_at: string;
+  visible_count: number;
+  target_count: number;
+  excluded_counts: Record<string, number>;
+}
+export interface ScanRunDetail extends ScanRun {
+  library_key: string;
+  historical_details_available: boolean;
+  scope_snapshot: ScanScope | null;
+  current_scope: ScanScope;
+  content_authorized: boolean | null;
+  settings: ScanSettings | null;
+  items: {
+    asset_id: string;
+    title: string;
+    status: string;
+    version_id: string | null;
+    current_version_matches: boolean;
+    coverage: Record<string, string>;
+    findings: Record<string, number>;
+    reasons: string[];
+    checked_at: string | null;
+  }[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+export const fetchAgentRun = (key: string, id: string, page = 1, status = "") =>
+  apiGet<ScanRunDetail>(
+    `/api/v1/maintenance-agent/policies/${encodeURIComponent(key)}/runs/${encodeURIComponent(id)}?page=${page}${status ? `&status=${status}` : ""}`,
+  );
 export interface IssuePage {
   items: MaintenanceIssue[];
   total: number;

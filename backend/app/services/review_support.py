@@ -195,7 +195,7 @@ async def _copy_publication_asset(
     target = KnowledgeAsset(
         title=str(metadata.get("subject") or source.title),
         scope=target_scope,
-        zone="material" if target_scope == KnowledgeScope.project.value else "asset",
+        zone="asset",
         asset_type=str(metadata.get("asset_type") or source.asset_type),
         owner_user_id=source.owner_user_id,
         maintainer_user_id=actor_user_id,
@@ -404,7 +404,7 @@ def _to_list_item(
         can_decide=can_decide,
         can_withdraw=can_withdraw,
         blocking_reason=(
-            "资料资产化需要至少一项验证证据；请登记适用场景和说明后再交审核人。"
+            "资料验证审核需要至少一项验证证据；请登记适用场景和说明后再交审核人。"
             if task.review_type == ReviewType.material_to_asset.value
             and task.status == ReviewTaskStatus.pending_evidence.value
             else (

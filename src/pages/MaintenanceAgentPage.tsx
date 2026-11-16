@@ -38,6 +38,7 @@ import FormField from "../components/FormField";
 import PagePagination from "../components/PagePagination";
 import { formatBeijingTime } from "../utils/time";
 import "./MaintenanceAgentPage.css";
+import MaintenanceRunDrawer from "./MaintenanceRunDrawer";
 
 const categories: Record<string, string> = {
   integrity: "信息完整性",
@@ -61,6 +62,7 @@ const states: Record<string, string> = {
   completed: "检查完成",
   partial: "部分未完成",
   cancelled: "已取消",
+  empty: "没有可巡检资产",
 };
 const rules: Record<string, string> = {
   missing_summary: "缺少摘要",
@@ -100,6 +102,7 @@ const reasons: Record<string, string> = {
   asset_changed_during_check: "检查期间资料发生变更",
   asset_out_of_scope: "资料已移出本次范围",
   check_incomplete: "检查未完成",
+  no_eligible_assets: "所选知识库没有符合巡检条件的资料",
   ...rules,
 };
 const message = (error: unknown) =>
@@ -126,6 +129,7 @@ export default function MaintenanceAgentPage() {
   const [modelError, setModelError] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
+  const [selectedRun, setSelectedRun] = useState<string | null>(null);
   const policy = policies.find((p) => p.library_key === key);
   const selectedModel = models?.items.find((m) =>
     !policy?.settings.model_ref || policy.settings.model_ref === "system_default"
@@ -138,6 +142,9 @@ export default function MaintenanceAgentPage() {
     if (name !== "page") next.delete("page");
     setParams(next);
   };
+  useEffect(() => {
+    setSelectedRun(null);
+  }, [key]);
   useEffect(() => {
     if (isCenter) return;
     let live = true;
@@ -201,8 +208,13 @@ export default function MaintenanceAgentPage() {
     setError("");
     setNotice("");
     try {
-      await startAgentRun(key);
-      setNotice("巡检已加入后台队列，可在巡检记录中查看进度。");
+      const result = await startAgentRun(key);
+      setNotice(
+        result.status === "empty"
+          ? "本知识库没有符合巡检条件的资料，请查看详情核对范围。"
+          : "巡检已加入后台队列，可在巡检记录中查看进度。",
+      );
+      setSelectedRun(result.id);
       update("tab", "runs");
       setRefresh((n) => n + 1);
     } catch (e) {
@@ -268,9 +280,9 @@ export default function MaintenanceAgentPage() {
             <div className="agent-scope">
               <CalendarClock size={18} />
               <span>
-                资产区 · 每日增量 / 每周全量
+                全部有效资料 · 每日增量 / 每周全量
                 <br />
-                <small>个人知识库和素材区不参与巡检</small>
+                <small>仅巡检所选知识库，个人知识库不参与</small>
               </span>
             </div>
             <div className="agent-run-action">
@@ -306,7 +318,7 @@ export default function MaintenanceAgentPage() {
                         ? "首次使用，先配置模型与巡检授权"
                         : hasRunning
                           ? "已有巡检任务，点击查看进度"
-                          : "检查本知识库资产区的当前有效版本"}
+                          : "检查本知识库全部有效资料的当前版本"}
               </small>
             </div>
           </div>
@@ -484,10 +496,17 @@ export default function MaintenanceAgentPage() {
                                 : "全面巡检"}
                           </h3>
                           <span className={`agent-status agent-status-${run.status}`}>
-                            {states[run.status]}
+                            {run.status === "completed" && run.target_count === 0
+                              ? "没有可巡检资产"
+                              : states[run.status]}
                           </span>
                         </header>
                         <time>{formatBeijingTime(run.started_at)}</time>
+                        {run.target_count === 0 && (
+                          <p className="agent-report-warning">
+                            本轮没有选出检查对象，不代表知识库没有问题。
+                          </p>
+                        )}
                         <dl>
                           <div>
                             <dt>目标资产</dt>
@@ -515,6 +534,13 @@ export default function MaintenanceAgentPage() {
                             ))}
                           </ul>
                         )}
+                        <Button
+                          size="small"
+                          onClick={() => setSelectedRun(run.id)}
+                          icon={<ArrowRight size={14} />}
+                        >
+                          查看巡检详情
+                        </Button>
                       </article>
                     ))}
                   </div>
@@ -574,6 +600,17 @@ export default function MaintenanceAgentPage() {
           id={selected}
           onClose={() => setSelected(null)}
           onChanged={() => setRefresh((n) => n + 1)}
+        />
+      )}
+      {selectedRun && (
+        <MaintenanceRunDrawer
+          key={`${key}:${selectedRun}`}
+          library={key}
+          id={selectedRun}
+          onClose={() => setSelectedRun(null)}
+          reasons={reasons}
+          categories={categories}
+          rules={rules}
         />
       )}
     </ProductPage>

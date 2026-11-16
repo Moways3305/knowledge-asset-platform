@@ -74,8 +74,6 @@ def _denied(status_code: int, reason: str, message: str) -> HTTPException:
 
 def _passes_filters(asset, filters) -> bool:
     """阶段1卡片级过滤：zone / tags / phase。archived 始终在召回阶段已排除。"""
-    if filters.zone and asset.zone != filters.zone:
-        return False
     if filters.phase and asset.lifecycle_phase_key != filters.phase:
         return False
     if filters.project_id and asset.project_id != filters.project_id:
@@ -365,7 +363,7 @@ async def _read_search(
     )
     # Apply business filters before the upstream chunk budget is consumed.
     # Keep the post-recall filters and permission checks as defence in depth.
-    if req.filters.tags or req.filters.zone or req.filters.phase:
+    if req.filters.tags or req.filters.phase:
         stmt = (
             select(KnowledgeAssetVersion.weknora_doc_id)
             .join(
@@ -388,8 +386,6 @@ async def _read_search(
         )
         for tag in req.filters.tags or []:
             stmt = stmt.where(KnowledgeAsset.tags.any(KnowledgeAssetTag.tag_name == tag))
-        if req.filters.zone:
-            stmt = stmt.where(KnowledgeAsset.zone == req.filters.zone)
         if req.filters.phase:
             stmt = stmt.where(KnowledgeAsset.lifecycle_phase_key == req.filters.phase)
         if knowledge_ids is not None:

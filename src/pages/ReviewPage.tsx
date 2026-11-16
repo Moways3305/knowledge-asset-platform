@@ -334,7 +334,7 @@ export default function ReviewPage() {
       </DetailDrawer>
       <DetailDrawer
         open={Boolean(evidenceTarget)}
-        title="补充资产化验证证据"
+        title="补充验证验证证据"
         description={
           evidenceTarget
             ? `${evidenceReviewIds.length > 1 ? `${evidenceReviewIds.length} 项资料` : safeTitle(evidenceTarget)} · ${evidenceTarget.project_name || "当前项目"}`
@@ -386,7 +386,7 @@ export default function ReviewPage() {
         <div className="gw-evidence-drawer">
           <div className="gw-evidence-requirement">
             <strong>阻塞原因</strong>
-            <p>{evidenceTarget?.blocking_reason || "资料资产化至少需要一项验证证据。"}</p>
+            <p>{evidenceTarget?.blocking_reason || "资料验证至少需要一项验证证据。"}</p>
             <small>证据是治理线索，不表示平台已经验证其真实性。</small>
           </div>
           <label>

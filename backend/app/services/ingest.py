@@ -790,7 +790,7 @@ async def _approve_project_ingest_review(
         asset = KnowledgeAsset(
             title=req.title,
             scope=KnowledgeScope.project.value,
-            zone=req.target_zone.value,
+            zone="asset",
             asset_type=asset_type,
             owner_user_id=submitter_id,
             maintainer_user_id=submitter_id,

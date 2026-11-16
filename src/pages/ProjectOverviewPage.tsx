@@ -60,11 +60,6 @@ const KB_STATUS: Record<string, string> = {
   disabled: "已停用",
 };
 
-const CITED_ZONE: Record<string, string> = {
-  material: "资料区",
-  asset: "资产区",
-};
-
 type ListState =
   | { status: "loading" }
   | { status: "error"; message: string }
@@ -424,7 +419,6 @@ function ProjectWorkspace({
                           >
                             {item.title}
                           </Link>
-                          <span>{CITED_ZONE[item.zone] ?? "区域待确认"}</span>
                           <time>{formatBeijingTime(item.updated_at)}</time>
                         </li>
                       ))}
@@ -439,11 +433,7 @@ function ProjectWorkspace({
               {" "}
               <dl className="project78-facts" aria-label="项目数据概览">
                 <div>
-                  <dt>资料</dt>
-                  <dd>{overview.counts.material_count}</dd>
-                </div>
-                <div>
-                  <dt>资产</dt>
+                  <dt>全部资料</dt>
                   <dd>{overview.counts.asset_count}</dd>
                 </div>
                 <div>
@@ -682,7 +672,6 @@ function ProjectWorkspace({
                         >
                           [{citation.citation_order}] {citation.asset_title}
                         </Link>
-                        <small>{CITED_ZONE[citation.cited_zone] ?? "来源区域待确认"}</small>
                         {citation.is_pending_review && <em>内容待审核，请谨慎参考</em>}
                       </div>
                     ))}

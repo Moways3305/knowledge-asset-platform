@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.identity import Project, ProjectMember, User
 from app.models.ingest import IngestTask
 from app.models.weknora import WeknoraKbMapping
-from app.schemas.enums import KnowledgeScope, KnowledgeZone, MemberStatus, ProjectRole
+from app.schemas.enums import KnowledgeScope, MemberStatus, ProjectRole
 from app.schemas.permission import CallerContext
 from app.schemas.project_settings import (
     ProjectOverviewActivity,
@@ -83,12 +83,6 @@ async def get_overview(
     membership, project = await _load_active_membership(session, caller, project_id)
     is_manager = membership.project_role == ProjectRole.project_manager.value
 
-    material = await _knowledge_page(
-        session, caller, project_id, zone=KnowledgeZone.material.value, page_size=1
-    )
-    assets = await _knowledge_page(
-        session, caller, project_id, zone=KnowledgeZone.asset.value, page_size=1
-    )
     recent = await _knowledge_page(session, caller, project_id, zone=None, page_size=10)
 
     pending_confirmation = int(
@@ -171,8 +165,8 @@ async def get_overview(
             can_confirm_assets=is_manager,
         ),
         counts=ProjectOverviewCounts(
-            material_count=material.total,
-            asset_count=assets.total,
+            material_count=0,
+            asset_count=recent.total,
             pending_confirmation_count=pending_confirmation,
             pending_review_count=pending_review,
             original_access_request_count=pending_access,

@@ -11,7 +11,7 @@ const PAGE_SIZE = 20;
 const SAFE_FALLBACK = "信息待确认";
 
 const reviewTypeLabel: Record<string, string> = {
-  material_to_asset: "资料资产化",
+  material_to_asset: "资料验证",
   personal_to_project: "个人知识升级",
   project_to_company: "公司资产升级",
   lifecycle_change: "生命周期变更",
@@ -27,7 +27,7 @@ const statusLabel: Record<string, string> = {
 const reviewTypeFilters = [
   { value: "", label: "全部类型" },
   { value: "project_ingest_approval", label: "项目知识入库" },
-  { value: "material_to_asset", label: "资料资产化" },
+  { value: "material_to_asset", label: "资料验证" },
   { value: "personal_to_project", label: "个人知识升级" },
   { value: "project_to_company", label: "公司资产升级" },
   { value: "lifecycle_change", label: "生命周期变更" },

@@ -148,13 +148,13 @@ def _evidence(aid):
 
 
 # ---------------- 本人资产确认 ----------------
-async def test_owner_confirm_material_to_asset(client, db_session):
+async def test_legacy_confirmation_is_a_permission_checked_noop(client, db_session):
     aid = await _mk_personal(db_session, owner=USER_CONSULTANT, zone="material")
     r = await client.post(
         _confirm(aid), headers=_hdr(USER_CONSULTANT, **{"X-Trace-Id": "trc-personal-confirm"})
     )
     assert r.status_code == 200, r.text
-    assert r.json()["zone"] == "asset" and r.json()["status"] == "confirmed"
+    assert r.json()["zone"] == "material" and r.json()["status"] == "already_asset"
     rows = (
         (
             await db_session.execute(
@@ -164,16 +164,16 @@ async def test_owner_confirm_material_to_asset(client, db_session):
         .scalars()
         .all()
     )
-    assert rows and (rows[-1].after_snapshot or {}).get("zone") == "asset"
+    assert rows == []
 
 
 async def test_confirm_asset_idempotent(client, db_session):
     aid = await _mk_personal(db_session, owner=USER_CONSULTANT, zone="material")
     r1 = await client.post(_confirm(aid), headers=_hdr(USER_CONSULTANT))
-    assert r1.status_code == 200 and r1.json()["status"] == "confirmed"
+    assert r1.status_code == 200 and r1.json()["status"] == "already_asset"
     r2 = await client.post(_confirm(aid), headers=_hdr(USER_CONSULTANT))
     assert r2.status_code == 200 and r2.json()["status"] == "already_asset"
-    assert r2.json()["zone"] == "asset"
+    assert r2.json()["zone"] == "material"
 
 
 async def test_non_owner_confirm_404(client, db_session):

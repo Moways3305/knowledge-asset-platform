@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
 import pytest_asyncio
 from sqlalchemy import func, select
 from test_preview_original_files import assert_preview_bytes, attach_original
@@ -316,7 +317,7 @@ async def test_bulk_confirm_asset_runs_more_than_one_server_batch(client, monkey
     assert calls == [uuid.UUID(item_id) for item_id in item_ids]
 
 
-async def test_full_loop_evidence_then_pm_approve_changes_zone(client):
+async def test_validation_approval_preserves_knowledge_and_records_decision(client):
     """登记证据 → pending_reviewer → PM approve → zone=asset，且 Knowledge API 可读到。"""
     # 先登记证据，再发起审核，避免创建不可操作待办。
     r2 = await client.post(
@@ -332,7 +333,7 @@ async def test_full_loop_evidence_then_pm_approve_changes_zone(client):
     detail = (await client.get(f"{REVIEWS}/{review_id}", headers=_hdr(USER_CONSULTANT))).json()
     assert detail["status"] == "pending_reviewer"
     assert detail["evidence_count"] == 1
-    # PM approve → approved + zone=asset
+    # PM approval records validation without moving knowledge
     r3 = await client.post(
         f"{REVIEWS}/{review_id}/approve",
         headers=_hdr(USER_PROJECT_MANAGER),
@@ -340,12 +341,12 @@ async def test_full_loop_evidence_then_pm_approve_changes_zone(client):
     )
     assert r3.status_code == 200
     assert r3.json()["status"] == "approved"
-    assert r3.json()["asset_zone"] == "asset"
-    # Knowledge detail 可读到 zone 变化
+    assert r3.json()["asset_zone"] == "material"
+    # Knowledge content and legacy marker stay unchanged
     d = (
         await client.get(f"{KN}/{KA_PROJECT_ALPHA_MATERIAL}", headers=_hdr(USER_PROJECT_MANAGER))
     ).json()
-    assert d["zone"] == "asset"
+    assert d["zone"] == "material"
 
 
 async def test_bulk_review_reject_requires_reason_and_continues_after_stale_item(client):
@@ -621,10 +622,12 @@ async def test_governance_sees_reviews(client):
     assert resp.status_code == 200
 
 
+@pytest.mark.parametrize("legacy_zone", ["asset", "material"])
 async def test_company_upgrade_requires_independent_general_manager_and_director(
-    client, db_session
+    client, db_session, legacy_zone
 ):
     source_before = await db_session.get(KnowledgeAsset, KA_PROJECT_ALPHA)
+    source_before.zone = legacy_zone
     source_version_id = source_before.current_version_id
     source_canonical_name = source_before.canonical_name
     source_version_before = await db_session.get(KnowledgeAssetVersion, source_version_id)

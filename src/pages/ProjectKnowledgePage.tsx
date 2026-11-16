@@ -38,7 +38,6 @@ import type {
   KnowledgePageVM,
   KnowledgeQueryParams,
   KnowledgeSortField,
-  KnowledgeZone,
   SortDirection,
 } from "../types/knowledge";
 import { assetStatusLabel } from "../utils/knowledgeLabels";
@@ -73,12 +72,6 @@ const emptyPage = (): KnowledgePageVM => ({
   hasNext: false,
 });
 
-function safeZone(value: string): string {
-  if (value === "material") return "资料区";
-  if (value === "asset") return "资产区";
-  return SAFE_FALLBACK;
-}
-
 function safeStatus(value: string): string {
   return assetStatusLabel[value as AssetStatus] ?? SAFE_FALLBACK;
 }
@@ -90,7 +83,7 @@ function safeConfidentiality(value: string): string {
 function canSelectAsset(asset: KnowledgeCardVM, projectRole: string): boolean {
   return (
     asset.assetStatus !== "archived" &&
-    ((asset.zone === "material" && asset.assetStatus === "active") ||
+    (asset.assetStatus === "active" ||
       (projectRole === "project_manager" && asset.access.canDelete))
   );
 }
@@ -112,7 +105,6 @@ function ProjectKnowledgeWorkspace({
 }) {
   const [keywordInput, setKeywordInput] = useState("");
   const [keyword, setKeyword] = useState("");
-  const [zone, setZone] = useState<KnowledgeZone | "">("");
   const [assetStatus, setAssetStatus] = useState<AssetStatus | "">("");
   const [confidentialityLevel, setConfidentialityLevel] = useState<ConfidentialityLevel | "">("");
   const [updatedFrom, setUpdatedFrom] = useState("");
@@ -175,7 +167,6 @@ function ProjectKnowledgeWorkspace({
       includeArchived,
     };
     if (keyword) params.keyword = keyword;
-    if (zone) params.zone = zone;
     if (assetStatus) params.assetStatus = assetStatus;
     if (confidentialityLevel) params.confidentialityLevel = confidentialityLevel;
     if (updatedFrom) params.updatedFrom = updatedFrom;
@@ -217,7 +208,6 @@ function ProjectKnowledgeWorkspace({
     sortDirection,
     updatedFrom,
     updatedTo,
-    zone,
   ]);
 
   useEffect(
@@ -229,7 +219,6 @@ function ProjectKnowledgeWorkspace({
 
   const hasActiveFilters = Boolean(
     keyword ||
-    zone ||
     assetStatus ||
     confidentialityLevel ||
     updatedFrom ||
@@ -242,7 +231,6 @@ function ProjectKnowledgeWorkspace({
   const resetFilters = () => {
     setKeywordInput("");
     setKeyword("");
-    setZone("");
     setAssetStatus("");
     setConfidentialityLevel("");
     setUpdatedFrom("");
@@ -311,7 +299,6 @@ function ProjectKnowledgeWorkspace({
           page: nextPage,
           pageSize: 100,
           keyword: keyword || undefined,
-          zone: zone || undefined,
           assetStatus: assetStatus || undefined,
           confidentialityLevel: confidentialityLevel || undefined,
           updatedFrom: updatedFrom || undefined,
@@ -395,9 +382,7 @@ function ProjectKnowledgeWorkspace({
   };
 
   const openAssetization = async () => {
-    const materialAssets = selectedAssets.filter(
-      (asset) => asset.zone === "material" && asset.assetStatus === "active",
-    );
+    const materialAssets = selectedAssets.filter((asset) => asset.assetStatus === "active");
     if (materialAssets.length === 0 || bulkAssetizeBusy) return;
     setAssetizationOpen(true);
     setAssetizationStep(0);
@@ -447,7 +432,7 @@ function ProjectKnowledgeWorkspace({
       setUpgradeNotice({
         tone:
           response.failed || response.evidence_missing || response.ineligible ? "error" : "success",
-        text: `资产化审核已提交：新建 ${response.created}，复用待办 ${response.existing}，缺证据 ${response.evidence_missing}，不可发起 ${response.ineligible}，失败 ${response.failed}。`,
+        text: `验证审核已提交：新建 ${response.created}，复用待办 ${response.existing}，缺证据 ${response.evidence_missing}，不可发起 ${response.ineligible}，失败 ${response.failed}。`,
       });
       setListRetryKey((value) => value + 1);
     } catch {
@@ -457,9 +442,7 @@ function ProjectKnowledgeWorkspace({
     }
   };
 
-  const selectedMaterialAssets = selectedAssets.filter(
-    (asset) => asset.zone === "material" && asset.assetStatus === "active",
-  );
+  const selectedMaterialAssets = selectedAssets.filter((asset) => asset.assetStatus === "active");
   const selectedDeletableAssets = selectedAssets.filter((asset) =>
     canDeleteSelectedAsset(asset, project.projectRole),
   );
@@ -532,7 +515,6 @@ function ProjectKnowledgeWorkspace({
         </Link>
       ),
     },
-    { key: "zone", header: "所属区域", render: (asset) => safeZone(asset.zone) },
     {
       key: "confidentiality",
       header: "保密级别",
@@ -571,7 +553,6 @@ function ProjectKnowledgeWorkspace({
         );
         const canDelete =
           project.projectRole === "project_manager" &&
-          asset.zone === "asset" &&
           asset.access.canDelete &&
           asset.assetStatus !== "archived";
         return (
@@ -704,22 +685,6 @@ function ProjectKnowledgeWorkspace({
                   placeholder="按标题或标签搜索"
                 />
               </div>
-              <label className="pk-select-field" htmlFor="pk-filter-zone">
-                <span className="sr-only">资料区域</span>
-                <select
-                  id="pk-filter-zone"
-                  aria-label="资料区域"
-                  value={zone}
-                  onChange={(event) => {
-                    setZone(event.target.value as KnowledgeZone | "");
-                    setPage(1);
-                  }}
-                >
-                  <option value="">区域：全部</option>
-                  <option value="material">区域：资料区</option>
-                  <option value="asset">区域：资产区</option>
-                </select>
-              </label>
               <label className="pk-select-field" htmlFor="pk-filter-status">
                 <span className="sr-only">资产状态</span>
                 <select
@@ -883,7 +848,7 @@ function ProjectKnowledgeWorkspace({
                       onClick={() => void openAssetization()}
                       type="button"
                     >
-                      发起资产化审核（{selectedMaterialAssets.length}）
+                      发起验证审核（{selectedMaterialAssets.length}）
                     </button>
                   )}
                   {selectedDeletableAssets.length > 0 && (
@@ -1007,8 +972,8 @@ function ProjectKnowledgeWorkspace({
                 />
                 <WizardModal
                   open={assetizationOpen}
-                  title="发起资产化审核"
-                  description="资料区转为资产区需要验证证据。证据只是支持内部分享或客户验证的治理线索，不代表平台已核验业务事实。"
+                  title="发起验证审核"
+                  description="验证审核用于记录资料的质量依据，不影响资料在本库的使用。证据须来自真实内部分享或客户验证。"
                   steps={[
                     { label: "核对资料", description: "查看证据与资格" },
                     { label: "补充证据", description: "仅为缺失项登记" },
@@ -1023,7 +988,7 @@ function ProjectKnowledgeWorkspace({
                       !evidenceDescription.trim())
                   }
                   completeDisabled={assetizationItems.every((item) => item.status === "ineligible")}
-                  completeText="提交资产化审核"
+                  completeText="提交验证审核"
                   onBack={() => setAssetizationStep((value) => Math.max(0, value - 1))}
                   onNext={() => setAssetizationStep((value) => Math.min(2, value + 1))}
                   onCancel={() => {
@@ -1109,7 +1074,7 @@ function ProjectKnowledgeWorkspace({
                   )}
                   {assetizationStep === 2 && (
                     <div className="pk-assetization-summary">
-                      <strong>提交后状态是“待审核”，不是已完成资产化。</strong>
+                      <strong>提交后状态是“待审核”，不是已完成验证。</strong>
                       <p>
                         服务端会逐项复核项目归属、资料状态和证据。已有待办会复用，不会重复建单。
                       </p>

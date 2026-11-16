@@ -348,7 +348,7 @@ describe("ProjectOverviewPage project assistant workspace", () => {
       "href",
       "/knowledge/asset-secret-78",
     );
-    expect(screen.getByText("资料区")).toBeInTheDocument();
+    expect(screen.queryByText("资料区")).not.toBeInTheDocument();
     expect(screen.getByText("内容待审核，请谨慎参考")).toBeInTheDocument();
     expect(api.projectQa).toHaveBeenCalledWith(
       PROJECT_A,

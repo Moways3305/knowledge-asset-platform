@@ -33,7 +33,7 @@ export const memberStatusLabel: Record<string, string> = {
 };
 
 export const reviewTypeLabel: Record<string, string> = {
-  material_to_asset: "资料资产化",
+  material_to_asset: "资料验证",
   personal_to_project: "个人知识升级",
   project_ingest_approval: "项目知识入库",
   lifecycle_change: "生命周期变更",

@@ -2,7 +2,7 @@
 
 三类写动作：
 - confirm_asset：本人个人知识 material → asset（仅 owner 本人；幂等）。
-- submit_to_project：个人知识提交进项目资料区，建 submission + personal_to_project review_task。
+- submit_to_project：个人知识提交进项目知识库，建 submission + personal_to_project review_task。
 - register_validation_candidate：内部分享 / 客户验证候选，建 validation_evidence + submission +
   review_task。系统**只登记**用户声明的证据线索，不证明分享 / 客户验证真实发生。
 
@@ -214,7 +214,7 @@ async def _submission_out(
             .first()
         )
     if sub.submission_type == PersonalSubmissionType.submit_to_project.value:
-        message = "已提交项目审核，待项目经理确认进入项目资料区"
+        message = "已提交项目审核，待项目经理确认进入项目知识库"
     elif sub.submission_type == PersonalSubmissionType.internal_sharing_candidate.value:
         message = "内部分享候选已登记，待项目经理审核（系统不自动证明分享真实发生）"
     else:
@@ -242,42 +242,19 @@ async def confirm_asset(
 ) -> ConfirmAssetResponse:
     asset = await _load_owned_personal_asset(session, caller, asset_id)
 
-    # 幂等：已是 asset → 原样返回，不报错、无副作用。
-    if asset.zone == "asset":
-        return ConfirmAssetResponse(
-            asset_id=asset.id,
-            zone="asset",
-            status="already_asset",
-            message="个人知识已是本人确认资产",
-        )
-    if asset.asset_status != "active":
-        raise _denied(422, "asset_not_active", "仅 active 个人知识可确认为资产")
-
-    before_zone = asset.zone
-    asset.zone = "asset"
-    await session.flush()
-    await audit_service.record_event(
-        session,
-        caller=caller,
-        log_type=AuditLogType.operation,
-        action=AuditAction.review_personal_asset_confirmed.value,
-        trace_id=trace_id,
-        target_type="knowledge_asset",
-        target_id=asset.id,
-        before={"zone": before_zone},
-        after={"zone": asset.zone},
-    )
-    await session.commit()
+    # Retained for old clients. No confirmation is needed and no content is changed.
+    if asset.asset_status not in {"active", "needs_update"}:
+        raise _denied(422, "asset_not_active", "该资料当前不可使用")
     return ConfirmAssetResponse(
         asset_id=asset.id,
-        zone="asset",
-        status="confirmed",
-        message="已确认为本人个人知识资产（仅本人可见，不自动进入项目或公司）",
+        zone=asset.zone,
+        status="already_asset",
+        message="个人知识已统一管理，无需再次确认；资料仍仅本人可见",
     )
 
 
 # ---------------------------------------------------------------------------
-# 2) 提交到项目资料区
+# 2) 提交到项目知识库
 # ---------------------------------------------------------------------------
 async def preview_submit_to_project(
     session: AsyncSession,

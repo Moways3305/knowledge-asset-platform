@@ -44,7 +44,7 @@ class KnowledgeAsset(Base):
       该跨表业务约束不在 DB 层强制，由权限/服务层校验。
     - scope=project：项目知识库，project_id 标识所属项目。
     - scope=company：公司知识库（跨项目复用）。
-    - zone=material/asset 是同一知识库内的状态标签，不是两个物理库。
+    - zone 仅为旧客户端兼容字段，不再控制分区、可用性或审批资格。
     - archived / deprecated 资产不进入默认检索 / RAG / Agent 上下文（由检索/网关层落实）。
     """
 
@@ -53,7 +53,7 @@ class KnowledgeAsset(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     scope: Mapped[str] = mapped_column(String(20), nullable=False)
-    zone: Mapped[str] = mapped_column(String(20), nullable=False, default="material")
+    zone: Mapped[str] = mapped_column(String(20), nullable=False, default="asset")
     asset_type: Mapped[str] = mapped_column(String(30), nullable=False)
 
     owner_user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False)

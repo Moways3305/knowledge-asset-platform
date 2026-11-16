@@ -376,7 +376,7 @@ export function useReview() {
             : `${item.evidence_count} 项证据`}
           {item.status === "pending_evidence" && (
             <small className="gw-blocking-reason">
-              {item.blocking_reason || "缺少资产化验证证据"}
+              {item.blocking_reason || "缺少验证验证证据"}
             </small>
           )}
         </span>

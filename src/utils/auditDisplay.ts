@@ -33,6 +33,7 @@ const ACTION_LABELS: Record<string, string> = {
   "knowledge.searched": "语义检索",
   "knowledge.asset_deleted": "删除知识资产",
   "knowledge.asset_metadata_updated": "修改资料信息",
+  "knowledge.validation_approved": "资料验证通过",
   // 资料维护与纠错
   "knowledge.review_policy_changed": "更新资料维护安排",
   "knowledge.review_completed": "提交资料复核结果",

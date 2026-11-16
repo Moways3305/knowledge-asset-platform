@@ -50,6 +50,39 @@ class RunOut(BaseModel):
     reasons: dict[str, int]
     started_at: datetime
     finished_at: datetime | None
+    last_progress_at: datetime
+
+
+class ScopeOut(BaseModel):
+    assessed_at: datetime
+    visible_count: int
+    target_count: int
+    excluded_counts: dict[str, int]
+
+
+class RunItemOut(BaseModel):
+    asset_id: uuid.UUID
+    title: str
+    status: str
+    version_id: uuid.UUID | None
+    current_version_matches: bool
+    coverage: dict[str, str]
+    findings: dict[str, int]
+    reasons: list[str]
+    checked_at: datetime | None
+
+
+class RunDetail(RunOut):
+    library_key: str
+    historical_details_available: bool
+    scope_snapshot: ScopeOut | None
+    current_scope: ScopeOut
+    content_authorized: bool | None
+    settings: ScanSettings | None
+    items: list[RunItemOut]
+    total: int
+    page: int
+    page_size: int = 25
 
 
 class IssueOut(BaseModel):

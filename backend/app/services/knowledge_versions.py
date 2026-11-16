@@ -139,17 +139,15 @@ async def validate_update_confirmation(session, caller, task, request):
     if (
         request.target_scope.value,
         request.target_project_id,
-        request.target_zone.value,
         request.confidentiality_level.value,
         key,
     ) != (
         source.scope,
         source.project_id,
-        source.zone,
         source.confidentiality_level,
         version.directory_key if version else None,
     ):
-        raise trust.reject(422, "新版须沿用原库、项目、资料区、正式目录及密级；调整请走治理流程")
+        raise trust.reject(422, "新版须沿用原库、项目、正式目录及密级；调整请走治理流程")
     if request.naming and order(request.naming.version) != order(task.update_version_label):
         raise trust.reject(422, "确认版本与上传时的新版本不一致")
 

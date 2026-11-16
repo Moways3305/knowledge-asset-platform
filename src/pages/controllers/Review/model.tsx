@@ -14,7 +14,7 @@ export function companyConfirmationLabel(status: string | null) {
 }
 
 export const reviewTypeLabel: Record<string, string> = {
-  material_to_asset: "资料资产化",
+  material_to_asset: "资料验证",
   personal_to_project: "个人知识升级",
   project_to_company: "公司资产升级",
   lifecycle_change: "生命周期变更",
@@ -50,7 +50,7 @@ export const statusFilters = [
 export const reviewTypeFilters = [
   { token: "0", apiValue: "", label: "全部类型" },
   { token: "1", apiValue: "project_ingest_approval", label: "项目知识入库" },
-  { token: "2", apiValue: "material_to_asset", label: "资料资产化" },
+  { token: "2", apiValue: "material_to_asset", label: "资料验证" },
   { token: "3", apiValue: "personal_to_project", label: "个人知识升级" },
   { token: "4", apiValue: "project_to_company", label: "公司资产升级" },
   { token: "5", apiValue: "lifecycle_change", label: "生命周期变更" },

@@ -339,7 +339,7 @@ try {
             return fulfill({ items: [], total: 0, page: 1, page_size: 20, has_next: false });
           }
           if (scenario === "filters-pagination") {
-            if (query.keyword && query.zone === "asset" && query.sort_by === "title") {
+            if (query.keyword && query.sort_by === "title" && query.asset_status === "active") {
               capturedFilterQuery = query;
             }
             if (query.page === "2") capturedPageQuery = query;
@@ -531,7 +531,6 @@ try {
 
         if (scenario === "filters-pagination") {
           await page.getByPlaceholder("按标题或标签搜索").fill("交付");
-          await page.getByLabel("资料区域").selectOption("asset");
           await page.getByLabel("资产状态").selectOption("active");
           await page.getByLabel("保密级别").selectOption("L2");
           await page.getByText("更多筛选").click();
@@ -545,7 +544,7 @@ try {
           await page.getByRole("button", { name: "下一页" }).click();
           await page.waitForFunction(() => document.body.innerText.includes("显示 21-40 条"));
           pageRequestCorrect = capturedPageQuery?.page === "2";
-          await page.getByLabel("资料区域").selectOption("material");
+          await page.getByLabel("资产状态").selectOption("needs_update");
           await page.waitForFunction(() => document.body.innerText.includes("显示 1-20 条"));
           resetToFirstPage = true;
         }
@@ -730,7 +729,7 @@ try {
         retrySucceeded,
         filterRequestCorrect:
           capturedFilterQuery?.keyword === "交付" &&
-          capturedFilterQuery?.zone === "asset" &&
+          capturedFilterQuery?.zone === undefined &&
           !("asset_type" in capturedFilterQuery) &&
           capturedFilterQuery?.asset_status === "active" &&
           capturedFilterQuery?.confidentiality_level === "L2" &&

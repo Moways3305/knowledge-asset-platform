@@ -229,7 +229,7 @@ async def test_real_personal_states_follow_review_and_project_copy(client, db_se
     )
     assert response.status_code == 200, response.text
     items = {row["id"]: row for row in response.json()["items"]}
-    assert items[str(material_id)]["personal_state"] == "awaiting_confirmation"
+    assert items[str(material_id)]["personal_state"] == "ready_to_submit"
     assert items[str(ready_id)]["personal_state"] == "ready_to_submit"
     assert items[str(ready_id)]["evidence_summary"]["registered_count"] == 1
     assert items[str(pending_id)]["personal_state"] == "pending_project_review"
