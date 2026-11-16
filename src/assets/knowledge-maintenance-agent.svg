@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="cover" x1="12" y1="8" x2="48" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#65AEFF"/>
+      <stop offset="1" stop-color="#2864E8"/>
+    </linearGradient>
+    <linearGradient id="shield" x1="39" y1="35" x2="57" y2="59" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#32D6B2"/>
+      <stop offset="1" stop-color="#099D8D"/>
+    </linearGradient>
+  </defs>
+  <rect x="12" y="12" width="37" height="45" rx="8" fill="#DAE7FC"/>
+  <rect x="9" y="7" width="38" height="46" rx="8" fill="url(#cover)"/>
+  <path d="M18 7v46" stroke="#FFF" stroke-opacity=".3" stroke-width="2"/>
+  <path d="M25 20h14M25 27h14M25 34h8" stroke="white" stroke-width="3" stroke-linecap="round"/>
+  <path d="m46 32 13 5v9c0 8-7 13-13 16-6-3-13-8-13-16v-9l13-5Z" fill="white"/>
+  <path d="m46 35 10 4v7c0 6-5 10-10 13-5-3-10-7-10-13v-7l10-4Z" fill="url(#shield)"/>
+  <path d="m41 46 3 3 7-7" stroke="white" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m50 9 1.5 3.5L55 14l-3.5 1.5L50 19l-1.5-3.5L45 14l3.5-1.5L50 9Z" fill="#95BAFF"/>
+</svg>

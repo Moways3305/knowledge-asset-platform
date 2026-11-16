@@ -1,6 +1,7 @@
 export const TASK_STATUS_INVALIDATED_EVENT = "kap:task-status-invalidated";
 
 const TASK_AFFECTING_PATHS = [
+  "/api/v1/maintenance-agent/",
   "/api/v1/ingest/",
   "/api/v1/reviews/",
   "/api/v1/review/",

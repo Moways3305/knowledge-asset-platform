@@ -155,10 +155,14 @@ describe("AppLayout shell contract", () => {
     expect(screen.queryByRole("button", { name: "登出当前会话" })).not.toBeInTheDocument();
   });
 
-  it("groups features into five modules and keeps management tools in their local menu", () => {
+  it("groups features into six modules and keeps management tools in their local menu", () => {
     renderLayout("/admin/ingest");
     const nav = screen.getByRole("navigation", { name: "主导航" });
-    expect(within(nav).getAllByRole("link")).toHaveLength(5);
+    expect(within(nav).getAllByRole("link")).toHaveLength(6);
+    expect(within(nav).getByRole("link", { name: "智能体中心" })).toHaveAttribute(
+      "href",
+      "/agents",
+    );
     expect(within(nav).getByRole("link", { name: "管理中心" })).toHaveAttribute(
       "aria-current",
       "page",

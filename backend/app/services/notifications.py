@@ -56,6 +56,16 @@ _ACTIONABLE_REVIEW_STATUSES = {
     ReviewTaskStatus.approval_failed.value,
 }
 _EVENT_COPY = {
+    "maintenance.digest": (
+        "knowledge",
+        "知识维护巡检摘要",
+        "你负责的知识资产有维护待办，请进入平台智能体中心查看并处理。",
+    ),
+    "maintenance.ops": (
+        "indexing",
+        "知识巡检发现技术异常",
+        "知识维护巡检有未完成检查或文件、解析、索引异常，请查看运维状态。",
+    ),
     "knowledge.assigned": ("review", "知识维护任务已分配", "请查看资料维护责任和下次复核日期。"),
     "knowledge.due": ("review", "知识已到复核日期", "请复核资料是否仍有效；到期不会自动归档。"),
     "knowledge.correction": ("review", "知识资料收到纠错", "请查看并处理资料纠错。"),
@@ -147,6 +157,8 @@ _EVENT_COPY = {
     ),
 }
 _TARGET_ROUTES = {
+    "maintenance_digest": "maintenance_agent",
+    "maintenance_ops": "admin_ingest",
     "review": "reviews",
     "original_access_request": "original_access",
     "ingest_task": "upload",
@@ -304,6 +316,17 @@ async def notify_knowledge_trust(session, asset, recipients, event, key):
         target_id=asset.id,
         project_id=asset.project_id,
         dedup_key=f"knowledge.{event}:{asset.id}:{key}",
+    )
+
+
+async def notify_maintenance(session, target_id, recipients, *, ops=False):
+    await _record(
+        session,
+        recipients=recipients,
+        event_type="maintenance.ops" if ops else "maintenance.digest",
+        target_kind="maintenance_ops" if ops else "maintenance_digest",
+        target_id=target_id,
+        project_id=None,
     )
 
 

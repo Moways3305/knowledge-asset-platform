@@ -83,6 +83,10 @@ export interface ApiRoutes {
     | `/api/v1/knowledge/${string}/trust/replacements`
     | `/api/v1/knowledge/${string}/versions`
     | `/api/v1/knowledge/${string}/versions/compare`
+    | `/api/v1/maintenance-agent/issues`
+    | `/api/v1/maintenance-agent/issues/${string}`
+    | `/api/v1/maintenance-agent/policies`
+    | `/api/v1/maintenance-agent/policies/${string}/runs`
     | `/api/v1/my/knowledge`
     | `/api/v1/my/knowledge-base`
     | `/api/v1/naming-options`
@@ -188,6 +192,8 @@ export interface ApiRoutes {
     | `/api/v1/knowledge/${string}/trust/corrections/${string}`
     | `/api/v1/knowledge/${string}/trust/replacement`
     | `/api/v1/knowledge/${string}/trust/review`
+    | `/api/v1/maintenance-agent/issues/${string}/actions`
+    | `/api/v1/maintenance-agent/policies/${string}/runs`
     | `/api/v1/my/knowledge-base`
     | `/api/v1/my/knowledge/bulk-submit-to-project`
     | `/api/v1/my/knowledge/${string}/confirm-asset`
@@ -229,6 +235,7 @@ export interface ApiRoutes {
     | `/api/v1/admin/weknora/default-models`
     | `/api/v1/admin/weknora/kb-configs/${string}/initialization`
     | `/api/v1/admin/weknora/models/${string}`
+    | `/api/v1/maintenance-agent/policies/${string}`
     | `/api/v1/my/knowledge-base`;
   patch:
     | `/api/v1/admin/alerts/rules/${string}`

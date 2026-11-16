@@ -22,6 +22,7 @@ const TASK_PRIORITY_LABEL: Record<string, string> = {
 // 与 backend/app/services/workbench.py 的安全 task_type 投影保持一致。
 // 保留 migration 作为旧响应兼容键，未知值必须回退为面向用户的中性文案。
 const TASK_TYPE_LABEL: Record<string, string> = {
+  maintenance: "知识维护巡检",
   review: "知识审核",
   ingest: "上传资料",
   original_access: "原文审批",

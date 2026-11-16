@@ -15,6 +15,7 @@ const KnowledgeListPage = lazy(() => import("./pages/KnowledgeListPage"));
 const CompanyGovernancePage = lazy(() => import("./pages/CompanyGovernancePage"));
 const KnowledgeDetailPage = lazy(() => import("./pages/KnowledgeDetailPage"));
 const KnowledgeMaintenancePage = lazy(() => import("./pages/KnowledgeMaintenancePage"));
+const MaintenanceAgentPage = lazy(() => import("./pages/MaintenanceAgentPage"));
 const MyKnowledgePage = lazy(() => import("./pages/MyKnowledgePage"));
 const UploadPage = lazy(() => import("./pages/UploadPage"));
 const AdminIngestPage = lazy(() => import("./pages/AdminIngestPage"));
@@ -79,6 +80,22 @@ export default function App() {
               element={
                 <RouteGuard cap={can.viewKnowledge}>
                   <KnowledgeMaintenancePage />
+                </RouteGuard>
+              }
+            />
+            <Route
+              path="agents"
+              element={
+                <RouteGuard cap={can.viewKnowledge}>
+                  <MaintenanceAgentPage />
+                </RouteGuard>
+              }
+            />
+            <Route
+              path="agents/knowledge-maintenance"
+              element={
+                <RouteGuard cap={can.viewKnowledge}>
+                  <MaintenanceAgentPage />
                 </RouteGuard>
               }
             />

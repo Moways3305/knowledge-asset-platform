@@ -18,6 +18,7 @@ const POLL_MS = 60_000;
 const PAGE_SIZE = 20;
 const MAX_REFRESH_PAGE_SIZE = 100;
 const ROUTES: Record<string, string> = {
+  maintenance_agent: "/agents/knowledge-maintenance",
   reviews: "/review",
   original_access: "/original-access",
   upload: "/upload",
@@ -26,6 +27,7 @@ const ROUTES: Record<string, string> = {
   knowledge_detail: "/knowledge/:id",
 };
 const CATEGORY_LABEL: Record<string, string> = {
+  knowledge: "知识维护",
   review: "审核",
   ingest: "入库",
   parsing: "解析",
@@ -192,6 +194,7 @@ export default function NotificationBell() {
     }
     const route = routeTemplate.replace(":id", encodeURIComponent(item.target.resource_id));
     const query = new URLSearchParams({ target_id: item.target.resource_id });
+    if (item.target.route_key === "maintenance_agent") query.set("mine", "true");
     if (item.target.route_key === "original_access") {
       query.set("box", item.event_type === "original_access.pending" ? "inbox" : "mine");
     }

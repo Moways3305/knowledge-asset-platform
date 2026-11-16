@@ -21,6 +21,22 @@ type BusinessOptionContract = {
 
 const routes: RouteContract[] = [
   {
+    route: "/agents",
+    component: "MaintenanceAgentPage",
+    guard: "viewKnowledge",
+    owners: ["pages/MaintenanceAgentPage.tsx"],
+    apiModules: ["http", "maintenanceAgent"],
+    allowedTimerOwners: ["pages/MaintenanceAgentPage.tsx"],
+  },
+  {
+    route: "/agents/knowledge-maintenance",
+    component: "MaintenanceAgentPage",
+    guard: "viewKnowledge",
+    owners: ["pages/MaintenanceAgentPage.tsx"],
+    apiModules: ["http", "maintenanceAgent"],
+    allowedTimerOwners: ["pages/MaintenanceAgentPage.tsx"],
+  },
+  {
     route: "/company-governance",
     component: "CompanyGovernancePage",
     guard: "viewCompanyKnowledge",
