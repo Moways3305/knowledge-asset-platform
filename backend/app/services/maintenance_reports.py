@@ -1,6 +1,6 @@
 """Run-specific reporting, with live permission checks before every projection."""
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from app.db.utils import utc_now
 from app.models.knowledge import KnowledgeAsset
@@ -123,3 +123,13 @@ async def project_detail(session, caller, policy, run, *, page=1, status=None):
         total=total,
         page=page,
     )
+
+
+async def cancel_pending(session, run, reason, now):
+    result = await session.execute(
+        update(MaintenanceRunItem)
+        .where(MaintenanceRunItem.run_id == run.id, MaintenanceRunItem.status == "pending")
+        .values(status="skipped", reasons=[reason], checked_at=now)
+    )
+    run.skipped_count += result.rowcount
+    run.reasons = {**run.reasons, reason: max(1, result.rowcount)}

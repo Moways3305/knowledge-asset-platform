@@ -25,7 +25,7 @@ from app.services import audit, domain_events
 from app.services import maintenance_access as access
 from app.services.generation_models import resolve_generation_llm_client
 from app.services.llm_client import NullLLMClient
-from app.services.maintenance_reports import seed_targets
+from app.services.maintenance_reports import cancel_pending, seed_targets
 from app.services.maintenance_rules import analyze, deterministic, digest, finding
 from app.services.maintenance_snapshots import capture
 from app.services.storage import get_storage
@@ -424,6 +424,7 @@ async def process_one(maker, *, storage=None, client=None):
             policy.last_error = (
                 "authorization_expired" if policy.revision == run.policy_revision else None
             )
+            await cancel_pending(session, run, "authorization_changed", now)
             await session.commit()
             return True
         if run.scope_snapshot is not None:

@@ -27,7 +27,7 @@ from app.services import audit
 from app.services import maintenance_access as access
 from app.services.generation_models import safe_generation_model_options
 from app.services.maintenance_jobs import ACTIVE, start_run
-from app.services.maintenance_reports import project_detail
+from app.services.maintenance_reports import cancel_pending, project_detail
 from app.services.permission import knowledge_manager_allowed
 
 
@@ -136,7 +136,7 @@ async def configure(session, caller, key, command, trace_id):
     ).all()
     for run in runs:
         run.status, run.finished_at, run.claim_token = "cancelled", utc_now(), None
-        run.reasons = {**run.reasons, "policy_changed": 1}
+        await cancel_pending(session, run, "policy_changed", run.finished_at)
     await audit.record_event(
         session,
         caller=caller,

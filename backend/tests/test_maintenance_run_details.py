@@ -134,3 +134,18 @@ async def test_live_scope_change_hides_title_and_id(client, sessionmaker_fixture
     assert body["items"] == [] and body["total"] == 0
     assert str(KA_COMPANY_L2) not in str(body)
     assert (await client.get(path(uuid.uuid4()), headers=headers())).status_code == 404
+
+
+async def test_cancelled_run_does_not_leave_targets_waiting_forever(client, sessionmaker_fixture):
+    policy = await configure(client)
+    run_id = await run_asset(sessionmaker_fixture)
+    response = await client.put(
+        "/api/v1/maintenance-agent/policies/company",
+        headers=headers(),
+        json={"expected_revision": policy["revision"], "enabled": True},
+    )
+    assert response.status_code == 200
+    body = (await client.get(path(run_id), headers=headers())).json()
+    assert body["status"] == "cancelled" and body["skipped_count"] == 1
+    assert body["items"][0]["status"] == "skipped"
+    assert body["items"][0]["reasons"] == ["policy_changed"]
