@@ -187,14 +187,21 @@ export default function MaintenanceAgentPage() {
           <Link className="agent-card" to="/agents/knowledge-maintenance" aria-label="进入知识维护">
             <div className="agent-card-heading">
               <span className="agent-catalog-icon">
-                <Bot size={20} aria-hidden="true" />
+                <Bot size={22} aria-hidden="true" />
               </span>
-              <h3>知识维护 Agent</h3>
+              <div className="agent-card-identity">
+                <h3>知识维护 Agent</h3>
+                <span>知识治理</span>
+              </div>
+              <span className="agent-card-badge">预置</span>
             </div>
-            <p>定期巡检知识资产，发现问题并提醒维护人。</p>
-            <span className="agent-card-entry">
-              进入 <ArrowRight size={14} aria-hidden="true" />
-            </span>
+            <p>巡检知识资产的完整性、可用性与内容质量，发现问题后提醒维护人。</p>
+            <div className="agent-card-footer">
+              <span className="agent-card-capability">5 类检查</span>
+              <span className="agent-card-entry">
+                进入 <ArrowRight size={14} aria-hidden="true" />
+              </span>
+            </div>
           </Link>
         </section>
       ) : (
