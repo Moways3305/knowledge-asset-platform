@@ -192,7 +192,8 @@ async def test_actions_written_with_shared_trace(client):
     assert r.status_code == 200
     actions = {e["action"] for e in await _trace_actions(client, "trc-review")}
     assert "review.approved" in actions
-    assert "asset.zone_changed" in actions
+    assert "knowledge.validation_approved" in actions
+    assert "asset.zone_changed" not in actions
 
     # 预览 issue（consultant 对本人 personal 资产）
     p = await client.post(
