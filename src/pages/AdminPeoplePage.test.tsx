@@ -138,6 +138,29 @@ describe("AdminPeoplePage governance controls", () => {
     expect(fetchCompanyKnowledgeBase).not.toHaveBeenCalled();
   });
 
+  it("retains personnel rows and open details during background refresh but clears on lost permission", async () => {
+    await renderDetail();
+    const row = screen.getByRole("button", { name: "查看 / 治理" }).closest("tr");
+    let rejectRefresh!: (reason: Error) => void;
+    vi.mocked(fetchPeople).mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectRefresh = reject;
+        }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "搜索 / 刷新" }));
+    await waitFor(() => expect(fetchPeople).toHaveBeenCalledTimes(2));
+    expect(row?.isConnected).toBe(true);
+    expect(screen.getByText("用户详情 · 治理")).toBeInTheDocument();
+    await act(async () => rejectRefresh(new ApiError(503, "private error")));
+    expect(await screen.findByRole("button", { name: "重试更新" })).toBeInTheDocument();
+    expect(row?.isConnected).toBe(true);
+    vi.mocked(fetchPeople).mockRejectedValueOnce(new ApiError(403, "无权限"));
+    fireEvent.click(screen.getByRole("button", { name: "重试更新" }));
+    await waitFor(() => expect(row?.isConnected).toBe(false));
+    expect(screen.queryByText("用户详情 · 治理")).not.toBeInTheDocument();
+  });
+
   it("lets the general manager govern business roles and appoint project leaders", async () => {
     authState.capabilities = {
       ...authState.capabilities,
