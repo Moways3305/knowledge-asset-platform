@@ -407,8 +407,26 @@ async def resolve_generation_llm_client(
     session: AsyncSession,
     *,
     fallback: LLMClient | NullLLMClient | None = None,
+    model_ref: str | None = None,
 ) -> LLMClient | NullLLMClient:
     settings = await _settings(session)
+    if model_ref is not None and model_ref != "system_default":
+        # An explicitly selected Agent model must never fall back to another
+        # provider/model when it is removed, disabled or its secrets cannot load.
+        model = await _resolve_ref(session, model_ref)
+        if model is None and settings is None:
+            client = get_llm_client()
+            if (
+                not isinstance(client, NullLLMClient)
+                and generation_model_ref(client.provider, client.model) == model_ref
+            ):
+                return client
+        if model is None or not model.enabled or model.capability_type != "chat":
+            return NullLLMClient()
+        try:
+            return _client_for_model(model)
+        except (LLMError, GenerationModelError):
+            return NullLLMClient()
     if settings is None:
         return fallback if fallback is not None else get_llm_client()
     if settings.default_model_id is None:

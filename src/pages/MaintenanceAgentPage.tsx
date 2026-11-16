@@ -5,9 +5,11 @@ import {
   BookOpen,
   CalendarClock,
   ClipboardCheck,
+  Cpu,
   RefreshCw,
   Search,
   Sparkles,
+  Settings2,
 } from "lucide-react";
 import maintenanceAgentIcon from "../assets/knowledge-maintenance-agent.svg";
 import { ApiError } from "../api/http";
@@ -16,16 +18,21 @@ import {
   fetchAgentIssue,
   fetchAgentIssues,
   fetchAgentPolicies,
+  fetchAgentModels,
   fetchAgentRuns,
   saveAgentPolicy,
   startAgentRun,
   type AgentPolicy,
+  type AgentModelOptions,
   type IssueAction,
   type IssueDetail,
   type IssuePage,
   type ScanRun,
 } from "../api/maintenanceAgent";
 import { PageHeader, ProductPage } from "../components/ProductLayout";
+import Button from "../components/Button";
+import { useAuth } from "../auth/AuthContext";
+import { can } from "../auth/permissions";
 import DetailDrawer from "../components/DetailDrawer";
 import FormField from "../components/FormField";
 import PagePagination from "../components/PagePagination";
@@ -114,9 +121,17 @@ export default function MaintenanceAgentPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [models, setModels] = useState<AgentModelOptions | null>(null);
+  const [modelError, setModelError] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
   const policy = policies.find((p) => p.library_key === key);
+  const selectedModel = models?.items.find((m) =>
+    !policy?.settings.model_ref || policy.settings.model_ref === "system_default"
+      ? m.is_default
+      : m.model_ref === policy.settings.model_ref,
+  );
   const update = (name: string, value: string) => {
     const next = new URLSearchParams(params);
     next.set(name, value);
@@ -126,6 +141,23 @@ export default function MaintenanceAgentPage() {
   useEffect(() => {
     if (isCenter) return;
     let live = true;
+    setModels(null);
+    setModelError("");
+    void fetchAgentModels()
+      .then((value) => {
+        if (live) setModels(value);
+      })
+      .catch((e: unknown) => {
+        if (live) setModelError(message(e));
+      });
+    return () => {
+      live = false;
+    };
+  }, [isCenter, refresh]);
+  useEffect(() => {
+    if (isCenter) return;
+    let live = true;
+    setLoading(true);
     setError("");
     setData(null);
     setRuns([]);
@@ -150,6 +182,9 @@ export default function MaintenanceAgentPage() {
       })
       .catch((e: unknown) => {
         if (live) setError(message(e));
+      })
+      .finally(() => {
+        if (live) setLoading(false);
       });
     return () => {
       live = false;
@@ -168,6 +203,7 @@ export default function MaintenanceAgentPage() {
     try {
       await startAgentRun(key);
       setNotice("巡检已加入后台队列，可在巡检记录中查看进度。");
+      update("tab", "runs");
       setRefresh((n) => n + 1);
     } catch (e) {
       setError(message(e));
@@ -200,9 +236,14 @@ export default function MaintenanceAgentPage() {
               <BookOpen size={16} /> 使用指南
             </Link>
           ) : (
-            <button type="button" onClick={() => setRefresh((n) => n + 1)} disabled={busy}>
-              <RefreshCw size={16} /> 刷新
-            </button>
+            <Button
+              size="small"
+              icon={<RefreshCw size={15} />}
+              onClick={() => setRefresh((n) => n + 1)}
+              disabled={busy || loading}
+            >
+              {loading ? "刷新中…" : "刷新"}
+            </Button>
           )
         }
       />
@@ -232,21 +273,72 @@ export default function MaintenanceAgentPage() {
                 <small>个人知识库和素材区不参与巡检</small>
               </span>
             </div>
-            <button
-              className="agent-primary"
-              type="button"
-              disabled={busy || hasRunning || !policy?.id || !policy.can_configure}
-              onClick={() => void runNow()}
+            <div className="agent-run-action">
+              <Button
+                variant="primary"
+                icon={policy?.id ? <ClipboardCheck size={16} /> : <Settings2 size={16} />}
+                disabled={busy || loading || !policy?.can_configure}
+                aria-describedby="agent-run-guidance"
+                onClick={() =>
+                  hasRunning
+                    ? update("tab", "runs")
+                    : !policy?.id
+                      ? update("tab", "settings")
+                      : void runNow()
+                }
+              >
+                {busy
+                  ? "正在提交…"
+                  : hasRunning
+                    ? "查看巡检进度"
+                    : !policy?.id
+                      ? "配置并开始"
+                      : "立即全面巡检"}
+              </Button>
+              <small id="agent-run-guidance">
+                {loading
+                  ? "正在读取巡检配置"
+                  : !policy
+                    ? "配置读取失败，请刷新重试"
+                    : !policy.can_configure
+                      ? "需由公司知识治理人员或该项目经理操作"
+                      : !policy.id
+                        ? "首次使用，先配置模型与巡检授权"
+                        : hasRunning
+                          ? "已有巡检任务，点击查看进度"
+                          : "检查本知识库资产区的当前有效版本"}
+              </small>
+            </div>
+          </div>
+          <div className="agent-readiness" aria-label="智能体当前配置">
+            <Cpu size={17} aria-hidden="true" />
+            <span>
+              分析模型：
+              <strong>
+                {modelError
+                  ? "暂时无法读取"
+                  : !models
+                    ? "正在读取…"
+                    : selectedModel?.display_name || "尚无可用模型"}
+              </strong>
+            </span>
+            <span>{policy?.enabled ? "自动巡检已开启" : "自动巡检未开启"}</span>
+            <span>{policy?.content_authorized ? "正文分析已授权" : "正文分析未授权"}</span>
+            <Button
+              variant="ghost"
+              size="small"
+              onClick={() => update("tab", "settings")}
+              icon={<Settings2 size={14} />}
             >
-              {busy ? "正在提交…" : hasRunning ? "巡检进行中" : "立即全面巡检"}
-            </button>
+              模型与巡检配置
+            </Button>
           </div>
           {error && (
             <p role="alert" className="agent-error">
               {error}{" "}
-              <button type="button" onClick={() => setRefresh((n) => n + 1)}>
+              <Button size="small" onClick={() => setRefresh((n) => n + 1)}>
                 重试
-              </button>
+              </Button>
             </p>
           )}
           {notice && <p role="status">{notice}</p>}
@@ -352,11 +444,13 @@ export default function MaintenanceAgentPage() {
               ) : (
                 <div className="agent-empty">
                   <ClipboardCheck size={28} />
-                  <h3>当前筛选下没有维护待办</h3>
+                  <h3>{!policy?.id ? "从首次巡检开始" : "当前筛选下没有维护待办"}</h3>
                   <p>
                     {policy?.id
                       ? "可切换条件，或在巡检记录中确认检查是否完整。"
-                      : "请由知识库管理人先保存巡检设置，再开始检查。"}
+                      : policy?.can_configure
+                        ? "点击“配置并开始”，选择分析模型并确认授权后，发起首次巡检。"
+                        : "请由知识库管理人先保存巡检设置，再开始检查。"}
                   </p>
                 </div>
               )}
@@ -425,21 +519,21 @@ export default function MaintenanceAgentPage() {
                     ))}
                   </div>
                   <div className="agent-run-pages">
-                    <button
-                      type="button"
+                    <Button
+                      size="small"
                       disabled={page <= 1}
                       onClick={() => update("page", String(page - 1))}
                     >
                       上一页
-                    </button>
+                    </Button>
                     <span>第 {page} 页</span>
-                    <button
-                      type="button"
+                    <Button
+                      size="small"
                       disabled={runs.length < 25}
                       onClick={() => update("page", String(page + 1))}
                     >
                       下一页
-                    </button>
+                    </Button>
                   </div>
                 </>
               ) : (
@@ -455,15 +549,23 @@ export default function MaintenanceAgentPage() {
             <PolicyEditor
               key={`${policy.library_key}:${policy.revision}`}
               policy={policy}
-              onSaved={() => {
+              models={models}
+              modelError={modelError}
+              hasRunning={hasRunning}
+              onReloadModels={() => setRefresh((n) => n + 1)}
+              onSaved={async (saved, start) => {
+                setPolicies((items) =>
+                  items.map((item) => (item.library_key === saved.library_key ? saved : item)),
+                );
                 setNotice("巡检设置已保存。");
                 setRefresh((n) => n + 1);
+                if (start) await runNow();
               }}
             />
           )}
           <p className="agent-note">
             提醒方式：站内待办和通知，配合企业微信摘要。通知已读不会关闭问题。
-            <Link to="/help?guide=maintenance-agent">查看使用说明</Link>
+            <Link to="/help?article=maintenance-agent">查看使用说明</Link>
           </p>
         </>
       )}
@@ -539,9 +641,9 @@ function AgentCatalog() {
             <Search size={24} aria-hidden="true" />
             <h4>没有找到匹配的智能体</h4>
             <p>试试“知识维护”或“巡检”。</p>
-            <button type="button" onClick={() => setQuery("")}>
+            <Button size="small" onClick={() => setQuery("")}>
               清空搜索
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -549,7 +651,22 @@ function AgentCatalog() {
   );
 }
 
-function PolicyEditor({ policy, onSaved }: { policy: AgentPolicy; onSaved: () => void }) {
+function PolicyEditor({
+  policy,
+  models,
+  modelError,
+  hasRunning,
+  onReloadModels,
+  onSaved,
+}: {
+  policy: AgentPolicy;
+  models: AgentModelOptions | null;
+  modelError: string;
+  hasRunning: boolean;
+  onReloadModels: () => void;
+  onSaved: (saved: AgentPolicy, start: boolean) => Promise<void>;
+}) {
+  const { capabilities } = useAuth();
   const [enabled, setEnabled] = useState(policy.enabled);
   const [authorized, setAuthorized] = useState(policy.content_authorized);
   const [settings, setSettings] = useState(policy.settings);
@@ -557,6 +674,10 @@ function PolicyEditor({ policy, onSaved }: { policy: AgentPolicy; onSaved: () =>
   const [sections, setSections] = useState(settings.required_sections.join("，"));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const modelRef = settings.model_ref || "system_default";
+  const model = models?.items.find((m) =>
+    modelRef === "system_default" ? m.is_default : m.model_ref === modelRef,
+  );
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
     setBusy(true);
@@ -567,13 +688,20 @@ function PolicyEditor({ policy, onSaved }: { policy: AgentPolicy; onSaved: () =>
         .map((x) => x.trim())
         .filter(Boolean);
     try {
-      await saveAgentPolicy(policy.library_key, {
+      const submitter = (event.nativeEvent as SubmitEvent).submitter;
+      const start = submitter instanceof HTMLButtonElement && submitter.value === "run";
+      const saved = await saveAgentPolicy(policy.library_key, {
         expected_revision: policy.revision,
         enabled,
         content_authorized: authorized,
-        settings: { ...settings, required_tags: split(tags), required_sections: split(sections) },
+        settings: {
+          ...settings,
+          model_ref: modelRef,
+          required_tags: split(tags),
+          required_sections: split(sections),
+        },
       });
-      onSaved();
+      await onSaved(saved, start);
     } catch (e) {
       setError(message(e));
     } finally {
@@ -589,6 +717,67 @@ function PolicyEditor({ policy, onSaved }: { policy: AgentPolicy; onSaved: () =>
       </p>
       {!policy.can_configure && <p>请由公司知识治理人员或该项目经理配置巡检。</p>}
       <fieldset disabled={busy || !policy.can_configure}>
+        <section className="agent-model-settings" aria-label="分析模型配置">
+          <div className="agent-section-heading">
+            <Cpu size={19} />
+            <div>
+              <h4>分析模型</h4>
+              <p>用于核对摘要与正文、识别内容缺失，并给出可复核的依据。</p>
+            </div>
+          </div>
+          <FormField label="正文分析模型">
+            <select
+              value={modelRef}
+              disabled={!models}
+              onChange={(e) => setSettings({ ...settings, model_ref: e.target.value })}
+            >
+              <option value="system_default">
+                跟随平台默认
+                {models?.items.find((m) => m.is_default)
+                  ? ` · ${models.items.find((m) => m.is_default)?.display_name}`
+                  : "（尚未配置）"}
+              </option>
+              {models?.items.map((m) => (
+                <option key={m.model_ref} value={m.model_ref}>
+                  {m.display_name}
+                </option>
+              ))}
+              {models && modelRef !== "system_default" && !model && (
+                <option value={modelRef}>原选模型已不可用，请重新选择</option>
+              )}
+            </select>
+          </FormField>
+          {model ? (
+            <p className="agent-model-detail">
+              {model.provider} · {model.model_name}{" "}
+              <span>
+                {modelRef === "system_default"
+                  ? "随平台默认设置更新"
+                  : "仅用于本知识库的知识维护 Agent"}
+              </span>
+            </p>
+          ) : (
+            <p className="agent-note">
+              {modelError ||
+                (!models
+                  ? "正在读取平台已接入的模型…"
+                  : "当前没有可用的分析模型。规则巡检仍可执行，正文质量检查会标记为未完成。")}
+            </p>
+          )}
+          <div className="agent-model-links">
+            {can.viewModels(capabilities) ? (
+              <Link to="/admin/weknora-models">查看平台模型配置</Link>
+            ) : (
+              <span>如需接入新模型，请联系平台管理员。</span>
+            )}
+            {modelError && (
+              <Button size="small" onClick={onReloadModels}>
+                重新读取模型
+              </Button>
+            )}
+          </div>
+        </section>
+        <h4 className="agent-settings-heading">巡检计划与规则</h4>
         <label className="agent-checkbox">
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />{" "}
           开启定期巡检
@@ -686,7 +875,7 @@ function PolicyEditor({ policy, onSaved }: { policy: AgentPolicy; onSaved: () =>
               checked={authorized}
               onChange={(e) => setAuthorized(e.target.checked)}
             />{" "}
-            授权检查可访问的原始文件，并使用平台默认模型分析正文
+            授权检查可访问的原始文件，并使用所选模型分析正文
           </label>
           <p>
             仅检查当前身份与智能体渠道允许访问的资产。正文会发送给平台已配置的模型服务；未授权或权限不足的检查显示“未完成”。不会自动修改或删除资产。
@@ -700,9 +889,22 @@ function PolicyEditor({ policy, onSaved }: { policy: AgentPolicy; onSaved: () =>
             {error}
           </p>
         )}
-        <button type="submit" className="agent-primary">
-          {busy ? "正在保存…" : "保存巡检设置"}
-        </button>
+        {hasRunning && (
+          <p className="agent-note">保存新配置会取消当前巡检，之后可按新配置重新开始。</p>
+        )}
+        <div className="agent-settings-actions">
+          <Button type="submit">{busy ? "正在保存…" : "保存巡检设置"}</Button>
+          <Button
+            type="submit"
+            name="intent"
+            value="run"
+            variant="primary"
+            disabled={hasRunning}
+            icon={<ClipboardCheck size={16} />}
+          >
+            保存并开始巡检
+          </Button>
+        </div>
       </fieldset>
     </form>
   );
@@ -774,9 +976,9 @@ function IssueDrawer({
         {error && (
           <p role="alert">
             {error}{" "}
-            <button type="button" onClick={() => setReload((n) => n + 1)}>
+            <Button size="small" onClick={() => setReload((n) => n + 1)}>
               重新加载
-            </button>
+            </Button>
           </p>
         )}
         {!issue && !error && <p role="status">正在加载问题详情…</p>}
@@ -863,9 +1065,9 @@ function IssueDrawer({
                       />
                     </FormField>
                   )}
-                  <button type="submit" className="agent-primary">
+                  <Button type="submit" variant="primary">
                     {busy ? "正在提交…" : "提交处理"}
-                  </button>
+                  </Button>
                 </fieldset>
               </form>
             )}

@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 
 class ScanSettings(BaseModel):
+    model_ref: str = Field(default="system_default", pattern=r"^(system_default|[a-f0-9]{64})$")
     daily_hour: int = Field(default=2, ge=0, le=23)
     weekly_day: int = Field(default=6, ge=0, le=6)
     digest_hour: int = Field(default=9, ge=0, le=23)

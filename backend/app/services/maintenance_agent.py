@@ -25,6 +25,7 @@ from app.schemas.maintenance_agent import (
 )
 from app.services import audit
 from app.services import maintenance_access as access
+from app.services.generation_models import safe_generation_model_options
 from app.services.maintenance_jobs import ACTIVE, start_run
 from app.services.permission import knowledge_manager_allowed
 
@@ -85,6 +86,10 @@ async def configure(session, caller, key, command, trace_id):
         raise access.reject(409, "配置已更新，请刷新后重试")
     # Bound each free-text rule as well as the list. It remains untrusted model data.
     settings = command.settings
+    if settings.model_ref != "system_default" and settings.model_ref not in {
+        item["model_ref"] for item in await safe_generation_model_options(session)
+    }:
+        raise access.reject(422, "所选分析模型已停用或不可用，请重新选择模型")
     if any(
         not v.strip() or len(v) > 100
         for v in [*settings.required_tags, *settings.required_sections]

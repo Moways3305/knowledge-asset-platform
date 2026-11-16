@@ -1,6 +1,7 @@
 import { apiGet, apiPost, apiPut } from "./http";
 
 export interface ScanSettings {
+  model_ref: string;
   daily_hour: number;
   weekly_day: number;
   digest_hour: number;
@@ -10,6 +11,19 @@ export interface ScanSettings {
   similarity_threshold: number;
   max_body_chars: number;
 }
+export interface AgentModelOption {
+  model_ref: string;
+  display_name: string;
+  provider: string;
+  model_name: string;
+  enabled: boolean;
+  is_default: boolean;
+}
+export interface AgentModelOptions {
+  items: AgentModelOption[];
+  default_missing: boolean;
+}
+export const fetchAgentModels = () => apiGet<AgentModelOptions>("/api/v1/generation/model-options");
 export interface AgentPolicy {
   id: string | null;
   library_key: string;
