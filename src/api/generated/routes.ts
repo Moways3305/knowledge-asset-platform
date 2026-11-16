@@ -87,6 +87,7 @@ export interface ApiRoutes {
     | `/api/v1/maintenance-agent/issues/${string}`
     | `/api/v1/maintenance-agent/policies`
     | `/api/v1/maintenance-agent/policies/${string}/runs`
+    | `/api/v1/maintenance-agent/policies/${string}/runs/${string}`
     | `/api/v1/my/knowledge`
     | `/api/v1/my/knowledge-base`
     | `/api/v1/naming-options`

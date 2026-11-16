@@ -36,9 +36,6 @@ export function getProjectCompanyPublicationEligibility(
   if (projectRole !== "project_manager") {
     return { eligible: false, reason: "仅项目经理可提交公司发布申请" };
   }
-  if (candidate.zone !== "asset") {
-    return { eligible: false, reason: "资料需先完成资产化审核" };
-  }
   if (candidate.assetStatus === "archived") {
     return { eligible: false, reason: "已归档资产不能提交公司发布申请" };
   }

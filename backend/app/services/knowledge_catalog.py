@@ -128,8 +128,7 @@ async def list_knowledge(
         conditions.append(KnowledgeAsset.scope == scope)
     if project_id is not None:
         conditions.append(KnowledgeAsset.project_id == project_id)
-    if zone:
-        conditions.append(KnowledgeAsset.zone == zone)
+    # Legacy zone query parameters remain accepted but no longer split the library.
     if asset_type:
         conditions.append(KnowledgeAsset.asset_type == asset_type)
     if asset_status:

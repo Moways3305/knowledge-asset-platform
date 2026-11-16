@@ -330,7 +330,7 @@ export function useUploadFlow() {
                 tags: reviewedAi?.tags.filter(Boolean) || ai.suggested_tags?.filter(Boolean) || [],
                 target_scope: destination,
                 target_project_id: destination === "project" ? destinationProjectId : undefined,
-                target_zone: "material",
+                target_zone: "asset",
                 confidentiality_level: confidentiality!,
                 embedding_model_ref: models.embeddingRef || undefined,
                 rerank_model_ref: models.rerankRef || undefined,

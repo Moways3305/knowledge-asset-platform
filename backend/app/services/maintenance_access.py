@@ -35,7 +35,6 @@ def eligible(asset):
     return bool(
         asset
         and asset.deleted_at is None
-        and asset.zone == "asset"
         and asset.scope in {"company", "project"}
         and asset.asset_status in {"active", "needs_update"}
     )
@@ -44,21 +43,21 @@ def eligible(asset):
 def scope_filter(project_id=None):
     return and_(
         KnowledgeAsset.deleted_at.is_(None),
-        KnowledgeAsset.zone == "asset",
         KnowledgeAsset.asset_status.in_(["active", "needs_update"]),
         KnowledgeAsset.scope == ("project" if project_id else "company"),
         KnowledgeAsset.project_id == project_id if project_id else True,
     )
 
 
-def manager_filter(caller):
+def manager_filter(caller, *, include_inactive=False):
     if not caller.is_active or not caller.is_business_user:
         return false()
     projects = [
         key for key, role in caller.active_project_roles.items() if role == "project_manager"
     ]
     return and_(
-        discovery_filter(caller),
+        discovery_filter(caller, include_inactive=include_inactive),
+        KnowledgeAsset.confidentiality_level != "L5" if not caller.can_discover_l5 else True,
         or_(
             and_(KnowledgeAsset.scope == "company", caller.can_discover_l5),
             and_(KnowledgeAsset.scope == "project", KnowledgeAsset.project_id.in_(projects)),
@@ -120,7 +119,6 @@ def visible_issue_query(caller, *, mine=False):
     visible = select(KnowledgeAsset.id).where(
         manager_filter(caller),
         KnowledgeAsset.deleted_at.is_(None),
-        KnowledgeAsset.zone == "asset",
         KnowledgeAsset.scope.in_(["company", "project"]),
         KnowledgeAsset.asset_status.in_(["active", "needs_update"]),
     )

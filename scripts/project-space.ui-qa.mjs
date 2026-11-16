@@ -480,7 +480,7 @@ try {
             answerVisible: bodyText.includes("访谈材料显示，客户当前最关注交付节奏与复盘机制。"),
             safeCitationVisible:
               bodyText.includes("客户访谈纪要") &&
-              bodyText.includes("资料区") &&
+              !bodyText.includes("资料区") &&
               bodyText.includes("内容待审核，请谨慎参考"),
             emptyVisible: bodyText.includes("暂无可访问项目"),
             inaccessibleVisible: bodyText.includes("项目不可访问"),

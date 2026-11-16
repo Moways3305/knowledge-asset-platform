@@ -26,7 +26,7 @@ export const typeConfig = {
 } as const;
 
 export const stateConfig: Record<PersonalKnowledgeState, { label: string; tone: string }> = {
-  awaiting_confirmation: { label: "待本人确认", tone: "warning" },
+  awaiting_confirmation: { label: "可提交项目", tone: "ready" },
   ready_to_submit: { label: "可提交项目", tone: "ready" },
   pending_project_review: { label: "待项目经理审批", tone: "pending" },
   active_in_project: { label: "已进入项目", tone: "success" },
@@ -46,7 +46,6 @@ export const evidenceCategories = Object.keys(evidenceCategoryLabels);
 export type DialogKind =
   | "create-kb"
   | "rename-kb"
-  | "confirm"
   | "submit"
   | "evidence"
   | "edit"

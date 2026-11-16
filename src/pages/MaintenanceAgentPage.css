@@ -2,6 +2,66 @@
   --agent-accent: var(--color-primary, #3370ff);
   --agent-muted: var(--color-text-secondary, #66758a);
 }
+.agent-run-drawer {
+  --agent-muted: var(--color-text-secondary, #66758a);
+  width: min(760px, 100vw);
+}
+.agent-report-toolbar,
+.agent-run-items header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.agent-report-toolbar,
+.agent-run-drawer small {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+.agent-report-scope {
+  padding: 16px;
+  margin: 16px 0;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-secondary);
+}
+.agent-report-scope h3 {
+  margin-top: 0;
+}
+.agent-report-warning {
+  padding: 10px 12px;
+  border-radius: 6px;
+  color: #80531c;
+  background: #fff7e8;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.agent-run-items article {
+  margin: 12px 0;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+.agent-run-items header a {
+  color: var(--color-primary);
+  overflow-wrap: anywhere;
+}
+.agent-run-items dl > div {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 12px;
+  padding: 5px 0;
+}
+.agent-run-items dd {
+  margin: 0;
+}
+.agent-run-drawer select {
+  padding: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: white;
+}
 .workspace-shell .page-workspace.agent-center-page {
   --agent-accent: #336df5;
   padding: 0;

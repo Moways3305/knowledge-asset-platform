@@ -17,6 +17,7 @@ from app.models.maintenance_agent import (
     MaintenanceIssueEvent,
     MaintenancePolicy,
     MaintenanceRun,
+    MaintenanceRunItem,
 )
 from app.schemas.enums import AuditLogType
 from app.schemas.maintenance_agent import ScanSettings
@@ -24,6 +25,7 @@ from app.services import audit, domain_events
 from app.services import maintenance_access as access
 from app.services.generation_models import resolve_generation_llm_client
 from app.services.llm_client import NullLLMClient
+from app.services.maintenance_reports import seed_targets
 from app.services.maintenance_rules import analyze, deterministic, digest, finding
 from app.services.maintenance_snapshots import capture
 from app.services.storage import get_storage
@@ -101,6 +103,7 @@ async def start_run(session, policy, *, kind="full", asset_id=None):
     session.add(row)
     policy.last_error = None
     await session.flush()
+    await seed_targets(session, row, policy, caller)
     return row
 
 
@@ -423,24 +426,36 @@ async def process_one(maker, *, storage=None, client=None):
             )
             await session.commit()
             return True
-        query = select(KnowledgeAsset).where(
-            access.scope_filter(policy.project_id),
-            access.manager_filter(caller),
-            KnowledgeAsset.created_at <= run.started_at,
-        )
-        if run.cursor:
-            query = query.where(KnowledgeAsset.id > run.cursor)
-        if run.target_asset_id:
-            query = query.where(KnowledgeAsset.id == run.target_asset_id)
+        if run.scope_snapshot is not None:
+            query = (
+                select(KnowledgeAsset)
+                .join(MaintenanceRunItem, MaintenanceRunItem.asset_id == KnowledgeAsset.id)
+                .where(MaintenanceRunItem.run_id == run.id, MaintenanceRunItem.status == "pending")
+            )
+        else:
+            # An in-flight run from the previous release keeps its old cursor semantics.
+            query = select(KnowledgeAsset).where(
+                access.scope_filter(policy.project_id),
+                access.manager_filter(caller),
+                KnowledgeAsset.created_at <= run.started_at,
+            )
+            if run.cursor:
+                query = query.where(KnowledgeAsset.id > run.cursor)
+            if run.target_asset_id:
+                query = query.where(KnowledgeAsset.id == run.target_asset_id)
         asset = await session.scalar(query.order_by(KnowledgeAsset.id).limit(1))
         if asset is None:
-            run.status = "partial" if run.incomplete_count else "completed"
+            run.status = "partial" if run.incomplete_count or run.skipped_count else "completed"
             run.finished_at = now
             run.skipped_count = max(
                 0, run.target_count - run.completed_count - run.incomplete_count
             )
             if run.skipped_count:
                 run.reasons = {**run.reasons, "asset_out_of_scope": run.skipped_count}
+                run.status = "partial"
+            if run.target_count == 0:
+                run.status = "empty"
+                run.reasons = {**run.reasons, "no_eligible_assets": 1}
             if run.kind == "full":
                 policy.last_full_at = now
             if TECHNICAL_FAILURES.intersection(run.reasons):
@@ -532,6 +547,11 @@ async def process_one(maker, *, storage=None, client=None):
         ):
             error = fresh_error or "asset_changed_during_check"
             snapshot = None
+        item = await session.scalar(
+            select(MaintenanceRunItem).where(
+                MaintenanceRunItem.run_id == run.id, MaintenanceRunItem.asset_id == asset_id
+            )
+        )
         if snapshot:
             await persist_findings(session, policy, asset, snapshot, findings, now)
             technical = {
@@ -548,6 +568,15 @@ async def process_one(maker, *, storage=None, client=None):
                 run.reasons = {**run.reasons, **{r: run.reasons.get(r, 0) + 1 for r in reasons}}
             else:
                 run.completed_count += 1
+            if item:
+                item.status = "incomplete" if reasons else "completed"
+                item.version_id = uuid.UUID(snapshot["facts"]["version_id"])
+                item.coverage = snapshot["coverage"]
+                item.findings = {
+                    rule: sum(f["rule"] == rule for f in findings)
+                    for rule in {f["rule"] for f in findings}
+                }
+                item.reasons = reasons
             if snapshot["allowed"]:
                 await audit.record_system_event(
                     session,
@@ -563,9 +592,17 @@ async def process_one(maker, *, storage=None, client=None):
                     },
                 )
         else:
-            run.incomplete_count += 1
             reason = error or fresh_error or "check_incomplete"
+            if reason == "asset_out_of_scope":
+                run.skipped_count += 1
+            else:
+                run.incomplete_count += 1
             run.reasons = {**run.reasons, reason: run.reasons.get(reason, 0) + 1}
+            if item:
+                item.status = "skipped" if reason == "asset_out_of_scope" else "incomplete"
+                item.reasons = [reason]
+        if item:
+            item.checked_at = utc_now()
         run.cursor, run.claim_token, run.lease_until = asset_id, None, None
         run.last_progress_at = utc_now()
         await session.commit()
@@ -593,7 +630,6 @@ async def retire_unavailable(session):
                 MaintenanceIssue.status != "not_applicable",
                 or_(
                     KnowledgeAsset.deleted_at.is_not(None),
-                    KnowledgeAsset.zone != "asset",
                     KnowledgeAsset.scope.notin_(["company", "project"]),
                     KnowledgeAsset.asset_status.notin_(["active", "needs_update"]),
                     (KnowledgeAsset.scope == "project")

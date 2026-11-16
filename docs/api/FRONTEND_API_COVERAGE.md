@@ -2,7 +2,7 @@
 
 由 `npm run api:frontend:generate` 生成，契约来源 `docs/api/openapi.json`，人工复核来源 `frontend-api-review.json`。
 
-共 254 个 HTTP 操作；静态调用已接入 205，已有替代流程 14，系统集成 32，传输基础设施 1，动态资源 2。
+共 255 个 HTTP 操作；静态调用已接入 205，已有替代流程 14，系统集成 33，传输基础设施 1，动态资源 2。
 
 静态调用仅表示找到了封装及直接导入/转导出，不代表每个接口都有独立按钮，也不证明真实环境全流程通过。动态资源单列；请求/响应 DTO 仍由领域适配器和测试校验。
 
@@ -209,13 +209,14 @@
 | `PUT /api/v1/maintenance-agent/policies/{library_key}` | 静态调用已接入 | `src/api/maintenanceAgent.ts#saveAgentPolicy` → `src/pages/MaintenanceAgentPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `GET /api/v1/maintenance-agent/policies/{library_key}/runs` | 静态调用已接入 | `src/api/maintenanceAgent.ts#fetchAgentRuns` → `src/pages/MaintenanceAgentPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `POST /api/v1/maintenance-agent/policies/{library_key}/runs` | 静态调用已接入 | `src/api/maintenanceAgent.ts#startAgentRun` → `src/pages/MaintenanceAgentPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `GET /api/v1/maintenance-agent/policies/{library_key}/runs/{run_id}` | 静态调用已接入 | `src/api/maintenanceAgent.ts#fetchAgentRun` → `src/pages/MaintenanceRunDrawer.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `GET /api/v1/my/knowledge` | 静态调用已接入 | `src/api/personal.ts#fetchMyKnowledge` → `src/pages/controllers/MyKnowledge/useMyKnowledge.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `GET /api/v1/my/knowledge-base` | 静态调用已接入 | `src/api/personal.ts#fetchMyKnowledgeBase` → `src/pages/controllers/MyKnowledge/useMyKnowledge.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `POST /api/v1/my/knowledge-base` | 静态调用已接入 | `src/api/personal.ts#createMyKnowledgeBase` → `src/pages/controllers/MyKnowledge/useMyKnowledge.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `PUT /api/v1/my/knowledge-base` | 静态调用已接入 | `src/api/personal.ts#renameMyKnowledgeBase` → `src/pages/controllers/MyKnowledge/useMyKnowledge.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `POST /api/v1/my/knowledge/bulk-submit-to-project` | 已有替代流程 | `src/api/personal.ts#bulkSubmitPersonalKnowledge` → 模块内部 / 暂无直接引用 | 后端明确返回 422 publication_naming_required，要求逐条核对项目命名与目录。个人知识已有逐条命名预览/提交入口，不添加必然失败的批量按钮。见 backend/app/api/my_knowledge.py。 |
 | `PATCH /api/v1/my/knowledge/{asset_id}` | 静态调用已接入 | `src/api/personal.ts#updatePersonalKnowledge` → `src/pages/MyKnowledgePage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
-| `POST /api/v1/my/knowledge/{asset_id}/confirm-asset` | 静态调用已接入 | `src/api/personal.ts#confirmPersonalAsset` → `src/pages/MyKnowledgePage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `POST /api/v1/my/knowledge/{asset_id}/confirm-asset` | 系统集成 | `src/api/personal.ts#confirmPersonalAsset` → 模块内部 / 暂无直接引用 | 取消资料分区后保留旧客户端兼容接口：校验本人权限并返回无需确认，不再修改资料；新版页面移除该入口。 |
 | `POST /api/v1/my/knowledge/{asset_id}/submit-to-project` | 静态调用已接入 | `src/api/personal.ts#submitPersonalKnowledge` → `src/pages/MyKnowledgePage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `POST /api/v1/my/knowledge/{asset_id}/submit-to-project-preview` | 静态调用已接入 | `src/api/personal.ts#previewPersonalKnowledgePublication` → `src/pages/MyKnowledgePage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `POST /api/v1/my/knowledge/{asset_id}/validation-evidence` | 静态调用已接入 | `src/api/personal.ts#registerPersonalKnowledgeEvidence` → `src/pages/MyKnowledgePage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |

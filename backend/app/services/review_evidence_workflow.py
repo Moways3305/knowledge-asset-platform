@@ -188,7 +188,7 @@ async def preflight_assetization(
     item_ids: list[uuid.UUID],
 ) -> AssetizationPreflightResponse:
     if not caller.is_business_user:
-        raise _denied(403, "admin_business_permission_denied", "仅业务用户可发起资产化审核")
+        raise _denied(403, "admin_business_permission_denied", "仅业务用户可发起验证审核")
     if project_id not in caller.active_project_ids:
         raise _denied(403, "project_membership_required", "需为该项目的有效成员")
     rows = list(
@@ -249,7 +249,7 @@ async def preflight_assetization(
                     message="资料不属于当前项目",
                 )
             )
-        elif asset.zone != "material" or asset.asset_status != "active":
+        elif asset.asset_status != "active":
             items.append(
                 AssetizationPreflightItem(
                     item_id=item_id,
@@ -257,7 +257,7 @@ async def preflight_assetization(
                     status="ineligible",
                     evidence_count=count,
                     reason_code="asset_not_eligible",
-                    message="仅可对有效资料区内容发起审核",
+                    message="仅可对有效项目资料发起验证审核",
                 )
             )
         elif item_id in open_tasks:
@@ -459,8 +459,6 @@ async def create_or_get_confirm_asset_with_outcome(
     if project_id not in caller.active_project_ids:
         raise _denied(403, "project_membership_required", "需为该项目的有效成员")
     asset = await _load_project_asset(session, project_id, asset_id, for_update=True)
-    if asset.zone != "material":
-        raise _denied(422, "asset_not_material", "仅资料区（material）资产可发起资产确认")
     if asset.asset_status != "active":
         raise _denied(422, "asset_not_active", "仅 active 资产可发起资产确认")
 
@@ -487,7 +485,7 @@ async def create_or_get_confirm_asset_with_outcome(
         .all()
     )
     if not evidences:
-        raise _denied(422, "assetization_evidence_required", "请先登记验证证据，再发起资产化审核")
+        raise _denied(422, "assetization_evidence_required", "请先登记验证证据，再发起验证审核")
     status = ReviewTaskStatus.pending_reviewer.value
     task = ReviewTask(
         review_type=ReviewType.material_to_asset.value,

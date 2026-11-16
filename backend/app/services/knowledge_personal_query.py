@@ -131,10 +131,6 @@ def _personal_state_expression():
             PersonalKnowledgeState.active_in_project.value,
         ),
         (
-            KnowledgeAsset.zone == "material",
-            PersonalKnowledgeState.awaiting_confirmation.value,
-        ),
-        (
             latest_status == PersonalSubmissionStatus.pending.value,
             PersonalKnowledgeState.pending_project_review.value,
         ),
@@ -238,8 +234,6 @@ async def _personal_projection(
         )
         if asset.id in project_copies:
             state = PersonalKnowledgeState.active_in_project.value
-        elif asset.zone == "material":
-            state = PersonalKnowledgeState.awaiting_confirmation.value
         elif latest_status == PersonalSubmissionStatus.pending.value:
             state = PersonalKnowledgeState.pending_project_review.value
         elif latest_status == PersonalSubmissionStatus.rejected.value:

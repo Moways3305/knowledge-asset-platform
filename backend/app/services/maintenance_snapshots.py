@@ -25,6 +25,10 @@ async def capture(session, policy, asset, settings, now):
         return None, "authorization_expired"
     if not access.eligible(asset) or not knowledge_manager_allowed(caller, asset):
         return None, "asset_out_of_scope"
+    if asset.scope != ("project" if policy.project_id else "company") or (
+        policy.project_id and asset.project_id != policy.project_id
+    ):
+        return None, "asset_out_of_scope"
     version = (
         await session.get(KnowledgeAssetVersion, asset.current_version_id)
         if asset.current_version_id

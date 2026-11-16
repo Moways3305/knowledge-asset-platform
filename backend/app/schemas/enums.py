@@ -81,11 +81,7 @@ class KnowledgeScope(str, Enum):
 
 
 class KnowledgeZone(str, Enum):
-    """资产化状态标签。
-
-    material（资料区）/ asset（资产区）是【同一个知识库内】的状态标签，
-    不是两个物理知识库。material → asset 的确认人按 scope 不同而不同。
-    """
+    """历史兼容枚举；不再控制知识库分区、检索或审批资格。"""
 
     material = "material"
     asset = "asset"

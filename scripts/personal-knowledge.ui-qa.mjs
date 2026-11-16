@@ -429,7 +429,7 @@ try {
           ),
           defaultReady:
             text.includes("客户访谈洞察整理") &&
-            text.includes("待本人确认") &&
+            text.includes("可提交项目") &&
             text.includes("上传资料"),
           filterSearchReady: text.includes("项目复盘方法模板") && text.includes("清除搜索"),
           pendingActiveReady: text.includes("待项目经理审批") && text.includes("已进入项目"),

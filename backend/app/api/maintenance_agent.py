@@ -15,6 +15,7 @@ from app.schemas.maintenance_agent import (
     IssuePage,
     PolicyCommand,
     PolicyOut,
+    RunDetail,
     RunOut,
 )
 from app.schemas.permission import CallerContext
@@ -59,6 +60,18 @@ async def runs(
     session: AsyncSession = Depends(get_db),
 ):
     return await service.runs(session, caller, library_key, page)
+
+
+@router.get("/policies/{library_key}/runs/{run_id}", response_model=RunDetail)
+async def run_detail(
+    library_key: str,
+    run_id: uuid.UUID,
+    page: int = Query(1, ge=1),
+    status: Literal["pending", "completed", "incomplete", "skipped"] | None = None,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+):
+    return await service.run_detail(session, caller, library_key, run_id, page=page, status=status)
 
 
 @router.get("/issues", response_model=IssuePage)

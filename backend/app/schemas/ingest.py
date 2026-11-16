@@ -295,7 +295,11 @@ class IngestConfirmRequest(BaseModel):
     tags: list[str] = []
     target_scope: KnowledgeScope
     target_project_id: uuid.UUID | None = None
-    target_zone: KnowledgeZone = KnowledgeZone.material
+    target_zone: KnowledgeZone = Field(
+        default=KnowledgeZone.asset,
+        deprecated=True,
+        description="兼容字段，不再决定资料分区；所有知识库统一管理资料。",
+    )
     confidentiality_level: ConfidentialityLevel
     # PBC-38：可选模型选择（对底座 id 不可逆的 model_ref，绝不接收真实 model_id）。
     # 缺省走平台默认；显式选择仅在首建该 scope 的 KB 时生效，已有 KB 冲突会被锁定拒绝。

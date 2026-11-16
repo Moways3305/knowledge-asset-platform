@@ -101,7 +101,7 @@ describe("project company publication eligibility", () => {
     ["project_manager", candidate, true, null],
     ["consultant", candidate, false, "仅项目经理可提交公司发布申请"],
     ["admin", candidate, false, "仅项目经理可提交公司发布申请"],
-    ["project_manager", { ...candidate, zone: "material" }, false, "资料需先完成资产化审核"],
+    ["project_manager", { ...candidate, zone: "material" }, true, null],
     [
       "project_manager",
       { ...candidate, assetStatus: "archived" as const },

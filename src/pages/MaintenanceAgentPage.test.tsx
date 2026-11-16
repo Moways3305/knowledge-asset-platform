@@ -12,6 +12,7 @@ vi.mock("../api/maintenanceAgent", () => ({
   fetchAgentPolicies: vi.fn(),
   fetchAgentIssues: vi.fn(),
   fetchAgentRuns: vi.fn(),
+  fetchAgentRun: vi.fn(),
   fetchAgentModels: vi.fn(),
   saveAgentPolicy: vi.fn(),
   startAgentRun: vi.fn(),
@@ -90,6 +91,24 @@ beforeEach(() => {
     page_size: 25,
   });
   vi.mocked(api.fetchAgentRuns).mockResolvedValue([]);
+  vi.mocked(api.fetchAgentRun).mockResolvedValue({
+    ...run,
+    library_key: "company",
+    historical_details_available: false,
+    scope_snapshot: null,
+    current_scope: {
+      assessed_at: run.started_at,
+      visible_count: 0,
+      target_count: 0,
+      excluded_counts: {},
+    },
+    content_authorized: null,
+    settings: null,
+    items: [],
+    total: 0,
+    page: 1,
+    page_size: 25,
+  });
   vi.mocked(api.fetchAgentModels).mockResolvedValue(choices);
   vi.mocked(api.startAgentRun).mockResolvedValue(run);
 });
@@ -174,4 +193,76 @@ it("opens progress for a running scan instead of submitting another run", async 
   fireEvent.click(progress);
   await screen.findByText("等待巡检");
   expect(api.startAgentRun).not.toHaveBeenCalled();
+});
+
+it("opens zero-target legacy history and distinguishes today's scope from missing history", async () => {
+  vi.mocked(api.fetchAgentRuns).mockResolvedValue([{ ...run, status: "completed" }]);
+  mount("runs");
+  await screen.findByText("没有可巡检资产");
+  fireEvent.click(screen.getByRole("button", { name: "查看巡检详情" }));
+  await screen.findByRole("dialog", { name: "巡检详情" });
+  expect(await screen.findByText(/这是一条旧版巡检记录/)).toBeInTheDocument();
+  expect(screen.getByText(/实时核对，不能用于还原历史扫描范围/)).toBeInTheDocument();
+  expect(api.fetchAgentRun).toHaveBeenCalledWith("company", "run", 1, "");
+});
+
+it("shows per-category reasons, finding names and a server-filtered result page", async () => {
+  vi.mocked(api.fetchAgentRuns).mockResolvedValue([{ ...run, status: "partial", target_count: 1 }]);
+  const scope = {
+    assessed_at: run.started_at,
+    visible_count: 2,
+    target_count: 1,
+    excluded_counts: { archived: 1 },
+  };
+  vi.mocked(api.fetchAgentRun).mockResolvedValue({
+    ...run,
+    status: "partial",
+    target_count: 1,
+    library_key: "company",
+    historical_details_available: true,
+    scope_snapshot: scope,
+    current_scope: scope,
+    content_authorized: true,
+    settings: policy.settings,
+    items: [
+      {
+        asset_id: "asset",
+        title: "待核对资料",
+        status: "incomplete",
+        version_id: "old",
+        current_version_matches: false,
+        coverage: { integrity: "complete", quality: "model_unavailable" },
+        findings: { missing_summary: 1 },
+        reasons: ["model_unavailable"],
+        checked_at: run.started_at,
+      },
+    ],
+    total: 1,
+    page: 1,
+    page_size: 25,
+  });
+  mount("runs");
+  fireEvent.click(await screen.findByRole("button", { name: "查看巡检详情" }));
+  expect(await screen.findByRole("link", { name: "待核对资料" })).toHaveAttribute(
+    "href",
+    "/knowledge/asset",
+  );
+  expect(screen.getByText("缺少摘要")).toBeInTheDocument();
+  expect(screen.getAllByText("模型未配置或调用失败").length).toBeGreaterThan(0);
+  expect(screen.getByText(/当前版本已变化/)).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("检查结果筛选"), { target: { value: "incomplete" } });
+  await waitFor(() =>
+    expect(api.fetchAgentRun).toHaveBeenCalledWith("company", "run", 1, "incomplete"),
+  );
+});
+
+it("clears detail data when access is lost during refresh", async () => {
+  vi.mocked(api.fetchAgentRuns).mockResolvedValue([run]);
+  mount("runs");
+  fireEvent.click(await screen.findByRole("button", { name: "查看巡检详情" }));
+  await screen.findByText(/这是一条旧版巡检记录/);
+  vi.mocked(api.fetchAgentRun).mockRejectedValueOnce(new ApiError(404, "巡检记录不可访问"));
+  fireEvent.click(screen.getByRole("button", { name: "刷新详情" }));
+  expect(await screen.findByText("巡检记录不可访问")).toBeInTheDocument();
+  expect(screen.queryByText(/这是一条旧版巡检记录/)).not.toBeInTheDocument();
 });

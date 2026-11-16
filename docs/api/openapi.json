@@ -6921,7 +6921,9 @@
           },
           "target_zone": {
             "$ref": "#/components/schemas/KnowledgeZone",
-            "default": "material"
+            "default": "asset",
+            "deprecated": true,
+            "description": "兼容字段，不再决定资料分区；所有知识库统一管理资料。"
           },
           "title": {
             "title": "Title",
@@ -9158,7 +9160,7 @@
         "type": "string"
       },
       "KnowledgeZone": {
-        "description": "资产化状态标签。\n\nmaterial（资料区）/ asset（资产区）是【同一个知识库内】的状态标签，\n不是两个物理知识库。material → asset 的确认人按 scope 不同而不同。",
+        "description": "历史兼容枚举；不再控制知识库分区、检索或审批资格。",
         "enum": [
           "material",
           "asset"
@@ -17297,6 +17299,239 @@
         "title": "RoleStatus",
         "type": "string"
       },
+      "RunDetail": {
+        "properties": {
+          "completed_count": {
+            "title": "Completed Count",
+            "type": "integer"
+          },
+          "content_authorized": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Authorized"
+          },
+          "current_scope": {
+            "$ref": "#/components/schemas/ScopeOut"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "historical_details_available": {
+            "title": "Historical Details Available",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "incomplete_count": {
+            "title": "Incomplete Count",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RunItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "last_progress_at": {
+            "format": "date-time",
+            "title": "Last Progress At",
+            "type": "string"
+          },
+          "library_key": {
+            "title": "Library Key",
+            "type": "string"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "default": 25,
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "policy_id": {
+            "format": "uuid",
+            "title": "Policy Id",
+            "type": "string"
+          },
+          "reasons": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Reasons",
+            "type": "object"
+          },
+          "scope_snapshot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScopeOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "settings": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScanSettings"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "skipped_count": {
+            "title": "Skipped Count",
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "target_count": {
+            "title": "Target Count",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "policy_id",
+          "kind",
+          "status",
+          "target_count",
+          "completed_count",
+          "incomplete_count",
+          "skipped_count",
+          "reasons",
+          "started_at",
+          "finished_at",
+          "last_progress_at",
+          "library_key",
+          "historical_details_available",
+          "scope_snapshot",
+          "current_scope",
+          "content_authorized",
+          "settings",
+          "items",
+          "total",
+          "page"
+        ],
+        "title": "RunDetail",
+        "type": "object"
+      },
+      "RunItemOut": {
+        "properties": {
+          "asset_id": {
+            "format": "uuid",
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "coverage": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Coverage",
+            "type": "object"
+          },
+          "current_version_matches": {
+            "title": "Current Version Matches",
+            "type": "boolean"
+          },
+          "findings": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Findings",
+            "type": "object"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "version_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version Id"
+          }
+        },
+        "required": [
+          "asset_id",
+          "title",
+          "status",
+          "version_id",
+          "current_version_matches",
+          "coverage",
+          "findings",
+          "reasons",
+          "checked_at"
+        ],
+        "title": "RunItemOut",
+        "type": "object"
+      },
       "RunOut": {
         "properties": {
           "completed_count": {
@@ -17326,6 +17561,11 @@
           },
           "kind": {
             "title": "Kind",
+            "type": "string"
+          },
+          "last_progress_at": {
+            "format": "date-time",
+            "title": "Last Progress At",
             "type": "string"
           },
           "policy_id": {
@@ -17369,7 +17609,8 @@
           "skipped_count",
           "reasons",
           "started_at",
-          "finished_at"
+          "finished_at",
+          "last_progress_at"
         ],
         "title": "RunOut",
         "type": "object"
@@ -17473,6 +17714,38 @@
           }
         },
         "title": "ScanSettings",
+        "type": "object"
+      },
+      "ScopeOut": {
+        "properties": {
+          "assessed_at": {
+            "format": "date-time",
+            "title": "Assessed At",
+            "type": "string"
+          },
+          "excluded_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Excluded Counts",
+            "type": "object"
+          },
+          "target_count": {
+            "title": "Target Count",
+            "type": "integer"
+          },
+          "visible_count": {
+            "title": "Visible Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "assessed_at",
+          "visible_count",
+          "target_count",
+          "excluded_counts"
+        ],
+        "title": "ScopeOut",
         "type": "object"
       },
       "SearchCardOut": {
@@ -35146,6 +35419,8 @@
             }
           },
           {
+            "deprecated": true,
+            "description": "历史兼容参数，已不再过滤资料分区",
             "in": "query",
             "name": "zone",
             "required": false,
@@ -35158,6 +35433,8 @@
                   "type": "null"
                 }
               ],
+              "deprecated": true,
+              "description": "历史兼容参数，已不再过滤资料分区",
               "title": "Zone"
             }
           },
@@ -38852,6 +39129,139 @@
         ]
       }
     },
+    "/api/v1/maintenance-agent/policies/{library_key}/runs/{run_id}": {
+      "get": {
+        "operationId": "run_detail_api_v1_maintenance_agent_policies__library_key__runs__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "library_key",
+            "required": true,
+            "schema": {
+              "title": "Library Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "pending",
+                    "completed",
+                    "incomplete",
+                    "skipped"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Detail",
+        "tags": [
+          "maintenance-agent"
+        ]
+      }
+    },
     "/api/v1/my/knowledge": {
       "get": {
         "description": "个人知识：仅返回本人的 scope=personal 资产；纯 admin 返回 403。",
@@ -41687,6 +42097,8 @@
             }
           },
           {
+            "deprecated": true,
+            "description": "历史兼容参数，已不再过滤资料分区",
             "in": "query",
             "name": "zone",
             "required": false,
@@ -41699,6 +42111,8 @@
                   "type": "null"
                 }
               ],
+              "deprecated": true,
+              "description": "历史兼容参数，已不再过滤资料分区",
               "title": "Zone"
             }
           },

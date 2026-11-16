@@ -14,7 +14,6 @@ import {
 import { Link } from "react-router-dom";
 import { deleteKnowledgeAsset } from "../api/knowledge";
 import {
-  confirmPersonalAsset,
   previewPersonalKnowledgePublication,
   registerPersonalKnowledgeEvidence,
   submitPersonalKnowledge,
@@ -222,7 +221,6 @@ export default function MyKnowledgePage() {
                   {(
                     [
                       ["", "全部资料", summary.total_assets],
-                      ["awaiting_confirmation", "待本人确认", summary.awaiting_confirmation],
                       ["pending_project_review", "待项目审批", summary.pending_project_review],
                       ["active_in_project", "已进入项目", summary.active_in_project],
                     ] as const
@@ -293,11 +291,13 @@ export default function MyKnowledgePage() {
                             }}
                           >
                             <option value="">全部状态</option>
-                            {Object.entries(stateConfig).map(([key, value]) => (
-                              <option key={key} value={key}>
-                                {value.label}
-                              </option>
-                            ))}
+                            {Object.entries(stateConfig)
+                              .filter(([key]) => key !== "awaiting_confirmation")
+                              .map(([key, value]) => (
+                                <option key={key} value={key}>
+                                  {value.label}
+                                </option>
+                              ))}
                           </select>
                         </label>
                         <label htmlFor="mk83-filter-sort">
@@ -472,12 +472,13 @@ export default function MyKnowledgePage() {
                           label: SAFE_FALLBACK,
                           tone: "neutral",
                         };
-                        const primary =
-                          item.personalState === "awaiting_confirmation"
-                            ? "confirm"
-                            : ["ready_to_submit", "project_rejected"].includes(item.personalState)
-                              ? "submit"
-                              : null;
+                        const primary = [
+                          "awaiting_confirmation",
+                          "ready_to_submit",
+                          "project_rejected",
+                        ].includes(item.personalState)
+                          ? "submit"
+                          : null;
                         return (
                           <tr key={item.id}>
                             <td>
@@ -542,16 +543,6 @@ export default function MyKnowledgePage() {
                               </div>
                             </td>
                             <td data-label="当前动作">
-                              {primary === "confirm" && (
-                                <button
-                                  type="button"
-                                  className="btn-small-primary"
-                                  disabled={actionBusy}
-                                  onClick={() => openItemDialog("confirm", item)}
-                                >
-                                  本人确认
-                                </button>
-                              )}
                               {primary === "submit" && (
                                 <button
                                   type="button"
@@ -717,31 +708,9 @@ export default function MyKnowledgePage() {
           </label>
         </ConfirmDialog>
         <ConfirmDialog
-          open={dialogKind === "confirm"}
-          title="确认为个人知识资产"
-          description={
-            activeItem
-              ? `确认“${activeItem.title}”已整理完成？此操作不会将资料公开或加入项目。`
-              : undefined
-          }
-          confirmText="确认资产"
-          busy={actionBusy}
-          error={actionError}
-          errorDescription={actionError}
-          onCancel={closeDialog}
-          onConfirm={() =>
-            activeItem &&
-            void runItemAction(
-              () => confirmPersonalAsset(activeItem.id),
-              "已确认为个人知识资产",
-              "确认失败，请稍后重试",
-            )
-          }
-        />
-        <ConfirmDialog
           open={dialogKind === "submit"}
           title="提交到项目"
-          description="提交后将等待项目经理确认，通过前不会进入项目资料区。"
+          description="提交后将等待项目经理确认，通过前不会进入项目知识库。"
           confirmText="提交"
           busy={actionBusy}
           error={actionError}

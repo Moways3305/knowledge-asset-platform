@@ -310,10 +310,7 @@ async def approve(
         comment=comment,
         decided_at=datetime.now(timezone.utc),
     )
-    before_zone = asset.zone
-    asset.zone = "asset"  # material → asset
-
-    # 审批通过审计 + 资产化 zone 变更审计（trace_id 串联"证据—审核—确认"链）。
+    # Validation records a quality decision; it does not move or unlock knowledge.
     await audit_service.record_event(
         session,
         caller=caller,
@@ -329,12 +326,11 @@ async def approve(
         session,
         caller=caller,
         log_type=AuditLogType.operation,
-        action=AuditAction.asset_zone_changed.value,
+        action="knowledge.validation_approved",
         trace_id=trace_id,
         target_type="knowledge_asset",
         target_id=asset.id,
-        before={"zone": before_zone},
-        after={"zone": asset.zone},
+        after={"validation_status": "approved"},
         extra={"review_id": str(task.id), "confidentiality_level": asset.confidentiality_level},
         project_id=task.target_project_id,
     )

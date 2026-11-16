@@ -27,6 +27,7 @@ from app.services import audit
 from app.services import maintenance_access as access
 from app.services.generation_models import safe_generation_model_options
 from app.services.maintenance_jobs import ACTIVE, start_run
+from app.services.maintenance_reports import project_detail
 from app.services.permission import knowledge_manager_allowed
 
 
@@ -191,6 +192,16 @@ async def runs(session, caller, key, page=1):
         )
     ).all()
     return [RunOut.model_validate(r, from_attributes=True) for r in rows]
+
+
+async def run_detail(session, caller, key, run_id, *, page=1, status=None):
+    policy = await _library(session, caller, key)
+    if not policy:
+        raise access.reject()
+    run = await session.get(MaintenanceRun, run_id)
+    if not run or run.policy_id != policy.id or (run.includes_l5 and not caller.can_discover_l5):
+        raise access.reject()
+    return await project_detail(session, caller, policy, run, page=page, status=status)
 
 
 def issue_query(caller):

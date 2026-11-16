@@ -230,13 +230,7 @@ describe("MyKnowledgePage complete personal workflow", () => {
     expect(within(stats).getByRole("button", { name: /待项目审批\s*3/ })).toBeEnabled();
     expect(within(stats).getByRole("button", { name: /已进入项目\s*8/ })).toBeEnabled();
     expect(container.querySelectorAll(".mk83-type-icon svg")).toHaveLength(5);
-    for (const label of [
-      "待本人确认",
-      "可提交项目",
-      "待项目经理审批",
-      "已进入项目",
-      "项目未通过",
-    ]) {
+    for (const label of ["可提交项目", "待项目经理审批", "已进入项目", "项目未通过"]) {
       expect(screen.getAllByText(label).length).toBeGreaterThan(0);
     }
     expect(screen.getByText("已登记 2 条候选证据")).toBeInTheDocument();
@@ -344,7 +338,11 @@ describe("MyKnowledgePage complete personal workflow", () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText("项目复盘模板");
-    await user.click(screen.getAllByRole("button", { name: "提交项目" })[0]);
+    await user.click(
+      within(screen.getByText("项目复盘模板").closest("tr")!).getByRole("button", {
+        name: "提交项目",
+      }),
+    );
     const submitDialog = screen.getByRole("dialog");
     await user.selectOptions(within(submitDialog).getByLabelText("目标项目"), "project-83");
     expect(await within(submitDialog).findByText("项目交付物")).toBeInTheDocument();

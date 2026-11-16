@@ -178,7 +178,7 @@ async def persist_confirmation(
     asset = KnowledgeAsset(
         title=request.title,
         scope=context.scope,
-        zone=request.target_zone.value,
+        zone="asset",
         asset_type=asset_type,
         owner_user_id=context.owner_id,
         maintainer_user_id=context.caller.user_id,

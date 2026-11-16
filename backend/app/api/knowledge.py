@@ -202,7 +202,9 @@ async def list_knowledge(
     keyword: str | None = Query(default=None, min_length=1, max_length=100),
     scope: KnowledgeScope | None = Query(default=None),
     project_id: uuid.UUID | None = Query(default=None),
-    zone: KnowledgeZone | None = Query(default=None),
+    zone: KnowledgeZone | None = Query(
+        default=None, deprecated=True, description="历史兼容参数，已不再过滤资料分区"
+    ),
     asset_status: AssetStatus | None = Query(default=None),
     confidentiality_level: ConfidentialityLevel | None = Query(default=None),
     directory_key: str | None = Query(default=None, min_length=1, max_length=100),
@@ -257,7 +259,9 @@ async def list_project_workspace_knowledge(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=100),
     keyword: str | None = Query(default=None, min_length=1, max_length=100),
-    zone: KnowledgeZone | None = Query(default=None),
+    zone: KnowledgeZone | None = Query(
+        default=None, deprecated=True, description="历史兼容参数，已不再过滤资料分区"
+    ),
     asset_status: AssetStatus | None = Query(default=None),
     confidentiality_level: ConfidentialityLevel | None = Query(default=None),
     created_from: datetime | None = Query(default=None),

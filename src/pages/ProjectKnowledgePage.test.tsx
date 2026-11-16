@@ -265,7 +265,7 @@ describe("ProjectKnowledgePage reference workspace", () => {
     expect(screen.getByText("甲项目", { selector: ".product-page-heading p" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "知识名称" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "最后更新" })).toBeInTheDocument();
-    expect(screen.getByText("资料区")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "资料区域" })).not.toBeInTheDocument();
     expect(screen.queryByText("不应在紧凑列表展示的摘要")).not.toBeInTheDocument();
     expect(screen.queryByText("internal-phase")).not.toBeInTheDocument();
     expect(screen.queryByText(/生命周期阶段|资产沉淀提醒|常用问题/)).not.toBeInTheDocument();
@@ -304,9 +304,6 @@ describe("ProjectKnowledgePage reference workspace", () => {
     fireEvent.change(screen.getByPlaceholderText("按标题或标签搜索"), {
       target: { value: "访谈" },
     });
-    fireEvent.change(screen.getByRole("combobox", { name: "资料区域" }), {
-      target: { value: "asset" },
-    });
     fireEvent.change(screen.getByRole("combobox", { name: "资产状态" }), {
       target: { value: "active" },
     });
@@ -330,7 +327,6 @@ describe("ProjectKnowledgePage reference workspace", () => {
           scope: "project",
           projectId: PROJECT_A,
           keyword: "访谈",
-          zone: "asset",
           assetStatus: "active",
           confidentialityLevel: "L2",
           updatedFrom: "2026-01-01",
@@ -346,12 +342,12 @@ describe("ProjectKnowledgePage reference workspace", () => {
     await waitFor(() =>
       expect(fetchKnowledgePage).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2 })),
     );
-    fireEvent.change(screen.getByRole("combobox", { name: "资料区域" }), {
-      target: { value: "material" },
+    fireEvent.change(screen.getByRole("combobox", { name: "资产状态" }), {
+      target: { value: "needs_update" },
     });
     await waitFor(() =>
       expect(fetchKnowledgePage).toHaveBeenLastCalledWith(
-        expect.objectContaining({ page: 1, zone: "material" }),
+        expect.objectContaining({ page: 1, assetStatus: "needs_update" }),
       ),
     );
   });
@@ -397,12 +393,12 @@ describe("ProjectKnowledgePage reference workspace", () => {
     );
     renderPage();
 
-    expect((await screen.findAllByText("信息待确认")).length).toBe(3);
+    expect((await screen.findAllByText("信息待确认")).length).toBe(2);
     const visibleText = document.body.textContent ?? "";
     expect(visibleText).not.toMatch(/secret-zone|secret-type|secret-status|secret-level/);
   });
 
-  it("offers one low-interference upgrade action only for a manager's asset-zone row", async () => {
+  it("offers company publication for either legacy zone when the manager is authorized", async () => {
     vi.mocked(fetchKnowledgePage).mockResolvedValue(
       page([
         card({ id: "material-1", title: "项目资料", zone: "material" }),
@@ -418,8 +414,7 @@ describe("ProjectKnowledgePage reference workspace", () => {
     await screen.findByText("项目资产");
 
     fireEvent.click(screen.getByRole("button", { name: "更多操作：项目资料" }));
-    expect(screen.getByText("资料需先完成资产化审核")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "发布到公司知识库" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "发布到公司知识库" })).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Escape" });
     fireEvent.click(screen.getByRole("button", { name: "更多操作：项目资产" }));
     expect(screen.getByRole("button", { name: "删除" })).toBeInTheDocument();
@@ -453,7 +448,7 @@ describe("ProjectKnowledgePage reference workspace", () => {
     expect(document.querySelector(".pk-qa-section")).toBeNull();
   });
 
-  it("keeps a publish-only asset out of batch selection and makes its title keyboard reachable", async () => {
+  it("allows validation selection independently of delete permission and keeps the title keyboard reachable", async () => {
     vi.mocked(fetchKnowledgePage).mockResolvedValue(
       page([
         card({
@@ -470,13 +465,13 @@ describe("ProjectKnowledgePage reference workspace", () => {
     expect(titleLink).toHaveAttribute("href", "/knowledge/publish-only");
     titleLink.focus();
     expect(titleLink).toHaveFocus();
-    expect(screen.queryByLabelText("选择项目知识 仅单项发布资产")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("全选当前页项目知识")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("选择项目知识 仅单项发布资产")).toBeInTheDocument();
+    expect(screen.getByLabelText("全选当前页项目知识")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "更多操作：仅单项发布资产" }));
     expect(screen.getByRole("button", { name: "发布到公司知识库" })).toBeInTheDocument();
   });
 
-  it("upgrades only active asset-zone selections while allowing all deletable project knowledge", async () => {
+  it("validates active selections from both legacy zones and preserves delete eligibility", async () => {
     vi.mocked(fetchKnowledgePage).mockResolvedValue(
       page([
         card({
@@ -488,7 +483,6 @@ describe("ProjectKnowledgePage reference workspace", () => {
         card({
           id: "asset-2",
           title: "有效项目资产",
-          zone: "asset",
           assetStatus: "active",
           access: { ...card().access, canDelete: true },
         }),
@@ -507,15 +501,15 @@ describe("ProjectKnowledgePage reference workspace", () => {
     await act(async () => {
       fireEvent.click(screen.getByLabelText("全选当前页项目知识"));
     });
-    expect(screen.getByRole("button", { name: "发起资产化审核（1）" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "发起验证审核（2）" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /批量升级为公司资产/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "批量删除（3）" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "发起资产化审核（1）" }));
+    fireEvent.click(screen.getByRole("button", { name: "发起验证审核（2）" }));
     await waitFor(() =>
-      expect(preflightAssetization).toHaveBeenCalledWith(PROJECT_B, ["material-1"]),
+      expect(preflightAssetization).toHaveBeenCalledWith(PROJECT_B, ["material-1", "asset-2"]),
     );
-    expect(await screen.findByRole("dialog", { name: "发起资产化审核" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "发起验证审核" })).toBeInTheDocument();
   });
 
   it("keeps assetization bulk-only while company publication remains item governed", async () => {
@@ -534,7 +528,7 @@ describe("ProjectKnowledgePage reference workspace", () => {
     await act(async () => {
       fireEvent.click(screen.getByLabelText("全选当前页项目知识"));
     });
-    expect(screen.getByRole("button", { name: "发起资产化审核（1）" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "发起验证审核（1）" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /批量升级为公司资产/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "批量删除（1）" })).toBeInTheDocument();
     materialView.unmount();
@@ -555,7 +549,7 @@ describe("ProjectKnowledgePage reference workspace", () => {
       fireEvent.click(screen.getByLabelText("全选当前页项目知识"));
     });
     expect(screen.queryByRole("button", { name: /批量升级为公司资产/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /发起资产化审核/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "发起验证审核（1）" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "批量删除（1）" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "更多操作：纯资产区知识" }));
     expect(screen.getByRole("button", { name: "发布到公司知识库" })).toBeInTheDocument();
@@ -592,7 +586,7 @@ describe("ProjectKnowledgePage reference workspace", () => {
     await act(async () => {
       fireEvent.click(screen.getByLabelText("全选当前页项目知识"));
     });
-    fireEvent.click(screen.getByRole("button", { name: "发起资产化审核（2）" }));
+    fireEvent.click(screen.getByRole("button", { name: "发起验证审核（2）" }));
     expect(await screen.findByText("需先登记验证证据")).toBeInTheDocument();
     expect(submitAssetization).not.toHaveBeenCalled();
     expect(screen.getByLabelText("选择项目知识 失败资料")).toBeChecked();

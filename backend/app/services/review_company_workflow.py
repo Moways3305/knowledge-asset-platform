@@ -83,7 +83,7 @@ async def create_or_get_company_upgrade(
     if not governance_policy.is_project_manager(caller, project_id):
         raise _denied(403, "project_manager_required", "仅目标项目经理可发起公司资产升格")
     asset = await _load_project_asset(session, project_id, asset_id)
-    if asset.zone != "asset" or asset.asset_status != "active":
+    if asset.asset_status != "active":
         raise _denied(422, "project_asset_required", "仅 active 项目资产可升格为公司资产")
 
     existing = (
@@ -167,7 +167,7 @@ async def preview_company_upgrade(
     if not governance_policy.is_project_manager(caller, project_id):
         raise _denied(403, "project_manager_required", "仅目标项目经理可发起公司资产升格")
     asset = await _load_project_asset(session, project_id, asset_id)
-    if asset.zone != "asset" or asset.asset_status != "active":
+    if asset.asset_status != "active":
         raise _denied(422, "project_asset_required", "仅 active 项目资产可升格为公司资产")
     _snapshot, rendered = await _render_publication_snapshot(
         session,
