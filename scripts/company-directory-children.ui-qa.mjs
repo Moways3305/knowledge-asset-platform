@@ -1,3 +1,4 @@
+import { auditResponsiveLayout } from "./responsive-layout-audit.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -102,6 +103,7 @@ try {
       false,
     );
     await page.getByRole("button", { name: "添加到草稿" }).scrollIntoViewIfNeeded();
+    await auditResponsiveLayout(page, { suite: "company-directory-children" });
     await page.screenshot({ path: path.join(output, `create-${width}.png`), fullPage: true });
     await page.goto(`${base}/knowledge?scope=company&directory_key=company.methodology`);
     if (width <= 700) {
@@ -118,6 +120,7 @@ try {
       await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1),
       false,
     );
+    await auditResponsiveLayout(page, { suite: "company-directory-children" });
     await page.screenshot({ path: path.join(output, `browse-${width}.png`), fullPage: true });
     await context.close();
   }

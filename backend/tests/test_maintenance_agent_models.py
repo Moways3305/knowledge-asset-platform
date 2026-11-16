@@ -109,7 +109,7 @@ async def test_disabled_model_does_not_reuse_previous_quality_check(
     async with sessionmaker_fixture() as session:
         run = await session.get(MaintenanceRun, run_id)
         assert run.incomplete_count == 1
-        assert run.reasons["model_unavailable"] == 1
+        assert run.reasons == {"model_configuration_error": 1}
 
 
 async def test_unknown_selection_refused_without_creating_policy(client, db_session):

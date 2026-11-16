@@ -1,3 +1,4 @@
+import { auditResponsiveLayout } from "./responsive-layout-audit.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -119,8 +120,12 @@ const projectSettingsSource = fs.readFileSync(
   path.join(process.cwd(), "src/pages/ProjectSettingsPage.tsx"),
   "utf8",
 );
+const projectSettingsController = fs.readFileSync(
+  path.join(process.cwd(), "src/pages/controllers/ProjectSettings/useProjectSettings.tsx"),
+  "utf8",
+);
 const projectCodeOwnedByProjectSettings =
-  projectSettingsSource.includes("项目代码") && projectSettingsSource.includes("project_code");
+  projectSettingsSource.includes("项目代码") && projectSettingsController.includes("body.project_code");
 
 let server = null;
 let browser = null;
@@ -197,6 +202,7 @@ try {
     await companyCard.getByLabel("默认密级").selectOption("L4");
     await companyCard.getByLabel("排序").fill("25");
     await companyCard.getByLabel("启用目录").uncheck();
+    await auditResponsiveLayout(page, { suite: "directory-governance", caseName: "editing" });
     await page.getByRole("button", { name: /保存草稿/ }).click();
     await page.getByText("目录草稿已保存；发布前不会影响新入库资料。").waitFor();
 
@@ -212,11 +218,13 @@ try {
       (await page.getByText("历史项目复盘材料").isVisible()) &&
       (await page.getByText("05 项目复盘", { exact: true }).last().isVisible());
 
-    await page.getByRole("button", { name: "目录草稿" }).click();
+    await auditResponsiveLayout(page, { suite: "directory-governance", caseName: "migration" });
+    await page.getByRole("button", { name: "项目目录", exact: true }).click();
     await page.getByRole("button", { name: /发布正式目录/ }).click();
     await page.getByText("正式目录已发布，新上传和项目发布将立即使用本版本。").waitFor();
 
     const screenshot = path.join(outDir, `directory-governance-${viewport.name}.png`);
+    await auditResponsiveLayout(page, { suite: "directory-governance" });
     await page.screenshot({ path: screenshot, fullPage: true, animations: "disabled" });
     const metrics = await page.evaluate(() => {
       const root = document.documentElement;

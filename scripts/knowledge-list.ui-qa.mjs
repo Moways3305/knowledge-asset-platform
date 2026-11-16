@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
+import { auditResponsiveLayout } from "./responsive-layout-audit.mjs";
 
 const base = process.env.UI_QA_BASE || "http://localhost:5179";
 const outRoot = process.env.UI_QA_OUT_DIR || path.join(os.tmpdir(), "kap-ui-qa");
@@ -37,6 +38,7 @@ const viewports = [
 const asset = (overrides = {}) => ({
   id: assetId,
   title: "客户经营诊断方法论与跨部门交付复盘框架",
+  canonical_name: "【公司介绍】博维咨询2026_通用_20260416_V1_L2.pdf",
   scope: "company",
   zone: "asset",
   asset_type: "methodology",
@@ -45,7 +47,7 @@ const asset = (overrides = {}) => ({
   asset_status: "active",
   visibility: "confidential",
   tags: ["经营诊断"],
-  summary_text: "当前身份可查看的安全摘要，不包含客户敏感原文或内部存储信息。",
+  summary_text: "当前身份可查看的安全摘要，不包含客户敏感原文或内部存储信息。介绍企业的业务范围，包括战略规划、人力资源、企业辅导和股权激励等咨询服务，验证完整文件名和多行摘要不会与来源、日期重叠。",
   project_name: null,
   lifecycle_phase: null,
   confidence: null,
@@ -294,6 +296,7 @@ for (const scenario of scenarios) {
     }
 
     await page.waitForTimeout(180);
+    await auditResponsiveLayout(page, { suite: "knowledge-list", caseName: scenario });
     const metrics = await page.evaluate(() => {
       const root = document.documentElement;
       const rail = document.querySelector(".rail")?.getBoundingClientRect();

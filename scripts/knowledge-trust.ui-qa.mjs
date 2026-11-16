@@ -1,3 +1,4 @@
+import { auditResponsiveLayout } from "./responsive-layout-audit.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -192,6 +193,7 @@ try {
             await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1),
             false,
           );
+          await auditResponsiveLayout(page, { suite: "knowledge-trust", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
           await page.screenshot({
             path: path.join(out, `${item.section}-${width}.png`),
             fullPage: true,
@@ -207,6 +209,7 @@ try {
         await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1),
         false,
       );
+      await auditResponsiveLayout(page, { suite: "knowledge-trust", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
       await page.screenshot({
         path: path.join(out, `${scenario}-${width}.png`),
         fullPage: true,

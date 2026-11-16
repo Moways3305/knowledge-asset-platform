@@ -168,6 +168,36 @@ describe("ProjectOverviewPage project assistant workspace", () => {
     api.projectQa.mockResolvedValue(qaAnswer);
   });
 
+  it("keeps the project list and search mounted during a refresh and a temporary failure", async () => {
+    renderPage("/projects");
+    const search = await screen.findByRole("textbox", { name: "搜索我的项目" });
+    fireEvent.change(search, { target: { value: "华东" } });
+    const link = screen.getByRole("link", { name: "进入华东增长项目" });
+    const pending = deferred<{ items: typeof projects }>();
+    api.fetchProjects.mockReturnValueOnce(pending.promise);
+    fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+    expect(screen.getByRole("textbox", { name: "搜索我的项目" })).toBe(search);
+    expect(screen.getByRole("link", { name: "进入华东增长项目" })).toBe(link);
+    expect(screen.queryByText("正在加载项目列表…")).not.toBeInTheDocument();
+    pending.reject(new ApiError(503, "private details"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("当前显示上次加载的内容");
+    expect(screen.getByRole("textbox", { name: "搜索我的项目" })).toHaveValue("华东");
+    expect(screen.getByRole("link", { name: "进入华东增长项目" })).toBe(link);
+    fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(screen.getByRole("link", { name: "进入华东增长项目" })).toBe(link);
+  });
+
+  it("clears retained projects when refresh discovers that access was revoked", async () => {
+    renderPage("/projects");
+    await screen.findByRole("link", { name: "进入华东增长项目" });
+    api.fetchProjects.mockRejectedValueOnce(new ApiError(403, "private details"));
+    fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+    expect(await screen.findByText("项目列表加载失败")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "进入华东增长项目" })).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("private details");
+  });
+
   it("lists real member projects without choosing the first one and filters by project name", async () => {
     renderPage("/projects");
     expect(await screen.findByRole("heading", { name: "项目空间" })).toBeInTheDocument();

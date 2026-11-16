@@ -63,7 +63,7 @@ const KB_STATUS: Record<string, string> = {
 type ListState =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; items: ProjectListItemDTO[] };
+  | { status: "ready"; items: ProjectListItemDTO[]; refreshError?: string };
 
 type OverviewState =
   | { status: "loading" }
@@ -693,6 +693,7 @@ export default function ProjectOverviewPage() {
   const { capabilities } = useAuth();
   const listRequest = useRef(0);
   const [listState, setListState] = useState<ListState>({ status: "loading" });
+  const [listRefreshing, setListRefreshing] = useState(false);
 
   // 新建项目模态框状态（仅治理角色可用）。
   const canCreate = capabilities.isGovernance;
@@ -701,14 +702,26 @@ export default function ProjectOverviewPage() {
 
   const loadProjects = useCallback(async () => {
     const request = ++listRequest.current;
-    setListState({ status: "loading" });
+    setListRefreshing(true);
+    setListState((previous) =>
+      previous.status === "ready"
+        ? { ...previous, refreshError: undefined }
+        : { status: "loading" },
+    );
     try {
       const response = await fetchProjects();
       if (request === listRequest.current) setListState({ status: "ready", items: response.items });
-    } catch {
+    } catch (error) {
       if (request === listRequest.current) {
-        setListState({ status: "error", message: safeErrorMessage() });
+        const accessLost = error instanceof ApiError && [401, 403, 404].includes(error.status);
+        setListState((previous) =>
+          previous.status === "ready" && !accessLost
+            ? { ...previous, refreshError: "项目列表更新失败，当前显示上次加载的内容。" }
+            : { status: "error", message: safeErrorMessage() },
+        );
       }
+    } finally {
+      if (request === listRequest.current) setListRefreshing(false);
     }
   }, []);
 
@@ -762,7 +775,7 @@ export default function ProjectOverviewPage() {
             )
           }
         />
-        <section className="project-hub-list" aria-label="我的项目">
+        <section className="project-hub-list" aria-label="我的项目" aria-busy={listRefreshing}>
           <header>
             <h3>
               我的项目 <span>{projects.length}</span>
@@ -777,11 +790,13 @@ export default function ProjectOverviewPage() {
               type="button"
               className="product-button is-secondary"
               onClick={() => void loadProjects()}
+              disabled={listRefreshing}
             >
               <RefreshCw size={15} />
-              刷新
+              {listRefreshing ? "更新中…" : "刷新"}
             </button>
           </header>
+          {listState.refreshError && <p role="alert">{listState.refreshError}</p>}
           {visibleProjects.length ? (
             <ul>
               {visibleProjects.map((project) => (

@@ -687,6 +687,11 @@
   .pk-table td:not(:first-child) {
     grid-column: 2;
   }
+  .pk-table td.product-table-state {
+    grid-column: 1 / -1;
+    height: auto !important;
+    min-height: 96px;
+  }
   .pk-table td:nth-child(3)::before {
     content: "所属区域：";
     color: var(--color-text-secondary);

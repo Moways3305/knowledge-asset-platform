@@ -1,3 +1,4 @@
+import { auditResponsiveLayout } from "./responsive-layout-audit.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -5,7 +6,7 @@ import os from "node:os";
 import { chromium } from "playwright";
 
 const base = process.env.UI_QA_BASE || "http://127.0.0.1:5188";
-const output = path.join(os.tmpdir(), "kap-ui-qa", "knowledge-metadata");
+const output = path.join(process.env.UI_QA_OUT_DIR || path.join(os.tmpdir(), "kap-ui-qa"), "knowledge-metadata");
 fs.mkdirSync(output, { recursive: true });
 const browser = await chromium.launch({ args: ["--disable-gpu"] });
 try {
@@ -48,6 +49,7 @@ try {
     await dialog.waitFor();
     await page.getByLabel("资料标题", { exact: true }).fill("更正后的公司知识目录规范");
     await page.getByLabel("修改原因", { exact: true }).fill("核对原文件后纠正标题");
+    await auditResponsiveLayout(page, { suite: "knowledge-metadata" });
     await page.screenshot({ path: path.join(output, `${width}.png`), fullPage: true, animations: "disabled" });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     const bounds = await dialog.boundingBox();

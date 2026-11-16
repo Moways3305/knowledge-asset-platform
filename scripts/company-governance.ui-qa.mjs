@@ -1,3 +1,4 @@
+import { auditResponsiveLayout } from "./responsive-layout-audit.mjs";
 import { chromium } from "playwright";
 import fs from "node:fs";
 import assert from "node:assert/strict";
@@ -60,6 +61,7 @@ try {
     await page
       .getByRole("button", { name: "中华人民共和国公司法2018年10月修正版", exact: true })
       .waitFor();
+    await auditResponsiveLayout(page, { suite: "company-governance" });
     await page.screenshot({ path: `${out}/${width}.png`, fullPage: true });
     assert(
       await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
@@ -69,14 +71,22 @@ try {
       .getByRole("button", { name: "中华人民共和国公司法2018年10月修正版", exact: true })
       .click();
     await page.getByRole("heading", { name: "安全摘要", exact: true }).waitFor();
+    await auditResponsiveLayout(page, { suite: "company-governance" });
     await page.screenshot({ path: `${out}/${width}-detail.png`, fullPage: true });
     await page.getByRole("dialog").getByRole("button", { name: "预览归档" }).click();
     assert(await page.getByRole("button", { name: "确认归档", exact: true }).isDisabled());
     await page.getByRole("button", { name: "取消", exact: true }).click();
-    await page.getByLabel("选择本页全部资料").check();
+    if (width > 700) {
+      await page.getByLabel("选择本页全部资料").check();
+    } else {
+      // The mobile cards deliberately hide the desktop table header.
+      await page.getByLabel("选择 中华人民共和国公司法2018年10月修正版").check();
+      await page.getByLabel("选择 同博科技企业文化落地方案（讨论稿）").check();
+    }
     await page.getByRole("button", { name: "预览归档" }).click();
     await page.getByRole("dialog").waitFor();
     assert(await page.getByRole("button", { name: "确认归档", exact: true }).isDisabled());
+    await auditResponsiveLayout(page, { suite: "company-governance" });
     await page.screenshot({ path: `${out}/${width}-confirm.png`, fullPage: true });
     assert.deepEqual(errors, []);
     await page.close();

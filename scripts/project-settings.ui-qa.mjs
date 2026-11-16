@@ -1,3 +1,4 @@
+import { auditResponsiveLayout } from "./responsive-layout-audit.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -388,6 +389,7 @@ for (const scenario of scenarios) {
       };
     });
 
+    await auditResponsiveLayout(page, { suite: "project-settings", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
     await page.screenshot({
       path: path.join(outDir, `${scenario.name}-${viewport.name}.png`),
       fullPage: false,
@@ -440,6 +442,7 @@ for (const scenario of scenarios) {
       await deleteButton.click();
       const dialog = page.getByRole("dialog", { name: /删除项目“客户交付体系优化”/ });
       await dialog.waitFor();
+      await auditResponsiveLayout(page, { suite: "project-settings", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
       await page.screenshot({
         path: path.join(outDir, `${scenario.name}-confirmation-${viewport.name}.png`),
         fullPage: false,
@@ -478,6 +481,7 @@ for (const scenario of scenarios) {
         ),
         documentRequestCount,
       };
+      await auditResponsiveLayout(page, { suite: "project-settings", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
       await page.screenshot({
         path: path.join(outDir, `${scenario.name}-post-success-${viewport.name}.png`),
         fullPage: false,

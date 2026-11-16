@@ -1,3 +1,4 @@
+import { auditResponsiveLayout } from "./responsive-layout-audit.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -612,6 +613,7 @@ try {
             metrics.recentSummaryMaterial &&
             metrics.recentMemberMaterial
           : true);
+      await auditResponsiveLayout(page, { suite: "workbench", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
       await page.screenshot({
         path: path.join(outDir, `${scenario}-${viewport.name}.png`),
         fullPage: true,

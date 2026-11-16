@@ -1,12 +1,13 @@
+import { auditResponsiveLayout } from "./responsive-layout-audit.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
 
-const out = path.join(os.tmpdir(), "kap-ui-qa", "mcp-oauth");
+const out = path.join(process.env.UI_QA_OUT_DIR || path.join(os.tmpdir(), "kap-ui-qa"), "mcp-oauth");
 fs.mkdirSync(out, { recursive: true });
-const browser = await chromium.launch({ headless: true, channel: "chrome" });
+const browser = await chromium.launch({ headless: true, args: ["--disable-gpu"] });
 try {
   for (const width of [1440, 390]) {
     const context = await browser.newContext({ viewport: { width, height: 1000 } });
@@ -33,11 +34,12 @@ try {
       await route.fulfill({ contentType: "application/json", body: JSON.stringify(body) });
     });
     const page = await context.newPage();
-    await page.goto("http://127.0.0.1:5192/mcp-authorize?request=ui-fixture");
+    await page.goto((process.env.UI_QA_BASE || "http://127.0.0.1:5192") + "/mcp-authorize?request=ui-fixture");
     await page.getByRole("heading", { name: "授权智能体访问 KAP" }).waitFor();
     assert.equal(await page.getByRole("checkbox").isChecked(), false);
     assert.equal(await page.getByRole("button", { name: "同意并连接" }).isDisabled(), true);
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+    await auditResponsiveLayout(page, { suite: "mcp-oauth" });
     await page.screenshot({ path: path.join(out, "consent-" + width + ".png"), fullPage: true });
     await context.close();
   }

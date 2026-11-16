@@ -1,3 +1,4 @@
+import { auditResponsiveLayout } from "./responsive-layout-audit.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -7,9 +8,9 @@ import { chromium } from "playwright";
 const assetId = "00000000-0000-0000-0000-000000000901";
 const newId = "00000000-0000-0000-0000-000000000902";
 const stamp = "2026-10-12T00:00:00Z";
-const out = path.join(os.tmpdir(), "kap-ui-qa", "knowledge-versions");
+const out = path.join(process.env.UI_QA_OUT_DIR || path.join(os.tmpdir(), "kap-ui-qa"), "knowledge-versions");
 fs.mkdirSync(out, { recursive: true });
-const browser = await chromium.launch({ headless: true, channel: "chrome" });
+const browser = await chromium.launch({ headless: true, args: ["--disable-gpu"] });
 try {
   for (const width of [1440, 390]) {
     const context = await browser.newContext({ viewport: { width, height: 1000 } });
@@ -142,7 +143,8 @@ try {
     });
     const page = await context.newPage();
     page.on("pageerror", (error) => console.log("Page error:", error.message));
-    await page.goto("http://127.0.0.1:5190/knowledge/" + assetId);
+    await page.goto((process.env.UI_QA_BASE || "http://127.0.0.1:5190") + "/knowledge/" + assetId);
+    await page.getByRole("tab", { name: "版本记录", exact: true }).click();
     await page
       .getByRole("button", { name: "更新这份资料", exact: true })
       .waitFor({ timeout: 10000 })
@@ -151,6 +153,7 @@ try {
         console.log((await page.locator("body").innerText()).slice(0, 1500));
         throw error;
       });
+    await auditResponsiveLayout(page, { suite: "knowledge-versions" });
     await page.screenshot({ path: path.join(out, `detail-${width}.png`), fullPage: true });
     await page.getByRole("button", { name: "版本历史与差异", exact: true }).click();
     await page.getByLabel("原版本", { exact: true }).selectOption("v1");
@@ -158,8 +161,10 @@ try {
     await page.getByRole("button", { name: "查看差异", exact: true }).click();
     await page.getByText("新版增加操作风险和复核步骤。", { exact: true }).waitFor();
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await auditResponsiveLayout(page, { suite: "knowledge-versions" });
     await page.screenshot({ path: path.join(out, `history-${width}.png`), fullPage: true });
     await page.getByText("新版增加操作风险和复核步骤。", { exact: true }).scrollIntoViewIfNeeded();
+    await auditResponsiveLayout(page, { suite: "knowledge-versions" });
     await page.screenshot({ path: path.join(out, `difference-${width}.png`), fullPage: true });
     await context.close();
   }

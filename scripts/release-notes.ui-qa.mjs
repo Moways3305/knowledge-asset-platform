@@ -1,3 +1,4 @@
+import { auditResponsiveLayout } from "./responsive-layout-audit.mjs";
 // Real browser workflows against deterministic API fixtures. No production data is used.
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -63,6 +64,7 @@ async function layout(page, name) {
       `${name}: dialog overflow`,
     );
   }
+  await auditResponsiveLayout(page, { suite: "release-notes", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
   await page.screenshot({ path: path.join(out, `${name}.png`), fullPage: true });
   const parts = name.split("-");
   const viewport = parts.pop();

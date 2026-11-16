@@ -260,6 +260,15 @@ jobs:
         run: npm run test:ui:global-acceptance
       - name: UI QA (background refresh preserves reading state)
         run: node scripts/maintenance-background.ui-qa.mjs
+      - name: UI QA (additional responsive workspaces)
+        run: |
+          node scripts/supplemental-responsive.ui-qa.mjs
+          node scripts/company-governance.ui-qa.mjs
+          node scripts/directory-governance.ui-qa.mjs
+          node scripts/company-directory-children.ui-qa.mjs
+          node scripts/knowledge-versions.ui-qa.mjs
+          node scripts/knowledge-metadata.ui-qa.mjs
+          node scripts/mcp-oauth.ui-qa.mjs
       - name: Upload screenshots
         if: always()
         # Diagnostic evidence is best-effort; test steps above remain blocking.
