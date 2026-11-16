@@ -167,14 +167,12 @@ export default function MaintenanceAgentPage() {
     }
   };
   return (
-    <ProductPage className="maintenance-agent-page">
+    <ProductPage className={`maintenance-agent-page ${isCenter ? "agent-center-page" : ""}`}>
       <PageHeader
         title={isCenter ? "智能体中心" : "知识维护 Agent"}
-        eyebrow="平台预置智能体"
+        eyebrow={isCenter ? undefined : "平台预置智能体"}
         description={
-          isCenter
-            ? "让日常知识维护持续运转，重要判断由你确认。"
-            : "定期检查知识资产，记录问题并提醒相应维护人。"
+          isCenter ? "选择智能体，处理日常工作。" : "定期检查知识资产，记录问题并提醒相应维护人。"
         }
         actions={
           !isCenter && (
@@ -186,22 +184,18 @@ export default function MaintenanceAgentPage() {
       />
       {isCenter ? (
         <section className="agent-catalog" aria-label="预置智能体">
-          <div className="agent-catalog-icon">
-            <Bot size={28} />
-          </div>
-          <div>
-            <span className="agent-kicker">知识治理</span>
-            <h3>知识维护 Agent</h3>
-            <p>每日检查新增和变更资产，每周全面巡检。发现问题后，汇总维护待办并发送提醒。</p>
-            <div className="agent-category-line">
-              {Object.values(categories).map((label) => (
-                <span key={label}>{label}</span>
-              ))}
+          <Link className="agent-card" to="/agents/knowledge-maintenance" aria-label="进入知识维护">
+            <div className="agent-card-heading">
+              <span className="agent-catalog-icon">
+                <Bot size={20} aria-hidden="true" />
+              </span>
+              <h3>知识维护 Agent</h3>
             </div>
-            <Link className="agent-primary" to="/agents/knowledge-maintenance">
-              进入知识维护 <ArrowRight size={17} />
-            </Link>
-          </div>
+            <p>定期巡检知识资产，发现问题并提醒维护人。</p>
+            <span className="agent-card-entry">
+              进入 <ArrowRight size={14} aria-hidden="true" />
+            </span>
+          </Link>
         </section>
       ) : (
         <>
