@@ -19,12 +19,14 @@ from app.models.indexing_job import IndexingOperationJob
 from app.models.ingest import IngestTask
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.knowledge_correction import KnowledgeCorrection
+from app.models.maintenance_agent import MaintenanceDigest, MaintenanceIssue, MaintenanceRun
 from app.models.notification import BusinessNotification
 from app.models.original_access import OriginalAccessRequest
 from app.models.review import CompanyAssetReviewDecision, ReviewTask
 from app.schemas.enums import AccessRequestStatus, CompanyRole, ProjectRole
 from app.schemas.notification import NotificationTarget
 from app.schemas.permission import AccessLayer, CallerContext
+from app.services import maintenance_access
 from app.services.company_confirmation_policy import select_confirmation_role
 from app.services.ingest_review_state import effective_status
 from app.services.permission import decide, knowledge_manager_allowed
@@ -89,6 +91,34 @@ async def resolve(
 
     if not caller.is_active or (not caller.is_business_user and not _ops_viewer(caller)):
         return None
+    if row.target_kind == "maintenance_ops":
+        run = await session.get(MaintenanceRun, row.target_id)
+        if not _ops_viewer(caller) or not run:
+            return None
+        return VisibleNotificationTarget(
+            target=NotificationTarget(route_key="admin_ingest", resource_id=run.id),
+            status="partial",
+            action_required=False,
+        )
+    if row.target_kind == "maintenance_digest":
+        digest = await session.get(MaintenanceDigest, row.target_id)
+        if not digest or digest.recipient_id != caller.user_id:
+            return None
+        query = maintenance_access.visible_issue_query(caller, mine=True)
+        if not await session.scalar(query.limit(1)):
+            return None
+        actionable = bool(
+            await session.scalar(
+                query.where(
+                    MaintenanceIssue.status.in_(["open", "in_progress", "awaiting_recheck"])
+                ).limit(1)
+            )
+        )
+        return VisibleNotificationTarget(
+            target=NotificationTarget(route_key="maintenance_agent", resource_id=digest.id),
+            status="needs_action" if actionable else "completed",
+            action_required=actionable,
+        )
     if (
         row.project_id is not None
         and row.target_kind not in {"indexing_job", "ops_index"}

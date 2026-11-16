@@ -26,6 +26,7 @@ from app.api import (
     ingest,
     knowledge,
     lifecycle,
+    maintenance_agent,
     mcp_oauth,
     model_connections,
     model_registry,
@@ -109,6 +110,7 @@ def create_app() -> FastAPI:
     app.include_router(agent_operations.router)
     app.include_router(audit.router)
     app.include_router(lifecycle.router)
+    app.include_router(maintenance_agent.router)
     app.include_router(alert.router)
     app.include_router(operation_options.router)
     app.include_router(people.router)

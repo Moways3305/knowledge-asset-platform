@@ -13,6 +13,7 @@ export const knowledgeEntries: WorkspaceEntry[] = [
   { to: "/knowledge", label: "知识资产库", cap: can.viewKnowledge },
   { to: "/my/knowledge", label: "我的知识", cap: can.viewMyKnowledge },
   { to: "/knowledge-maintenance", label: "知识维护", cap: can.viewKnowledge },
+  { to: "/agents", label: "智能体中心", cap: can.viewKnowledge },
   { to: "/upload", label: "上传资料", cap: can.viewUpload },
 ];
 
@@ -57,6 +58,7 @@ export function permittedEntries(entries: WorkspaceEntry[], capabilities: Capabi
 }
 
 export function workspaceForPath(pathname: string): WorkspaceKey {
+  if (pathname.startsWith("/agents")) return "knowledge";
   if (pathname.startsWith("/admin") || pathname === "/company-governance") return "admin";
   if (pathname === "/projects" || pathname.startsWith("/project/")) return "project";
   if (pathname.startsWith("/review") || pathname.startsWith("/original-access")) return "approval";
@@ -75,6 +77,7 @@ export const workspaceLabels: Record<WorkspaceKey, string> = {
 };
 
 const utilityTitles: Record<string, string> = {
+  "/agents/knowledge-maintenance": "知识维护 Agent",
   "/": "我的工作",
   "/help": "帮助中心",
   "/release-notes": "更新日志",

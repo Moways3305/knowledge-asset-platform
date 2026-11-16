@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.logging import safe_log_exception
 from app.models.identity import ProjectMember, User
 from app.models.ingest import IngestTask
+from app.models.maintenance_agent import MaintenanceIssue
 from app.models.review import ReviewTask
 from app.schemas.permission import CallerContext
 from app.schemas.workbench import (
@@ -41,6 +42,7 @@ from app.services import knowledge_insights as insights_service
 from app.services import original_access as original_access_service
 from app.services import review as review_service
 from app.services.discoverable_projects import list_knowledge_library_projects
+from app.services.maintenance_access import visible_issue_query
 from app.services.storage import LocalFileStorage
 
 _logger = logging.getLogger(__name__)
@@ -588,6 +590,29 @@ async def build_task_center(
                     result_summary=f"当前有 {card.count} 项需要关注",
                 )
             )
+
+    maintenance_count = await session.scalar(
+        select(func.count()).select_from(
+            visible_issue_query(caller, mine=True)
+            .where(MaintenanceIssue.status.in_(["open", "in_progress", "awaiting_recheck"]))
+            .subquery()
+        )
+    )
+    if maintenance_count:
+        my_tasks.append(
+            WorkbenchTaskItem(
+                task_ref=_task_ref("maintenance", caller.user_id),
+                task_type="maintenance",
+                object_name="知识维护巡检待办",
+                status="needs_action",
+                priority="normal",
+                assignee=current_name,
+                responsibility="由你维护",
+                next_action_label="处理巡检问题",
+                route_key="maintenance_agent",
+                result_summary=f"当前有 {maintenance_count} 项知识资产问题待处理",
+            )
+        )
 
     for items in (my_tasks, running_jobs, attention_items, recent_completed):
         _sort_tasks(items)

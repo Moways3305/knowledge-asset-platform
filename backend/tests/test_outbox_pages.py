@@ -182,7 +182,10 @@ async def test_page_timeout_rolls_back_and_backs_off(db_session, monkeypatch):
         await asyncio.sleep(10)
         return result
 
-    monkeypatch.setattr(outbox, "PAGE_SECONDS", 0.03)
+    # Reach the intentional ten-second stall before cancellation. A 30ms deadline
+    # can cancel SQLite during SQL I/O on Windows, discarding its in-memory DB
+    # instead of exercising the intended rollback of a completed projection.
+    monkeypatch.setattr(outbox, "PAGE_SECONDS", 0.5)
     monkeypatch.setattr(outbox, "_dispatch", stalled)
     assert (await outbox.process_pending(session, limit=1))["failed"] == 1
     assert len(await notices(session, target)) == 0

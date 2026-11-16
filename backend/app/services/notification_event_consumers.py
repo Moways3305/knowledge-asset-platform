@@ -13,6 +13,7 @@ from app.models.indexing_job import IndexingOperationJob
 from app.models.ingest import IngestTask
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.lifecycle import AssetLifecycleEvent
+from app.models.maintenance_agent import MaintenanceDigest, MaintenanceRun
 from app.models.original_access import OriginalAccessRequest
 from app.models.outbox import DomainEventOutbox
 from app.models.review import ReviewTask
@@ -162,7 +163,18 @@ async def consume_notification_event(
     branch. A missing aggregate or unknown type fails delivery so the outbox
     remains observable and retryable instead of silently completing the row.
     """
-    if event.event_type == domain_events.REVIEW_ACTION_REQUIRED:
+    if event.event_type == domain_events.MAINTENANCE_DIGEST_READY:
+        digest = await session.get(MaintenanceDigest, event.aggregate_id)
+        if digest is None:
+            raise LookupError("maintenance_digest_missing")
+        await notifications.notify_maintenance(session, digest.id, [digest.recipient_id])
+    elif event.event_type == domain_events.MAINTENANCE_OPS_READY:
+        run = await session.get(MaintenanceRun, event.aggregate_id)
+        if run is None:
+            raise LookupError("maintenance_run_missing")
+        recipients = await notifications.ops_signal_recipients(session, page)
+        await notifications.notify_maintenance(session, run.id, recipients, ops=True)
+    elif event.event_type == domain_events.REVIEW_ACTION_REQUIRED:
         review_task = await session.get(ReviewTask, event.aggregate_id)
         if review_task is None:
             raise LookupError("review_event_aggregate_missing")
@@ -270,6 +282,8 @@ async def consume_notification_event(
 
 NOTIFICATION_EVENT_TYPES = frozenset(
     {
+        domain_events.MAINTENANCE_DIGEST_READY,
+        domain_events.MAINTENANCE_OPS_READY,
         domain_events.REVIEW_ACTION_REQUIRED,
         domain_events.REVIEW_DECIDED,
         domain_events.INGEST_CONFIRMED,

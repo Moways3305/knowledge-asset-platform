@@ -18,6 +18,10 @@ const GROUP_LABEL: Record<TaskCenterGroup, string> = {
   recent_completed: "最近完成",
 };
 const ROUTES: Record<string, { path: string; allowed: (capabilities: Capabilities) => boolean }> = {
+  maintenance_agent: {
+    path: "/agents/knowledge-maintenance?mine=true",
+    allowed: can.viewKnowledge,
+  },
   reviews: { path: "/review", allowed: can.viewReview },
   upload: { path: "/upload", allowed: can.viewUpload },
   original_access: { path: "/original-access", allowed: can.viewOriginalAccess },

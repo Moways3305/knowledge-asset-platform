@@ -35,6 +35,7 @@ const staticRoutes: Array<[RegExp, (capabilities: Capabilities) => boolean]> = [
   [/^\/admin\/release-notes$/, can.manageReleaseNotes],
   [/^\/knowledge$/, can.viewKnowledge],
   [/^\/knowledge-maintenance$/, can.viewKnowledge],
+  [/^\/agents(?:\/knowledge-maintenance)?$/, can.viewKnowledge],
   [/^\/company-governance$/, can.viewCompanyKnowledge],
   [/^\/my\/knowledge$/, can.viewMyKnowledge],
   [/^\/my\/workbuddy$/, can.viewWorkbuddy],

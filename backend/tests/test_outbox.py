@@ -140,13 +140,15 @@ async def test_advertised_event_without_aggregate_is_failed_not_silently_complet
 
 
 async def test_every_advertised_notification_event_has_an_explicit_handler(monkeypatch):
-    aggregate = object()
+    aggregate = SimpleNamespace(id=REVIEW_SEED, recipient_id=REVIEW_SEED)
 
     class FakeSession:
         async def get(self, _model, _aggregate_id):
             return aggregate
 
     expected = {
+        domain_events.MAINTENANCE_DIGEST_READY: "notify_maintenance",
+        domain_events.MAINTENANCE_OPS_READY: "notify_maintenance",
         domain_events.REVIEW_ACTION_REQUIRED: "notify_review_pending",
         domain_events.REVIEW_DECIDED: "notify_review_decided",
         domain_events.INGEST_CONFIRMED: "notify_ingest_confirmed",
@@ -162,6 +164,11 @@ async def test_every_advertised_notification_event_has_an_explicit_handler(monke
         notification_event_consumers.NOTIFICATION_EVENT_TYPES
     )
     mocks = {}
+    monkeypatch.setattr(
+        notification_event_consumers.notifications,
+        "ops_signal_recipients",
+        AsyncMock(return_value=[REVIEW_SEED]),
+    )
     for function_name in expected.values():
         mock = AsyncMock()
         monkeypatch.setattr(notification_event_consumers.notifications, function_name, mock)
@@ -180,6 +187,7 @@ async def test_every_advertised_notification_event_has_an_explicit_handler(monke
     )
 
     for event_type, function_name in expected.items():
+        mocks[function_name].reset_mock()
         event = DomainEventOutbox(
             event_type=event_type,
             aggregate_type="test",

@@ -23,8 +23,12 @@ OPERATION_JOB_FINISHED = "OperationJobFinished"
 OPS_SIGNAL_RAISED = "OpsSignalRaised"
 LOCAL_NOTIFICATION_REQUESTED = "LocalNotificationRequested"
 KNOWLEDGE_TRUST_ACTION_REQUIRED = "KnowledgeTrustActionRequired"
+MAINTENANCE_DIGEST_READY = "MaintenanceDigestReady"
+MAINTENANCE_OPS_READY = "MaintenanceOpsReady"
 
 _ALLOWED_PAYLOADS: dict[str, frozenset[str]] = {
+    MAINTENANCE_DIGEST_READY: frozenset({"recipient_id"}),
+    MAINTENANCE_OPS_READY: frozenset({"status"}),
     KNOWLEDGE_TRUST_ACTION_REQUIRED: frozenset({"asset_id", "recipient_id", "notice_type"}),
     REVIEW_ACTION_REQUIRED: frozenset({"review_id", "project_id", "review_type", "status"}),
     REVIEW_DECIDED: frozenset({"review_id", "project_id", "decision", "status"}),

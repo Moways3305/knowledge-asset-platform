@@ -1,0 +1,225 @@
+"""Live authority for scheduled maintenance and its read projections."""
+
+import uuid
+from datetime import timezone
+
+from fastapi import HTTPException
+from sqlalchemy import and_, false, or_, select
+from sqlalchemy.orm import selectinload
+
+from app.models.identity import ProjectMember, User, UserCompanyRole
+from app.models.knowledge import KnowledgeAsset
+from app.models.maintenance_agent import MaintenanceIssue, MaintenancePolicy
+from app.schemas.permission import AccessChannel, AccessLayer
+from app.services.original_access import has_active_grant
+from app.services.permission import (
+    build_caller_context,
+    decide,
+    discovery_filter,
+    knowledge_manager_allowed,
+)
+from app.services.permission_rules import load_access_policy
+
+
+def stamp(value):
+    return value.replace(tzinfo=value.tzinfo or timezone.utc) if value else None
+
+
+def reject(status=404, message="知识库或巡检记录不存在或不可访问"):
+    return HTTPException(
+        status, detail={"denied_reason": "maintenance_agent_denied", "message": message}
+    )
+
+
+def eligible(asset):
+    return bool(
+        asset
+        and asset.deleted_at is None
+        and asset.zone == "asset"
+        and asset.scope in {"company", "project"}
+        and asset.asset_status in {"active", "needs_update"}
+    )
+
+
+def scope_filter(project_id=None):
+    return and_(
+        KnowledgeAsset.deleted_at.is_(None),
+        KnowledgeAsset.zone == "asset",
+        KnowledgeAsset.asset_status.in_(["active", "needs_update"]),
+        KnowledgeAsset.scope == ("project" if project_id else "company"),
+        KnowledgeAsset.project_id == project_id if project_id else True,
+    )
+
+
+def manager_filter(caller):
+    if not caller.is_active or not caller.is_business_user:
+        return false()
+    projects = [
+        key for key, role in caller.active_project_roles.items() if role == "project_manager"
+    ]
+    return and_(
+        discovery_filter(caller),
+        or_(
+            and_(KnowledgeAsset.scope == "company", caller.can_discover_l5),
+            and_(KnowledgeAsset.scope == "project", KnowledgeAsset.project_id.in_(projects)),
+        ),
+    )
+
+
+def responsibility_filter(caller):
+    business = (
+        select(UserCompanyRole.id)
+        .where(
+            UserCompanyRole.user_id == KnowledgeAsset.maintainer_user_id,
+            UserCompanyRole.status == "active",
+            UserCompanyRole.company_role.in_(["boss", "consulting_director", "consultant"]),
+        )
+        .correlate(KnowledgeAsset)
+        .exists()
+    )
+    governor = (
+        select(UserCompanyRole.id)
+        .where(
+            UserCompanyRole.user_id == KnowledgeAsset.maintainer_user_id,
+            UserCompanyRole.status == "active",
+            UserCompanyRole.company_role.in_(["boss", "consulting_director"]),
+        )
+        .correlate(KnowledgeAsset)
+        .exists()
+    )
+    project_manager = (
+        select(ProjectMember.id)
+        .where(
+            ProjectMember.user_id == KnowledgeAsset.maintainer_user_id,
+            ProjectMember.project_id == KnowledgeAsset.project_id,
+            ProjectMember.status == "active",
+            ProjectMember.project_role == "project_manager",
+        )
+        .correlate(KnowledgeAsset)
+        .exists()
+    )
+    active_user = (
+        select(User.id)
+        .where(User.id == KnowledgeAsset.maintainer_user_id, User.status == "active")
+        .correlate(KnowledgeAsset)
+        .exists()
+    )
+    assigned_valid = and_(
+        active_user,
+        business,
+        or_(KnowledgeAsset.confidentiality_level != "L5", governor),
+        or_(
+            and_(KnowledgeAsset.scope == "company", governor),
+            and_(KnowledgeAsset.scope == "project", project_manager),
+        ),
+    )
+    return or_(KnowledgeAsset.maintainer_user_id == caller.user_id, ~assigned_valid)
+
+
+def visible_issue_query(caller, *, mine=False):
+    visible = select(KnowledgeAsset.id).where(
+        manager_filter(caller),
+        KnowledgeAsset.deleted_at.is_(None),
+        KnowledgeAsset.zone == "asset",
+        KnowledgeAsset.scope.in_(["company", "project"]),
+        KnowledgeAsset.asset_status.in_(["active", "needs_update"]),
+    )
+    query = (
+        select(MaintenanceIssue)
+        .join(KnowledgeAsset, MaintenanceIssue.asset_id == KnowledgeAsset.id)
+        .join(MaintenancePolicy, MaintenanceIssue.policy_id == MaintenancePolicy.id)
+        .where(
+            MaintenanceIssue.asset_id.in_(visible),
+            or_(
+                MaintenanceIssue.related_asset_id.is_(None),
+                MaintenanceIssue.related_asset_id.in_(visible),
+            ),
+            or_(
+                and_(KnowledgeAsset.scope == "company", MaintenancePolicy.project_id.is_(None)),
+                and_(
+                    KnowledgeAsset.scope == "project",
+                    KnowledgeAsset.project_id == MaintenancePolicy.project_id,
+                ),
+            ),
+        )
+    )
+    return query.where(responsibility_filter(caller)) if mine else query
+
+
+def library_allowed(caller, project_id):
+    return bool(
+        caller.is_active
+        and caller.is_business_user
+        and (
+            caller.can_discover_l5
+            if project_id is None
+            else caller.active_project_roles.get(project_id) == "project_manager"
+            and project_id in caller.active_project_ids
+        )
+    )
+
+
+async def actor_context(session, user_id, role):
+    user = await session.scalar(
+        select(User)
+        .where(User.id == user_id)
+        .options(selectinload(User.company_roles), selectinload(User.project_members))
+    )
+    if (
+        not user
+        or user.status != "active"
+        or not any(r.company_role == role and r.status == "active" for r in user.company_roles)
+    ):
+        return None
+    return build_caller_context(user, active_company_role=role)
+
+
+async def original_allowed(session, caller, asset, *, agent=False):
+    if not caller or not eligible(asset):
+        return False
+    policy = await load_access_policy(session)
+    grant = await has_active_grant(session, caller.user_id, asset.id)
+    return decide(
+        caller,
+        asset,
+        AccessLayer.original,
+        channel=AccessChannel.agent if agent else AccessChannel.human,
+        policy=policy,
+        has_original_grant=grant,
+    ).allowed
+
+
+async def recipients(session, asset):
+    """Assignment never adds business permissions; evaluate every active identity."""
+    users = (
+        await session.scalars(
+            select(User)
+            .where(User.status == "active")
+            .options(selectinload(User.company_roles), selectinload(User.project_members))
+        )
+    ).all()
+    qualified = [
+        u
+        for u in users
+        if any(
+            knowledge_manager_allowed(
+                build_caller_context(u, active_company_role=r.company_role), asset
+            )
+            for r in u.company_roles
+            if r.status == "active"
+        )
+    ]
+    assigned = [u for u in qualified if u.id == asset.maintainer_user_id]
+    return [{"id": str(u.id), "name": u.name} for u in assigned or qualified]
+
+
+def parse_key(key):
+    if key == "company":
+        return None
+    try:
+        prefix, value = key.split(":", 1)
+        if prefix == "project":
+            return uuid.UUID(value)
+    except (ValueError, AttributeError):
+        pass
+    raise reject()

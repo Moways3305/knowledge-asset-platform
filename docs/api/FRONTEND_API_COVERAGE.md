@@ -2,7 +2,7 @@
 
 由 `npm run api:frontend:generate` 生成，契约来源 `docs/api/openapi.json`，人工复核来源 `frontend-api-review.json`。
 
-共 247 个 HTTP 操作；静态调用已接入 198，已有替代流程 14，系统集成 32，传输基础设施 1，动态资源 2。
+共 254 个 HTTP 操作；静态调用已接入 205，已有替代流程 14，系统集成 32，传输基础设施 1，动态资源 2。
 
 静态调用仅表示找到了封装及直接导入/转导出，不代表每个接口都有独立按钮，也不证明真实环境全流程通过。动态资源单列；请求/响应 DTO 仍由领域适配器和测试校验。
 
@@ -202,6 +202,13 @@
 | `POST /api/v1/knowledge/{asset_id}/trust/review` | 静态调用已接入 | `src/api/knowledgeTrust.ts#reviewTrust` → `src/components/KnowledgeTrustPanel.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `GET /api/v1/knowledge/{asset_id}/versions` | 静态调用已接入 | `src/api/knowledgeVersions.ts#fetchVersionHistory` → `src/components/KnowledgeVersionPanel.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `GET /api/v1/knowledge/{asset_id}/versions/compare` | 静态调用已接入 | `src/api/knowledgeVersions.ts#compareVersions` → `src/components/KnowledgeVersionPanel.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `GET /api/v1/maintenance-agent/issues` | 静态调用已接入 | `src/api/maintenanceAgent.ts#fetchAgentIssues` → `src/pages/MaintenanceAgentPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `GET /api/v1/maintenance-agent/issues/{issue_id}` | 静态调用已接入 | `src/api/maintenanceAgent.ts#fetchAgentIssue` → `src/pages/MaintenanceAgentPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `POST /api/v1/maintenance-agent/issues/{issue_id}/actions` | 静态调用已接入 | `src/api/maintenanceAgent.ts#actOnAgentIssue` → `src/pages/MaintenanceAgentPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `GET /api/v1/maintenance-agent/policies` | 静态调用已接入 | `src/api/maintenanceAgent.ts#fetchAgentPolicies` → `src/pages/MaintenanceAgentPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `PUT /api/v1/maintenance-agent/policies/{library_key}` | 静态调用已接入 | `src/api/maintenanceAgent.ts#saveAgentPolicy` → `src/pages/MaintenanceAgentPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `GET /api/v1/maintenance-agent/policies/{library_key}/runs` | 静态调用已接入 | `src/api/maintenanceAgent.ts#fetchAgentRuns` → `src/pages/MaintenanceAgentPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `POST /api/v1/maintenance-agent/policies/{library_key}/runs` | 静态调用已接入 | `src/api/maintenanceAgent.ts#startAgentRun` → `src/pages/MaintenanceAgentPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `GET /api/v1/my/knowledge` | 静态调用已接入 | `src/api/personal.ts#fetchMyKnowledge` → `src/pages/controllers/MyKnowledge/useMyKnowledge.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `GET /api/v1/my/knowledge-base` | 静态调用已接入 | `src/api/personal.ts#fetchMyKnowledgeBase` → `src/pages/controllers/MyKnowledge/useMyKnowledge.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `POST /api/v1/my/knowledge-base` | 静态调用已接入 | `src/api/personal.ts#createMyKnowledgeBase` → `src/pages/controllers/MyKnowledge/useMyKnowledge.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |

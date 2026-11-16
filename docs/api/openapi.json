@@ -7492,6 +7492,300 @@
         "title": "InsightRecentItem",
         "type": "object"
       },
+      "IssueCommand": {
+        "properties": {
+          "action": {
+            "enum": [
+              "in_progress",
+              "recheck",
+              "snoozed",
+              "false_positive",
+              "resolved"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "expected_updated_at": {
+            "format": "date-time",
+            "title": "Expected Updated At",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "Reason",
+            "type": "string"
+          },
+          "snooze_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snooze Until"
+          }
+        },
+        "required": [
+          "expected_updated_at",
+          "action"
+        ],
+        "title": "IssueCommand",
+        "type": "object"
+      },
+      "IssueDetail": {
+        "properties": {
+          "asset_id": {
+            "format": "uuid",
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "can_act": {
+            "title": "Can Act",
+            "type": "boolean"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "current_version_matches": {
+            "title": "Current Version Matches",
+            "type": "boolean"
+          },
+          "evidence": {
+            "additionalProperties": true,
+            "title": "Evidence",
+            "type": "object"
+          },
+          "evidence_available": {
+            "title": "Evidence Available",
+            "type": "boolean"
+          },
+          "first_seen_at": {
+            "format": "date-time",
+            "title": "First Seen At",
+            "type": "string"
+          },
+          "history": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_seen_at": {
+            "format": "date-time",
+            "title": "Last Seen At",
+            "type": "string"
+          },
+          "library_key": {
+            "title": "Library Key",
+            "type": "string"
+          },
+          "responsible": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Responsible",
+            "type": "array"
+          },
+          "rule": {
+            "title": "Rule",
+            "type": "string"
+          },
+          "snooze_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snooze Until"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "suspected": {
+            "title": "Suspected",
+            "type": "boolean"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "asset_id",
+          "title",
+          "library_key",
+          "rule",
+          "category",
+          "status",
+          "suspected",
+          "first_seen_at",
+          "last_seen_at",
+          "updated_at",
+          "snooze_until",
+          "responsible",
+          "can_act",
+          "evidence",
+          "evidence_available",
+          "current_version_matches",
+          "history"
+        ],
+        "title": "IssueDetail",
+        "type": "object"
+      },
+      "IssueOut": {
+        "properties": {
+          "asset_id": {
+            "format": "uuid",
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "can_act": {
+            "title": "Can Act",
+            "type": "boolean"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "first_seen_at": {
+            "format": "date-time",
+            "title": "First Seen At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_seen_at": {
+            "format": "date-time",
+            "title": "Last Seen At",
+            "type": "string"
+          },
+          "library_key": {
+            "title": "Library Key",
+            "type": "string"
+          },
+          "responsible": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Responsible",
+            "type": "array"
+          },
+          "rule": {
+            "title": "Rule",
+            "type": "string"
+          },
+          "snooze_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snooze Until"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "suspected": {
+            "title": "Suspected",
+            "type": "boolean"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "asset_id",
+          "title",
+          "library_key",
+          "rule",
+          "category",
+          "status",
+          "suspected",
+          "first_seen_at",
+          "last_seen_at",
+          "updated_at",
+          "snooze_until",
+          "responsible",
+          "can_act"
+        ],
+        "title": "IssueOut",
+        "type": "object"
+      },
+      "IssuePage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/IssueOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "IssuePage",
+        "type": "object"
+      },
       "KbConfigListResponse": {
         "properties": {
           "items": {
@@ -13129,6 +13423,95 @@
         "title": "PersonalSubmitBulkRequest",
         "type": "object"
       },
+      "PolicyCommand": {
+        "properties": {
+          "content_authorized": {
+            "default": false,
+            "title": "Content Authorized",
+            "type": "boolean"
+          },
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "expected_revision": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/ScanSettings"
+          }
+        },
+        "title": "PolicyCommand",
+        "type": "object"
+      },
+      "PolicyOut": {
+        "properties": {
+          "can_configure": {
+            "default": false,
+            "title": "Can Configure",
+            "type": "boolean"
+          },
+          "content_authorized": {
+            "default": false,
+            "title": "Content Authorized",
+            "type": "boolean"
+          },
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "library_key": {
+            "title": "Library Key",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "revision": {
+            "default": 0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/ScanSettings"
+          }
+        },
+        "required": [
+          "library_key",
+          "name"
+        ],
+        "title": "PolicyOut",
+        "type": "object"
+      },
       "PreviewEntryResponse": {
         "description": "平台受控预览入口返回（按文件类型分发渲染方式）。\n\n- render_type：pdf / image / markdown / text / office——前端据此选择渲染器；\n- file_url：平台受控取件相对路径（含短时 fetch token，仅凭证有效期内可读），\n  供浏览器内嵌（PDF 查看器 / 图片 / 文本读取）使用；\n- onlyoffice_config：render_type=office 时含 Document Server 编辑器配置 + 平台受控取件 URL；\n**绝不**含内部存储引用 / 源文件引用 / 对象存储 URL / 完整凭证 token / jwt 密钥 /\nWeKnora id。未配置 / 不支持类型 / 无可用源 时对应字段为 None，message 给安全说明。",
         "properties": {
@@ -16914,6 +17297,83 @@
         "title": "RoleStatus",
         "type": "string"
       },
+      "RunOut": {
+        "properties": {
+          "completed_count": {
+            "title": "Completed Count",
+            "type": "integer"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "incomplete_count": {
+            "title": "Incomplete Count",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "policy_id": {
+            "format": "uuid",
+            "title": "Policy Id",
+            "type": "string"
+          },
+          "reasons": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Reasons",
+            "type": "object"
+          },
+          "skipped_count": {
+            "title": "Skipped Count",
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "target_count": {
+            "title": "Target Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "policy_id",
+          "kind",
+          "status",
+          "target_count",
+          "completed_count",
+          "incomplete_count",
+          "skipped_count",
+          "reasons",
+          "started_at",
+          "finished_at"
+        ],
+        "title": "RunOut",
+        "type": "object"
+      },
       "RuntimeHealth": {
         "properties": {
           "last_heartbeat_at": {
@@ -16943,6 +17403,70 @@
           "message"
         ],
         "title": "RuntimeHealth",
+        "type": "object"
+      },
+      "ScanSettings": {
+        "properties": {
+          "daily_hour": {
+            "default": 2,
+            "maximum": 23.0,
+            "minimum": 0.0,
+            "title": "Daily Hour",
+            "type": "integer"
+          },
+          "digest_hour": {
+            "default": 9,
+            "maximum": 23.0,
+            "minimum": 0.0,
+            "title": "Digest Hour",
+            "type": "integer"
+          },
+          "max_body_chars": {
+            "default": 24000,
+            "maximum": 60000.0,
+            "minimum": 1000.0,
+            "title": "Max Body Chars",
+            "type": "integer"
+          },
+          "overdue_days": {
+            "default": 7,
+            "maximum": 365.0,
+            "minimum": 1.0,
+            "title": "Overdue Days",
+            "type": "integer"
+          },
+          "required_sections": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Required Sections",
+            "type": "array"
+          },
+          "required_tags": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Required Tags",
+            "type": "array"
+          },
+          "similarity_threshold": {
+            "default": 0.85,
+            "maximum": 1.0,
+            "minimum": 0.5,
+            "title": "Similarity Threshold",
+            "type": "number"
+          },
+          "weekly_day": {
+            "default": 6,
+            "maximum": 6.0,
+            "minimum": 0.0,
+            "title": "Weekly Day",
+            "type": "integer"
+          }
+        },
+        "title": "ScanSettings",
         "type": "object"
       },
       "SearchCardOut": {
@@ -37587,6 +38111,738 @@
         "summary": "Knowledge Version Compare",
         "tags": [
           "knowledge"
+        ]
+      }
+    },
+    "/api/v1/maintenance-agent/issues": {
+      "get": {
+        "operationId": "issues_api_v1_maintenance_agent_issues_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "library_key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Library Key"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "default": "active",
+              "enum": [
+                "active",
+                "all",
+                "open",
+                "in_progress",
+                "awaiting_recheck",
+                "resolved",
+                "false_positive",
+                "snoozed",
+                "not_applicable"
+              ],
+              "title": "Status",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "integrity",
+                    "availability",
+                    "maintenance",
+                    "duplicates",
+                    "quality"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          },
+          {
+            "in": "query",
+            "name": "mine",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Mine",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuePage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Issues",
+        "tags": [
+          "maintenance-agent"
+        ]
+      }
+    },
+    "/api/v1/maintenance-agent/issues/{issue_id}": {
+      "get": {
+        "operationId": "issue_detail_api_v1_maintenance_agent_issues__issue_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "issue_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Issue Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Issue Detail",
+        "tags": [
+          "maintenance-agent"
+        ]
+      }
+    },
+    "/api/v1/maintenance-agent/issues/{issue_id}/actions": {
+      "post": {
+        "operationId": "issue_action_api_v1_maintenance_agent_issues__issue_id__actions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "issue_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Issue Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssueCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Issue Action",
+        "tags": [
+          "maintenance-agent"
+        ]
+      }
+    },
+    "/api/v1/maintenance-agent/policies": {
+      "get": {
+        "operationId": "policies_api_v1_maintenance_agent_policies_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PolicyOut"
+                  },
+                  "title": "Response Policies Api V1 Maintenance Agent Policies Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Policies",
+        "tags": [
+          "maintenance-agent"
+        ]
+      }
+    },
+    "/api/v1/maintenance-agent/policies/{library_key}": {
+      "put": {
+        "operationId": "configure_api_v1_maintenance_agent_policies__library_key__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "library_key",
+            "required": true,
+            "schema": {
+              "title": "Library Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Configure",
+        "tags": [
+          "maintenance-agent"
+        ]
+      }
+    },
+    "/api/v1/maintenance-agent/policies/{library_key}/runs": {
+      "get": {
+        "operationId": "runs_api_v1_maintenance_agent_policies__library_key__runs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "library_key",
+            "required": true,
+            "schema": {
+              "title": "Library Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RunOut"
+                  },
+                  "title": "Response Runs Api V1 Maintenance Agent Policies  Library Key  Runs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Runs",
+        "tags": [
+          "maintenance-agent"
+        ]
+      },
+      "post": {
+        "operationId": "run_now_api_v1_maintenance_agent_policies__library_key__runs_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "library_key",
+            "required": true,
+            "schema": {
+              "title": "Library Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Now",
+        "tags": [
+          "maintenance-agent"
         ]
       }
     },

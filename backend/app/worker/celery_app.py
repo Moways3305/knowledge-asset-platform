@@ -33,6 +33,7 @@ def _make_celery() -> Celery:
         broker=broker,
         backend=backend,
         include=[
+            "app.worker.tasks.maintenance_agent",
             "app.worker.tasks.ingest",
             "app.worker.tasks.ingest_recovery",
             "app.worker.tasks.parse",
@@ -65,6 +66,10 @@ def _make_celery() -> Celery:
         # 定时调度（celery beat）：扫描类作业按日触发；实际由 worker+beat 驱动，
         # 测试直接调用 service 层，不依赖 beat。
         beat_schedule={
+            "maintenance-agent-tick": {
+                "task": "maintenance_agent.tick",
+                "schedule": 60.0,
+            },
             "weknora-parse-reconcile": {
                 "task": "weknora.parse_reconcile",
                 "schedule": 300.0,  # 每 5 分钟对账解析状态

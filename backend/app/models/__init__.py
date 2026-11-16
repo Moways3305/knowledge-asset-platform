@@ -47,6 +47,14 @@ from app.models.lifecycle import (
     NotificationRecord,
 )
 from app.models.llm_usage import LLMUsageEvent
+from app.models.maintenance_agent import (
+    MaintenanceCheck,
+    MaintenanceDigest,
+    MaintenanceIssue,
+    MaintenanceIssueEvent,
+    MaintenancePolicy,
+    MaintenanceRun,
+)
 from app.models.mcp_oauth import McpOAuthRecord
 from app.models.model_registry import ProviderConnection, RegisteredModel
 from app.models.naming import NamingRuleRevision
@@ -68,6 +76,12 @@ from app.models.weknora import WeknoraKbMapping
 from app.models.weknora_defaults import WeknoraDefaultModels
 
 __all__ = [
+    "MaintenanceCheck",
+    "MaintenanceDigest",
+    "MaintenanceIssue",
+    "MaintenanceIssueEvent",
+    "MaintenancePolicy",
+    "MaintenanceRun",
     "GovernanceScanRun",
     "ProviderConnection",
     "RegisteredModel",
