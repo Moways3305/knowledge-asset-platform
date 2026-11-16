@@ -23,6 +23,7 @@ from app.schemas.maintenance_agent import ScanSettings
 from app.services import audit, domain_events
 from app.services import maintenance_access as access
 from app.services.generation_models import resolve_generation_llm_client
+from app.services.llm_client import NullLLMClient
 from app.services.maintenance_rules import analyze, deterministic, digest, finding
 from app.services.maintenance_snapshots import capture
 from app.services.storage import get_storage
@@ -459,7 +460,7 @@ async def process_one(maker, *, storage=None, client=None):
         settings = ScanSettings(**policy.settings)
         snapshot, error = await capture(session, policy, asset, settings, now)
         run_id, asset_id, kind = run.id, asset.id, run.kind
-        llm = client or await resolve_generation_llm_client(session)
+        llm = client or await resolve_generation_llm_client(session, model_ref=settings.model_ref)
         if snapshot and snapshot["allowed"]:
             await audit.record_system_event(
                 session,
@@ -487,7 +488,9 @@ async def process_one(maker, *, storage=None, client=None):
             if not readable:
                 findings.append(finding("file_unavailable"))
         if snapshot["coverage"]["quality"] == "complete":
-            if kind == "incremental" and snapshot["unchanged"]:
+            if isinstance(llm, NullLLMClient):
+                snapshot["coverage"]["quality"] = "model_unavailable"
+            elif kind == "incremental" and snapshot["unchanged"]:
                 snapshot["coverage"]["quality"] = "unchanged"
             else:
                 quality, reason = await analyze(snapshot, settings, llm)
