@@ -27,6 +27,7 @@ const ROUTES: Record<string, string> = {
   knowledge_detail: "/knowledge/:id",
 };
 const CATEGORY_LABEL: Record<string, string> = {
+  knowledge: "知识维护",
   review: "审核",
   ingest: "入库",
   parsing: "解析",
