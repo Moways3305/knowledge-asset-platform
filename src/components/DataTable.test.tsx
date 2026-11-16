@@ -54,15 +54,9 @@ describe("DataTable", () => {
     expect(container.querySelector(".product-table-state-content svg")).toBeInTheDocument();
   });
 
-  it("shows the loading text instead of rows while loading", () => {
+  it("shows the loading text only before rows are available", () => {
     const { container } = render(
-      <DataTable
-        columns={columns}
-        rows={rows}
-        rowKey={(r) => r.id}
-        loading
-        loadingText="加载中…"
-      />,
+      <DataTable columns={columns} rows={[]} rowKey={(r) => r.id} loading loadingText="加载中…" />,
     );
     expect(screen.getByText("加载中…")).toBeInTheDocument();
     expect(screen.getByRole("table")).toHaveAttribute("aria-busy", "true");
@@ -70,4 +64,32 @@ describe("DataTable", () => {
     expect(container.querySelector(".product-table-state-content svg")).toBeInTheDocument();
     expect(screen.queryByText("甲")).not.toBeInTheDocument();
   });
+});
+
+it("retains mounted rows, expanded details and focus while revalidating", () => {
+  const cols: Column<Row>[] = [
+    {
+      key: "name",
+      header: "名称",
+      render: (row) => (
+        <details>
+          <summary>{row.name}</summary>
+          <input aria-label={`备注${row.id}`} defaultValue="" />
+        </details>
+      ),
+    },
+  ];
+  const { rerender } = render(<DataTable columns={cols} rows={rows} rowKey={(row) => row.id} />);
+  const summary = screen.getByText("甲");
+  fireEvent.click(summary);
+  const details = summary.closest("details")!;
+  details.open = true;
+  const input = screen.getByLabelText("备注a");
+  fireEvent.change(input, { target: { value: "未保存的备注" } });
+  input.focus();
+  rerender(<DataTable columns={cols} rows={rows} rowKey={(row) => row.id} loading />);
+  expect(input).toHaveFocus();
+  expect(input).toHaveValue("未保存的备注");
+  expect(details.open).toBe(true);
+  expect(screen.getByLabelText("备注a")).toBe(input);
 });

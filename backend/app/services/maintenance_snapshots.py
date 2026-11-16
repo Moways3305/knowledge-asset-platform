@@ -6,7 +6,6 @@ from sqlalchemy import func, select
 
 from app.models.knowledge import (
     KnowledgeAsset,
-    KnowledgeAssetChunk,
     KnowledgeAssetFileObject,
     KnowledgeAssetSummary,
     KnowledgeAssetTag,
@@ -16,10 +15,12 @@ from app.models.knowledge_correction import KnowledgeCorrection
 from app.models.maintenance_agent import MaintenanceCheck
 from app.services import maintenance_access as access
 from app.services.maintenance_rules import digest
+from app.services.maintenance_windows import capture_windows
 from app.services.permission import knowledge_manager_allowed
 
 
-async def capture(session, policy, asset, settings, now):
+async def capture(session, policy, asset, settings, now, work=None):
+    work = work or {}
     caller = await access.actor_context(session, policy.authorized_by, policy.authorized_role)
     if not caller or not access.library_allowed(caller, policy.project_id):
         return None, "authorization_expired"
@@ -96,22 +97,30 @@ async def capture(session, policy, asset, settings, now):
             )
         ),
     }
-    # Full eligible library, not the daily delta. A cap is explicit incomplete coverage.
-    pairs = (
-        await session.execute(
-            select(KnowledgeAsset, KnowledgeAssetVersion)
-            .join(
-                KnowledgeAssetVersion, KnowledgeAsset.current_version_id == KnowledgeAssetVersion.id
-            )
-            .where(
-                access.scope_filter(policy.project_id),
-                access.manager_filter(caller),
-                KnowledgeAssetVersion.version_status == "active",
-            )
-            .order_by(KnowledgeAsset.id)
-            .limit(501)
+    # Full eligible library, paged by stable UUID; each batch advances a durable cursor.
+    candidate_query = (
+        select(KnowledgeAsset, KnowledgeAssetVersion)
+        .join(KnowledgeAssetVersion, KnowledgeAsset.current_version_id == KnowledgeAssetVersion.id)
+        .where(
+            access.scope_filter(policy.project_id),
+            access.manager_filter(caller),
+            KnowledgeAssetVersion.version_status == "active",
         )
-    ).all()
+    )
+    candidate_count = await session.scalar(
+        select(func.count()).select_from(candidate_query.subquery())
+    )
+    if work.get("candidate_cursor"):
+        import uuid
+
+        candidate_query = candidate_query.where(
+            KnowledgeAsset.id > uuid.UUID(work["candidate_cursor"])
+        )
+    pairs = (
+        (await session.execute(candidate_query.order_by(KnowledgeAsset.id).limit(501))).all()
+        if not work.get("comparison_done")
+        else []
+    )
     candidates = [
         {
             "id": str(a.id),
@@ -129,75 +138,29 @@ async def capture(session, policy, asset, settings, now):
     coverage = {
         "integrity": "complete",
         "maintenance": "complete",
-        "duplicates": "complete" if len(pairs) <= 500 else "candidate_limit",
+        "duplicates": "complete" if len(pairs) <= 500 else "in_progress",
         "availability": "complete",
         "quality": "complete",
     }
+    window = None
     if allowed:
-        chunk_filter = (
-            KnowledgeAssetChunk.asset_id == asset.id,
-            KnowledgeAssetChunk.version_id == version.id,
-            KnowledgeAssetChunk.chunk_status == "active",
-        )
-        count, length = (
-            await session.execute(
-                select(
-                    func.count(),
-                    func.coalesce(func.sum(func.length(KnowledgeAssetChunk.content_text)), 0),
-                ).where(*chunk_filter)
-            )
-        ).one()
-        if count > 200 or length + count > settings.max_body_chars:
-            coverage["quality"] = "body_limit"
-        else:
-            chunks = (
-                await session.scalars(
-                    select(KnowledgeAssetChunk)
-                    .where(*chunk_filter)
-                    .order_by(KnowledgeAssetChunk.chunk_index)
-                    .limit(200)
-                )
-            ).all()
-            body = "\n".join(c.content_text for c in chunks)
-        if coverage["quality"] == "complete" and (
-            not body.strip() or version.weknora_parse_status != "completed"
-        ):
+        window = await capture_windows(session, asset, version, settings, work)
+        body, summary = window["body"], window["summary"]
+        if not window["body_total"] or version.weknora_parse_status != "completed":
             coverage["quality"] = "body_unavailable"
-        if await session.scalar(
-            select(KnowledgeAssetChunk.id)
-            .where(
-                KnowledgeAssetChunk.version_id == version.id,
-                KnowledgeAssetChunk.chunk_status != "active",
-            )
-            .limit(1)
-        ):
+        if window["inactive"]:
             coverage["quality"] = "body_incomplete"
-        summary_length = await session.scalar(
-            select(func.sum(func.length(KnowledgeAssetSummary.content))).where(
-                KnowledgeAssetSummary.asset_id == asset.id,
-                KnowledgeAssetSummary.version_id == version.id,
-            )
-        )
-        if (summary_length or 0) > 4900:
-            coverage["quality"] = "summary_limit"
-        else:
-            summaries = (await session.scalars(summary_query)).all()
-            summary = "\n".join(s.content or "" for s in summaries)
         refs = list(
             (
                 await session.scalars(
-                    select(KnowledgeAssetFileObject.storage_ref)
-                    .where(
+                    select(KnowledgeAssetFileObject.storage_ref).where(
                         KnowledgeAssetFileObject.asset_id == asset.id,
                         KnowledgeAssetFileObject.version_id == version.id,
                         KnowledgeAssetFileObject.file_variant == "original",
                     )
-                    .limit(21)
                 )
             ).all()
         )
-        if len(refs) > 20:
-            coverage["availability"] = "file_limit"
     else:
         coverage["quality"] = "content_not_authorized"
         coverage["availability"] = "content_not_authorized"
@@ -206,7 +169,16 @@ async def capture(session, policy, asset, settings, now):
         "indexing",
     }:
         coverage["availability"] = "processing_pending"
-    fingerprint = digest([facts, body, summary, refs, allowed, policy.revision, responsible])
+    fingerprint = digest(
+        [
+            facts,
+            window["signature"] if window else None,
+            refs,
+            allowed,
+            policy.revision,
+            responsible,
+        ]
+    )
     check = await session.scalar(
         select(MaintenanceCheck).where(
             MaintenanceCheck.policy_id == policy.id, MaintenanceCheck.asset_id == asset.id
@@ -215,12 +187,16 @@ async def capture(session, policy, asset, settings, now):
     return {
         "facts": facts,
         "body": body,
+        "window": window,
         "summary": summary,
         "refs": refs,
         "allowed": allowed,
         "coverage": coverage,
         "fingerprint": fingerprint,
         "candidate_fingerprint": digest(candidates),
+        "candidate_count": candidate_count,
+        "comparison_done": len(pairs) <= 500,
+        "window_fingerprint": digest([body, summary]),
         "candidates": candidates,
         "responsible": responsible,
         "unchanged": bool(

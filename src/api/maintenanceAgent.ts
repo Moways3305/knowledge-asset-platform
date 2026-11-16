@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut } from "./http";
+import { apiDelete, apiGet, apiPost, apiPut } from "./http";
 
 export interface ScanSettings {
   model_ref: string;
@@ -61,6 +61,7 @@ export interface IssueDetail extends MaintenanceIssue {
     similarity?: number;
     due_at?: string;
     missing_tags?: string[];
+    missing_sections?: string[];
   };
   evidence_available: boolean;
   current_version_matches: boolean;
@@ -79,6 +80,7 @@ export interface ScanRun {
   started_at: string;
   finished_at: string | null;
   last_progress_at?: string;
+  can_retry?: boolean;
 }
 export interface ScanScope {
   assessed_at: string;
@@ -103,6 +105,7 @@ export interface ScanRunDetail extends ScanRun {
     findings: Record<string, number>;
     reasons: string[];
     checked_at: string | null;
+    progress?: Record<string, number>;
   }[];
   total: number;
   page: number;
@@ -134,6 +137,25 @@ export const saveAgentPolicy = (
 ) => apiPut<AgentPolicy>(`/api/v1/maintenance-agent/policies/${encodeURIComponent(key)}`, policy);
 export const startAgentRun = (key: string) =>
   apiPost<ScanRun>(`/api/v1/maintenance-agent/policies/${encodeURIComponent(key)}/runs`, {});
+export const cancelAgentRun = (key: string, id: string) =>
+  apiPost<ScanRun>(
+    `/api/v1/maintenance-agent/policies/${encodeURIComponent(key)}/runs/${encodeURIComponent(id)}/cancel`,
+    {},
+  );
+export const retryAgentRun = (key: string, id: string) =>
+  apiPost<ScanRun>(
+    `/api/v1/maintenance-agent/policies/${encodeURIComponent(key)}/runs/${encodeURIComponent(id)}/retry`,
+    {},
+  );
+export const deleteAgentRun = (key: string, id: string) =>
+  apiDelete<{ deleted_count: number }>(
+    `/api/v1/maintenance-agent/policies/${encodeURIComponent(key)}/runs/${encodeURIComponent(id)}`,
+  );
+export const deleteAgentRuns = (key: string, ids: string[]) =>
+  apiPost<{ deleted_count: number }>(
+    `/api/v1/maintenance-agent/policies/${encodeURIComponent(key)}/runs/delete`,
+    { run_ids: ids },
+  );
 export const fetchAgentRuns = (key: string, page = 1) =>
   apiGet<ScanRun[]>(
     `/api/v1/maintenance-agent/policies/${encodeURIComponent(key)}/runs?page=${page}`,

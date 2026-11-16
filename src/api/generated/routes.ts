@@ -195,6 +195,9 @@ export interface ApiRoutes {
     | `/api/v1/knowledge/${string}/trust/review`
     | `/api/v1/maintenance-agent/issues/${string}/actions`
     | `/api/v1/maintenance-agent/policies/${string}/runs`
+    | `/api/v1/maintenance-agent/policies/${string}/runs/delete`
+    | `/api/v1/maintenance-agent/policies/${string}/runs/${string}/cancel`
+    | `/api/v1/maintenance-agent/policies/${string}/runs/${string}/retry`
     | `/api/v1/my/knowledge-base`
     | `/api/v1/my/knowledge/bulk-submit-to-project`
     | `/api/v1/my/knowledge/${string}/confirm-asset`
@@ -259,6 +262,7 @@ export interface ApiRoutes {
     | `/api/v1/ingest/upload-sessions/${string}/failed-items`
     | `/api/v1/ingest/upload-sessions/${string}/items/${string}`
     | `/api/v1/ingest/${string}`
+    | `/api/v1/maintenance-agent/policies/${string}/runs/${string}`
     | `/api/v1/projects/${string}`
     | `/api/v1/projects/${string}/members/${string}`;
   head: never;

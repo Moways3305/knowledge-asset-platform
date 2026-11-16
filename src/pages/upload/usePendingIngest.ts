@@ -5,6 +5,8 @@ import type { PendingIngestItemDTO } from "../../types/ingest";
 import type { PathBranch } from "./uploadConstants";
 
 export function usePendingIngest(activePath: PathBranch) {
+  const pendingLoaded = useRef(false);
+  const localPendingLoaded = useRef(false);
   const pendingRequestRef = useRef(0);
   const localPendingRequestRef = useRef(0);
   const batchRunRef = useRef<number | null>(null);
@@ -55,16 +57,21 @@ export function usePendingIngest(activePath: PathBranch) {
   const loadPending = useCallback(
     async (reconcile = true) => {
       const requestId = ++pendingRequestRef.current;
-      setPendingLoading(true);
+      setPendingLoading(!pendingLoaded.current);
       setPendingError(null);
       try {
         const tasks = await fetchPendingIngestTasks("path_a_wecom");
         if (pendingRequestRef.current === requestId) {
+          pendingLoaded.current = true;
           setPendingTasks(tasks);
           if (reconcile) reconcileBatchState(tasks);
         }
       } catch (error) {
         if (pendingRequestRef.current === requestId) {
+          if (error instanceof ApiError && [401, 403].includes(error.status)) {
+            pendingLoaded.current = false;
+            setPendingTasks([]);
+          }
           setPendingError(
             error instanceof ApiError ? error.message : "待确认任务暂时无法加载，请稍后重试",
           );
@@ -78,16 +85,21 @@ export function usePendingIngest(activePath: PathBranch) {
 
   const loadLocalPending = useCallback(async () => {
     const requestId = ++localPendingRequestRef.current;
-    setLocalPendingLoading(true);
+    setLocalPendingLoading(!localPendingLoaded.current);
     setLocalPendingError(null);
     try {
       const tasks = await fetchPendingIngestTasks("path_b_upload");
       if (localPendingRequestRef.current === requestId) {
+        localPendingLoaded.current = true;
         setLocalPendingTasks(tasks);
         reconcileBatchState(tasks);
       }
     } catch (error) {
       if (localPendingRequestRef.current === requestId) {
+        if (error instanceof ApiError && [401, 403].includes(error.status)) {
+          localPendingLoaded.current = false;
+          setLocalPendingTasks([]);
+        }
         setLocalPendingError(
           error instanceof ApiError ? error.message : "待确认任务暂时无法加载，请稍后重试",
         );

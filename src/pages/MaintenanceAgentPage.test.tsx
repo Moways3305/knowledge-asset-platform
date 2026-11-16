@@ -9,6 +9,10 @@ vi.mock("../auth/AuthContext", () => ({
   useAuth: () => ({ capabilities: { isGovernance: true } }),
 }));
 vi.mock("../api/maintenanceAgent", () => ({
+  cancelAgentRun: vi.fn(),
+  retryAgentRun: vi.fn(),
+  deleteAgentRun: vi.fn(),
+  deleteAgentRuns: vi.fn(),
   fetchAgentPolicies: vi.fn(),
   fetchAgentIssues: vi.fn(),
   fetchAgentRuns: vi.fn(),
@@ -198,7 +202,7 @@ it("opens progress for a running scan instead of submitting another run", async 
 it("opens zero-target legacy history and distinguishes today's scope from missing history", async () => {
   vi.mocked(api.fetchAgentRuns).mockResolvedValue([{ ...run, status: "completed" }]);
   mount("runs");
-  await screen.findByText("没有可巡检资产");
+  await screen.findByText("无检查对象");
   fireEvent.click(screen.getByRole("button", { name: "查看巡检详情" }));
   await screen.findByRole("dialog", { name: "巡检详情" });
   expect(await screen.findByText(/这是一条旧版巡检记录/)).toBeInTheDocument();
@@ -248,7 +252,7 @@ it("shows per-category reasons, finding names and a server-filtered result page"
     "/knowledge/asset",
   );
   expect(screen.getByText("缺少摘要")).toBeInTheDocument();
-  expect(screen.getAllByText("模型未配置或调用失败").length).toBeGreaterThan(0);
+  expect(screen.getAllByText("模型调用失败，请重试或检查模型连接").length).toBeGreaterThan(0);
   expect(screen.getByText(/当前版本已变化/)).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("检查结果筛选"), { target: { value: "incomplete" } });
   await waitFor(() =>
@@ -265,4 +269,100 @@ it("clears detail data when access is lost during refresh", async () => {
   fireEvent.click(screen.getByRole("button", { name: "刷新详情" }));
   expect(await screen.findByText("巡检记录不可访问")).toBeInTheDocument();
   expect(screen.queryByText(/这是一条旧版巡检记录/)).not.toBeInTheDocument();
+});
+
+it("polls in place through completion without unmounting history, detail or expanded content", async () => {
+  const timers: Array<() => void> = [];
+  const timer = vi.spyOn(window, "setInterval").mockImplementation((callback) => {
+    timers.push(callback as () => void);
+    return 123;
+  });
+  try {
+    vi.mocked(api.fetchAgentRuns).mockResolvedValue([run]);
+    mount("runs");
+    const historyButton = await screen.findByRole("button", { name: "查看巡检详情" });
+    fireEvent.click(historyButton);
+    const summary = await screen.findByText("核对当前知识库范围");
+    const expanded = summary.closest("details")!;
+    expanded.open = true;
+    const drawer = screen.getByRole("dialog", { name: "巡检详情" });
+    drawer.scrollTop = 240;
+    summary.focus();
+    const previous = await vi.mocked(api.fetchAgentRun).mock.results[0].value;
+    let finishDetail!: (value: api.ScanRunDetail) => void;
+    let finishHistory!: (value: api.ScanRun[]) => void;
+    vi.mocked(api.fetchAgentRun).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishDetail = resolve;
+        }),
+    );
+    vi.mocked(api.fetchAgentRuns).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishHistory = resolve;
+        }),
+    );
+    await act(async () => {
+      timers.splice(0).forEach((callback) => callback());
+    });
+    expect(historyButton.isConnected).toBe(true);
+    expect(expanded.isConnected).toBe(true);
+    expect(expanded.open).toBe(true);
+    expect(drawer.scrollTop).toBe(240);
+    await act(async () => {
+      finishHistory([{ ...run, status: "completed" }]);
+      finishDetail({ ...previous, status: "completed" });
+    });
+    expect(screen.getByRole("button", { name: "查看巡检详情" })).toBe(historyButton);
+    expect(screen.getByText("核对当前知识库范围").closest("details")).toBe(expanded);
+    expect(expanded.open).toBe(true);
+    expect(drawer.scrollTop).toBe(240);
+    expect(api.fetchAgentModels).toHaveBeenCalledTimes(1);
+  } finally {
+    timer.mockRestore();
+  }
+});
+
+it("keeps detail on transient refresh failure and keeps unsaved settings across policy updates", async () => {
+  vi.mocked(api.fetchAgentRuns).mockResolvedValue([run]);
+  mount("runs");
+  fireEvent.click(await screen.findByRole("button", { name: "查看巡检详情" }));
+  const content = await screen.findByText(/这是一条旧版巡检记录/);
+  vi.mocked(api.fetchAgentRun).mockRejectedValueOnce(new ApiError(503, "暂时无法更新"));
+  fireEvent.click(screen.getByRole("button", { name: "刷新详情" }));
+  await screen.findByText("暂时无法更新");
+  expect(content.isConnected).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "关闭详情" }));
+  fireEvent.click(screen.getByRole("button", { name: "巡检设置" }));
+  const hour = await screen.findByLabelText("每日增量巡检（北京时间）");
+  fireEvent.change(hour, { target: { value: "4" } });
+  vi.mocked(api.fetchAgentPolicies).mockResolvedValue([{ ...policy, revision: 99 }]);
+  fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+  await waitFor(() => expect(api.fetchAgentPolicies).toHaveBeenCalledTimes(3));
+  expect(screen.getByLabelText("每日增量巡检（北京时间）")).toBe(hour);
+  expect(hour).toHaveValue("4");
+});
+
+it("offers cancellation for active runs and confirmed deletion for terminal history", async () => {
+  vi.mocked(api.fetchAgentRuns).mockResolvedValue([run]);
+  vi.mocked(api.cancelAgentRun).mockResolvedValue({ ...run, status: "cancelled" });
+  mount("runs");
+  fireEvent.click(await screen.findByRole("button", { name: "取消巡检" }));
+  expect(screen.queryByRole("button", { name: "确认删除记录" })).not.toBeInTheDocument();
+  vi.mocked(api.fetchAgentRuns).mockResolvedValue([
+    { ...run, status: "cancelled", can_retry: true },
+  ]);
+  fireEvent.click(screen.getByRole("button", { name: "确认取消巡检" }));
+  await screen.findByRole("button", { name: "重试未完成项" });
+  fireEvent.click(screen.getByRole("button", { name: "删除" }));
+  expect(screen.getByText(/知识资料、维护待办和巡检设置保留/)).toBeInTheDocument();
+  vi.mocked(api.deleteAgentRun).mockRejectedValueOnce(new ApiError(409, "记录状态已变化"));
+  fireEvent.click(screen.getByRole("button", { name: "确认删除记录" }));
+  await screen.findByText("记录状态已变化");
+  expect(screen.getByRole("dialog", { name: "删除巡检记录？" })).toBeInTheDocument();
+  vi.mocked(api.deleteAgentRun).mockResolvedValueOnce({ deleted_count: 1 });
+  vi.mocked(api.fetchAgentRuns).mockResolvedValue([]);
+  fireEvent.click(screen.getByRole("button", { name: "确认删除记录" }));
+  await screen.findByText("尚无可查看的巡检记录");
 });

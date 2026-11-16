@@ -19,6 +19,11 @@ def test_maintenance_migration_matches_metadata_and_replays(monkeypatch):
     spec90 = importlib.util.spec_from_file_location("migration_0090", path90)
     module90 = importlib.util.module_from_spec(spec90)
     spec90.loader.exec_module(module90)
+    spec91 = importlib.util.spec_from_file_location(
+        "migration_0091", path.with_name("0091_maintenance_batch_progress.py")
+    )
+    module91 = importlib.util.module_from_spec(spec91)
+    spec91.loader.exec_module(module91)
     engine = sa.create_engine("sqlite://")
     with engine.begin() as conn:
         conn.execute(sa.text("CREATE TABLE existing_assets (value TEXT)"))
@@ -28,6 +33,8 @@ def test_maintenance_migration_matches_metadata_and_replays(monkeypatch):
             module.upgrade()
             monkeypatch.setattr(module90, "op", Operations(MigrationContext.configure(conn)))
             module90.upgrade()
+            monkeypatch.setattr(module91, "op", Operations(MigrationContext.configure(conn)))
+            module91.upgrade()
             inspector = sa.inspect(conn)
             tables = [
                 t for t in Base.metadata.sorted_tables if t.name.startswith("maintenance_agent_")
@@ -37,6 +44,7 @@ def test_maintenance_migration_matches_metadata_and_replays(monkeypatch):
                 assert {c["name"] for c in inspector.get_columns(table.name)} == set(
                     table.columns.keys()
                 )
+            module91.downgrade()
             module90.downgrade()
             module.downgrade()
             assert sa.inspect(conn).get_table_names() == ["existing_assets"]

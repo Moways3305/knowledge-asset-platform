@@ -39,6 +39,7 @@ import PagePagination from "../components/PagePagination";
 import { formatBeijingTime } from "../utils/time";
 import "./MaintenanceAgentPage.css";
 import MaintenanceRunDrawer from "./MaintenanceRunDrawer";
+import MaintenanceRunList from "./MaintenanceRunList";
 
 const categories: Record<string, string> = {
   integrity: "信息完整性",
@@ -88,12 +89,23 @@ const reasons: Record<string, string> = {
   current_version_unavailable: "当前版本不可用",
   body_unavailable: "正文尚不可用",
   body_incomplete: "部分正文分块不可用",
-  body_limit: "正文超出单次检查范围",
-  summary_limit: "摘要超出单次检查范围",
-  candidate_limit: "同库比较范围超出单次上限",
+  body_limit: "旧版正文检查未完成，可重试分段检查",
+  summary_limit: "旧版摘要检查未完成，可重试分段检查",
+  candidate_limit: "旧版同库比较未完成，可重试分批比较",
   file_limit: "文件数量超出检查范围",
   processing_pending: "解析或索引仍在处理",
-  model_unavailable: "模型未配置或调用失败",
+  model_unavailable: "模型调用失败，请重试或检查模型连接",
+  model_configuration_error: "尚未配置可用模型，请在巡检设置选择模型",
+  model_authentication_error: "模型认证失败，请管理员检查凭据",
+  model_request_error: "模型拒绝请求，请检查模型配置",
+  model_connection_error: "模型连接失败，自动重试后仍未完成",
+  model_timeout: "模型响应超时，自动重试后仍未完成",
+  model_rate_limited: "模型限流，自动重试后仍未完成",
+  model_server_error: "模型服务异常，自动重试后仍未完成",
+  model_model_unavailable: "所选模型不可用，请检查模型名称及访问权限",
+  model_response_error: "模型响应无法读取，请重试",
+  user_cancelled: "用户已取消巡检",
+  in_progress: "分批检查中",
   model_response_incomplete: "模型未完成检查",
   model_evidence_invalid: "模型依据未通过核对",
   authorization_expired: "授权身份已失效，请重新保存配置",
@@ -119,8 +131,14 @@ export default function MaintenanceAgentPage() {
   const category = params.get("category") || "";
   const mine = params.get("mine") === "true";
   const [policies, setPolicies] = useState<AgentPolicy[]>([]);
-  const [data, setData] = useState<IssuePage | null>(null);
-  const [runs, setRuns] = useState<ScanRun[]>([]);
+  const [storedData, setData] = useState<IssuePage | null>(null);
+  const [storedRuns, setRuns] = useState<ScanRun[]>([]);
+  const [loadedScope, setLoadedScope] = useState("");
+  const scope = JSON.stringify([isCenter, key, status, category, mine, page, tab]);
+  const data = loadedScope === scope ? storedData : null;
+  const runs = loadedScope === scope ? storedRuns : [];
+  const [modelRefresh, setModelRefresh] = useState(0);
+  const [editorRevision, setEditorRevision] = useState(0);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -144,11 +162,11 @@ export default function MaintenanceAgentPage() {
   };
   useEffect(() => {
     setSelectedRun(null);
+    setSelected(null);
   }, [key]);
   useEffect(() => {
     if (isCenter) return;
     let live = true;
-    setModels(null);
     setModelError("");
     void fetchAgentModels()
       .then((value) => {
@@ -160,14 +178,12 @@ export default function MaintenanceAgentPage() {
     return () => {
       live = false;
     };
-  }, [isCenter, refresh]);
+  }, [isCenter, modelRefresh]);
   useEffect(() => {
     if (isCenter) return;
     let live = true;
     setLoading(true);
     setError("");
-    setData(null);
-    setRuns([]);
     const filters = new URLSearchParams({
       library_key: key,
       status,
@@ -185,10 +201,20 @@ export default function MaintenanceAgentPage() {
           setPolicies(list);
           setData(items);
           setRuns(history);
+          setLoadedScope(scope);
         }
       })
       .catch((e: unknown) => {
-        if (live) setError(message(e));
+        if (live) {
+          setError(message(e));
+          if (e instanceof ApiError && [401, 403, 404].includes(e.status)) {
+            setData(null);
+            setRuns([]);
+            setPolicies([]);
+            setSelected(null);
+            setSelectedRun(null);
+          }
+        }
       })
       .finally(() => {
         if (live) setLoading(false);
@@ -196,13 +222,15 @@ export default function MaintenanceAgentPage() {
     return () => {
       live = false;
     };
-  }, [isCenter, key, status, category, mine, page, tab, refresh]);
+  }, [isCenter, key, status, category, mine, page, tab, scope, refresh]);
   const hasRunning = runs.some((r) => r.status === "queued" || r.status === "running");
   useEffect(() => {
-    if (!hasRunning) return;
-    const timer = window.setTimeout(() => setRefresh((n) => n + 1), 15000);
-    return () => window.clearTimeout(timer);
-  }, [hasRunning, refresh]);
+    if (!hasRunning || loading) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "hidden") setRefresh((n) => n + 1);
+    }, 15000);
+    return () => window.clearInterval(timer);
+  }, [hasRunning, loading, refresh]);
   const runNow = async () => {
     setBusy(true);
     setError("");
@@ -251,7 +279,10 @@ export default function MaintenanceAgentPage() {
             <Button
               size="small"
               icon={<RefreshCw size={15} />}
-              onClick={() => setRefresh((n) => n + 1)}
+              onClick={() => {
+                setRefresh((n) => n + 1);
+                setModelRefresh((n) => n + 1);
+              }}
               disabled={busy || loading}
             >
               {loading ? "刷新中…" : "刷新"}
@@ -484,66 +515,18 @@ export default function MaintenanceAgentPage() {
                 <p>巡检记录由知识库管理人查看。</p>
               ) : runs.length ? (
                 <>
-                  <div className="agent-runs">
-                    {runs.map((run) => (
-                      <article key={run.id}>
-                        <header>
-                          <h3>
-                            {run.kind === "incremental"
-                              ? "每日增量巡检"
-                              : run.kind === "recheck"
-                                ? "指定资产复检"
-                                : "全面巡检"}
-                          </h3>
-                          <span className={`agent-status agent-status-${run.status}`}>
-                            {run.status === "completed" && run.target_count === 0
-                              ? "没有可巡检资产"
-                              : states[run.status]}
-                          </span>
-                        </header>
-                        <time>{formatBeijingTime(run.started_at)}</time>
-                        {run.target_count === 0 && (
-                          <p className="agent-report-warning">
-                            本轮没有选出检查对象，不代表知识库没有问题。
-                          </p>
-                        )}
-                        <dl>
-                          <div>
-                            <dt>目标资产</dt>
-                            <dd>{run.target_count}</dd>
-                          </div>
-                          <div>
-                            <dt>检查完成</dt>
-                            <dd>{run.completed_count}</dd>
-                          </div>
-                          <div>
-                            <dt>未完成</dt>
-                            <dd>{run.incomplete_count}</dd>
-                          </div>
-                          <div>
-                            <dt>跳过</dt>
-                            <dd>{run.skipped_count}</dd>
-                          </div>
-                        </dl>
-                        {Object.keys(run.reasons).length > 0 && (
-                          <ul>
-                            {Object.entries(run.reasons).map(([code, count]) => (
-                              <li key={code}>
-                                {reasons[code] || "检查需要关注"}：{count}
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                        <Button
-                          size="small"
-                          onClick={() => setSelectedRun(run.id)}
-                          icon={<ArrowRight size={14} />}
-                        >
-                          查看巡检详情
-                        </Button>
-                      </article>
-                    ))}
-                  </div>
+                  <MaintenanceRunList
+                    key={`${key}:${page}`}
+                    library={key}
+                    runs={runs}
+                    onSelect={setSelectedRun}
+                    onChanged={(deleted) => {
+                      if (selectedRun && deleted.includes(selectedRun)) setSelectedRun(null);
+                      if (deleted.length >= runs.length && page > 1)
+                        update("page", String(page - 1));
+                      setRefresh((n) => n + 1);
+                    }}
+                  />
                   <div className="agent-run-pages">
                     <Button
                       size="small"
@@ -573,16 +556,17 @@ export default function MaintenanceAgentPage() {
           )}
           {tab === "settings" && policy && (
             <PolicyEditor
-              key={`${policy.library_key}:${policy.revision}`}
+              key={`${policy.library_key}:${editorRevision}`}
               policy={policy}
               models={models}
               modelError={modelError}
               hasRunning={hasRunning}
-              onReloadModels={() => setRefresh((n) => n + 1)}
+              onReloadModels={() => setModelRefresh((n) => n + 1)}
               onSaved={async (saved, start) => {
                 setPolicies((items) =>
                   items.map((item) => (item.library_key === saved.library_key ? saved : item)),
                 );
+                setEditorRevision((n) => n + 1);
                 setNotice("巡检设置已保存。");
                 setRefresh((n) => n + 1);
                 if (start) await runNow();
@@ -894,16 +878,9 @@ function PolicyEditor({
               }
             />
           </FormField>
-          <FormField label="单份正文检查上限（字）">
-            <input
-              type="number"
-              min={1000}
-              max={60000}
-              step={1000}
-              value={settings.max_body_chars}
-              onChange={(e) => setSettings({ ...settings, max_body_chars: Number(e.target.value) })}
-            />
-          </FormField>
+          <p className="agent-note">
+            长文档自动分段检查，同库比较分批完成；可在巡检详情查看处理进度。
+          </p>
         </div>
         <div className="agent-authorization">
           <label className="agent-checkbox">
@@ -1040,6 +1017,14 @@ function IssueDrawer({
                     <Link to={`/knowledge/${issue.evidence.related_asset_id}`}>
                       {issue.evidence.related_title}
                     </Link>
+                  </p>
+                )}
+                {issue.evidence.basis === "all_segments_reviewed" && (
+                  <p>
+                    已检查全部正文分段后汇总，仍需人工复核。
+                    {issue.evidence.missing_sections?.length
+                      ? `未识别到的必需章节：${issue.evidence.missing_sections.join("、")}`
+                      : "未识别到实质正文。"}
                   </p>
                 )}
                 {issue.evidence.basis === "sha256_equal" && (

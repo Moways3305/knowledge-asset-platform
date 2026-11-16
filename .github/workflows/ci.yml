@@ -258,6 +258,8 @@ jobs:
         run: npm run test:ui:action-layout
       - name: UI QA (global frontend acceptance)
         run: npm run test:ui:global-acceptance
+      - name: UI QA (background refresh preserves reading state)
+        run: node scripts/maintenance-background.ui-qa.mjs
       - name: Upload screenshots
         if: always()
         # Diagnostic evidence is best-effort; test steps above remain blocking.

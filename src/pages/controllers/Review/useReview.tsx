@@ -1,3 +1,4 @@
+import { ApiError } from "../../../api/http";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { ControlledBulkRequestError } from "../../../api/bulk";
@@ -67,6 +68,7 @@ export function useReview() {
   >("meeting_minutes");
   const [evidenceBusy, setEvidenceBusy] = useState(false);
   const requestRef = useRef(0);
+  const loadedScope = useRef<string | null>(null);
   const bulkRunRef = useRef(false);
   const filtersRef = useRef({ status: "", reviewType: "" });
   const status = statusFilters.find((item) => item.token === statusToken)?.apiValue ?? "";
@@ -77,12 +79,22 @@ export function useReview() {
   const load = useCallback(async () => {
     const requestId = ++requestRef.current;
     const filters = filtersRef.current;
+    const scope = JSON.stringify([
+      completedTarget,
+      focusReviewId,
+      filters.status,
+      filters.reviewType,
+    ]);
+    const background = loadedScope.current === scope;
     setLoading(true);
     setForbidden(false);
     setLoadFailed(false);
     setFeedback(null);
-    setSelectedIds([]);
-    setItems([]);
+    if (!background) {
+      loadedScope.current = null;
+      setSelectedIds([]);
+      setItems([]);
+    }
     try {
       const next = focusReviewId
         ? [await fetchReview(focusReviewId)]
@@ -92,6 +104,8 @@ export function useReview() {
             reviewType: filters.reviewType || undefined,
           });
       if (requestId !== requestRef.current) return;
+      loadedScope.current = scope;
+      setSelectedIds((current) => current.filter((id) => next.some((item) => item.id === id)));
       setItems(
         focusReviewId
           ? next.filter(
@@ -104,6 +118,12 @@ export function useReview() {
       return true;
     } catch (error) {
       if (requestId !== requestRef.current) return;
+      if (isForbidden(error) || (error instanceof ApiError && error.status === 401)) {
+        loadedScope.current = null;
+        setItems([]);
+        setDetailId(null);
+        setSelectedIds([]);
+      }
       setForbidden(isForbidden(error));
       setLoadFailed(!isForbidden(error));
       return false;
@@ -149,8 +169,9 @@ export function useReview() {
   };
 
   const decidePending = (item: ReviewItemDTO) =>
-    item.can_decide && item.status === "pending_reviewer";
-  const retryFailed = (item: ReviewItemDTO) => item.can_decide && item.status === "approval_failed";
+    !loadFailed && item.can_decide && item.status === "pending_reviewer";
+  const retryFailed = (item: ReviewItemDTO) =>
+    !loadFailed && item.can_decide && item.status === "approval_failed";
   const eligibleItems = items.filter(decidePending);
   const selectedEligible = eligibleItems.filter((item) => selectedIds.includes(item.id));
   const selectedEvidence = items.filter(

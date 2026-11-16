@@ -141,7 +141,7 @@ try {
       }
       if (["legacy_run", "zero_run"].includes(scenario)) {
         await page.getByRole("button", { name: "巡检记录", exact: true }).click();
-        await page.getByText("没有可巡检资产", { exact: true }).waitFor();
+        await page.getByText("无检查对象", { exact: true }).waitFor();
         await page.getByRole("button", { name: "查看巡检详情" }).click();
         if (scenario === "legacy_run") await page.getByText(/这是一条旧版巡检记录/).waitFor();
         else await page.getByText(/没有符合条件的资料/).first().waitFor();

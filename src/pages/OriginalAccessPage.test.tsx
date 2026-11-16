@@ -206,7 +206,7 @@ describe("OriginalAccessPage governance workspace", () => {
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: "通过" }));
     expect(await screen.findByText(/无需重复审批/)).toBeVisible();
-    expect(screen.getByText("原文访问申请加载失败")).toBeVisible();
+    expect(screen.getByText(/原文访问申请加载失败/)).toBeVisible();
     expect(screen.queryByRole("button", { name: "通过" })).not.toBeInTheDocument();
     expect(approveOriginalAccess).toHaveBeenCalledTimes(1);
   });

@@ -36,23 +36,35 @@ export default function OriginalAccessGrantsPage() {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
   const sequence = useRef(0);
+  const loadedScope = useRef("");
   const submitting = useRef(false);
 
   const load = useCallback(async () => {
     const id = ++sequence.current;
     setLoading(true);
-    setRows([]);
-    setTotal(0);
+    const scope = JSON.stringify([status, offset]);
+    if (loadedScope.current !== scope) {
+      setRows([]);
+      setTotal(0);
+      setTarget(null);
+      setHistoryTarget(null);
+    }
     setLoadError("");
-    setTarget(null);
-    setHistoryTarget(null);
     try {
       const result = await fetchOriginalAccessGrants(status, offset);
       if (id !== sequence.current) return;
+      loadedScope.current = scope;
       setRows(result.items);
       setTotal(result.total);
     } catch (error) {
       if (id !== sequence.current) return;
+      if (error instanceof ApiError && [401, 403].includes(error.status)) {
+        loadedScope.current = "";
+        setRows([]);
+        setTotal(0);
+        setTarget(null);
+        setHistoryTarget(null);
+      }
       setLoadError(
         error instanceof ApiError && error.status === 403
           ? "当前身份不能查看原文授权记录。"
@@ -77,11 +89,18 @@ export default function OriginalAccessGrantsPage() {
     setBusy(true);
     setActionError("");
     try {
-      await revokeOriginalAccessGrant(target.grant_id, reason.trim());
+      const updated = await revokeOriginalAccessGrant(target.grant_id, reason.trim());
+      setRows((current) =>
+        current.map((row) =>
+          row.grant_id === target.grant_id ? { ...row, ...updated, can_revoke: false } : row,
+        ),
+      );
+      setTarget(null);
       await load();
       setFeedback("原文授权已撤销；已加载或缓存的内容无法收回，后续访问按实时权限重新校验。");
     } catch (error) {
       if (error instanceof ApiError && [403, 404, 409].includes(error.status)) {
+        setTarget(null);
         await load();
         setFeedback("授权状态或操作权限已变化，请核对刷新后的记录。");
       } else {

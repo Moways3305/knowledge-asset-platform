@@ -73,6 +73,7 @@ export default function OriginalAccessPage() {
   const [bulkAction, setBulkAction] = useState<"approve" | "reject" | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const requestRef = useRef(0);
+  const loadedScope = useRef<string | null>(null);
   const bulkRunRef = useRef(false);
 
   useEffect(() => {
@@ -82,19 +83,34 @@ export default function OriginalAccessPage() {
 
   const load = useCallback(async () => {
     const requestId = ++requestRef.current;
+    const scope = box;
+    const background = loadedScope.current === scope;
     setLoading(true);
     setForbidden(false);
     setLoadFailed(false);
     setFeedback(null);
-    setSelectedIds([]);
-    setItems([]);
+    if (!background) {
+      loadedScope.current = null;
+      setSelectedIds([]);
+      setItems([]);
+    }
     try {
       const next = await fetchOriginalAccessRequests(box);
       if (requestId !== requestRef.current) return;
+      loadedScope.current = scope;
+      setSelectedIds((current) =>
+        current.filter((id) => next.items.some((item) => item.request_id === id)),
+      );
       setItems(next.items);
       return true;
     } catch (error) {
       if (requestId !== requestRef.current) return;
+      if (isForbidden(error) || (error instanceof ApiError && error.status === 401)) {
+        loadedScope.current = null;
+        setItems([]);
+        setDetailId(null);
+        setSelectedIds([]);
+      }
       setForbidden(isForbidden(error));
       setLoadFailed(!isForbidden(error));
       return false;
@@ -133,7 +149,9 @@ export default function OriginalAccessPage() {
     }
   };
 
-  const eligibleItems = items.filter((item) => box === "inbox" && item.status === "pending");
+  const eligibleItems = items.filter(
+    (item) => !loadFailed && box === "inbox" && item.status === "pending",
+  );
   const selectedEligible = eligibleItems.filter((item) => selectedIds.includes(item.request_id));
   const pageAllSelected =
     eligibleItems.length > 0 && selectedEligible.length === eligibleItems.length;
@@ -275,7 +293,7 @@ export default function OriginalAccessPage() {
           headerClassName: "gw-col-access-actions",
           render: (item) => (
             <div className="gw-actions">
-              {item.status === "pending" ? (
+              {item.status === "pending" && !loadFailed ? (
                 <>
                   <button
                     className="gw-action is-primary"
@@ -442,6 +460,9 @@ export default function OriginalAccessPage() {
         </button>
       </BulkSelectionRail>
 
+      {loadFailed && items.length > 0 && (
+        <p role="alert">原文访问申请加载失败，保留上次结果，请刷新核对。</p>
+      )}
       <DataTable
         columns={columns}
         rows={items}
@@ -484,7 +505,7 @@ export default function OriginalAccessPage() {
         onClose={() => setDetailId(null)}
         busy={Boolean(busyId)}
         footer={
-          detail && box === "inbox" && detail.status === "pending" ? (
+          detail && !loadFailed && box === "inbox" && detail.status === "pending" ? (
             <div className="gw-actions">
               <button
                 className="gw-action is-danger"

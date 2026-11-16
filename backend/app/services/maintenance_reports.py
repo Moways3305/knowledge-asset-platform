@@ -4,7 +4,7 @@ from sqlalchemy import func, select, update
 
 from app.db.utils import utc_now
 from app.models.knowledge import KnowledgeAsset
-from app.models.maintenance_agent import MaintenanceRunItem
+from app.models.maintenance_agent import MaintenanceRun, MaintenanceRunItem
 from app.schemas.maintenance_agent import RunDetail, RunItemOut, RunOut, ScanSettings, ScopeOut
 from app.services import maintenance_access as access
 
@@ -35,10 +35,11 @@ async def assess_scope(session, caller, project_id, *, asset_id=None, at=None):
     )
 
 
-async def seed_targets(session, run, policy, caller):
+async def seed_targets(session, run, policy, caller, *, retry_run_id=None):
     """Freeze target membership in the same transaction as run creation."""
     cursor = None
     total = 0
+    prior = await session.get(MaintenanceRun, retry_run_id) if retry_run_id else None
     while True:
         query = select(KnowledgeAsset.id).where(
             access.scope_filter(policy.project_id),
@@ -47,12 +48,44 @@ async def seed_targets(session, run, policy, caller):
         )
         if run.target_asset_id:
             query = query.where(KnowledgeAsset.id == run.target_asset_id)
+        if retry_run_id:
+            query = query.where(
+                KnowledgeAsset.id.in_(
+                    select(MaintenanceRunItem.asset_id).where(
+                        MaintenanceRunItem.run_id == retry_run_id,
+                        MaintenanceRunItem.status.in_(["incomplete", "skipped"]),
+                    )
+                )
+            )
         if cursor:
             query = query.where(KnowledgeAsset.id > cursor)
         ids = (await session.scalars(query.order_by(KnowledgeAsset.id).limit(500))).all()
         if not ids:
             break
-        session.add_all(MaintenanceRunItem(run_id=run.id, asset_id=key) for key in ids)
+        previous = {}
+        if prior and prior.policy_revision == run.policy_revision:
+            previous = {
+                row.asset_id: row.work_state
+                for row in (
+                    await session.scalars(
+                        select(MaintenanceRunItem).where(
+                            MaintenanceRunItem.run_id == prior.id,
+                            MaintenanceRunItem.asset_id.in_(ids),
+                        )
+                    )
+                ).all()
+            }
+        for key in ids:
+            from copy import deepcopy
+
+            work = deepcopy(previous.get(key))
+            if work:
+                work["resuming"] = True
+                if work.get("quality_result") not in {"complete", "unchanged"}:
+                    work["quality_done"] = False
+                    work.pop("quality_result", None)
+                work.setdefault("progress", {})["retry_attempt"] = 0
+            session.add(MaintenanceRunItem(run_id=run.id, asset_id=key, work_state=work))
         await session.flush()
         total += len(ids)
         cursor = ids[-1]
@@ -106,6 +139,19 @@ async def project_detail(session, caller, policy, run, *, page=1, status=None):
                 findings=item.findings,
                 reasons=item.reasons,
                 checked_at=item.checked_at,
+                progress={
+                    k: int(v)
+                    for k, v in (item.work_state or {}).get("progress", {}).items()
+                    if k
+                    in {
+                        "body_checked",
+                        "body_total",
+                        "comparison_checked",
+                        "comparison_total",
+                        "segments_checked",
+                        "retry_attempt",
+                    }
+                },
             )
         )
     snapshot = run.scope_snapshot

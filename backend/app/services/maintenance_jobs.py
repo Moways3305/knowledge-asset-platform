@@ -25,6 +25,7 @@ from app.services import audit, domain_events
 from app.services import maintenance_access as access
 from app.services.generation_models import resolve_generation_llm_client
 from app.services.llm_client import NullLLMClient
+from app.services.maintenance_batches import advance
 from app.services.maintenance_reports import cancel_pending, seed_targets
 from app.services.maintenance_rules import analyze, deterministic, digest, finding
 from app.services.maintenance_snapshots import capture
@@ -37,6 +38,15 @@ TECHNICAL_FAILURES = {
     "parse_failed",
     "index_failed",
     "model_unavailable",
+    "model_model_unavailable",
+    "model_timeout",
+    "model_rate_limited",
+    "model_connection_error",
+    "model_server_error",
+    "model_configuration_error",
+    "model_authentication_error",
+    "model_request_error",
+    "model_response_error",
     "model_response_incomplete",
     "model_evidence_invalid",
     "body_unavailable",
@@ -44,7 +54,7 @@ TECHNICAL_FAILURES = {
 }
 
 
-async def start_run(session, policy, *, kind="full", asset_id=None):
+async def start_run(session, policy, *, kind="full", asset_id=None, retry_run_id=None):
     """Caller holds the policy row lock; repeated requests share its active run."""
     active = await session.scalar(
         select(MaintenanceRun)
@@ -103,7 +113,7 @@ async def start_run(session, policy, *, kind="full", asset_id=None):
     session.add(row)
     policy.last_error = None
     await session.flush()
-    await seed_targets(session, row, policy, caller)
+    await seed_targets(session, row, policy, caller, retry_run_id=retry_run_id)
     return row
 
 
@@ -236,7 +246,9 @@ async def flush_digests(session, now=None):
     await session.commit()
 
 
-async def persist_findings(session, policy, asset, snapshot, findings, now):
+async def persist_findings(
+    session, policy, asset, snapshot, findings, now, *, finalize=True, seen_keys=()
+):
     existing = (
         await session.scalars(
             select(MaintenanceIssue)
@@ -260,7 +272,7 @@ async def persist_findings(session, policy, asset, snapshot, findings, now):
             [
                 fact["fingerprint"],
                 str(asset.current_version_id),
-                [snapshot["body"], snapshot["summary"]] if fact["suspected"] else None,
+                snapshot["fingerprint"] if fact["suspected"] else None,
                 related,
             ]
         )
@@ -300,11 +312,17 @@ async def persist_findings(session, policy, asset, snapshot, findings, now):
                 asset.current_version_id,
             )
             row.last_seen_at = now
+    seen.update(tuple(key) for key in seen_keys)
     for row in existing:
-        if row.status == "awaiting_recheck" and snapshot["coverage"].get(row.category) not in {
-            "complete",
-            "unchanged",
-        }:
+        if (
+            finalize
+            and row.status == "awaiting_recheck"
+            and snapshot["coverage"].get(row.category)
+            not in {
+                "complete",
+                "unchanged",
+            }
+        ):
             row.status, row.updated_at = "open", now
             session.add(
                 MaintenanceIssueEvent(
@@ -317,7 +335,8 @@ async def persist_findings(session, policy, asset, snapshot, findings, now):
             row.status, row.snooze_until, row.updated_at = "open", None, now
             session.add(MaintenanceIssueEvent(issue_id=row.id, action="reopened"))
         if (
-            (row.rule, row.related_key) not in seen
+            finalize
+            and (row.rule, row.related_key) not in seen
             and snapshot["coverage"].get(row.category) == "complete"
             and row.status not in {"false_positive", "resolved", "not_applicable"}
         ):
@@ -326,6 +345,8 @@ async def persist_findings(session, policy, asset, snapshot, findings, now):
         if row.status in ACTIVE:
             for recipient in snapshot["responsible"]:
                 await _digest(session, row, uuid.UUID(recipient["id"]), settings, now)
+    if not finalize:
+        return
     check = await session.scalar(
         select(MaintenanceCheck).where(
             MaintenanceCheck.policy_id == policy.id, MaintenanceCheck.asset_id == asset.id
@@ -358,7 +379,7 @@ def inspect_files(storage, refs):
 
 
 async def process_one(maker, *, storage=None, client=None):
-    """One asset per claim. The run cursor advances with the issues in one commit."""
+    """One bounded batch per claim; checkpoints and findings commit atomically."""
     now, token = utc_now(), str(uuid.uuid4())
     async with maker() as session:
         other_run = aliased(MaintenanceRun)
@@ -474,7 +495,23 @@ async def process_one(maker, *, storage=None, client=None):
             return True
         run.claim_token, run.lease_until, run.status = token, now + timedelta(minutes=3), "running"
         settings = ScanSettings(**policy.settings)
-        snapshot, error = await capture(session, policy, asset, settings, now)
+        item = await session.scalar(
+            select(MaintenanceRunItem).where(
+                MaintenanceRunItem.run_id == run.id, MaintenanceRunItem.asset_id == asset.id
+            )
+        )
+        # Legacy active runs gain per-asset checkpoints without inventing historical items.
+        if item is None:
+            item = MaintenanceRunItem(run_id=run.id, asset_id=asset.id)
+            session.add(item)
+            await session.flush()
+        work = item.work_state or {}
+        snapshot, error = await capture(session, policy, asset, settings, now, work)
+        if work.get("resuming") and snapshot and work.get("fingerprint") != snapshot["fingerprint"]:
+            work = {}
+            snapshot, error = await capture(session, policy, asset, settings, now, work)
+        if snapshot and work.get("fingerprint") and work["fingerprint"] != snapshot["fingerprint"]:
+            snapshot, error = None, "asset_changed_during_check"
         run_id, asset_id, kind = run.id, asset.id, run.kind
         llm = client or await resolve_generation_llm_client(session, model_ref=settings.model_ref)
         if snapshot and snapshot["allowed"]:
@@ -494,7 +531,7 @@ async def process_one(maker, *, storage=None, client=None):
             )
         await session.commit()
     # No connection/transaction is held during disk or model calls.
-    findings = []
+    findings, reason = [], None
     if snapshot:
         findings = deterministic(snapshot, settings, now)
         if snapshot["allowed"] and snapshot["coverage"]["availability"] != "file_limit":
@@ -503,16 +540,14 @@ async def process_one(maker, *, storage=None, client=None):
             )
             if not readable:
                 findings.append(finding("file_unavailable"))
-        if snapshot["coverage"]["quality"] == "complete":
+        if snapshot["coverage"]["quality"] == "complete" and not work.get("quality_done"):
             if isinstance(llm, NullLLMClient):
-                snapshot["coverage"]["quality"] = "model_unavailable"
+                reason = "model_configuration_error"
             elif kind == "incremental" and snapshot["unchanged"]:
                 snapshot["coverage"]["quality"] = "unchanged"
             else:
                 quality, reason = await analyze(snapshot, settings, llm)
                 findings.extend(quality)
-                if reason:
-                    snapshot["coverage"]["quality"] = reason
     async with maker() as session:
         run_reference = await session.get(MaintenanceRun, run_id)
         if not run_reference:
@@ -537,13 +572,14 @@ async def process_one(maker, *, storage=None, client=None):
         asset = await session.scalar(
             select(KnowledgeAsset).where(KnowledgeAsset.id == asset_id).with_for_update()
         )
-        fresh, fresh_error = await capture(session, policy, asset, settings, now)
+        fresh, fresh_error = await capture(session, policy, asset, settings, now, work)
         if policy.revision != run.policy_revision or (
             snapshot
             and (
                 not fresh
                 or fresh["fingerprint"] != snapshot["fingerprint"]
                 or fresh["candidate_fingerprint"] != snapshot["candidate_fingerprint"]
+                or fresh["window_fingerprint"] != snapshot["window_fingerprint"]
             )
         ):
             error = fresh_error or "asset_changed_during_check"
@@ -554,7 +590,31 @@ async def process_one(maker, *, storage=None, client=None):
             )
         )
         if snapshot:
-            await persist_findings(session, policy, asset, snapshot, findings, now)
+            next_work, complete, delayed = advance(snapshot, settings, work, findings, reason)
+            next_work.pop("resuming", None)
+            await persist_findings(
+                session,
+                policy,
+                asset,
+                snapshot,
+                findings,
+                now,
+                finalize=complete,
+                seen_keys=next_work["seen"],
+            )
+            if item:
+                item.work_state, item.coverage = next_work, snapshot["coverage"]
+                item.version_id = uuid.UUID(snapshot["facts"]["version_id"])
+                item.findings = {
+                    rule: sum(key[0] == rule for key in next_work["seen"])
+                    for rule in {key[0] for key in next_work["seen"]}
+                }
+            if not complete:
+                run.claim_token = None
+                run.lease_until = utc_now() + timedelta(seconds=20) if delayed else None
+                run.last_progress_at = utc_now()
+                await session.commit()
+                return True
             technical = {
                 f["rule"]
                 for f in findings
@@ -573,10 +633,6 @@ async def process_one(maker, *, storage=None, client=None):
                 item.status = "incomplete" if reasons else "completed"
                 item.version_id = uuid.UUID(snapshot["facts"]["version_id"])
                 item.coverage = snapshot["coverage"]
-                item.findings = {
-                    rule: sum(f["rule"] == rule for f in findings)
-                    for rule in {f["rule"] for f in findings}
-                }
                 item.reasons = reasons
             if snapshot["allowed"]:
                 await audit.record_system_event(
@@ -616,7 +672,7 @@ async def tick(maker):
         await schedule(session)
         await flush_digests(session)
     started = time.monotonic()
-    for _ in range(8):
+    for _ in range(250):
         if not await process_one(maker) or time.monotonic() - started > 45:
             break
 

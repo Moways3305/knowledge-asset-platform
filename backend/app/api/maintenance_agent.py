@@ -15,11 +15,14 @@ from app.schemas.maintenance_agent import (
     IssuePage,
     PolicyCommand,
     PolicyOut,
+    RunDeleteCommand,
+    RunDeleteResult,
     RunDetail,
     RunOut,
 )
 from app.schemas.permission import CallerContext
 from app.services import maintenance_agent as service
+from app.services import maintenance_run_actions as run_actions
 
 router = APIRouter(prefix="/api/v1/maintenance-agent", tags=["maintenance-agent"])
 
@@ -72,6 +75,54 @@ async def run_detail(
     session: AsyncSession = Depends(get_db),
 ):
     return await service.run_detail(session, caller, library_key, run_id, page=page, status=status)
+
+
+@router.post("/policies/{library_key}/runs/delete", response_model=RunDeleteResult)
+async def delete_runs(
+    library_key: str,
+    body: RunDeleteCommand,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+):
+    return await run_actions.delete_records(
+        session, caller, library_key, body.run_ids, get_trace_id(request)
+    )
+
+
+@router.delete("/policies/{library_key}/runs/{run_id}", response_model=RunDeleteResult)
+async def delete_run(
+    library_key: str,
+    run_id: uuid.UUID,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+):
+    return await run_actions.delete_records(
+        session, caller, library_key, [run_id], get_trace_id(request)
+    )
+
+
+@router.post("/policies/{library_key}/runs/{run_id}/cancel", response_model=RunOut)
+async def cancel_run(
+    library_key: str,
+    run_id: uuid.UUID,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+):
+    return await run_actions.cancel(session, caller, library_key, run_id, get_trace_id(request))
+
+
+@router.post("/policies/{library_key}/runs/{run_id}/retry", response_model=RunOut)
+async def retry_run(
+    library_key: str,
+    run_id: uuid.UUID,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+):
+    return await run_actions.retry(session, caller, library_key, run_id, get_trace_id(request))
 
 
 @router.get("/issues", response_model=IssuePage)

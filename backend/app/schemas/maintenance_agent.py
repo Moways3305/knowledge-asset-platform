@@ -16,7 +16,12 @@ class ScanSettings(BaseModel):
     required_tags: list[str] = Field(default_factory=list, max_length=20)
     required_sections: list[str] = Field(default_factory=list, max_length=20)
     similarity_threshold: float = Field(default=0.85, ge=0.5, le=1)
-    max_body_chars: int = Field(default=24000, ge=1000, le=60000)
+    max_body_chars: int = Field(
+        default=24000,
+        ge=1000,
+        le=60000,
+        description="每批正文处理预算；长文档自动分批完成，不限制全文长度",
+    )
 
 
 class PolicyCommand(BaseModel):
@@ -51,6 +56,7 @@ class RunOut(BaseModel):
     started_at: datetime
     finished_at: datetime | None
     last_progress_at: datetime
+    can_retry: bool = False
 
 
 class ScopeOut(BaseModel):
@@ -70,6 +76,15 @@ class RunItemOut(BaseModel):
     findings: dict[str, int]
     reasons: list[str]
     checked_at: datetime | None
+    progress: dict[str, int] = Field(default_factory=dict)
+
+
+class RunDeleteCommand(BaseModel):
+    run_ids: list[uuid.UUID] = Field(min_length=1, max_length=100)
+
+
+class RunDeleteResult(BaseModel):
+    deleted_count: int
 
 
 class RunDetail(RunOut):

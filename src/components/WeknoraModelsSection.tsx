@@ -92,8 +92,11 @@ export default function WeknoraModelsSection({
   const nameListId = useId();
   const effectiveCanEdit = canEdit && !forbidden;
 
+  const loaded = useRef(false);
+  const loadRequest = useRef(0);
   const load = useCallback(async () => {
-    setLoading(true);
+    const request = ++loadRequest.current;
+    setLoading(!loaded.current);
     setError(null);
     setForbidden(false);
     try {
@@ -101,24 +104,32 @@ export default function WeknoraModelsSection({
         fetchWeknoraModels(),
         fetchWeknoraProviders(),
       ]);
+      if (request !== loadRequest.current) return;
+      loaded.current = true;
       setModels(items);
       setProviders(providerItems);
     } catch (caught) {
-      setModels([]);
-      setProviders([]);
-      if (caught instanceof ApiError && caught.status === 403) {
+      if (request !== loadRequest.current) return;
+
+      if (caught instanceof ApiError && [401, 403].includes(caught.status)) {
+        loaded.current = false;
+        setModels([]);
+        setProviders([]);
         setForbidden(true);
         setError("当前身份没有 WeKnora 模型管理权限，此区域保持只读。");
       } else {
         setError("WeKnora 模型列表加载失败，请刷新或检查连接服务。");
       }
     } finally {
-      setLoading(false);
+      if (request === loadRequest.current) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     void load();
+    return () => {
+      loadRequest.current += 1;
+    };
   }, [load, refreshSignal]);
 
   useEffect(() => {

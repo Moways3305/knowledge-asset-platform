@@ -74,6 +74,7 @@ export function useAdminIngest() {
   const [recoveryListBusy, setRecoveryListBusy] = useState(false);
   const [workspace, setWorkspace] = useState<"recovery" | "jobs" | "runtime">("recovery");
   const showAllRecoveryItemsRef = useRef(false);
+  const [refreshErrors, setRefreshErrors] = useState<Record<string, boolean>>({});
   const ingestRequestRef = useRef(0);
   const opsRequestRef = useRef(0);
   const jobsRequestRef = useRef(0);
@@ -90,11 +91,14 @@ export function useAdminIngest() {
       if (ingestRequestRef.current !== requestId) return null;
       setIngestItems(items);
       setIngestState("ready");
+      setRefreshErrors((current) => ({ ...current, ingest: false }));
       return items;
-    } catch {
+    } catch (error) {
       if (ingestRequestRef.current !== requestId) return null;
-      setIngestItems([]);
-      setIngestState("error");
+      if (error instanceof ApiError && [401, 403].includes(error.status)) setIngestItems([]);
+      const denied = error instanceof ApiError && [401, 403].includes(error.status);
+      setIngestState((current) => (!denied && current === "ready" ? "ready" : "error"));
+      setRefreshErrors((current) => ({ ...current, ingest: true }));
       return null;
     }
   }, []);
@@ -107,11 +111,14 @@ export function useAdminIngest() {
       if (opsRequestRef.current !== requestId) return null;
       setOpsIndex(index);
       setOpsState("ready");
+      setRefreshErrors((current) => ({ ...current, index: false }));
       return index;
-    } catch {
+    } catch (error) {
       if (opsRequestRef.current !== requestId) return null;
-      setOpsIndex(null);
-      setOpsState("error");
+      if (error instanceof ApiError && [401, 403].includes(error.status)) setOpsIndex(null);
+      const denied = error instanceof ApiError && [401, 403].includes(error.status);
+      setOpsState((current) => (!denied && current === "ready" ? "ready" : "error"));
+      setRefreshErrors((current) => ({ ...current, index: true }));
       return null;
     }
   }, []);
@@ -165,10 +172,14 @@ export function useAdminIngest() {
       if (jobsRequestRef.current !== requestId) return null;
       setOpsJobs(items);
       setJobsState("ready");
+      setRefreshErrors((current) => ({ ...current, jobs: false }));
       return items;
-    } catch {
+    } catch (error) {
       if (jobsRequestRef.current !== requestId) return null;
-      setJobsState("error");
+      if (error instanceof ApiError && [401, 403].includes(error.status)) setOpsJobs([]);
+      const denied = error instanceof ApiError && [401, 403].includes(error.status);
+      setJobsState((current) => (!denied && current === "ready" ? "ready" : "error"));
+      setRefreshErrors((current) => ({ ...current, jobs: true }));
       return null;
     }
   }, [fetchJobsSerialized]);
@@ -181,11 +192,14 @@ export function useAdminIngest() {
       if (healthRequestRef.current !== requestId) return null;
       setHealth(nextHealth);
       setHealthState("ready");
+      setRefreshErrors((current) => ({ ...current, health: false }));
       return nextHealth;
-    } catch {
+    } catch (error) {
       if (healthRequestRef.current !== requestId) return null;
-      setHealth(null);
-      setHealthState("error");
+      if (error instanceof ApiError && [401, 403].includes(error.status)) setHealth(null);
+      const denied = error instanceof ApiError && [401, 403].includes(error.status);
+      setHealthState((current) => (!denied && current === "ready" ? "ready" : "error"));
+      setRefreshErrors((current) => ({ ...current, health: true }));
       return null;
     }
   }, []);
@@ -198,11 +212,14 @@ export function useAdminIngest() {
       if (llmUsageRequestRef.current !== requestId) return null;
       setLLMUsage(response.items);
       setLLMUsageState("ready");
+      setRefreshErrors((current) => ({ ...current, usage: false }));
       return response.items;
-    } catch {
+    } catch (error) {
       if (llmUsageRequestRef.current !== requestId) return null;
-      setLLMUsage([]);
-      setLLMUsageState("error");
+      if (error instanceof ApiError && [401, 403].includes(error.status)) setLLMUsage([]);
+      const denied = error instanceof ApiError && [401, 403].includes(error.status);
+      setLLMUsageState((current) => (!denied && current === "ready" ? "ready" : "error"));
+      setRefreshErrors((current) => ({ ...current, usage: true }));
       return null;
     }
   }, []);
@@ -630,6 +647,8 @@ export function useAdminIngest() {
     }
   };
   return {
+    refreshFailed: Object.values(refreshErrors).some(Boolean),
+    jobsRefreshFailed: !!refreshErrors.jobs,
     refreshAll,
     opsBusy,
     workspace,

@@ -242,7 +242,9 @@ function AppShell() {
           )}
         </header>
         <main className="app-content">
-          <ErrorBoundary>
+          <ErrorBoundary
+            key={`${authMe?.userId ?? "anonymous"}:${authMe?.activeCompanyRole ?? ""}`}
+          >
             <Suspense fallback={<LoadingError loading />}>
               <Outlet />
             </Suspense>

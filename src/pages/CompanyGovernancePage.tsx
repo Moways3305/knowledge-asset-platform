@@ -1,3 +1,4 @@
+import { ApiError } from "../api/http";
 import PagePagination from "../components/PagePagination";
 import ListWorkspace from "../components/ListWorkspace";
 import { ProductPage, PageHeader } from "../components/ProductLayout";
@@ -101,18 +102,34 @@ export default function CompanyGovernancePage() {
   const [result, setResult] = useState<BatchResult | null>(null);
   const [actionError, setActionError] = useState("");
   const serial = useRef(0);
+  const loadedScope = useRef("");
   const archived = view === "archived";
   const load = useCallback(async () => {
     const n = ++serial.current;
+    const scope = JSON.stringify([view, signal, keyword, page]);
+    if (loadedScope.current !== scope) {
+      setData(null);
+      setSelected([]);
+    }
     setLoading(true);
     setError("");
-    setSelected([]);
     try {
       const r = await fetchGovernance(view, signal, keyword, page);
-      if (n === serial.current) setData(r);
-    } catch {
       if (n === serial.current) {
-        setData(null);
+        loadedScope.current = scope;
+        setData(r);
+        setSelected((current) =>
+          current.filter((item) => r.items.some((next) => next.asset_id === item.asset_id)),
+        );
+      }
+    } catch (e) {
+      if (n === serial.current) {
+        if (e instanceof ApiError && [401, 403].includes(e.status)) {
+          loadedScope.current = "";
+          setData(null);
+          setDetail(null);
+          setSelected([]);
+        }
         setError("无法读取治理清单，请检查权限或重试。");
       }
     } finally {
@@ -283,12 +300,13 @@ export default function CompanyGovernancePage() {
               ))}
           </div>
         )}
-        {error ? (
+        {error && <p role="alert">{error}</p>}
+        {error && !data ? (
           <div className="cg-empty" role="alert">
             {error}
             <button onClick={() => void load()}>重试</button>
           </div>
-        ) : loading ? (
+        ) : loading && !data ? (
           <div className="cg-empty" role="status">
             正在读取公司资料…
           </div>

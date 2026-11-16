@@ -70,11 +70,12 @@ export default function UploadStepA({ flow }: { flow: UploadFlow }) {
         )}
       </div>
 
-      {pendingLoading ? (
+      {pendingError && pendingTasks.length > 0 && <p role="alert">{pendingError}</p>}
+      {pendingLoading && pendingTasks.length === 0 ? (
         <div className="upload77-state" role="status">
           正在加载待确认资料…
         </div>
-      ) : pendingError ? (
+      ) : pendingError && pendingTasks.length === 0 ? (
         <div className="upload77-state upload77-state-error" role="alert">
           <span>{pendingError}</span>
           <button className="btn-secondary" onClick={() => void loadPending()} type="button">
