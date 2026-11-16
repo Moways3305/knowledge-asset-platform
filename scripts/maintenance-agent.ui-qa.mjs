@@ -62,6 +62,16 @@ try {
         await page.getByRole("heading", { name: "当前筛选下没有维护待办" }).waitFor();
       } else {
         await page.getByRole("button", { name: "疑似只有封面或目录" }).waitFor();
+        const agentNavigation = page.locator('#primary-navigation a[href="/agents"]');
+        assert.equal(await agentNavigation.getAttribute("aria-current"), "page");
+        assert.equal(await page.locator('#primary-navigation a[href="/knowledge"]').getAttribute("aria-current"), null);
+        assert.equal(await page.getByRole("navigation", { name: "知识库导航" }).count(), 0);
+        assert.equal(await page.locator('.deck-context a[aria-label="进入智能体中心"]').getAttribute("href"), "/agents");
+        if (width === 390) {
+          const mobileAgent = page.getByRole("link", { name: "底部智能体中心", exact: true });
+          assert.equal(await mobileAgent.isVisible(), true);
+          assert.equal(await mobileAgent.getAttribute("aria-current"), "page");
+        }
         await page.screenshot({ path: path.join(out, `issues-normal-${width}.png`), fullPage: true, animations: "disabled" });
         await page.getByRole("button", { name: "疑似只有封面或目录" }).click();
         await page.getByText("目录第一章：交付标准；第二章：质量复核。", { exact: true }).waitFor();

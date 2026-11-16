@@ -33,7 +33,7 @@ export const HELP_GUIDES: HelpGuide[] = [
     title: "使用知识维护智能体",
     summary: "按知识库定期巡检资产，把问题交给合适的维护人跟进。",
     audience: "公司知识治理人员、项目经理与维护人",
-    entry: "知识库 → 智能体中心 → 知识维护 Agent",
+    entry: "侧边栏「智能体中心」→ 知识维护 Agent",
     to: "/agents/knowledge-maintenance",
     capability: "viewKnowledge",
     sections: [

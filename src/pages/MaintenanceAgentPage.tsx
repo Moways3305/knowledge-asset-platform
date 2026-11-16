@@ -17,7 +17,6 @@ import {
   type ScanRun,
 } from "../api/maintenanceAgent";
 import { PageHeader, ProductPage } from "../components/ProductLayout";
-import KnowledgeModuleFrame from "../components/KnowledgeModuleFrame";
 import DetailDrawer from "../components/DetailDrawer";
 import FormField from "../components/FormField";
 import PagePagination from "../components/PagePagination";
@@ -168,313 +167,309 @@ export default function MaintenanceAgentPage() {
     }
   };
   return (
-    <KnowledgeModuleFrame>
-      <ProductPage className="maintenance-agent-page">
-        <PageHeader
-          title={isCenter ? "智能体中心" : "知识维护 Agent"}
-          eyebrow="平台预置智能体"
-          description={
-            isCenter
-              ? "让日常知识维护持续运转，重要判断由你确认。"
-              : "定期检查知识资产，记录问题并提醒相应维护人。"
-          }
-          actions={
-            !isCenter && (
-              <button type="button" onClick={() => setRefresh((n) => n + 1)} disabled={busy}>
-                <RefreshCw size={16} /> 刷新
-              </button>
-            )
-          }
-        />
-        {isCenter ? (
-          <section className="agent-catalog" aria-label="预置智能体">
-            <div className="agent-catalog-icon">
-              <Bot size={28} />
-            </div>
-            <div>
-              <span className="agent-kicker">知识治理</span>
-              <h3>知识维护 Agent</h3>
-              <p>每日检查新增和变更资产，每周全面巡检。发现问题后，汇总维护待办并发送提醒。</p>
-              <div className="agent-category-line">
-                {Object.values(categories).map((label) => (
-                  <span key={label}>{label}</span>
-                ))}
-              </div>
-              <Link className="agent-primary" to="/agents/knowledge-maintenance">
-                进入知识维护 <ArrowRight size={17} />
-              </Link>
-            </div>
-          </section>
-        ) : (
-          <>
-            <div className="agent-toolbar">
-              <FormField label="巡检知识库">
-                <select value={key} onChange={(e) => update("library", e.target.value)}>
-                  {policies.length ? (
-                    policies.map((p) => (
-                      <option key={p.library_key} value={p.library_key}>
-                        {p.name}
-                      </option>
-                    ))
-                  ) : (
-                    <option value="company">公司知识库</option>
-                  )}
-                </select>
-              </FormField>
-              <div className="agent-scope">
-                <CalendarClock size={18} />
-                <span>
-                  资产区 · 每日增量 / 每周全量
-                  <br />
-                  <small>个人知识库和素材区不参与巡检</small>
-                </span>
-              </div>
-              <button
-                className="agent-primary"
-                type="button"
-                disabled={busy || hasRunning || !policy?.id || !policy.can_configure}
-                onClick={() => void runNow()}
-              >
-                {busy ? "正在提交…" : hasRunning ? "巡检进行中" : "立即全面巡检"}
-              </button>
-            </div>
-            {error && (
-              <p role="alert" className="agent-error">
-                {error}{" "}
-                <button type="button" onClick={() => setRefresh((n) => n + 1)}>
-                  重试
-                </button>
-              </p>
-            )}
-            {notice && <p role="status">{notice}</p>}
-            {policy?.last_error && (
-              <p role="alert" className="agent-error">
-                {reasons[policy.last_error] || "巡检配置需要检查"}
-              </p>
-            )}
-            <nav className="agent-tabs" aria-label="知识维护视图">
-              {[
-                ["issues", "维护待办"],
-                ["runs", "巡检记录"],
-                ["settings", "巡检设置"],
-              ].map(([value, label]) => (
-                <button
-                  type="button"
-                  key={value}
-                  aria-current={tab === value ? "page" : undefined}
-                  onClick={() => update("tab", value)}
-                >
-                  {label}
-                </button>
+    <ProductPage className="maintenance-agent-page">
+      <PageHeader
+        title={isCenter ? "智能体中心" : "知识维护 Agent"}
+        eyebrow="平台预置智能体"
+        description={
+          isCenter
+            ? "让日常知识维护持续运转，重要判断由你确认。"
+            : "定期检查知识资产，记录问题并提醒相应维护人。"
+        }
+        actions={
+          !isCenter && (
+            <button type="button" onClick={() => setRefresh((n) => n + 1)} disabled={busy}>
+              <RefreshCw size={16} /> 刷新
+            </button>
+          )
+        }
+      />
+      {isCenter ? (
+        <section className="agent-catalog" aria-label="预置智能体">
+          <div className="agent-catalog-icon">
+            <Bot size={28} />
+          </div>
+          <div>
+            <span className="agent-kicker">知识治理</span>
+            <h3>知识维护 Agent</h3>
+            <p>每日检查新增和变更资产，每周全面巡检。发现问题后，汇总维护待办并发送提醒。</p>
+            <div className="agent-category-line">
+              {Object.values(categories).map((label) => (
+                <span key={label}>{label}</span>
               ))}
-            </nav>
-            {!data && !error && <p role="status">正在加载巡检信息…</p>}
-            {tab === "issues" && data && (
-              <section aria-label="巡检问题" className="agent-panel">
-                <div className="agent-filters">
-                  <FormField label="检查类别">
-                    <select value={category} onChange={(e) => update("category", e.target.value)}>
-                      <option value="">全部类别</option>
-                      {Object.entries(categories).map(([v, l]) => (
+            </div>
+            <Link className="agent-primary" to="/agents/knowledge-maintenance">
+              进入知识维护 <ArrowRight size={17} />
+            </Link>
+          </div>
+        </section>
+      ) : (
+        <>
+          <div className="agent-toolbar">
+            <FormField label="巡检知识库">
+              <select value={key} onChange={(e) => update("library", e.target.value)}>
+                {policies.length ? (
+                  policies.map((p) => (
+                    <option key={p.library_key} value={p.library_key}>
+                      {p.name}
+                    </option>
+                  ))
+                ) : (
+                  <option value="company">公司知识库</option>
+                )}
+              </select>
+            </FormField>
+            <div className="agent-scope">
+              <CalendarClock size={18} />
+              <span>
+                资产区 · 每日增量 / 每周全量
+                <br />
+                <small>个人知识库和素材区不参与巡检</small>
+              </span>
+            </div>
+            <button
+              className="agent-primary"
+              type="button"
+              disabled={busy || hasRunning || !policy?.id || !policy.can_configure}
+              onClick={() => void runNow()}
+            >
+              {busy ? "正在提交…" : hasRunning ? "巡检进行中" : "立即全面巡检"}
+            </button>
+          </div>
+          {error && (
+            <p role="alert" className="agent-error">
+              {error}{" "}
+              <button type="button" onClick={() => setRefresh((n) => n + 1)}>
+                重试
+              </button>
+            </p>
+          )}
+          {notice && <p role="status">{notice}</p>}
+          {policy?.last_error && (
+            <p role="alert" className="agent-error">
+              {reasons[policy.last_error] || "巡检配置需要检查"}
+            </p>
+          )}
+          <nav className="agent-tabs" aria-label="知识维护视图">
+            {[
+              ["issues", "维护待办"],
+              ["runs", "巡检记录"],
+              ["settings", "巡检设置"],
+            ].map(([value, label]) => (
+              <button
+                type="button"
+                key={value}
+                aria-current={tab === value ? "page" : undefined}
+                onClick={() => update("tab", value)}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
+          {!data && !error && <p role="status">正在加载巡检信息…</p>}
+          {tab === "issues" && data && (
+            <section aria-label="巡检问题" className="agent-panel">
+              <div className="agent-filters">
+                <FormField label="检查类别">
+                  <select value={category} onChange={(e) => update("category", e.target.value)}>
+                    <option value="">全部类别</option>
+                    {Object.entries(categories).map(([v, l]) => (
+                      <option key={v} value={v}>
+                        {l}
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+                <FormField label="处理状态">
+                  <select value={status} onChange={(e) => update("status", e.target.value)}>
+                    {Object.entries(states)
+                      .filter(
+                        ([v]) =>
+                          ![
+                            "queued",
+                            "running",
+                            "completed",
+                            "partial",
+                            "cancelled",
+                            "open",
+                          ].includes(v),
+                      )
+                      .map(([v, l]) => (
                         <option key={v} value={v}>
                           {l}
                         </option>
                       ))}
-                    </select>
-                  </FormField>
-                  <FormField label="处理状态">
-                    <select value={status} onChange={(e) => update("status", e.target.value)}>
-                      {Object.entries(states)
-                        .filter(
-                          ([v]) =>
-                            ![
-                              "queued",
-                              "running",
-                              "completed",
-                              "partial",
-                              "cancelled",
-                              "open",
-                            ].includes(v),
-                        )
-                        .map(([v, l]) => (
-                          <option key={v} value={v}>
-                            {l}
-                          </option>
-                        ))}
-                    </select>
-                  </FormField>
-                  <label className="agent-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={mine}
-                      onChange={(e) => update("mine", String(e.target.checked))}
-                    />{" "}
-                    只看我负责的
-                  </label>
-                  <span>{data.total} 个问题</span>
+                  </select>
+                </FormField>
+                <label className="agent-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={mine}
+                    onChange={(e) => update("mine", String(e.target.checked))}
+                  />{" "}
+                  只看我负责的
+                </label>
+                <span>{data.total} 个问题</span>
+              </div>
+              {data.items.length ? (
+                <ul className="agent-issues">
+                  {data.items.map((issue) => (
+                    <li key={issue.id}>
+                      <div className="agent-issue-meta">
+                        <span>{categories[issue.category]}</span>
+                        <span className={`agent-status agent-status-${issue.status}`}>
+                          {states[issue.status]}
+                        </span>
+                      </div>
+                      <button
+                        className="agent-issue-title"
+                        type="button"
+                        onClick={() => setSelected(issue.id)}
+                      >
+                        {rules[issue.rule] || "知识资产待核查"}
+                        <ArrowRight size={16} />
+                      </button>
+                      <div className="agent-asset-title">{issue.title}</div>
+                      <div className="agent-issue-foot">
+                        <span>
+                          {issue.suspected ? "疑似问题 · 需要人工判断" : "客观检查项 · 修正后复检"}
+                        </span>
+                        <span>
+                          维护人：
+                          {issue.responsible.map((r) => r.name).join("、") ||
+                            "等待知识库管理人认领"}
+                        </span>
+                        <time>{formatBeijingTime(issue.last_seen_at)}</time>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="agent-empty">
+                  <ClipboardCheck size={28} />
+                  <h3>当前筛选下没有维护待办</h3>
+                  <p>
+                    {policy?.id
+                      ? "可切换条件，或在巡检记录中确认检查是否完整。"
+                      : "请由知识库管理人先保存巡检设置，再开始检查。"}
+                  </p>
                 </div>
-                {data.items.length ? (
-                  <ul className="agent-issues">
-                    {data.items.map((issue) => (
-                      <li key={issue.id}>
-                        <div className="agent-issue-meta">
-                          <span>{categories[issue.category]}</span>
-                          <span className={`agent-status agent-status-${issue.status}`}>
-                            {states[issue.status]}
-                          </span>
-                        </div>
-                        <button
-                          className="agent-issue-title"
-                          type="button"
-                          onClick={() => setSelected(issue.id)}
-                        >
-                          {rules[issue.rule] || "知识资产待核查"}
-                          <ArrowRight size={16} />
-                        </button>
-                        <div className="agent-asset-title">{issue.title}</div>
-                        <div className="agent-issue-foot">
-                          <span>
-                            {issue.suspected
-                              ? "疑似问题 · 需要人工判断"
-                              : "客观检查项 · 修正后复检"}
-                          </span>
-                          <span>
-                            维护人：
-                            {issue.responsible.map((r) => r.name).join("、") ||
-                              "等待知识库管理人认领"}
-                          </span>
-                          <time>{formatBeijingTime(issue.last_seen_at)}</time>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div className="agent-empty">
-                    <ClipboardCheck size={28} />
-                    <h3>当前筛选下没有维护待办</h3>
-                    <p>
-                      {policy?.id
-                        ? "可切换条件，或在巡检记录中确认检查是否完整。"
-                        : "请由知识库管理人先保存巡检设置，再开始检查。"}
-                    </p>
-                  </div>
-                )}
-                <PagePagination
-                  ariaLabel="维护问题分页"
-                  page={page}
-                  totalPages={Math.max(1, Math.ceil(data.total / 25))}
-                  onPageChange={(p) => update("page", String(p))}
-                  summary={`共 ${data.total} 项`}
-                />
-              </section>
-            )}
-            {tab === "runs" && data && (
-              <section className="agent-panel" aria-label="巡检记录">
-                <p className="agent-note">
-                  完成检查不代表没有问题。未完成项会保留原因，已有问题不会因此自动关闭。
-                </p>
-                {!policy?.can_configure ? (
-                  <p>巡检记录由知识库管理人查看。</p>
-                ) : runs.length ? (
-                  <>
-                    <div className="agent-runs">
-                      {runs.map((run) => (
-                        <article key={run.id}>
-                          <header>
-                            <h3>
-                              {run.kind === "incremental"
-                                ? "每日增量巡检"
-                                : run.kind === "recheck"
-                                  ? "指定资产复检"
-                                  : "全面巡检"}
-                            </h3>
-                            <span className={`agent-status agent-status-${run.status}`}>
-                              {states[run.status]}
-                            </span>
-                          </header>
-                          <time>{formatBeijingTime(run.started_at)}</time>
-                          <dl>
-                            <div>
-                              <dt>目标资产</dt>
-                              <dd>{run.target_count}</dd>
-                            </div>
-                            <div>
-                              <dt>检查完成</dt>
-                              <dd>{run.completed_count}</dd>
-                            </div>
-                            <div>
-                              <dt>未完成</dt>
-                              <dd>{run.incomplete_count}</dd>
-                            </div>
-                            <div>
-                              <dt>跳过</dt>
-                              <dd>{run.skipped_count}</dd>
-                            </div>
-                          </dl>
-                          {Object.keys(run.reasons).length > 0 && (
-                            <ul>
-                              {Object.entries(run.reasons).map(([code, count]) => (
-                                <li key={code}>
-                                  {reasons[code] || "检查需要关注"}：{count}
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                        </article>
-                      ))}
-                    </div>
-                    <div className="agent-run-pages">
-                      <button
-                        type="button"
-                        disabled={page <= 1}
-                        onClick={() => update("page", String(page - 1))}
-                      >
-                        上一页
-                      </button>
-                      <span>第 {page} 页</span>
-                      <button
-                        type="button"
-                        disabled={runs.length < 25}
-                        onClick={() => update("page", String(page + 1))}
-                      >
-                        下一页
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="agent-empty">
-                    <CalendarClock size={28} />
-                    <h3>尚无可查看的巡检记录</h3>
-                    <p>保存设置后可立即执行一次全面巡检。</p>
-                  </div>
-                )}
-              </section>
-            )}
-            {tab === "settings" && policy && (
-              <PolicyEditor
-                key={`${policy.library_key}:${policy.revision}`}
-                policy={policy}
-                onSaved={() => {
-                  setNotice("巡检设置已保存。");
-                  setRefresh((n) => n + 1);
-                }}
+              )}
+              <PagePagination
+                ariaLabel="维护问题分页"
+                page={page}
+                totalPages={Math.max(1, Math.ceil(data.total / 25))}
+                onPageChange={(p) => update("page", String(p))}
+                summary={`共 ${data.total} 项`}
               />
-            )}
-            <p className="agent-note">
-              提醒方式：站内待办和通知，配合企业微信摘要。通知已读不会关闭问题。
-              <Link to="/help?guide=maintenance-agent">查看使用说明</Link>
-            </p>
-          </>
-        )}
-        {selected && (
-          <IssueDrawer
-            id={selected}
-            onClose={() => setSelected(null)}
-            onChanged={() => setRefresh((n) => n + 1)}
-          />
-        )}
-      </ProductPage>
-    </KnowledgeModuleFrame>
+            </section>
+          )}
+          {tab === "runs" && data && (
+            <section className="agent-panel" aria-label="巡检记录">
+              <p className="agent-note">
+                完成检查不代表没有问题。未完成项会保留原因，已有问题不会因此自动关闭。
+              </p>
+              {!policy?.can_configure ? (
+                <p>巡检记录由知识库管理人查看。</p>
+              ) : runs.length ? (
+                <>
+                  <div className="agent-runs">
+                    {runs.map((run) => (
+                      <article key={run.id}>
+                        <header>
+                          <h3>
+                            {run.kind === "incremental"
+                              ? "每日增量巡检"
+                              : run.kind === "recheck"
+                                ? "指定资产复检"
+                                : "全面巡检"}
+                          </h3>
+                          <span className={`agent-status agent-status-${run.status}`}>
+                            {states[run.status]}
+                          </span>
+                        </header>
+                        <time>{formatBeijingTime(run.started_at)}</time>
+                        <dl>
+                          <div>
+                            <dt>目标资产</dt>
+                            <dd>{run.target_count}</dd>
+                          </div>
+                          <div>
+                            <dt>检查完成</dt>
+                            <dd>{run.completed_count}</dd>
+                          </div>
+                          <div>
+                            <dt>未完成</dt>
+                            <dd>{run.incomplete_count}</dd>
+                          </div>
+                          <div>
+                            <dt>跳过</dt>
+                            <dd>{run.skipped_count}</dd>
+                          </div>
+                        </dl>
+                        {Object.keys(run.reasons).length > 0 && (
+                          <ul>
+                            {Object.entries(run.reasons).map(([code, count]) => (
+                              <li key={code}>
+                                {reasons[code] || "检查需要关注"}：{count}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </article>
+                    ))}
+                  </div>
+                  <div className="agent-run-pages">
+                    <button
+                      type="button"
+                      disabled={page <= 1}
+                      onClick={() => update("page", String(page - 1))}
+                    >
+                      上一页
+                    </button>
+                    <span>第 {page} 页</span>
+                    <button
+                      type="button"
+                      disabled={runs.length < 25}
+                      onClick={() => update("page", String(page + 1))}
+                    >
+                      下一页
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="agent-empty">
+                  <CalendarClock size={28} />
+                  <h3>尚无可查看的巡检记录</h3>
+                  <p>保存设置后可立即执行一次全面巡检。</p>
+                </div>
+              )}
+            </section>
+          )}
+          {tab === "settings" && policy && (
+            <PolicyEditor
+              key={`${policy.library_key}:${policy.revision}`}
+              policy={policy}
+              onSaved={() => {
+                setNotice("巡检设置已保存。");
+                setRefresh((n) => n + 1);
+              }}
+            />
+          )}
+          <p className="agent-note">
+            提醒方式：站内待办和通知，配合企业微信摘要。通知已读不会关闭问题。
+            <Link to="/help?guide=maintenance-agent">查看使用说明</Link>
+          </p>
+        </>
+      )}
+      {selected && (
+        <IssueDrawer
+          id={selected}
+          onClose={() => setSelected(null)}
+          onChanged={() => setRefresh((n) => n + 1)}
+        />
+      )}
+    </ProductPage>
   );
 }
 

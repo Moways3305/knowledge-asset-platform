@@ -237,7 +237,7 @@ async def content_asset(maker, tmp_path, *, ai="A1", body="目录第一章，正
             KnowledgeAssetVersion(
                 id=version_id,
                 asset_id=asset_id,
-                version_no=1,
+                version_no="1",
                 version_status="active",
                 created_by=USER_BOSS,
                 file_hash="shared-content-hash",

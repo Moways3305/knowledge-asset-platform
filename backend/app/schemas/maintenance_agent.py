@@ -8,18 +8,18 @@ from pydantic import BaseModel, Field
 
 
 class ScanSettings(BaseModel):
-    daily_hour: int = Field(2, ge=0, le=23)
-    weekly_day: int = Field(6, ge=0, le=6)
-    digest_hour: int = Field(9, ge=0, le=23)
-    overdue_days: int = Field(7, ge=1, le=365)
+    daily_hour: int = Field(default=2, ge=0, le=23)
+    weekly_day: int = Field(default=6, ge=0, le=6)
+    digest_hour: int = Field(default=9, ge=0, le=23)
+    overdue_days: int = Field(default=7, ge=1, le=365)
     required_tags: list[str] = Field(default_factory=list, max_length=20)
     required_sections: list[str] = Field(default_factory=list, max_length=20)
-    similarity_threshold: float = Field(0.85, ge=0.5, le=1)
-    max_body_chars: int = Field(24000, ge=1000, le=60000)
+    similarity_threshold: float = Field(default=0.85, ge=0.5, le=1)
+    max_body_chars: int = Field(default=24000, ge=1000, le=60000)
 
 
 class PolicyCommand(BaseModel):
-    expected_revision: int = Field(0, ge=0)
+    expected_revision: int = Field(default=0, ge=0)
     enabled: bool = False
     content_authorized: bool = False
     settings: ScanSettings = Field(default_factory=ScanSettings)
@@ -85,5 +85,5 @@ class IssueDetail(IssueOut):
 class IssueCommand(BaseModel):
     expected_updated_at: datetime
     action: Literal["in_progress", "recheck", "snoozed", "false_positive", "resolved"]
-    reason: str = Field("", max_length=1000)
+    reason: str = Field(default="", max_length=1000)
     snooze_until: datetime | None = None

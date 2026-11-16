@@ -3,6 +3,7 @@ import { Link, Outlet, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
   LibraryBig,
+  Bot,
   ShieldCheck,
   FolderKanban,
   Settings2,
@@ -56,6 +57,7 @@ import "../styles/admin-management.css";
 const mobileLabels: Record<string, string> = {
   work: "工作",
   knowledge: "知识",
+  agents: "智能体",
   project: "项目",
   approval: "审批",
 };
@@ -99,6 +101,13 @@ function AppShell() {
       to: "/knowledge",
       label: "知识库",
       icon: LibraryBig,
+      allowed: can.viewKnowledge(capabilities),
+    },
+    {
+      key: "agents",
+      to: "/agents",
+      label: "智能体中心",
+      icon: Bot,
       allowed: can.viewKnowledge(capabilities),
     },
     {
@@ -274,6 +283,12 @@ function AppShell() {
       >
         <IdentityMenu />
         <nav className="account-navigation" aria-label="全部功能">
+          {can.viewKnowledge(capabilities) && (
+            <Link to="/agents">
+              <Bot size={17} aria-hidden="true" />
+              智能体中心
+            </Link>
+          )}
           {can.viewProject(capabilities) && (
             <Link to={projectPath} onClick={() => setMobileNavOpen(false)}>
               <FolderKanban size={17} aria-hidden="true" />

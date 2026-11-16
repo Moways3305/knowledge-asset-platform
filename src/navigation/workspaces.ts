@@ -1,6 +1,13 @@
 import { can, type Capabilities, type Capability } from "../auth/permissions";
 
-export type WorkspaceKey = "work" | "knowledge" | "project" | "approval" | "admin" | "account";
+export type WorkspaceKey =
+  | "work"
+  | "knowledge"
+  | "agents"
+  | "project"
+  | "approval"
+  | "admin"
+  | "account";
 export interface WorkspaceEntry {
   to: string;
   label: string;
@@ -13,7 +20,6 @@ export const knowledgeEntries: WorkspaceEntry[] = [
   { to: "/knowledge", label: "知识资产库", cap: can.viewKnowledge },
   { to: "/my/knowledge", label: "我的知识", cap: can.viewMyKnowledge },
   { to: "/knowledge-maintenance", label: "知识维护", cap: can.viewKnowledge },
-  { to: "/agents", label: "智能体中心", cap: can.viewKnowledge },
   { to: "/upload", label: "上传资料", cap: can.viewUpload },
 ];
 
@@ -58,7 +64,7 @@ export function permittedEntries(entries: WorkspaceEntry[], capabilities: Capabi
 }
 
 export function workspaceForPath(pathname: string): WorkspaceKey {
-  if (pathname.startsWith("/agents")) return "knowledge";
+  if (pathname === "/agents" || pathname.startsWith("/agents/")) return "agents";
   if (pathname.startsWith("/admin") || pathname === "/company-governance") return "admin";
   if (pathname === "/projects" || pathname.startsWith("/project/")) return "project";
   if (pathname.startsWith("/review") || pathname.startsWith("/original-access")) return "approval";
@@ -70,6 +76,7 @@ export function workspaceForPath(pathname: string): WorkspaceKey {
 export const workspaceLabels: Record<WorkspaceKey, string> = {
   work: "工作台",
   knowledge: "知识库",
+  agents: "智能体中心",
   project: "项目空间",
   approval: "审批中心",
   admin: "管理中心",
@@ -77,6 +84,7 @@ export const workspaceLabels: Record<WorkspaceKey, string> = {
 };
 
 const utilityTitles: Record<string, string> = {
+  "/agents": "智能体中心",
   "/agents/knowledge-maintenance": "知识维护 Agent",
   "/": "我的工作",
   "/help": "帮助中心",

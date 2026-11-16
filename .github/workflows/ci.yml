@@ -207,7 +207,8 @@ jobs:
 
   frontend-ui-qa:
     name: Frontend (UI layout smoke)
-    runs-on: ubuntu-latest
+    # The locked Playwright release supports 24.04; latest now resolves to 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
       UI_QA_BASE: http://localhost:4173
