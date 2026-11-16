@@ -408,7 +408,7 @@ try {
           ).length,
           statsReady:
             scenarioName === "forbidden" ||
-            (stats.length === 4 &&
+            (stats.length === 3 &&
               stats.every(
                 (box) =>
                   box.height > 0 &&

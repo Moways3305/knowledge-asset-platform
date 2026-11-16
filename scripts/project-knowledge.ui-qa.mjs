@@ -339,7 +339,7 @@ try {
             return fulfill({ items: [], total: 0, page: 1, page_size: 20, has_next: false });
           }
           if (scenario === "filters-pagination") {
-            if (query.keyword && query.sort_by === "title") {
+            if (query.keyword && query.sort_by === "title" && query.asset_status === "active") {
               capturedFilterQuery = query;
             }
             if (query.page === "2") capturedPageQuery = query;
