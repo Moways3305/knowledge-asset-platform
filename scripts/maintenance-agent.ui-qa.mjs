@@ -97,6 +97,16 @@ try {
       if (scenario === "normal") {
         await page.goto(`${base}/agents`);
         await page.getByRole("link", { name: "进入知识维护" }).waitFor();
+        await page.getByRole("searchbox", { name: "搜索智能体" }).fill("不存在的应用");
+        await page.getByText("没有找到匹配的智能体", { exact: true }).waitFor();
+        assert.equal(await page.getByRole("link", { name: "进入知识维护" }).count(), 0);
+        await page.getByRole("button", { name: "清空搜索", exact: true }).click();
+        await page.getByRole("searchbox", { name: "搜索智能体" }).fill("巡检");
+        await page.getByRole("link", { name: "进入知识维护" }).waitFor();
+        await page.getByRole("searchbox", { name: "搜索智能体" }).fill("");
+        await page.getByRole("heading", { name: "智能体中心", exact: true }).click();
+        await page.mouse.move(0, 0);
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 2), false, `center overflow at ${width}`);
         await page.screenshot({ path: path.join(out, `center-normal-${width}.png`), fullPage: true, animations: "disabled" });
         cases.push({ page: "center", scenario: "normal", viewport: String(width), passed: true });
       }

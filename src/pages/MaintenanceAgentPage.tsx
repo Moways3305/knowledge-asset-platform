@@ -1,6 +1,15 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
-import { ArrowRight, Bot, CalendarClock, ClipboardCheck, RefreshCw } from "lucide-react";
+import {
+  ArrowRight,
+  BookOpen,
+  CalendarClock,
+  ClipboardCheck,
+  RefreshCw,
+  Search,
+  Sparkles,
+} from "lucide-react";
+import maintenanceAgentIcon from "../assets/knowledge-maintenance-agent.svg";
 import { ApiError } from "../api/http";
 import {
   actOnAgentIssue,
@@ -169,13 +178,28 @@ export default function MaintenanceAgentPage() {
   return (
     <ProductPage className={`maintenance-agent-page ${isCenter ? "agent-center-page" : ""}`}>
       <PageHeader
+        className={isCenter ? "agent-center-header" : undefined}
         title={isCenter ? "智能体中心" : "知识维护 Agent"}
-        eyebrow={isCenter ? undefined : "平台预置智能体"}
+        eyebrow={
+          isCenter ? (
+            <>
+              <Sparkles size={13} /> 企业智能体
+            </>
+          ) : (
+            "平台预置智能体"
+          )
+        }
         description={
-          isCenter ? "选择智能体，处理日常工作。" : "定期检查知识资产，记录问题并提醒相应维护人。"
+          isCenter
+            ? "发现适合工作的智能体，让知识资产持续发挥价值。"
+            : "定期检查知识资产，记录问题并提醒相应维护人。"
         }
         actions={
-          !isCenter && (
+          isCenter ? (
+            <Link className="agent-center-guide" to="/help?article=maintenance-agent">
+              <BookOpen size={16} /> 使用指南
+            </Link>
+          ) : (
             <button type="button" onClick={() => setRefresh((n) => n + 1)} disabled={busy}>
               <RefreshCw size={16} /> 刷新
             </button>
@@ -183,27 +207,7 @@ export default function MaintenanceAgentPage() {
         }
       />
       {isCenter ? (
-        <section className="agent-catalog" aria-label="预置智能体">
-          <Link className="agent-card" to="/agents/knowledge-maintenance" aria-label="进入知识维护">
-            <div className="agent-card-heading">
-              <span className="agent-catalog-icon">
-                <Bot size={22} aria-hidden="true" />
-              </span>
-              <div className="agent-card-identity">
-                <h3>知识维护 Agent</h3>
-                <span>知识治理</span>
-              </div>
-              <span className="agent-card-badge">预置</span>
-            </div>
-            <p>巡检知识资产的完整性、可用性与内容质量，发现问题后提醒维护人。</p>
-            <div className="agent-card-footer">
-              <span className="agent-card-capability">5 类检查</span>
-              <span className="agent-card-entry">
-                进入 <ArrowRight size={14} aria-hidden="true" />
-              </span>
-            </div>
-          </Link>
-        </section>
+        <AgentCatalog />
       ) : (
         <>
           <div className="agent-toolbar">
@@ -471,6 +475,77 @@ export default function MaintenanceAgentPage() {
         />
       )}
     </ProductPage>
+  );
+}
+
+function AgentCatalog() {
+  const [query, setQuery] = useState("");
+  const matches = "知识维护 Agent 知识治理 巡检 知识资产 完整性 可用性 内容质量 问题 待办 维护人"
+    .toLocaleLowerCase()
+    .includes(query.trim().toLocaleLowerCase());
+  return (
+    <section className="agent-directory" aria-label="预置智能体">
+      <div className="agent-directory-toolbar">
+        <h3>
+          全部智能体 <span>1</span>
+        </h3>
+        <label className="agent-directory-search">
+          <Search size={16} aria-hidden="true" />
+          <input
+            type="search"
+            aria-label="搜索智能体"
+            placeholder="搜索名称或用途"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </label>
+      </div>
+      <div className="agent-directory-caption">
+        <span>知识治理</span>
+        <p>平台预置 · 按知识库配置</p>
+      </div>
+      <div className="agent-catalog">
+        {matches ? (
+          <Link className="agent-card" to="/agents/knowledge-maintenance" aria-label="进入知识维护">
+            <div className="agent-card-heading">
+              <img
+                className="agent-catalog-icon"
+                src={maintenanceAgentIcon}
+                alt=""
+                width={52}
+                height={52}
+              />
+              <div className="agent-card-identity">
+                <h4>知识维护 Agent</h4>
+                <span>让知识保持完整、可用</span>
+              </div>
+            </div>
+            <p>定期巡检知识资产，发现质量与维护问题，提醒对应维护人处理。</p>
+            <div className="agent-card-tags">
+              <span>定期巡检</span>
+              <span>问题待办</span>
+            </div>
+            <div className="agent-card-footer">
+              <span className="agent-card-provider">
+                <Sparkles size={12} aria-hidden="true" /> 平台预置
+              </span>
+              <span className="agent-card-entry">
+                打开智能体 <ArrowRight size={14} aria-hidden="true" />
+              </span>
+            </div>
+          </Link>
+        ) : (
+          <div className="agent-directory-empty" role="status">
+            <Search size={24} aria-hidden="true" />
+            <h4>没有找到匹配的智能体</h4>
+            <p>试试“知识维护”或“巡检”。</p>
+            <button type="button" onClick={() => setQuery("")}>
+              清空搜索
+            </button>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
