@@ -107,7 +107,7 @@ describe("Notification inbox lifecycle", () => {
     vi.mocked(fetchInbox).mockResolvedValue({ ...initial, total: 3500 });
     renderBell();
     await open();
-    fireEvent.click(screen.getByRole("button", { name: "全部已读", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "全部已读" }));
     await waitFor(() =>
       expect(actOnInbox).toHaveBeenCalledWith({
         action: "read",
@@ -152,16 +152,14 @@ describe("Notification inbox lifecycle", () => {
     await open();
     fireEvent.click(screen.getByRole("button", { name: "选择全部 250 组（跨页）" }));
     const bar = screen.getByText("已选 250 组").closest("div")!;
-    fireEvent.click(within(bar).getByRole("button", { name: "归档", exact: true }));
+    fireEvent.click(within(bar).getByRole("button", { name: "归档" }));
     await waitFor(() =>
       expect(actOnInbox).toHaveBeenCalledWith(
         expect.objectContaining({ action: "archive", all_matching: true }),
       ),
     );
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "删除", exact: true })).toBeEnabled(),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "删除", exact: true }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "删除" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "删除" }));
     fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
     await waitFor(() =>
       expect(actOnInbox).toHaveBeenCalledWith(
@@ -173,7 +171,7 @@ describe("Notification inbox lifecycle", () => {
     renderBell();
     await open();
     fireEvent.click(screen.getByRole("tab", { name: "回收站" }));
-    fireEvent.click(await screen.findByRole("button", { name: "恢复", exact: true }));
+    fireEvent.click(await screen.findByRole("button", { name: "恢复" }));
     await waitFor(() =>
       expect(actOnInbox).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -189,7 +187,7 @@ describe("Notification inbox lifecycle", () => {
     await open();
     fireEvent.click(screen.getByLabelText("选择当前已加载消息"));
     vi.mocked(actOnInbox).mockRejectedValueOnce(new Error("offline"));
-    fireEvent.click(screen.getAllByRole("button", { name: "归档", exact: true })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "归档" })[0]);
     await screen.findByRole("alert");
     expect(screen.getByLabelText("选择当前已加载消息")).toBeChecked();
     expect(screen.getByRole("button", { name: "查看详情" })).toBeInTheDocument();
