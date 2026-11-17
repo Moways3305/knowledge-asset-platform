@@ -512,6 +512,9 @@ async def replace(session, caller, asset_id, req, trace_id):
     # Both endpoints are already locked. Persist the replacement link before the
     # lifecycle command refreshes its locked row; keep the same atomic transaction.
     await session.flush()
+    from app.services.maintenance_reconcile import reconcile_asset
+
+    await reconcile_asset(session, target)
     # Existing lifecycle command keeps revocation/audit behavior and commits atomically.
     await lifecycle.archive_confirm(
         session, caller, asset.id, ArchiveConfirmBody(reason=req.reason), trace_id

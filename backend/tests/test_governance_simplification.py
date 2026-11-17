@@ -298,6 +298,8 @@ async def test_suggestions_are_separate_and_retired_issues_hidden_then_reconcile
 async def test_company_replacement_uses_real_relation_and_single_content_confirmation(
     client, db_session
 ):
+    await configure(client)
+    policy = await db_session.scalar(select(MaintenancePolicy))
     target = KnowledgeAsset(
         title="已核对的新版",
         scope="company",
@@ -316,6 +318,16 @@ async def test_company_replacement_uses_real_relation_and_single_content_confirm
     db_session.add(version)
     await db_session.flush()
     target.current_version_id = version.id
+    target.review_due_at = utc_now() - timedelta(days=1)
+    overdue = MaintenanceIssue(
+        policy_id=policy.id,
+        asset_id=target.id,
+        version_id=version.id,
+        rule="review_overdue",
+        category="maintenance",
+        fingerprint="old-due-date",
+    )
+    db_session.add(overdue)
     await db_session.commit()
     old, new = await state(client), await state(client, target.id)
     response = await client.post(
@@ -343,6 +355,8 @@ async def test_company_replacement_uses_real_relation_and_single_content_confirm
     await db_session.refresh(target)
     assert source.replacement_asset_id == target.id and source.asset_status == "archived"
     assert target.verified_at is not None and target.review_due_at is None
+    await db_session.refresh(overdue)
+    assert overdue.status == "resolved"
 
 
 async def test_disabled_archive_rule_really_stops_scan(client, db_session):
