@@ -4,6 +4,7 @@ import path from "node:path";
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
 import { auditResponsiveLayout } from "./responsive-layout-audit.mjs";
+import { auditKnowledgeRowInteraction } from "./knowledge-row-interaction.ui-qa.mjs";
 
 const base = process.env.UI_QA_BASE || "http://localhost:5179";
 const outRoot = process.env.UI_QA_OUT_DIR || path.join(os.tmpdir(), "kap-ui-qa");
@@ -378,6 +379,11 @@ for (const scenario of scenarios) {
     });
 
     if (scenario === "company" || scenario === "project") {
+      metrics.rowInteraction = await auditKnowledgeRowInteraction(page, {
+        table: ".kbl-table",
+        outDir,
+        name: `${scenario}-${viewport.name}`,
+      });
       const originalUrl = page.url();
       await page.getByRole("button", { name: `快速查看《${asset().title}》` }).click();
       const drawer = page.getByRole("dialog", { name: asset().title });
