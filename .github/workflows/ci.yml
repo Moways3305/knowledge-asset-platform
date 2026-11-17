@@ -242,6 +242,8 @@ jobs:
         run: npm run test:ui:project-settings
       - name: UI QA (knowledge asset library reference layout)
         run: npm run test:ui:knowledge-list
+      - name: UI QA (cross-project summary and record hover)
+        run: npm run test:ui:cross-project-summary
       - name: UI QA (knowledge asset detail reference layout)
         run: npm run test:ui:knowledge-detail
       - name: UI QA (admin operations diagnostics and targeted retry)

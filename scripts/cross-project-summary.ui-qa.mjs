@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
+import { auditKnowledgeRowInteraction } from "./knowledge-row-interaction.ui-qa.mjs";
 
 const base = process.env.UI_QA_BASE || "http://localhost:5179";
 const outRoot = process.env.UI_QA_OUT_DIR || path.join(os.tmpdir(), "kap-ui-qa");
@@ -17,6 +18,7 @@ const cases = [
   { name: "member-desktop", width: 1440, height: 1000, member: true },
   { name: "member-mobile", width: 390, height: 844, member: true },
   { name: "summary-desktop", width: 1280, height: 900 },
+  { name: "summary-narrow", width: 1024, height: 900 },
   { name: "summary-mobile", width: 390, height: 844 },
   { name: "empty-summary-mobile", width: 390, height: 844, empty: true },
   { name: "request-submitted-desktop", width: 1440, height: 1000, submit: true },
@@ -77,6 +79,7 @@ function detailAsset(testCase, pending) {
     project_id: testCase.member ? alphaProject : null,
     maintainer_name: testCase.member ? "项目维护人" : "王顾问",
     category_path: "项目资料 / 项目复盘",
+    directory_path: "项目库 / Beta 项目 / 03 交付成果",
     safe_version: "V3",
     retrieval_available: true,
     qa_available: false,
@@ -223,6 +226,12 @@ for (const testCase of cases) {
     .getByRole("button", { name: new RegExp(testCase.member ? "Alpha 项目" : "Beta 项目") })
     .click();
   await page.getByRole("button", { name: /03 交付成果/ }).click();
+  await page.getByText(listAsset(testCase).title, { exact: true }).waitFor();
+  await auditKnowledgeRowInteraction(page, {
+    table: ".kbl-table",
+    outDir,
+    name: testCase.name,
+  });
   if (testCase.member) {
     await page.getByText("可查看摘要与原文").waitFor();
   } else {
@@ -232,8 +241,8 @@ for (const testCase of cases) {
       .click();
     await page.getByRole("dialog").waitFor();
     await page.getByText("王顾问").waitFor();
-    await page.getByText("项目资料 / 项目复盘").waitFor();
-    if (testCase.empty) await page.getByText("暂无可共享摘要").last().waitFor();
+    await page.getByText("项目库 / Beta 项目 / 03 交付成果", { exact: true }).waitFor();
+    if (testCase.empty) await page.getByText("安全摘要待处理").last().waitFor();
     if (testCase.submit) {
       await page.getByRole("button", { name: "申请原文" }).click();
       await page.getByRole("dialog", { name: "申请原文" }).waitFor();
