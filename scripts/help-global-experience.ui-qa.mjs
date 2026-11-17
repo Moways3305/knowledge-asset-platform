@@ -1,3 +1,4 @@
+import { emptyNotificationInbox } from "./notification-inbox-fixture.mjs";
 import { auditResponsiveLayout } from "./responsive-layout-audit.mjs";
 import fs from "node:fs";
 import os from "node:os";
@@ -121,15 +122,8 @@ try {
           return fulfill(workbenchOverview);
         }
 
-        if (requestUrl.pathname === "/api/v1/notifications") {
-          return fulfill({
-            items: [],
-            total: 0,
-            page: 1,
-            page_size: 20,
-            unread_count: 0,
-            categories: [],
-          });
+        if (requestUrl.pathname === "/api/v1/notifications/inbox") {
+          return fulfill(emptyNotificationInbox);
         }
 
         if (requestUrl.pathname === "/api/v1/knowledge/directories") {

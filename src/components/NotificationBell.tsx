@@ -1,22 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowRight, Bell, BellOff, CheckCheck, LoaderCircle, RefreshCw } from "lucide-react";
+import { Bell, BellOff, CheckCheck, RefreshCw, Settings2, Trash2 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { readKnowledgeDetailSource } from "../routing/knowledgeDetailSource";
 import {
-  fetchNotifications,
-  markNotificationRead,
-  markNotificationsRead,
-} from "../api/notifications";
+  actOnInbox,
+  fetchInbox,
+  type InboxAction,
+  type InboxActionName,
+  type InboxFilter,
+  type InboxResponse,
+  type InboxView,
+  type NotificationGroup,
+} from "../api/notificationInbox";
 import type { BusinessNotificationDTO } from "../types/notification";
 import { TASK_STATUS_INVALIDATED_EVENT } from "../workbench/taskStatusEvents";
 import { formatBeijingTime } from "../utils/time";
 import DetailDrawer from "./DetailDrawer";
-import { taskStatusLabel } from "./taskCenterLabels";
+import {
+  NotificationEvents,
+  NotificationSettings,
+  CATEGORY_LABEL,
+} from "./NotificationInboxPanels";
 import "./NotificationBell.css";
 
-const POLL_MS = 60_000;
-const PAGE_SIZE = 20;
-const MAX_REFRESH_PAGE_SIZE = 100;
 const ROUTES: Record<string, string> = {
   maintenance_agent: "/agents/knowledge-maintenance",
   reviews: "/review",
@@ -26,170 +32,206 @@ const ROUTES: Record<string, string> = {
   models: "/admin/weknora-models",
   knowledge_detail: "/knowledge/:id",
 };
-const CATEGORY_LABEL: Record<string, string> = {
-  knowledge: "知识维护",
-  review: "审核",
-  ingest: "入库",
-  parsing: "解析",
-  indexing: "索引",
-  knowledge_base: "知识库作业",
-  original_access: "原文访问",
-  ops: "系统风险",
+const VIEWS: [InboxView, string][] = [
+  ["inbox", "收件箱"],
+  ["unread", "未读"],
+  ["archived", "已归档"],
+  ["trash", "回收站"],
+];
+const ACTIONS: Partial<Record<InboxActionName, string>> = {
+  read: "标为已读",
+  unread: "标为未读",
+  archive: "归档",
+  delete: "删除",
+  restore: "恢复到收件箱",
 };
 
 export default function NotificationBell() {
   const [open, setOpen] = useState(false);
-  const [items, setItems] = useState<BusinessNotificationDTO[]>([]);
+  const [filters, setFilters] = useState<InboxFilter>({ view: "inbox" });
+  const [data, setData] = useState<InboxResponse>();
+  const [items, setItems] = useState<NotificationGroup[]>([]);
+  const [unseen, setUnseen] = useState(0);
   const [unread, setUnread] = useState(0);
-  const [total, setTotal] = useState(0);
-  const [tab, setTab] = useState<"pending" | "updates">("pending");
-  const [pendingCount, setPendingCount] = useState(0);
-  const [page, setPage] = useState(1);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [mutationError, setMutationError] = useState<string | null>(null);
-  const sequence = useRef(0);
-  const loadedPage = useRef(1);
-  const inFlight = useRef<AbortController | null>(null);
-  const needsRefresh = useRef(false);
-  const mutationIds = useRef(new Set<string>());
+  const [mutating, setMutating] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [selected, setSelected] = useState<string[]>([]);
+  const [all, setAll] = useState(false);
+  const [expanded, setExpanded] = useState<string>();
+  const [settings, setSettings] = useState(false);
+  const [cleanup, setCleanup] = useState(false);
+  const [cleanupDate, setCleanupDate] = useState("");
+  const [cleanupSnapshot, setCleanupSnapshot] = useState<string>();
+  const [confirmation, setConfirmation] = useState<InboxAction>();
+  const snapshot = useRef<string>();
+  const pages = useRef(1);
+  const opened = useRef(false);
+  const request = useRef(0);
+  const controller = useRef<AbortController>();
+  const mutationLock = useRef(false);
+  const queuedRefresh = useRef(false);
   const navigate = useNavigate();
   const location = useLocation();
+  opened.current = open;
 
   const load = useCallback(
-    async (nextPage = 1, append = false, quiet = false) => {
-      if (quiet && inFlight.current) return;
-      inFlight.current?.abort();
-      const controller = new AbortController();
-      inFlight.current = controller;
-      needsRefresh.current = false;
-      const deadline = window.setTimeout(() => {
-        if (inFlight.current !== controller) return;
-        controller.abort();
-        inFlight.current = null;
-        if (!quiet) setBusy(false);
-        // Do not leave a queued invalidation dependent on the next polling tick.
-        if (needsRefresh.current) void load(1, false, true);
-      }, 30_000);
-      const request = ++sequence.current;
+    async (quiet = false, see = false, append = false) => {
+      if (quiet && controller.current) {
+        queuedRefresh.current = true;
+        return;
+      }
+      controller.current?.abort();
+      const abort = new AbortController();
+      controller.current = abort;
+      const seq = ++request.current;
+      const timeout = window.setTimeout(() => abort.abort(), 30_000);
       if (!quiet) setBusy(true);
-      setError(null);
       try {
-        const requestedPage = quiet ? loadedPage.current : nextPage;
-        const pageSize = quiet
-          ? Math.min(requestedPage * PAGE_SIZE, MAX_REFRESH_PAGE_SIZE)
-          : PAGE_SIZE;
-        const fetchPage = (number: number) =>
-          fetchNotifications(
-            {
-              page: number,
-              pageSize,
-              unreadOnly: false,
-              actionRequired: tab === "pending",
-            },
-            controller.signal,
-          );
-        let data = await fetchPage(quiet ? 1 : nextPage);
-        if (request !== sequence.current || controller.signal.aborted) return;
-        let refreshedItems = data.items;
-        if (quiet) {
-          // Revalidate the whole expanded range; retaining old rows could retain revoked access.
-          const limit = requestedPage * PAGE_SIZE;
-          for (let batch = 2; (batch - 1) * pageSize < Math.min(limit, data.total); batch += 1) {
-            data = await fetchPage(batch);
-            if (request !== sequence.current || controller.signal.aborted) return;
-            refreshedItems = [...refreshedItems, ...data.items];
-          }
-          refreshedItems = [
-            ...new Map(refreshedItems.map((item) => [item.id, item])).values(),
-          ].slice(0, limit);
+        const fresh = await fetchInbox(filters, 1, undefined, abort.signal);
+        const pinned = (quiet && opened.current) || append;
+        const at = pinned ? (snapshot.current ?? fresh.snapshot_at) : fresh.snapshot_at;
+        let result =
+          at === fresh.snapshot_at ? fresh : await fetchInbox(filters, 1, at, abort.signal);
+        const loaded = [...result.items];
+        for (let page = 2; page <= pages.current && loaded.length < result.total; page++) {
+          result = await fetchInbox(filters, page, at, abort.signal);
+          loaded.push(...result.items);
         }
+        if (seq !== request.current || abort.signal.aborted) return;
+        snapshot.current = at;
+        setData({
+          ...result,
+          snapshot_at: at,
+          projects: fresh.projects,
+          categories: fresh.categories,
+        });
         setItems((current) =>
-          append
+          pinned
             ? [
-                ...current,
-                ...refreshedItems.filter((item) => !current.some((old) => old.id === item.id)),
+                ...current.flatMap((old) => {
+                  const next = loaded.find((row) => row.id === old.id);
+                  return next ? [next] : [];
+                }),
+                ...loaded.filter((row) => !current.some((old) => old.id === row.id)),
               ]
-            : refreshedItems,
+            : loaded,
         );
-        setUnread(data.unread_count ?? data.total);
-        setPendingCount(
-          data.pending_count ?? data.items.filter((item) => item.action_required).length,
-        );
-        setTotal(data.total);
-        loadedPage.current = quiet
-          ? Math.min(requestedPage, Math.max(1, Math.ceil(data.total / PAGE_SIZE)))
-          : nextPage;
-        setPage(loadedPage.current);
+        setExpanded((current) => (loaded.some((row) => row.id === current) ? current : undefined));
+        setSelected((current) => current.filter((id) => loaded.some((row) => row.id === id)));
+        setUnseen(fresh.unseen_count);
+        setUnread(fresh.unread_count);
+        setError("");
+        if (see) {
+          await actOnInbox({
+            action: "seen",
+            all_matching: true,
+            filters: { view: "inbox" },
+            snapshot_at: fresh.snapshot_at,
+          });
+          if (seq === request.current) setUnseen(0);
+        }
       } catch {
-        if (request === sequence.current && !controller.signal.aborted && !quiet)
-          setError("通知暂时无法加载，请稍后重试。");
+        if (seq === request.current) setError("通知状态暂未同步，请重试。当前内容与选择已保留。");
       } finally {
-        window.clearTimeout(deadline);
-        if (request === sequence.current && !quiet) setBusy(false);
-        if (inFlight.current === controller) {
-          inFlight.current = null;
-          if (needsRefresh.current && !controller.signal.aborted) void load(1, false, true);
+        window.clearTimeout(timeout);
+        if (seq === request.current) setBusy(false);
+        if (controller.current === abort) {
+          controller.current = undefined;
+          if (queuedRefresh.current) {
+            queuedRefresh.current = false;
+            void load(true);
+          }
         }
       }
     },
-    [tab],
+    [filters],
   );
 
   useEffect(() => {
+    pages.current = 1;
+    snapshot.current = undefined;
+    setSelected([]);
+    setAll(false);
+    setExpanded(undefined);
     setItems([]);
-    setTotal(0);
-    setPage(1);
-    loadedPage.current = 1;
     void load();
-  }, [load]);
-  useEffect(() => {
     const refresh = () => {
-      if (document.visibilityState === "visible") void load(1, false, true);
+      if (document.visibilityState === "visible" && !mutationLock.current) void load(true);
     };
-    const timer = window.setInterval(refresh, POLL_MS);
-    const onInvalidated = () => {
-      if (inFlight.current) needsRefresh.current = true;
-      else refresh();
-    };
+    const timer = window.setInterval(refresh, 60_000);
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", refresh);
-    window.addEventListener(TASK_STATUS_INVALIDATED_EVENT, onInvalidated);
+    window.addEventListener(TASK_STATUS_INVALIDATED_EVENT, refresh);
     return () => {
+      // This numeric generation deliberately invalidates all outstanding requests.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      request.current++;
+      queuedRefresh.current = false;
+      controller.current?.abort();
+      controller.current = undefined;
       window.clearInterval(timer);
-      sequence.current += 1;
-      inFlight.current?.abort();
-      inFlight.current = null;
-      needsRefresh.current = false;
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refresh);
-      window.removeEventListener(TASK_STATUS_INVALIDATED_EVENT, onInvalidated);
+      window.removeEventListener(TASK_STATUS_INVALIDATED_EVENT, refresh);
     };
   }, [load]);
 
-  const markOne = async (item: BusinessNotificationDTO) => {
-    if (item.is_read || mutationIds.current.has(item.id)) return true;
-    mutationIds.current.add(item.id);
-    setMutationError(null);
+  const mutate = async (body: InboxAction) => {
+    if (mutationLock.current) return false;
+    mutationLock.current = true;
+    setMutating(true);
+    setError("");
+    request.current++;
+    controller.current?.abort();
+    controller.current = undefined;
     try {
-      const updated = await markNotificationRead(item.id);
-      sequence.current += 1;
-      setBusy(false);
-      setItems((current) => current.map((row) => (row.id === item.id ? updated : row)));
-      setUnread((value) => Math.max(0, value - 1));
+      const result = await actOnInbox(body);
+      setNotice(`已${ACTIONS[body.action] ?? "更新"} ${result.affected_count} 条消息。`);
+      setConfirmation(undefined);
+      setCleanup(false);
+      setSelected([]);
+      setAll(false);
+      await load(true);
       return true;
     } catch {
-      setMutationError("未能标记为已读，你可以重试；任务状态未发生改变。");
+      setError("操作未能确认，请重试。重试不会重复删除，也不会改变业务任务。");
       return false;
     } finally {
-      mutationIds.current.delete(item.id);
+      mutationLock.current = false;
+      setMutating(false);
     }
   };
-
-  const openItem = async (item: BusinessNotificationDTO) => {
+  const action = (name: InboxActionName, groups?: string[]) => {
+    if (!snapshot.current) return;
+    const body: InboxAction = {
+      action: name,
+      snapshot_at: snapshot.current,
+      filters,
+      ...(groups ? { group_ids: groups } : all ? { all_matching: true } : { group_ids: selected }),
+    };
+    if (name === "delete") setConfirmation(body);
+    else void mutate(body);
+  };
+  const openItem = async (item: BusinessNotificationDTO, group: NotificationGroup) => {
+    if (!ROUTES[item.target.route_key]) {
+      setError("目标页暂不可用，消息仍保留。");
+      return;
+    }
+    if (
+      !snapshot.current ||
+      !(await mutate({
+        action: "read",
+        filters,
+        snapshot_at: snapshot.current,
+        group_ids: [group.id],
+      }))
+    )
+      return;
     const routeTemplate = ROUTES[item.target.route_key];
     if (!routeTemplate) {
-      setMutationError("目标页暂不可用，通知仍保持未读。");
+      setError("目标页暂不可用，通知仍保持未读。");
       return;
     }
     const route = routeTemplate.replace(":id", encodeURIComponent(item.target.resource_id));
@@ -215,196 +257,370 @@ export default function NotificationBell() {
     } else {
       navigate(target);
     }
-    if (await markOne(item)) setOpen(false);
-  };
 
-  const markAll = async () => {
-    const ids = items.filter((item) => !item.is_read).map((item) => item.id);
-    if (!ids.length) return;
-    setBusy(true);
-    setMutationError(null);
-    try {
-      const result = await markNotificationsRead(ids);
-      sequence.current += 1;
-      // The server may skip rows whose visibility changed. Counts do not tell
-      // us which rows changed, so reload the current expanded scope instead of
-      // fabricating read flags/timestamps for every requested id.
-      inFlight.current?.abort();
-      inFlight.current = null;
-      if (result.marked_count + result.already_read_count < ids.length) {
-        setMutationError("部分通知状态或权限已变化，请以刷新后的列表为准。");
-      }
-      window.dispatchEvent(new Event(TASK_STATUS_INVALIDATED_EVENT));
-    } catch {
-      setMutationError("全部已读未能保存，列表保持原状，请重试。");
-    } finally {
-      setBusy(false);
-    }
+    setOpen(false);
   };
-
-  const visibleItems = items.filter((item) =>
-    tab === "pending" ? item.action_required : !item.action_required,
-  );
+  const selectedCount = all ? (data?.total ?? 0) : selected.length;
+  const bulkActions: InboxActionName[] =
+    filters.view === "trash"
+      ? ["restore"]
+      : filters.view === "archived"
+        ? ["restore", "delete"]
+        : ["read", "unread", "archive", "delete"];
 
   return (
     <div className="notification-bell">
       <button
         type="button"
         className={`notification-bell-trigger ${open ? "is-open" : ""}`}
-        aria-label={`通知中心，${pendingCount} 项待处理，${unread} 条未读`}
+        aria-label={`通知中心，${unseen} 条新提醒，${unread} 组未读`}
         aria-haspopup="dialog"
         aria-expanded={open}
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setOpen(true);
+          setNotice("");
+          void load(false, true);
+        }}
       >
-        <Bell size={17} strokeWidth={1.8} aria-hidden="true" />
-        {unread > 0 && (
+        <Bell size={17} aria-hidden="true" />
+        {unseen > 0 && (
           <span className="notification-bell-badge" aria-hidden="true">
-            {unread > 99 ? "99+" : unread}
+            {unseen > 99 ? "99+" : unseen}
           </span>
         )}
       </button>
       <DetailDrawer
         open={open}
         title="通知中心"
-        className="notification-center-drawer"
-        description={`${unread} 条未读 · ${pendingCount} 项需要处理`}
+        className="notification-inbox-drawer"
         onClose={() => setOpen(false)}
-        busy={busy}
+        busy={mutating}
+        description={`${unread} 组未读 · 打开仅清除新提醒角标`}
         footer={
-          <div className="notification-center-footer">
-            <span>已读不代表处理完成</span>
-            <button
-              type="button"
-              disabled={busy || !items.some((item) => !item.is_read)}
-              onClick={() => void markAll()}
-            >
-              <CheckCheck size={15} />
-              当前列表已读
-            </button>
-          </div>
+          <span className="inbox-footnote">
+            已读、归档和删除仅整理个人消息，待办仍在任务中心追踪。
+          </span>
         }
       >
-        <div className="notification-center-filters">
-          <div role="tablist" aria-label="通知范围">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === "pending"}
-              className={tab === "pending" ? "is-active" : ""}
-              onClick={() => setTab("pending")}
-            >
-              待处理 <span>{pendingCount}</span>
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === "updates"}
-              className={tab === "updates" ? "is-active" : ""}
-              onClick={() => setTab("updates")}
-            >
-              动态{tab === "updates" && <span>{total}</span>}
-            </button>
-          </div>
-          <button type="button" aria-label="刷新通知" disabled={busy} onClick={() => void load()}>
-            <RefreshCw size={16} aria-hidden="true" />
+        <div className="inbox-tools">
+          <button
+            disabled={mutating || !data}
+            onClick={() =>
+              snapshot.current &&
+              void mutate({
+                action: "read",
+                all_matching: true,
+                filters: { view: "inbox" },
+                snapshot_at: snapshot.current,
+              })
+            }
+          >
+            <CheckCheck size={15} />
+            全部已读
+          </button>
+          <button
+            disabled={mutating || !data}
+            onClick={() => {
+              setCleanup(true);
+              setCleanupSnapshot(snapshot.current);
+              setConfirmation(undefined);
+            }}
+          >
+            <Trash2 size={15} />
+            清理历史
+          </button>
+          <button aria-label="通知设置" onClick={() => setSettings(!settings)}>
+            <Settings2 size={16} />
+          </button>
+          <button
+            aria-label="刷新通知"
+            disabled={busy || mutating}
+            onClick={() => {
+              setSelected([]);
+              setAll(false);
+              void load(false, true);
+            }}
+          >
+            <RefreshCw size={16} />
           </button>
         </div>
-        {mutationError && (
-          <div className="notification-center-alert" role="alert">
-            {mutationError}
+        {settings && <NotificationSettings onClose={() => setSettings(false)} />}
+        {error && (
+          <div className="inbox-feedback is-error" role="alert">
+            {error}
+            <button onClick={() => void load()}>重试加载</button>
           </div>
         )}
-        {busy && items.length === 0 ? (
-          <div className="notification-center-state">
-            <LoaderCircle className="is-spinning" />
-            正在加载通知…
+        {notice && (
+          <div className="inbox-feedback" role="status">
+            {notice}
           </div>
-        ) : error ? (
-          <div className="notification-center-state">
-            <BellOff />
-            <strong>加载失败</strong>
-            <span>{error}</span>
-            <button type="button" onClick={() => void load()}>
-              重试
+        )}
+        {cleanup && (
+          <section className="inbox-confirm" aria-label="清理历史消息">
+            <strong>清理历史消息</strong>
+            <p>包含收件箱、归档及所有分页；移入回收站后可恢复。操作期间新到的消息会保留。</p>
+            <label>
+              只清理此日期之前的消息（北京时间，可留空）
+              <input
+                type="date"
+                value={cleanupDate}
+                onChange={(event) => setCleanupDate(event.target.value)}
+              />
+            </label>
+            <div className="inbox-tools">
+              <button
+                disabled={mutating || !cleanupSnapshot}
+                onClick={() => {
+                  if (cleanupSnapshot)
+                    void mutate({
+                      action: "delete",
+                      all_matching: true,
+                      snapshot_at: cleanupSnapshot,
+                      filters: {
+                        view: "inbox",
+                        include_archived: true,
+                        ...(cleanupDate ? { before: `${cleanupDate}T00:00:00+08:00` } : {}),
+                      },
+                    });
+                }}
+              >
+                确认清理{cleanupDate ? "日期之前" : "全部历史"}消息
+              </button>
+              <button disabled={mutating} onClick={() => setCleanup(false)}>
+                取消
+              </button>
+            </div>
+          </section>
+        )}
+        {confirmation && (
+          <section className="inbox-confirm" aria-label="确认删除消息">
+            <strong>删除所选消息？</strong>
+            <p>仅移入你的回收站，可以恢复。关联业务不受影响。</p>
+            <div className="inbox-tools">
+              <button disabled={mutating} onClick={() => void mutate(confirmation)}>
+                确认删除
+              </button>
+              <button disabled={mutating} onClick={() => setConfirmation(undefined)}>
+                取消
+              </button>
+            </div>
+          </section>
+        )}
+        <div className="inbox-tabs" role="tablist" aria-label="通知范围">
+          {VIEWS.map(([view, label]) => (
+            <button
+              key={view}
+              role="tab"
+              aria-selected={filters.view === view}
+              disabled={mutating}
+              onClick={() => setFilters({ ...filters, view })}
+            >
+              {label}
             </button>
-          </div>
-        ) : visibleItems.length === 0 ? (
-          <div className="notification-center-state">
-            <BellOff />
-            <strong>{tab === "pending" ? "暂时没有待处理事项" : "暂时没有动态"}</strong>
-            <span>新的业务进展会在这里出现。</span>
+          ))}
+        </div>
+        <div className="inbox-filters">
+          <label>
+            消息类型
+            <select
+              value={filters.category ?? ""}
+              onChange={(e) => setFilters({ ...filters, category: e.target.value || undefined })}
+            >
+              <option value="">全部类型</option>
+              {Object.entries(CATEGORY_LABEL).map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            项目
+            <select
+              value={filters.project_id ?? ""}
+              onChange={(e) => setFilters({ ...filters, project_id: e.target.value || undefined })}
+            >
+              <option value="">全部项目</option>
+              {data?.projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {unseen > 0 && (
+          <button
+            className="inbox-new"
+            onClick={() => {
+              setSelected([]);
+              setAll(false);
+              void load(false, true);
+            }}
+          >
+            有 {unseen} 组新提醒，点击查看
+          </button>
+        )}
+        <div className="inbox-selection">
+          <label>
+            <input
+              type="checkbox"
+              aria-label="选择当前已加载消息"
+              checked={items.length > 0 && (all || selected.length === items.length)}
+              disabled={!items.length || mutating}
+              onChange={(e) => {
+                setAll(false);
+                setSelected(e.target.checked ? items.map((row) => row.id) : []);
+              }}
+            />
+            已选 {selectedCount} 组
+          </label>
+          {!all && items.length > 0 && (
+            <button
+              disabled={mutating}
+              onClick={() => {
+                setAll(true);
+                setSelected([]);
+              }}
+            >
+              选择全部 {data?.total ?? 0} 组（跨页）
+            </button>
+          )}
+          {selectedCount > 0 && (
+            <>
+              <button
+                disabled={mutating}
+                onClick={() => {
+                  setSelected([]);
+                  setAll(false);
+                }}
+              >
+                取消选择
+              </button>
+              {bulkActions.map((name) => (
+                <button key={name} disabled={mutating} onClick={() => action(name)}>
+                  {ACTIONS[name]}
+                </button>
+              ))}
+            </>
+          )}
+          {filters.view !== "trash" && filters.view !== "archived" && (
+            <button
+              disabled={mutating || !snapshot.current}
+              onClick={() =>
+                snapshot.current &&
+                void mutate({
+                  action: "archive",
+                  all_matching: true,
+                  filters: { ...filters, read_only: true },
+                  snapshot_at: snapshot.current,
+                })
+              }
+            >
+              归档已读（跨页）
+            </button>
+          )}
+        </div>
+        {busy && !items.length ? (
+          <p role="status">正在加载通知…</p>
+        ) : !items.length ? (
+          <div className="inbox-empty">
+            <BellOff size={28} />
+            <strong>{filters.view === "trash" ? "回收站为空" : "当前范围没有消息"}</strong>
+            <span>可以切换范围或调整筛选。</span>
           </div>
         ) : (
-          <div className="notification-center-list" aria-live="polite">
-            {visibleItems.map((item) => (
-              <article key={item.id} className={item.is_read ? "is-read" : "is-unread"}>
-                <div className="notification-center-meta">
-                  <span>{CATEGORY_LABEL[item.category] ?? "其他通知"}</span>
-                  <span className={`task-status is-${item.task_status}`}>
-                    {taskStatusLabel(item.task_status)}
-                  </span>
-                  <time>{formatBeijingTime(item.created_at)}</time>
-                </div>
-                <h3>
+          <div className="inbox-list">
+            {items.map((group) => (
+              <article key={group.id} className={group.unread_count ? "is-unread" : ""}>
+                <input
+                  type="checkbox"
+                  aria-label={`选择${group.latest.title}`}
+                  checked={all || selected.includes(group.id)}
+                  disabled={mutating}
+                  onChange={(e) => {
+                    setAll(false);
+                    setSelected((current) =>
+                      e.target.checked
+                        ? [...current, group.id]
+                        : current.filter((id) => id !== group.id),
+                    );
+                  }}
+                />
+                <div className="inbox-message">
+                  <div className="inbox-meta">
+                    <span>{CATEGORY_LABEL[group.latest.category] ?? "业务消息"}</span>
+                    {group.action_required && <b>待处理</b>}
+                    {group.failed_count > 0 && (
+                      <b className="is-danger">{group.failed_count} 项异常</b>
+                    )}
+                    <time>{formatBeijingTime(group.latest.created_at)}</time>
+                  </div>
                   <button
-                    type="button"
-                    className="notification-title-link"
-                    onClick={() => void openItem(item)}
+                    className="inbox-title"
+                    aria-expanded={expanded === group.id}
+                    onClick={() => setExpanded(expanded === group.id ? undefined : group.id)}
                   >
-                    {item.title}
+                    {group.id.startsWith("upload:") ? "批量入库进展" : group.latest.title}
                   </button>
-                </h3>
-                {item.summary &&
-                  item.summary !== item.title &&
-                  (item.summary.length > 90 ? (
-                    <details className="notification-summary">
-                      <summary>
-                        {item.summary.slice(0, 90)}… <span>展开内容</span>
-                      </summary>
-                      <p>{item.summary}</p>
-                    </details>
-                  ) : (
-                    <p>{item.summary}</p>
-                  ))}
-                {item.failure_reason && <p>失败原因：{item.failure_reason}</p>}
-                {item.recovery_suggestion && <p>恢复建议：{item.recovery_suggestion}</p>}
-                <div className="notification-center-context">
-                  {item.project_name && <span>{item.project_name}</span>}
-                  {item.object_name &&
-                    !item.title.includes(item.object_name) &&
-                    item.object_name !== item.project_name && <span>{item.object_name}</span>}
-                  {item.is_read ? (
-                    <span className="notification-read-state">已读</span>
-                  ) : (
+                  <p className="inbox-summary">{group.latest.summary}</p>
+                  <div className="inbox-row-actions">
+                    <span>
+                      {group.event_count > 1 ? `${group.event_count} 条更新 · ` : ""}
+                      {group.unread_count ? `${group.unread_count} 条未读` : "已读"}
+                    </span>
                     <button
-                      type="button"
-                      className="notification-mark-read"
-                      onClick={() => void markOne(item)}
+                      onClick={() => setExpanded(expanded === group.id ? undefined : group.id)}
                     >
-                      标为已读
+                      {expanded === group.id ? "收起详情" : "查看详情"}
                     </button>
+                    {filters.view === "trash" || filters.view === "archived" ? (
+                      <button disabled={mutating} onClick={() => action("restore", [group.id])}>
+                        恢复
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          disabled={mutating}
+                          onClick={() => action(group.unread_count ? "read" : "unread", [group.id])}
+                        >
+                          {group.unread_count ? "标为已读" : "标为未读"}
+                        </button>
+                        <button disabled={mutating} onClick={() => action("archive", [group.id])}>
+                          归档
+                        </button>
+                      </>
+                    )}
+                    {filters.view !== "trash" && (
+                      <button disabled={mutating} onClick={() => action("delete", [group.id])}>
+                        删除
+                      </button>
+                    )}
+                  </div>
+                  {expanded === group.id && snapshot.current && (
+                    <NotificationEvents
+                      group={group}
+                      filters={filters}
+                      snapshot={snapshot.current}
+                      onOpen={(item) => void openItem(item, group)}
+                    />
                   )}
                 </div>
-                <button
-                  type="button"
-                  className="notification-center-action"
-                  onClick={() => void openItem(item)}
-                >
-                  {item.next_action_label}
-                  <ArrowRight size={15} />
-                </button>
               </article>
             ))}
           </div>
         )}
-        {!error && items.length < total && (
+        {items.length < (data?.total ?? 0) && (
           <button
-            type="button"
-            className="notification-center-more"
-            disabled={busy}
-            onClick={() => void load(page + 1, true)}
+            className="inbox-more"
+            disabled={busy || mutating}
+            onClick={() => {
+              pages.current++;
+              void load(false, false, true);
+            }}
           >
-            {busy ? <LoaderCircle className="is-spinning" /> : <RefreshCw />}加载更多
+            加载更多
           </button>
         )}
       </DetailDrawer>

@@ -1,3 +1,4 @@
+import { emptyNotificationInbox } from "./notification-inbox-fixture.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -79,7 +80,7 @@ const overview = {
 function responseFor(pathname) {
   if (pathname === "/api/v1/auth/me") return auth;
   if (pathname === "/api/v1/workbench/overview") return overview;
-  if (pathname === "/api/v1/notifications") return { items: [], total: 0, page: 1, page_size: 20, unread_count: 0, pending_count: 0 };
+  if (pathname === "/api/v1/notifications/inbox") return emptyNotificationInbox;
   return {};
 }
 

@@ -1,3 +1,4 @@
+import { emptyNotificationInbox } from "./notification-inbox-fixture.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -80,15 +81,8 @@ try {
           }
         : url.pathname === "/api/v1/workbench/overview"
           ? overview
-          : url.pathname === "/api/v1/notifications"
-            ? {
-                items: [],
-                total: 0,
-                page: 1,
-                page_size: 20,
-                unread_count: 0,
-                categories: [],
-              }
+          : url.pathname === "/api/v1/notifications/inbox"
+            ? emptyNotificationInbox
             : { items: [], total: 0 };
     return route.fulfill({
       status: 200,

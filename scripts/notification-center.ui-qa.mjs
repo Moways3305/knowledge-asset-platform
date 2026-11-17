@@ -15,6 +15,8 @@ const viewports = [
   { name: "desktop", width: 1440, height: 1000 },
   { name: "tablet", width: 1024, height: 900 },
   { name: "mobile", width: 390, height: 844 },
+  { name: "small-mobile", width: 320, height: 740 },
+  { name: "wide", width: 1920, height: 1080 },
 ];
 const auth = {
   user_id: "00000000-0000-0000-0000-000000000090",
@@ -101,8 +103,32 @@ try {
   browser = await chromium.launch({ args: ["--disable-gpu"] });
   for (const viewport of viewports) {
     const context = await browser.newContext({ viewport });
+    let malformed = false;
+    let cleared = false;
+    let seen = false;
+    let preferences = { categories: {}, auto_archive_days: 0 };
+    let cleanupAction;
     await context.route("**/api/v1/**", async (route) => {
       const pathname = new URL(route.request().url()).pathname;
+      const requestUrl = new URL(route.request().url());
+      const send = (body) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+      if (pathname === "/api/v1/notifications/inbox/actions") {
+        const action = route.request().postDataJSON();
+        if (action.action === "seen") seen = true;
+        if (action.action === "delete") { cleared = true; cleanupAction = action; }
+        if (action.action === "restore") cleared = false;
+        return send({ affected_count: 3500 });
+      }
+      if (pathname === "/api/v1/notifications/preferences") {
+        if (route.request().method() === "PUT") preferences = route.request().postDataJSON();
+        return send(preferences);
+      }
+      if (pathname === "/api/v1/notifications/inbox/events") return send({ items: notifications.items, total: notifications.items.length });
+      if (pathname === "/api/v1/notifications/inbox") {
+        if (malformed) return send({});
+        const show = requestUrl.searchParams.get("view") === "trash" ? cleared : !cleared;
+        return send({ items: show ? notifications.items.map((latest, i) => ({ id: `review:group-${i}`, latest, event_count: i ? 2 : 80, unread_count: i ? 0 : 3, failed_count: i ? 1 : 0, completed_count: 0, action_required: latest.action_required })) : [], total: show ? 2 : 0, unseen_count: seen || cleared ? 0 : 1, unread_count: cleared ? 0 : 1, snapshot_at: "2026-11-17T00:00:00Z", categories: ["review", "knowledge_base"], projects: [] });
+      }
       const body =
         pathname === "/api/v1/auth/me"
           ? auth
@@ -127,27 +153,62 @@ try {
       });
     });
     const page = await context.newPage();
+    const pageErrors = [];
+    page.on("pageerror", error => pageErrors.push(error.message));
     await page.goto(base, { waitUntil: "networkidle" });
-    await page.getByRole("button", { name: /通知中心，1 项待处理/ }).click();
+    await page.getByRole("button", { name: /通知中心，1 条新提醒/ }).click();
     await page.getByRole("heading", { name: "通知中心" }).waitFor();
     const metrics = await page.evaluate(() => ({
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       drawerScroll:
         document.querySelector(".detail-drawer-body")?.scrollHeight >=
         document.querySelector(".detail-drawer-body")?.clientHeight,
-      filters: document.querySelectorAll('.notification-center-filters [role="tab"]').length,
+      filters: document.querySelectorAll('.inbox-tabs [role="tab"]').length,
       uuidVisible: document.body.innerText.includes("00000000-"),
     }));
-    await page.screenshot({ path: path.join(outDir, `${viewport.name}.png`), fullPage: true });
+    await page.screenshot({ path: path.join(outDir, `${viewport.name}.png`), fullPage: true, animations: "disabled" });
     results.push({
       ...viewport,
       ...metrics,
       passed:
         metrics.overflow <= 2 &&
         metrics.drawerScroll &&
-        metrics.filters === 2 &&
+        metrics.filters === 4 &&
         !metrics.uuidVisible,
     });
+    await page.getByRole("button", { name: "查看详情", exact: true }).first().click();
+    await page.getByRole("region", { name: "消息详情" }).waitFor();
+    await page.getByRole("button", { name: "通知设置", exact: true }).click();
+    await page.getByLabel("审核企业微信").selectOption("hourly");
+    await page.getByLabel("自动归档已读历史").selectOption("30");
+    await page.screenshot({ path: path.join(outDir, `${viewport.name}-settings.png`), fullPage: true, animations: "disabled" });
+    await page.getByRole("button", { name: "保存通知设置" }).click();
+    await page.getByRole("region", { name: "通知设置", exact: true }).waitFor({ state: "hidden" });
+    if (preferences.categories.review.wecom !== "hourly" || preferences.auto_archive_days !== 30) throw Error("preferences not persisted");
+    await page.getByRole("button", { name: "清理历史", exact: true }).click();
+    await page.getByRole("button", { name: "确认清理全部历史消息" }).click();
+    await page.getByText("当前范围没有消息", { exact: true }).waitFor();
+    if (!cleanupAction.all_matching || !cleanupAction.filters.include_archived || !cleanupAction.snapshot_at) throw Error("cleanup is not cross-page snapshot scoped");
+    await page.getByRole("button", { name: "关闭详情", exact: true }).click();
+    await page.reload({ waitUntil: "networkidle" });
+    await page.getByRole("button", { name: /通知中心，0 条新提醒/ }).click();
+    await page.getByText("当前范围没有消息", { exact: true }).waitFor();
+    await page.getByRole("tab", { name: "回收站", exact: true }).click();
+    await page.getByRole("button", { name: "恢复", exact: true }).first().click();
+    await page.getByText("回收站为空", { exact: true }).waitFor();
+    await page.getByRole("tab", { name: "收件箱", exact: true }).click();
+    await page.getByRole("button", { name: "查看详情", exact: true }).first().waitFor();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    if (overflow > 2) throw Error(`overflow after restore: ${overflow}`);
+    malformed = true;
+    await page.reload({ waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "我的工作", exact: true }).waitFor();
+    await page.getByRole("button", { name: /通知中心，0 条新提醒/ }).click();
+    await page.getByRole("alert").waitFor();
+    malformed = false;
+    await page.getByRole("button", { name: "刷新通知", exact: true }).click();
+    await page.getByRole("button", { name: "查看详情", exact: true }).first().waitFor();
+    if (pageErrors.length) throw Error(pageErrors.join("; "));
     await context.close();
   }
   fs.writeFileSync(path.join(outDir, "report.json"), JSON.stringify(results, null, 2));

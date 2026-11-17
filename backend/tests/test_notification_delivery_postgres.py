@@ -19,6 +19,67 @@ job_db = jobs.job_db
 kind = helpers.kind
 
 
+async def test_inbox_overlapping_cleanup_preserves_later_arrivals(job_db):
+    from app.models.notification import BusinessNotification as N
+    from app.schemas.notification_inbox import InboxAction
+    from app.services.identity import load_user_with_roles
+    from app.services.notification_inbox import act
+    from app.services.permission import build_caller_context
+
+    sessions, _ = job_db
+    async with sessions() as setup:
+        ids = await helpers.seed(setup, "business", count=40)
+        caller = build_caller_context(await load_user_with_roles(setup, user_id=USER_CONSULTANT))
+        snapshot = utc_now()
+        later = await helpers.seed(setup, "business", count=1)
+    body = InboxAction(action="delete", snapshot_at=snapshot, all_matching=True)
+
+    async def cleanup():
+        async with sessions() as session:
+            return await act(session, caller, body, "concurrent-cleanup")
+
+    results = await asyncio.gather(*(cleanup() for _ in range(4)))
+    assert sum(result["affected_count"] for result in results) == len(ids)
+    async with sessions() as check:
+        assert (await check.get(N, later[0])).deleted_at is None
+        assert all([(await check.get(N, row_id)).deleted_at for row_id in ids])
+
+
+async def test_concurrent_digest_bundles_claim_each_member_once(job_db):
+    from sqlalchemy import func, update
+
+    from app.models.notification import BusinessNotification as N
+    from app.services.notification_digest import bundle_due
+
+    sessions, _ = job_db
+    async with sessions() as setup:
+        ids = await helpers.seed(setup, "business", count=20)
+        await setup.execute(
+            update(N)
+            .where(N.id.in_(ids))
+            .values(
+                channel="digest_pending", delivery_available_at=utc_now() - timedelta(seconds=1)
+            )
+        )
+        await setup.commit()
+
+    async def bundle():
+        async with sessions() as session:
+            await bundle_due(session)
+
+    await asyncio.gather(*(bundle() for _ in range(4)))
+    async with sessions() as check:
+        assert (
+            await check.scalar(
+                select(func.count()).select_from(N).where(N.target_kind == "notification_digest")
+            )
+            == 1
+        )
+        members = list(await check.scalars(select(N).where(N.id.in_(ids))))
+        assert {row.channel for row in members} == {"digest"}
+        assert len({row.delivery_digest_id for row in members}) == 1
+
+
 async def test_one_connection_remains_available_during_send(job_db, kind):
     sessions, _ = job_db
     async with sessions() as setup:

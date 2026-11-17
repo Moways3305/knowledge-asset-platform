@@ -1,3 +1,4 @@
+import { emptyNotificationInbox } from "./notification-inbox-fixture.mjs";
 import { auditResponsiveLayout } from "./responsive-layout-audit.mjs";
 import fs from "node:fs";
 import os from "node:os";
@@ -396,18 +397,11 @@ try {
           });
           return;
         }
-        if (pathname === "/api/v1/notifications") {
+        if (pathname === "/api/v1/notifications/inbox") {
           await route.fulfill({
             status: 200,
             contentType: "application/json",
-            body: JSON.stringify({
-              items: [],
-              total: 0,
-              page: 1,
-              page_size: 20,
-              unread_count: 0,
-              pending_count: 0,
-            }),
+            body: JSON.stringify(emptyNotificationInbox),
           });
           return;
         }

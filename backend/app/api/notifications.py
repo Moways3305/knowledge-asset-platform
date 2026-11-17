@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, Query, Request
+from pydantic import AwareDatetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_caller_context
@@ -17,11 +18,99 @@ from app.schemas.notification import (
     MarkReadBatchResponse,
     UnreadCountResponse,
 )
+from app.schemas.notification_inbox import (
+    Category,
+    InboxAction,
+    InboxActionResult,
+    InboxEventsResponse,
+    InboxFilter,
+    InboxPreferences,
+    InboxResponse,
+    View,
+)
 from app.schemas.permission import CallerContext
+from app.services import notification_inbox
 from app.services import notifications as notification_service
 from app.services.storage import LocalFileStorage, get_storage
 
 router = APIRouter(prefix="/api/v1/notifications", tags=["notifications"])
+
+
+def inbox_filter(
+    view: View = "inbox",
+    category: Category | None = None,
+    project_id: uuid.UUID | None = None,
+    before: AwareDatetime | None = None,
+    after: AwareDatetime | None = None,
+    read_only: bool = False,
+    include_archived: bool = False,
+) -> InboxFilter:
+    return InboxFilter(
+        view=view,
+        category=category,
+        project_id=project_id,
+        before=before,
+        after=after,
+        read_only=read_only,
+        include_archived=include_archived,
+    )
+
+
+@router.get("/inbox", response_model=InboxResponse)
+async def inbox(
+    filters: InboxFilter = Depends(inbox_filter),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    snapshot_at: AwareDatetime | None = None,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
+):
+    return await notification_inbox.inbox(
+        session, caller, filters, page, page_size, storage, snapshot_at
+    )
+
+
+@router.get("/inbox/events", response_model=InboxEventsResponse)
+async def inbox_events(
+    group_id: str,
+    snapshot_at: AwareDatetime,
+    filters: InboxFilter = Depends(inbox_filter),
+    page: int = Query(default=1, ge=1),
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
+):
+    return await notification_inbox.details(
+        session, caller, group_id, filters, snapshot_at, page, storage
+    )
+
+
+@router.post("/inbox/actions", response_model=InboxActionResult)
+async def inbox_action(
+    body: InboxAction,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+):
+    return await notification_inbox.act(session, caller, body, get_trace_id(request))
+
+
+@router.get("/preferences", response_model=InboxPreferences)
+async def preferences(
+    caller: CallerContext = Depends(get_caller_context), session: AsyncSession = Depends(get_db)
+):
+    return await notification_inbox.preferences(session, caller.user_id)
+
+
+@router.put("/preferences", response_model=InboxPreferences)
+async def save_preferences(
+    body: InboxPreferences,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+):
+    return await notification_inbox.save_preferences(session, caller, body, get_trace_id(request))
 
 
 @router.get("", response_model=BusinessNotificationListResponse)

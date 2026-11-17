@@ -200,6 +200,18 @@
     "POST /api/v1/my/knowledge/{asset_id}/confirm-asset": {
       "status": "系统集成",
       "note": "取消资料分区后保留旧客户端兼容接口：校验本人权限并返回无需确认，不再修改资料；新版页面移除该入口。"
+    },
+    "GET /api/v1/notifications": {
+      "status": "兼容接口",
+      "note": "保留旧通知客户端兼容；新通知中心使用 inbox 分组和跨分页操作接口，权限与状态语义仍由后端测试覆盖。"
+    },
+    "POST /api/v1/notifications/{notification_id}/read": {
+      "status": "兼容接口",
+      "note": "保留旧通知客户端兼容；新通知中心使用 inbox 分组和跨分页操作接口，权限与状态语义仍由后端测试覆盖。"
+    },
+    "POST /api/v1/notifications/read-batch": {
+      "status": "兼容接口",
+      "note": "保留旧通知客户端兼容；新通知中心使用 inbox 分组和跨分页操作接口，权限与状态语义仍由后端测试覆盖。"
     }
   },
   "dynamicCalls": {

@@ -18,6 +18,9 @@ async def _run(maker, trace_id: str | None) -> None:
     )
 
     async with maker() as session:
+        from app.services.notification_digest import bundle_due
+
+        await bundle_due(session)
         sender = get_wecom_notification_sender()
         ops = await dispatch_ops_pending(session, sender=sender, trace_id=trace_id)
         business = await dispatch_business_pending(session, sender=sender, trace_id=trace_id)
