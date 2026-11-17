@@ -10,7 +10,17 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, UniqueConstraint, Uuid
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    Uuid,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -36,6 +46,13 @@ class BusinessNotification(Base):
             "read_at",
         ),
         Index("ix_business_notifications_delivery", "channel", "delivery_status"),
+        Index(
+            "ix_business_notifications_inbox",
+            "recipient_user_id",
+            "deleted_at",
+            "archived_at",
+            "created_at",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -54,6 +71,11 @@ class BusinessNotification(Base):
     )
     dedup_key: Mapped[str] = mapped_column(String(140), nullable=False)
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    in_app_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    delivery_digest_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True, index=True)
     channel: Mapped[str] = mapped_column(String(20), nullable=False, default="in_app")
     delivery_status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     delivery_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -65,3 +87,11 @@ class BusinessNotification(Base):
     failure_code: Mapped[str | None] = mapped_column(String(60), nullable=True)
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class NotificationPreference(Base):
+    __tablename__ = "notification_preferences"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"), primary_key=True)
+    categories: Mapped[dict] = mapped_column(JSON, default=dict)
+    auto_archive_days: Mapped[int] = mapped_column(Integer, default=0)

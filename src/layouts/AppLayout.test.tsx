@@ -50,6 +50,18 @@ vi.mock("../api/auth", () => ({
   logout: vi.fn(),
 }));
 
+vi.mock("../api/notificationInbox", () => ({
+  fetchInbox: vi.fn().mockResolvedValue({
+    items: [],
+    total: 0,
+    unseen_count: 0,
+    unread_count: 0,
+    snapshot_at: "2026-11-17T00:00:00Z",
+    categories: [],
+    projects: [],
+  }),
+  actOnInbox: vi.fn().mockResolvedValue({ affected_count: 0 }),
+}));
 vi.mock("../api/notifications", () => ({
   fetchNotificationUnreadCount: vi.fn(),
   fetchNotifications: vi.fn(),
@@ -311,7 +323,7 @@ describe("AppLayout shell contract", () => {
     const header = container.querySelector(".deck");
     expect(header).toHaveTextContent("我的工作");
     expect(
-      screen.getByRole("button", { name: "通知中心，0 项待处理，0 条未读" }),
+      screen.getByRole("button", { name: "通知中心，0 条新提醒，0 组未读" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /打开任务中心/ })).toBeInTheDocument();
     expect(header).not.toHaveTextContent(/搜索|导出|新建项目/);
@@ -329,7 +341,7 @@ describe("AppLayout shell contract", () => {
     fireEvent.click(screen.getByRole("button", { name: "切换管理模块" }));
     expect(screen.getByRole("link", { name: "审计日志" })).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "通知中心，0 项待处理，0 条未读" }),
+      screen.getByRole("button", { name: "通知中心，0 条新提醒，0 组未读" }),
     ).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "人员权限" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "项目设置" })).not.toBeInTheDocument();

@@ -92,6 +92,9 @@ export interface ApiRoutes {
     | `/api/v1/my/knowledge-base`
     | `/api/v1/naming-options`
     | `/api/v1/notifications`
+    | `/api/v1/notifications/inbox`
+    | `/api/v1/notifications/inbox/events`
+    | `/api/v1/notifications/preferences`
     | `/api/v1/notifications/unread-count`
     | `/api/v1/original-access/grants`
     | `/api/v1/original-access/requests`
@@ -204,6 +207,7 @@ export interface ApiRoutes {
     | `/api/v1/my/knowledge/${string}/submit-to-project`
     | `/api/v1/my/knowledge/${string}/submit-to-project-preview`
     | `/api/v1/my/knowledge/${string}/validation-evidence`
+    | `/api/v1/notifications/inbox/actions`
     | `/api/v1/notifications/read-batch`
     | `/api/v1/notifications/${string}/read`
     | `/api/v1/original-access/grants/${string}/revoke`
@@ -240,7 +244,8 @@ export interface ApiRoutes {
     | `/api/v1/admin/weknora/kb-configs/${string}/initialization`
     | `/api/v1/admin/weknora/models/${string}`
     | `/api/v1/maintenance-agent/policies/${string}`
-    | `/api/v1/my/knowledge-base`;
+    | `/api/v1/my/knowledge-base`
+    | `/api/v1/notifications/preferences`;
   patch:
     | `/api/v1/admin/alerts/rules/${string}`
     | `/api/v1/admin/people/${string}/project-memberships/${string}`

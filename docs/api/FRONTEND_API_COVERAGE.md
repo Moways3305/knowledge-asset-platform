@@ -2,7 +2,7 @@
 
 由 `npm run api:frontend:generate` 生成，契约来源 `docs/api/openapi.json`，人工复核来源 `frontend-api-review.json`。
 
-共 259 个 HTTP 操作；静态调用已接入 209，已有替代流程 14，系统集成 33，传输基础设施 1，动态资源 2。
+共 264 个 HTTP 操作；静态调用已接入 211，已有替代流程 14，系统集成 33，传输基础设施 1，动态资源 2，兼容接口 3。
 
 静态调用仅表示找到了封装及直接导入/转导出，不代表每个接口都有独立按钮，也不证明真实环境全流程通过。动态资源单列；请求/响应 DTO 仍由领域适配器和测试校验。
 
@@ -225,10 +225,15 @@
 | `POST /api/v1/my/knowledge/{asset_id}/submit-to-project-preview` | 静态调用已接入 | `src/api/personal.ts#previewPersonalKnowledgePublication` → `src/pages/MyKnowledgePage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `POST /api/v1/my/knowledge/{asset_id}/validation-evidence` | 静态调用已接入 | `src/api/personal.ts#registerPersonalKnowledgeEvidence` → `src/pages/MyKnowledgePage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `GET /api/v1/naming-options` | 静态调用已接入 | `src/api/naming.ts#fetchNamingOptions` → `src/components/PublicationNamingFields.tsx`、`src/pages/upload/pendingBatchCommands.ts`、`src/pages/upload/useIngestConfirmation.ts` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
-| `GET /api/v1/notifications` | 静态调用已接入 | `src/api/notifications.ts#fetchNotifications` → `src/components/NotificationBell.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
-| `POST /api/v1/notifications/read-batch` | 静态调用已接入 | `src/api/notifications.ts#markNotificationsRead` → `src/components/NotificationBell.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `GET /api/v1/notifications` | 兼容接口 | `src/api/notifications.ts#fetchNotifications` → 模块内部 / 暂无直接引用 | 保留旧通知客户端兼容；新通知中心使用 inbox 分组和跨分页操作接口，权限与状态语义仍由后端测试覆盖。 |
+| `GET /api/v1/notifications/inbox` | 静态调用已接入 | `src/api/notificationInbox.ts#fetchInbox` → `src/components/NotificationBell.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `POST /api/v1/notifications/inbox/actions` | 静态调用已接入 | `src/api/notificationInbox.ts#actOnInbox` → `src/components/NotificationBell.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `GET /api/v1/notifications/inbox/events` | 静态调用已接入 | `src/api/notificationInbox.ts#fetchNotificationEvents` → `src/components/NotificationInboxPanels.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `GET /api/v1/notifications/preferences` | 静态调用已接入 | `src/api/notificationInbox.ts#fetchNotificationPreferences` → `src/components/NotificationInboxPanels.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `PUT /api/v1/notifications/preferences` | 静态调用已接入 | `src/api/notificationInbox.ts#saveNotificationPreferences` → `src/components/NotificationInboxPanels.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `POST /api/v1/notifications/read-batch` | 兼容接口 | `src/api/notifications.ts#markNotificationsRead` → 模块内部 / 暂无直接引用 | 保留旧通知客户端兼容；新通知中心使用 inbox 分组和跨分页操作接口，权限与状态语义仍由后端测试覆盖。 |
 | `GET /api/v1/notifications/unread-count` | 已有替代流程 | `src/api/notifications.ts#fetchNotificationUnreadCount` → 模块内部 / 暂无直接引用 | 通知列表响应已有 unread_count，通知中心据此显示角标。 |
-| `POST /api/v1/notifications/{notification_id}/read` | 静态调用已接入 | `src/api/notifications.ts#markNotificationRead` → `src/components/NotificationBell.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `POST /api/v1/notifications/{notification_id}/read` | 兼容接口 | `src/api/notifications.ts#markNotificationRead` → 模块内部 / 暂无直接引用 | 保留旧通知客户端兼容；新通知中心使用 inbox 分组和跨分页操作接口，权限与状态语义仍由后端测试覆盖。 |
 | `GET /api/v1/original-access/grants` | 静态调用已接入 | `src/api/knowledge.ts#fetchOriginalAccessGrants` → `src/pages/OriginalAccessGrantsPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `POST /api/v1/original-access/grants/{grant_id}/revoke` | 静态调用已接入 | `src/api/knowledge.ts#revokeOriginalAccessGrant` → `src/pages/OriginalAccessGrantsPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `GET /api/v1/original-access/requests` | 静态调用已接入 | `src/api/knowledge.ts#fetchOriginalAccessRequests` → `src/pages/OriginalAccessPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |

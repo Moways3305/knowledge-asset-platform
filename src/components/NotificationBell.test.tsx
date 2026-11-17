@@ -1,21 +1,24 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import NotificationBell from "./NotificationBell";
 import {
-  fetchNotifications,
-  markNotificationRead,
-  markNotificationsRead,
-} from "../api/notifications";
+  fetchInbox,
+  actOnInbox,
+  fetchNotificationEvents,
+  fetchNotificationPreferences,
+  saveNotificationPreferences,
+  type InboxResponse,
+} from "../api/notificationInbox";
 import type { BusinessNotificationDTO } from "../types/notification";
-import { TASK_STATUS_INVALIDATED_EVENT, invalidateTaskStatus } from "../workbench/taskStatusEvents";
-
-vi.mock("../api/notifications", () => ({
-  fetchNotifications: vi.fn(),
-  markNotificationRead: vi.fn(),
-  markNotificationsRead: vi.fn(),
+import { TASK_STATUS_INVALIDATED_EVENT } from "../workbench/taskStatusEvents";
+vi.mock("../api/notificationInbox", () => ({
+  fetchInbox: vi.fn(),
+  actOnInbox: vi.fn(),
+  fetchNotificationEvents: vi.fn(),
+  fetchNotificationPreferences: vi.fn(),
+  saveNotificationPreferences: vi.fn(),
 }));
-
 const notification: BusinessNotificationDTO = {
   id: "notif-1",
   event_type: "review.project_pending",
@@ -35,728 +38,251 @@ const notification: BusinessNotificationDTO = {
   target: { route_key: "reviews", resource_id: "00000000-0000-0000-0000-000000000001" },
 };
 
+const snapshot = "2026-11-17T01:00:00Z";
+const group = {
+  id: "review:one",
+  latest: notification,
+  event_count: 3,
+  unread_count: 3,
+  failed_count: 0,
+  completed_count: 0,
+  action_required: true,
+};
+const initial: InboxResponse = {
+  items: [group],
+  total: 1,
+  unread_count: 1,
+  unseen_count: 1,
+  snapshot_at: snapshot,
+  categories: ["review"],
+  projects: [],
+};
 function renderBell(entry = "/", state?: unknown) {
-  function LocationProbe() {
+  function Probe() {
     const location = useLocation();
-    return (
-      <>
-        <span data-testid="location-probe">{`${location.pathname}${location.search}`}</span>
-        <output data-testid="return-state">{JSON.stringify(location.state)}</output>
-      </>
-    );
+    return <output data-testid="location">{JSON.stringify(location)}</output>;
   }
   return render(
     <MemoryRouter initialEntries={[{ pathname: entry, state }]}>
       <NotificationBell />
-      <LocationProbe />
+      <Probe />
     </MemoryRouter>,
   );
 }
-
-describe("NotificationBell", () => {
+async function open() {
+  fireEvent.click(await screen.findByRole("button", { name: /通知中心，1 条新提醒/ }));
+  await waitFor(() =>
+    expect(actOnInbox).toHaveBeenCalledWith(expect.objectContaining({ action: "seen" })),
+  );
+  await screen.findByRole("button", { name: "查看详情" });
+}
+beforeEach(() => {
+  vi.resetAllMocks();
+  vi.mocked(fetchInbox).mockResolvedValue(structuredClone(initial));
+  vi.mocked(actOnInbox).mockResolvedValue({ affected_count: 3 });
+  vi.mocked(fetchNotificationEvents).mockResolvedValue({ items: [notification], total: 1 });
+  vi.mocked(fetchNotificationPreferences).mockResolvedValue({
+    categories: {},
+    auto_archive_days: 0,
+  });
+  vi.mocked(saveNotificationPreferences).mockImplementation(async (body) => body);
+});
+describe("Notification inbox lifecycle", () => {
+  it("opening clears new badge without marking unread work complete", async () => {
+    renderBell();
+    await open();
+    expect(actOnInbox).toHaveBeenCalledWith({
+      action: "seen",
+      all_matching: true,
+      filters: { view: "inbox" },
+      snapshot_at: snapshot,
+    });
+    expect(
+      screen.getByRole("button", { name: "通知中心，0 条新提醒，1 组未读" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("待处理")).toBeInTheDocument();
+    expect(actOnInbox).not.toHaveBeenCalledWith(expect.objectContaining({ action: "read" }));
+  });
+  it("marks all pages read using a server snapshot, never a loaded id list", async () => {
+    vi.mocked(fetchInbox).mockResolvedValue({ ...initial, total: 3500 });
+    renderBell();
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "全部已读", exact: true }));
+    await waitFor(() =>
+      expect(actOnInbox).toHaveBeenCalledWith({
+        action: "read",
+        all_matching: true,
+        filters: { view: "inbox" },
+        snapshot_at: snapshot,
+      }),
+    );
+  });
+  it("clears all historical pages including archive with explicit confirmation", async () => {
+    renderBell();
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "清理历史" }));
+    expect(actOnInbox).not.toHaveBeenCalledWith(expect.objectContaining({ action: "delete" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认清理全部历史消息" }));
+    await waitFor(() =>
+      expect(actOnInbox).toHaveBeenCalledWith({
+        action: "delete",
+        all_matching: true,
+        snapshot_at: snapshot,
+        filters: { view: "inbox", include_archived: true },
+      }),
+    );
+  });
+  it("keeps date cleanup limited to the chosen Beijing date", async () => {
+    renderBell();
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "清理历史" }));
+    fireEvent.change(screen.getByLabelText(/只清理此日期/), { target: { value: "2026-10-01" } });
+    fireEvent.click(screen.getByRole("button", { name: "确认清理日期之前消息" }));
+    await waitFor(() =>
+      expect(actOnInbox).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filters: { view: "inbox", include_archived: true, before: "2026-10-01T00:00:00+08:00" },
+        }),
+      ),
+    );
+  });
+  it("supports cross-page selection and single group deletion without losing the scope", async () => {
+    vi.mocked(fetchInbox).mockResolvedValue({ ...initial, total: 250 });
+    renderBell();
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "选择全部 250 组（跨页）" }));
+    const bar = screen.getByText("已选 250 组").closest("div")!;
+    fireEvent.click(within(bar).getByRole("button", { name: "归档", exact: true }));
+    await waitFor(() =>
+      expect(actOnInbox).toHaveBeenCalledWith(
+        expect.objectContaining({ action: "archive", all_matching: true }),
+      ),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "删除", exact: true })).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "删除", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
+    await waitFor(() =>
+      expect(actOnInbox).toHaveBeenCalledWith(
+        expect.objectContaining({ action: "delete", group_ids: [group.id] }),
+      ),
+    );
+  });
+  it("restores personal messages from trash", async () => {
+    renderBell();
+    await open();
+    fireEvent.click(screen.getByRole("tab", { name: "回收站" }));
+    fireEvent.click(await screen.findByRole("button", { name: "恢复", exact: true }));
+    await waitFor(() =>
+      expect(actOnInbox).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "restore",
+          filters: { view: "trash" },
+          group_ids: [group.id],
+        }),
+      ),
+    );
+  });
+  it("retains selection and content if an operation fails", async () => {
+    renderBell();
+    await open();
+    fireEvent.click(screen.getByLabelText("选择当前已加载消息"));
+    vi.mocked(actOnInbox).mockRejectedValueOnce(new Error("offline"));
+    fireEvent.click(screen.getAllByRole("button", { name: "归档", exact: true })[0]);
+    await screen.findByRole("alert");
+    expect(screen.getByLabelText("选择当前已加载消息")).toBeChecked();
+    expect(screen.getByRole("button", { name: "查看详情" })).toBeInTheDocument();
+  });
+  it("preserves expanded details and selection while new events wait behind a banner", async () => {
+    renderBell();
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "查看详情" }));
+    const detail = await screen.findByRole("region", { name: "消息详情" });
+    fireEvent.click(screen.getByLabelText("选择当前已加载消息"));
+    const next = { ...group, id: "new-group", latest: { ...notification, title: "刚到的新消息" } };
+    vi.mocked(fetchInbox).mockImplementation(async (_filters, _page, at) =>
+      at
+        ? initial
+        : {
+            ...initial,
+            snapshot_at: "2026-11-17T02:00:00Z",
+            items: [next, group],
+            total: 2,
+            unseen_count: 1,
+          },
+    );
+    act(() => window.dispatchEvent(new Event(TASK_STATUS_INVALIDATED_EVENT)));
+    await screen.findByRole("button", { name: /有 1 组新提醒/ });
+    expect(screen.getByRole("region", { name: "消息详情" })).toBe(detail);
+    expect(screen.queryByText("刚到的新消息")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("选择当前已加载消息")).toBeChecked();
+  });
+  it("removes revoked targets and details when background authorization changes", async () => {
+    renderBell();
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "查看详情" }));
+    await screen.findByRole("region", { name: "消息详情" });
+    vi.mocked(fetchInbox).mockResolvedValue({
+      ...initial,
+      items: [],
+      total: 0,
+      unseen_count: 0,
+      unread_count: 0,
+    });
+    act(() => window.dispatchEvent(new Event(TASK_STATUS_INVALIDATED_EVENT)));
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: "消息详情" })).not.toBeInTheDocument(),
+    );
+  });
   it.each(["/my/knowledge", "/knowledge/previous-asset"])(
-    "preserves a safe return path for a detail notification opened from %s",
+    "retains safe return navigation from %s",
     async (entry) => {
-      vi.mocked(fetchNotifications).mockResolvedValue({
-        items: [
-          { ...notification, target: { route_key: "knowledge_detail", resource_id: "asset-safe" } },
-        ],
-        total: 1,
-        page: 1,
-        page_size: 20,
-        unread_count: 1,
-        pending_count: 1,
-      });
+      const item = {
+        ...notification,
+        target: { route_key: "knowledge_detail", resource_id: "asset-safe" },
+      };
+      vi.mocked(fetchNotificationEvents).mockResolvedValue({ items: [item], total: 1 });
       renderBell(entry, { backTo: "/my/knowledge", backLabel: "返回我的知识", source: "personal" });
-      fireEvent.click(
-        await screen.findByRole("button", { name: "通知中心，1 项待处理，1 条未读" }),
-      );
+      await open();
+      fireEvent.click(screen.getByRole("button", { name: "查看详情" }));
       fireEvent.click(await screen.findByRole("button", { name: "前往处理" }));
       await waitFor(() =>
-        expect(screen.getByTestId("location-probe")).toHaveTextContent("/knowledge/asset-safe"),
+        expect(JSON.parse(screen.getByTestId("location").textContent!).pathname).toBe(
+          "/knowledge/asset-safe",
+        ),
       );
-      expect(JSON.parse(screen.getByTestId("return-state").textContent!)).toEqual({
-        backTo: "/my/knowledge",
-        backLabel: "返回上一页",
-        source: "notification",
-      });
-    },
-  );
-  afterEach(() => vi.restoreAllMocks());
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.mocked(fetchNotifications).mockReset();
-    vi.mocked(markNotificationRead).mockReset();
-    vi.mocked(markNotificationsRead).mockReset();
-    vi.mocked(fetchNotifications).mockResolvedValue({
-      items: [notification],
-      total: 1,
-      page: 1,
-      page_size: 20,
-      unread_count: 1,
-      pending_count: 1,
-      categories: ["review"],
-    });
-    vi.mocked(markNotificationRead).mockResolvedValue({
-      ...notification,
-      is_read: true,
-      read_at: "2026-08-05T08:10:00+00:00",
-    });
-    vi.mocked(markNotificationsRead).mockResolvedValue({
-      requested_count: 1,
-      marked_count: 1,
-      already_read_count: 0,
-    });
-  });
-
-  it("uses unread counts for the badge and keeps read work actionable without duplicating its title", async () => {
-    vi.mocked(fetchNotifications).mockResolvedValue({
-      items: [{ ...notification, is_read: true }],
-      total: 1,
-      page: 1,
-      page_size: 20,
-      unread_count: 0,
-      pending_count: 1,
-    });
-    const view = renderBell();
-    const trigger = await screen.findByRole("button", { name: "通知中心，1 项待处理，0 条未读" });
-    expect(view.container.querySelector(".notification-bell-badge")).toBeNull();
-    fireEvent.click(trigger);
-    expect(await screen.findByRole("button", { name: "前往处理" })).toBeEnabled();
-    expect(screen.getAllByText(notification.title)).toHaveLength(1);
-    expect(screen.getByRole("tab", { name: "动态" })).toBeInTheDocument();
-  });
-
-  it("opens completed reviews in the completed queue and upload notifications at their task", async () => {
-    for (const [routeKey, status, expected] of [
-      ["reviews", "completed", "/review?target_id=target-safe&queue=completed"],
-      ["upload", "completed", "/upload?target_id=target-safe&task_id=target-safe"],
-    ] as const) {
-      vi.mocked(fetchNotifications).mockResolvedValue({
-        items: [
-          {
-            ...notification,
-            is_read: true,
-            task_status: status,
-            action_required: false,
-            target: { route_key: routeKey, resource_id: "target-safe" },
-          },
-        ],
-        total: 1,
-        page: 1,
-        page_size: 20,
-      });
-      const view = renderBell();
-      fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
-      fireEvent.click(screen.getByRole("tab", { name: /动态/ }));
-      fireEvent.click(await screen.findByRole("button", { name: "前往处理" }));
-      await waitFor(() => expect(screen.getByTestId("location-probe")).toHaveTextContent(expected));
-      view.unmount();
-    }
-  });
-
-  it("shows the unread badge and opens the notification panel", async () => {
-    renderBell();
-    await waitFor(() => expect(screen.getByText("1")).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
-    expect(await screen.findByText("项目事项待确认")).toBeInTheDocument();
-    expect(screen.getByText("有一项项目事项等待你确认。")).toBeInTheDocument();
-  });
-
-  it.each([
-    ["original_access.pending", "inbox", true],
-    ["original_access.decided", "mine", false],
-  ])("opens %s in its original access queue", async (eventType, box, actionable) => {
-    const item = {
-      ...notification,
-      event_type: eventType,
-      action_required: actionable,
-      target: { route_key: "original_access", resource_id: "request-safe-1" },
-    };
-    vi.mocked(fetchNotifications).mockResolvedValue({
-      items: [item],
-      total: 1,
-      page: 1,
-      page_size: 20,
-      pending_count: actionable ? 1 : 0,
-    });
-    renderBell();
-    fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
-    if (!actionable) fireEvent.click(screen.getByRole("tab", { name: /动态/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "前往处理" }));
-    await waitFor(() =>
-      expect(screen.getByTestId("location-probe")).toHaveTextContent(
-        `/original-access?target_id=request-safe-1&box=${box}`,
-      ),
-    );
-  });
-
-  it("coalesces focus refreshes and retains one invalidation after a slow request", async () => {
-    let resolve!: (value: Awaited<ReturnType<typeof fetchNotifications>>) => void;
-    const first = new Promise<Awaited<ReturnType<typeof fetchNotifications>>>((done) => {
-      resolve = done;
-    });
-    const value = {
-      items: [],
-      total: 0,
-      page: 1,
-      page_size: 20,
-      unread_count: 0,
-      pending_count: 0,
-      categories: [],
-    };
-    vi.mocked(fetchNotifications).mockReturnValueOnce(first).mockResolvedValue(value);
-    const view = renderBell();
-    act(() => {
-      window.dispatchEvent(new Event("focus"));
-      window.dispatchEvent(new Event("focus"));
-      window.dispatchEvent(new Event(TASK_STATUS_INVALIDATED_EVENT));
-    });
-    expect(fetchNotifications).toHaveBeenCalledTimes(1);
-    await act(async () => resolve(value));
-    expect(fetchNotifications).toHaveBeenCalledTimes(2);
-    view.unmount();
-  });
-
-  it.each(["resolve", "reject"])(
-    "drains queued refresh on timeout without focus, ignoring late %s",
-    async (settlement) => {
-      const nativeTimeout = window.setTimeout.bind(window);
-      let expire!: () => void;
-      vi.spyOn(window, "setTimeout").mockImplementation((handler, delay, ...args) => {
-        if (delay === 30_000 && typeof handler === "function") expire = handler as () => void;
-        return nativeTimeout(handler, delay, ...args);
-      });
-      type Response = Awaited<ReturnType<typeof fetchNotifications>>;
-      let resolve!: (value: Response) => void;
-      let reject!: (error: Error) => void;
-      const old = new Promise<Response>((done, fail) => {
-        resolve = done;
-        reject = fail;
-      });
-      vi.mocked(fetchNotifications).mockReturnValueOnce(old);
-      const view = renderBell();
-      const signal = vi.mocked(fetchNotifications).mock.calls[0][1]!;
-      act(() => {
-        window.dispatchEvent(new Event(TASK_STATUS_INVALIDATED_EVENT));
-        window.dispatchEvent(new Event(TASK_STATUS_INVALIDATED_EVENT));
-      });
-      vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
-      await act(async () => expire());
-      expect(signal.aborted).toBe(true);
-      expect(fetchNotifications).toHaveBeenCalledTimes(2);
-      await act(async () => {
-        if (settlement === "reject") reject(new Error("late abort"));
-        else
-          resolve({
-            items: [],
-            total: 0,
-            page: 1,
-            page_size: 20,
-            unread_count: 0,
-            pending_count: 0,
-            categories: [],
-          });
-      });
-      expect(screen.getByText("1")).toBeInTheDocument();
-      expect(fetchNotifications).toHaveBeenCalledTimes(2);
-      vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
-      vi.mocked(fetchNotifications).mockReturnValue(new Promise(() => {}));
-      act(() => window.dispatchEvent(new Event(TASK_STATUS_INVALIDATED_EVENT)));
-      act(() => window.dispatchEvent(new Event(TASK_STATUS_INVALIDATED_EVENT)));
-      view.unmount();
-      act(() => expire());
-      expect(fetchNotifications).toHaveBeenCalledTimes(3);
-    },
-  );
-
-  it("marks a notification read when opened", async () => {
-    renderBell();
-    fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "前往处理" }));
-    await waitFor(() => expect(markNotificationRead).toHaveBeenCalledWith("notif-1"));
-  });
-
-  it("requests pending work before pagination so older work is not hidden by recent updates", async () => {
-    const update = { ...notification, id: "update", title: "最近的动态", action_required: false };
-    vi.mocked(fetchNotifications).mockImplementation(async (params) => ({
-      items: params?.actionRequired === true ? [notification] : [update],
-      total: params?.actionRequired === true ? 1 : 30,
-      page: 1,
-      page_size: 20,
-      unread_count: 31,
-      pending_count: 1,
-      categories: ["review"],
-    }));
-    renderBell();
-    fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
-    expect(await screen.findByText(notification.title)).toBeInTheDocument();
-    expect(screen.queryByText("暂时没有待处理事项")).not.toBeInTheDocument();
-    expect(fetchNotifications).toHaveBeenLastCalledWith(
-      expect.objectContaining({ actionRequired: true, page: 1 }),
-      expect.any(AbortSignal),
-    );
-    fireEvent.click(screen.getByRole("tab", { name: /动态/ }));
-    expect(await screen.findByText(update.title)).toBeInTheDocument();
-    expect(fetchNotifications).toHaveBeenLastCalledWith(
-      expect.objectContaining({ actionRequired: false, page: 1 }),
-      expect.any(AbortSignal),
-    );
-    expect(markNotificationRead).not.toHaveBeenCalled();
-    expect(markNotificationsRead).not.toHaveBeenCalled();
-  });
-
-  it("resets scope pagination and ignores a late page from the previous tab", async () => {
-    type Response = Awaited<ReturnType<typeof fetchNotifications>>;
-    const response = (items: BusinessNotificationDTO[], total = 2): Response => ({
-      items,
-      total,
-      page: 1,
-      page_size: 20,
-      unread_count: 3,
-      pending_count: 2,
-      categories: ["review"],
-    });
-    const update = { ...notification, id: "update", title: "已完成动态", action_required: false };
-    let finish!: (value: Response) => void;
-    vi.mocked(fetchNotifications).mockImplementation((params) => {
-      if (params?.page === 2)
-        return new Promise<Response>((resolve) => {
-          finish = resolve;
-        });
-      return Promise.resolve(
-        response(params?.actionRequired === false ? [update] : [notification]),
+      expect(JSON.parse(screen.getByTestId("location").textContent!).state.backTo).toBe(
+        "/my/knowledge",
       );
-    });
-    renderBell();
-    fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "加载更多" }));
-    const calls = vi.mocked(fetchNotifications).mock.calls;
-    const oldSignal = calls[calls.length - 1][1]!;
-    fireEvent.click(screen.getByRole("tab", { name: /动态/ }));
-    expect(await screen.findByText(update.title)).toBeInTheDocument();
-    expect(oldSignal.aborted).toBe(true);
-    await act(async () => finish(response([{ ...notification, id: "late", title: "迟到待办" }])));
-    expect(screen.queryByText("迟到待办")).not.toBeInTheDocument();
-    expect(screen.getByText(update.title)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("tab", { name: /待处理/ }));
-    expect(await screen.findByText(notification.title)).toBeInTheDocument();
-    expect(fetchNotifications).toHaveBeenLastCalledWith(
-      expect.objectContaining({ actionRequired: true, page: 1 }),
-      expect.any(AbortSignal),
-    );
-  });
-
-  it("marks all unread notifications as read", async () => {
-    renderBell();
-    fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "当前列表已读" }));
-    await waitFor(() => expect(markNotificationsRead).toHaveBeenCalledWith(["notif-1"]));
-  });
-
-  it("reloads a partial read batch without inventing read state for skipped rows", async () => {
-    vi.mocked(markNotificationsRead).mockResolvedValue({
-      requested_count: 1,
-      marked_count: 0,
-      already_read_count: 0,
-    });
-    // Keep the read refresh pending to expose any invented local success.
-    vi.mocked(fetchNotifications)
-      .mockResolvedValueOnce({
-        items: [notification],
-        total: 1,
-        page: 1,
-        page_size: 20,
-        unread_count: 1,
-        pending_count: 1,
-      })
-      .mockReturnValueOnce(new Promise(() => undefined));
-    renderBell();
-    fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "当前列表已读" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("部分通知状态或权限已变化");
-    expect(screen.getByText(/1 条未读/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "当前列表已读" })).toBeEnabled();
-    expect(fetchNotifications).toHaveBeenCalledTimes(2);
-  });
-
-  it.each(["poll", "focus", "invalidation"])(
-    "refreshes every expanded page on %s without retaining removed work",
-    async (trigger) => {
-      const nativeInterval = window.setInterval.bind(window);
-      let poll!: () => void;
-      vi.spyOn(window, "setInterval").mockImplementation((handler, delay, ...args) => {
-        if (delay === 60_000 && typeof handler === "function") poll = handler as () => void;
-        return nativeInterval(handler, delay, ...args);
-      });
-      let rows = Array.from({ length: 60 }, (_, i) => ({
-        ...notification,
-        id: `row-${i}`,
-        title: `待办条目 ${i}`,
-      }));
-      vi.mocked(fetchNotifications).mockImplementation(async (params) => {
-        const size = params?.pageSize ?? 20;
-        const page = params?.page ?? 1;
-        return {
-          items: rows.slice((page - 1) * size, page * size),
-          total: rows.length,
-          page,
-          page_size: size,
-          unread_count: rows.length,
-          pending_count: rows.length,
-          categories: ["review"],
-        };
-      });
-      renderBell();
-      fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
-      fireEvent.click(await screen.findByRole("button", { name: "加载更多" }));
-      await screen.findByText("待办条目 39");
-      rows = [
-        { ...notification, id: "new", title: "新增待办" },
-        ...rows.filter((row) => row.id !== "row-30"),
-      ];
-      act(() => {
-        if (trigger === "poll") poll();
-        else
-          window.dispatchEvent(
-            new Event(trigger === "focus" ? "focus" : TASK_STATUS_INVALIDATED_EVENT),
-          );
-      });
-      await screen.findByText("新增待办");
-      expect(screen.getAllByRole("article")).toHaveLength(40);
-      expect(screen.getByText("待办条目 39")).toBeInTheDocument();
-      expect(screen.queryByText("待办条目 30")).not.toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
-      await screen.findByText("待办条目 59");
-      expect(screen.getAllByRole("article")).toHaveLength(60);
-      expect(screen.queryByRole("button", { name: "加载更多" })).not.toBeInTheDocument();
-      expect(markNotificationRead).not.toHaveBeenCalled();
-      expect(markNotificationsRead).not.toHaveBeenCalled();
     },
   );
-
-  it("refreshes beyond the API page-size limit and drops pages that no longer exist", async () => {
-    let rows = Array.from({ length: 125 }, (_, i) => ({
-      ...notification,
-      id: `row-${i}`,
-      title: `待办条目 ${i}`,
-    }));
-    vi.mocked(fetchNotifications).mockImplementation(async (params) => {
-      const size = params?.pageSize ?? 20;
-      if (size > 100) throw new Error("API page size exceeds 100");
-      const page = params?.page ?? 1;
-      return {
-        items: rows.slice((page - 1) * size, page * size),
-        total: rows.length,
-        page,
-        page_size: size,
-        unread_count: rows.length,
-        pending_count: rows.length,
-        categories: ["review"],
-      };
+  it("rejects unknown target routes without navigating", async () => {
+    vi.mocked(fetchNotificationEvents).mockResolvedValue({
+      items: [{ ...notification, target: { route_key: "https://invalid.test", resource_id: "x" } }],
+      total: 1,
     });
     renderBell();
-    fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
-    await screen.findByText("待办条目 19");
-    for (let page = 2; page <= 6; page += 1) {
-      fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
-      await screen.findByText(`待办条目 ${page * 20 - 1}`);
-    }
-    rows = [{ ...notification, id: "new", title: "新增待办" }, ...rows];
-    act(() => window.dispatchEvent(new Event("focus")));
-    await screen.findByText("新增待办");
-    expect(screen.getAllByRole("article")).toHaveLength(120);
-    expect(screen.getByText("待办条目 118")).toBeInTheDocument();
-    expect(screen.queryByText("待办条目 119")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
-    await screen.findByText("待办条目 124");
-    expect(screen.getAllByRole("article")).toHaveLength(126);
-    rows = rows.slice(0, 25);
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "查看详情" }));
+    fireEvent.click(await screen.findByRole("button", { name: "前往处理" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("目标页暂不可用");
+    expect(JSON.parse(screen.getByTestId("location").textContent!).pathname).toBe("/");
+  });
+  it("keeps settings drafts during background updates and saves channels plus retention", async () => {
+    renderBell();
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "通知设置" }));
+    fireEvent.change(await screen.findByLabelText("审核企业微信"), { target: { value: "hourly" } });
+    fireEvent.change(screen.getByLabelText("自动归档已读历史"), { target: { value: "30" } });
     act(() => window.dispatchEvent(new Event(TASK_STATUS_INVALIDATED_EVENT)));
-    await waitFor(() => expect(screen.getAllByRole("article")).toHaveLength(25));
-    expect(screen.queryByText("待办条目 124")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "加载更多" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /通知中心，25 项待处理/ })).toBeInTheDocument();
-  });
-
-  it.each(["failure", "scope change"])(
-    "does not partially replace expanded results before a refresh %s",
-    async (outcome) => {
-      type Response = Awaited<ReturnType<typeof fetchNotifications>>;
-      let rows = Array.from({ length: 125 }, (_, i) => ({
-        ...notification,
-        id: `row-${i}`,
-        title: `待办条目 ${i}`,
-      }));
-      let reject!: (error: Error) => void;
-      let refreshSignal: AbortSignal | undefined;
-      let holdSecondBatch = true;
-      vi.mocked(fetchNotifications).mockImplementation(async (params, signal) => {
-        const page = params?.page ?? 1;
-        const size = params?.pageSize ?? 20;
-        if (size === 100 && page === 2 && holdSecondBatch) {
-          refreshSignal = signal;
-          return new Promise<Response>((_, fail) => {
-            reject = fail;
-          });
-        }
-        const visible = params?.actionRequired === false ? [] : rows;
-        return {
-          items: visible.slice((page - 1) * size, page * size),
-          total: visible.length,
-          page,
-          page_size: size,
-          unread_count: rows.length,
-          pending_count: rows.length,
-          categories: ["review"],
-        };
-      });
-      renderBell();
-      fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
-      await screen.findByText("待办条目 19");
-      for (let page = 2; page <= 6; page += 1) {
-        fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
-        await screen.findByText(`待办条目 ${page * 20 - 1}`);
-      }
-      rows = [{ ...notification, id: "new", title: "新增待办" }, ...rows];
-      act(() => window.dispatchEvent(new Event("focus")));
-      await waitFor(() => expect(refreshSignal).toBeDefined());
-      expect(screen.getAllByRole("article")).toHaveLength(120);
-      expect(screen.queryByText("新增待办")).not.toBeInTheDocument();
-      if (outcome === "scope change") {
-        fireEvent.click(screen.getByRole("tab", { name: /动态/ }));
-        await screen.findByText("暂时没有动态");
-        expect(refreshSignal!.aborted).toBe(true);
-      }
-      await act(async () => reject(new Error("refresh interrupted")));
-      if (outcome === "scope change") {
-        expect(screen.queryByRole("article")).not.toBeInTheDocument();
-        expect(screen.queryByText("新增待办")).not.toBeInTheDocument();
-        fireEvent.click(screen.getByRole("tab", { name: /待处理/ }));
-        await screen.findByText("新增待办");
-        expect(screen.getAllByRole("article")).toHaveLength(20);
-      } else {
-        expect(screen.getAllByRole("article")).toHaveLength(120);
-        holdSecondBatch = false;
-        act(() => window.dispatchEvent(new Event("focus")));
-        await screen.findByText("新增待办");
-        expect(screen.getAllByRole("article")).toHaveLength(120);
-      }
-    },
-  );
-
-  it("keeps pagination available when the loaded page has no matching rows", async () => {
-    vi.mocked(fetchNotifications).mockResolvedValueOnce({
-      items: [{ ...notification, id: "update", action_required: false }],
-      total: 21,
-      page: 1,
-      page_size: 20,
-      unread_count: 21,
-      pending_count: 1,
-      categories: ["review"],
-    });
-    renderBell();
-    fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "加载更多" }));
-    expect(await screen.findByText(notification.title)).toBeInTheDocument();
-    expect(fetchNotifications).toHaveBeenLastCalledWith(
-      expect.objectContaining({ actionRequired: true, page: 2 }),
-      expect.any(AbortSignal),
-    );
-  });
-
-  it("shows an empty state when there are no unread notifications", async () => {
-    vi.mocked(fetchNotifications).mockResolvedValue({
-      items: [],
-      total: 0,
-      page: 1,
-      page_size: 20,
-      unread_count: 0,
-      pending_count: 0,
-      categories: [],
-    });
-    renderBell();
-    fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
-    expect(await screen.findByText("暂时没有待处理事项")).toBeInTheDocument();
-  });
-
-  it("separates pending work from status updates", async () => {
-    const update = {
-      ...notification,
-      id: "notif-2",
-      title: "入库已完成",
-      action_required: false,
-      task_status: "completed" as const,
-      task_group: "recent_completed" as const,
-    };
-    vi.mocked(fetchNotifications).mockResolvedValue({
-      items: [notification, update],
-      total: 2,
-      page: 1,
-      page_size: 20,
-      unread_count: 2,
-      pending_count: 1,
-      categories: ["review"],
-    });
-    renderBell();
-    fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
-    expect(await screen.findByText(notification.title)).toBeInTheDocument();
-    expect(screen.queryByText(update.title)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("tab", { name: /动态/ }));
-    expect(await screen.findByText(update.title)).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: notification.title })).not.toBeInTheDocument();
-  });
-
-  it("refreshes completed maintenance into updates without marking history read", async () => {
-    const assigned = {
-      ...notification,
-      event_type: "knowledge.assigned",
-      title: "资料维护已分配",
-      target: { route_key: "knowledge_detail", resource_id: "asset-id" },
-    };
-    const response = {
-      items: [assigned],
-      total: 1,
-      page: 1,
-      page_size: 20,
-      unread_count: 1,
-      pending_count: 1,
-      categories: ["review"],
-    };
-    vi.mocked(fetchNotifications).mockResolvedValue(response);
-    renderBell();
-    await screen.findByRole("button", { name: /通知中心，1 项待处理/ });
-    fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
-    expect(await screen.findByText(assigned.title)).toBeInTheDocument();
-    vi.mocked(fetchNotifications).mockResolvedValue({
-      ...response,
-      pending_count: 0,
-      items: [
-        {
-          ...assigned,
-          action_required: false,
-          task_status: "completed",
-          task_group: "recent_completed",
-          next_action_label: "查看记录",
-        },
-      ],
-    });
-    act(() => invalidateTaskStatus("/api/v1/knowledge/asset-id/trust/review"));
-    await waitFor(() => expect(fetchNotifications).toHaveBeenCalledTimes(2));
-    expect(await screen.findByText("暂时没有待处理事项")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /通知中心，0 项待处理/ })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("tab", { name: /动态/ }));
-    expect(await screen.findByText(assigned.title)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "查看记录" })).toBeInTheDocument();
-    expect(markNotificationRead).not.toHaveBeenCalled();
-    expect(markNotificationsRead).not.toHaveBeenCalled();
-  });
-
-  it("renders duplicate skipped as a distinct terminal notification status", async () => {
-    const duplicate = {
-      ...notification,
-      id: "notif-duplicate",
-      category: "ingest",
-      title: "重复资料已跳过",
-      action_required: false,
-      task_status: "duplicate_skipped" as const,
-      task_group: "recent_completed" as const,
-      next_action_label: "查看记录",
-      target: { route_key: "upload", resource_id: "ingest-safe-1" },
-    };
-    vi.mocked(fetchNotifications).mockResolvedValue({
-      items: [duplicate],
-      total: 1,
-      page: 1,
-      page_size: 20,
-      unread_count: 1,
-      pending_count: 0,
-      categories: ["ingest"],
-    });
-    renderBell();
-    fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
-    fireEvent.click(await screen.findByRole("tab", { name: /动态/ }));
-    expect(await screen.findByText("重复跳过")).toBeInTheDocument();
-    expect(screen.queryByText("状态更新")).not.toBeInTheDocument();
-  });
-
-  it("renders cancellation as an explicit terminal notification status", async () => {
-    const cancelled = {
-      ...notification,
-      id: "notif-cancelled",
-      category: "ingest",
-      title: "上传已取消",
-      action_required: false,
-      task_status: "cancelled" as const,
-      task_group: "recent_completed" as const,
-      next_action_label: "查看记录",
-      target: { route_key: "upload", resource_id: "ingest-safe-cancelled" },
-    };
-    vi.mocked(fetchNotifications).mockResolvedValue({
-      items: [cancelled],
-      total: 1,
-      page: 1,
-      page_size: 20,
-      unread_count: 1,
-      pending_count: 0,
-      categories: ["ingest"],
-    });
-    renderBell();
-    fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
-    fireEvent.click(await screen.findByRole("tab", { name: /动态/ }));
-    expect(await screen.findByText("已取消")).toBeInTheDocument();
-    expect(screen.queryByText("状态待确认")).not.toBeInTheDocument();
-  });
-
-  it("keeps the drawer and unread state when marking read fails", async () => {
-    vi.mocked(fetchNotifications).mockResolvedValueOnce({
-      items: [notification],
-      total: 1,
-      page: 1,
-      page_size: 20,
-      unread_count: 1,
-      pending_count: 1,
-      categories: ["review"],
-    });
-    vi.mocked(markNotificationRead).mockRejectedValueOnce(new Error("temporary failure"));
-    renderBell();
-    fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "前往处理" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("未能标记为已读");
-    expect(screen.getByRole("dialog", { name: "通知中心" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /通知中心，1 项待处理/ })).toBeInTheDocument();
-  });
-
-  it("opens an index update at the governed knowledge detail route", async () => {
-    const indexUpdate = {
-      ...notification,
-      id: "notif-index",
-      event_type: "index.status_changed",
-      category: "indexing",
-      title: "索引状态已更新",
-      action_required: false,
-      task_status: "completed" as const,
-      task_group: "recent_completed" as const,
-      next_action_label: "查看记录",
-      target: { route_key: "knowledge_detail", resource_id: "asset-safe-1" },
-    };
-    vi.mocked(fetchNotifications).mockResolvedValue({
-      items: [indexUpdate],
-      total: 1,
-      page: 1,
-      page_size: 20,
-      unread_count: 1,
-      pending_count: 0,
-      categories: ["indexing"],
-    });
-    renderBell();
-    fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
-    fireEvent.click(await screen.findByRole("tab", { name: /动态/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "查看记录" }));
+    expect(screen.getByLabelText("审核企业微信")).toHaveValue("hourly");
+    fireEvent.click(screen.getByRole("button", { name: "保存通知设置" }));
     await waitFor(() =>
-      expect(screen.getByTestId("location-probe")).toHaveTextContent(
-        "/knowledge/asset-safe-1?target_id=asset-safe-1",
-      ),
+      expect(saveNotificationPreferences).toHaveBeenCalledWith({
+        categories: { review: { in_app: true, wecom: "hourly" } },
+        auto_archive_days: 30,
+      }),
     );
   });
 });
