@@ -1,3 +1,4 @@
+import { emptyNotificationInbox } from "./notification-inbox-fixture.mjs";
 import { auditResponsiveLayout } from "./responsive-layout-audit.mjs";
 // Real browser workflows against deterministic API fixtures. No production data is used.
 import assert from "node:assert/strict";
@@ -115,8 +116,8 @@ try {
           project_memberships: [],
         });
       if (p === "/api/v1/auth/csrf") return send({ csrf_token: "local-fixture" });
-      if (p === "/api/v1/notifications")
-        return send({ items: [], total: 0, unread_count: 0, categories: [] });
+      if (p === "/api/v1/notifications/inbox")
+        return send(emptyNotificationInbox);
       if (p === "/api/v1/notifications/unread-count") return send({ unread_count: 0 });
       if (p === "/api/v1/workbench/overview")
         return send({

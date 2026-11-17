@@ -103,6 +103,7 @@ try {
   browser = await chromium.launch({ args: ["--disable-gpu"] });
   for (const viewport of viewports) {
     const context = await browser.newContext({ viewport });
+    let malformed = false;
     let cleared = false;
     let seen = false;
     let preferences = { categories: {}, auto_archive_days: 0 };
@@ -124,6 +125,7 @@ try {
       }
       if (pathname === "/api/v1/notifications/inbox/events") return send({ items: notifications.items, total: notifications.items.length });
       if (pathname === "/api/v1/notifications/inbox") {
+        if (malformed) return send({});
         const show = requestUrl.searchParams.get("view") === "trash" ? cleared : !cleared;
         return send({ items: show ? notifications.items.map((latest, i) => ({ id: `review:group-${i}`, latest, event_count: i ? 2 : 80, unread_count: i ? 0 : 3, failed_count: i ? 1 : 0, completed_count: 0, action_required: latest.action_required })) : [], total: show ? 2 : 0, unseen_count: seen || cleared ? 0 : 1, unread_count: cleared ? 0 : 1, snapshot_at: "2026-11-17T00:00:00Z", categories: ["review", "knowledge_base"], projects: [] });
       }
@@ -151,6 +153,8 @@ try {
       });
     });
     const page = await context.newPage();
+    const pageErrors = [];
+    page.on("pageerror", error => pageErrors.push(error.message));
     await page.goto(base, { waitUntil: "networkidle" });
     await page.getByRole("button", { name: /通知中心，1 条新提醒/ }).click();
     await page.getByRole("heading", { name: "通知中心" }).waitFor();
@@ -196,6 +200,15 @@ try {
     await page.getByRole("button", { name: "查看详情", exact: true }).first().waitFor();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     if (overflow > 2) throw Error(`overflow after restore: ${overflow}`);
+    malformed = true;
+    await page.reload({ waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "我的工作", exact: true }).waitFor();
+    await page.getByRole("button", { name: /通知中心，0 条新提醒/ }).click();
+    await page.getByRole("alert").waitFor();
+    malformed = false;
+    await page.getByRole("button", { name: "刷新通知", exact: true }).click();
+    await page.getByRole("button", { name: "查看详情", exact: true }).first().waitFor();
+    if (pageErrors.length) throw Error(pageErrors.join("; "));
     await context.close();
   }
   fs.writeFileSync(path.join(outDir, "report.json"), JSON.stringify(results, null, 2));
