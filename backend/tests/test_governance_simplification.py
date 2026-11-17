@@ -14,7 +14,14 @@ from app.models.lifecycle import AlertRule, AssetLifecycleEvent
 from app.models.maintenance_agent import MaintenanceIssue, MaintenancePolicy
 from app.models.preview import PreviewCredential
 from app.schemas.maintenance_agent import ScanSettings
-from app.seed.dev_seed import KA_COMPANY_L2, USER_BOSS, USER_CONSULTANT, USER_DIRECTOR
+from app.seed.dev_seed import (
+    KA_COMPANY_L2,
+    KA_COMPANY_L4,
+    KA_COMPANY_L5,
+    USER_BOSS,
+    USER_CONSULTANT,
+    USER_DIRECTOR,
+)
 from app.services.maintenance_access import actor_context
 from app.services.maintenance_rules import deterministic
 from app.services.permission import AccessChannel, AccessLayer, decide
@@ -226,6 +233,33 @@ async def issue_fixture(client, db_session, rules):
     db_session.add_all(rows)
     await db_session.commit()
     return rows
+
+
+async def test_delegation_does_not_extend_to_other_assets_l5_or_version_publication(
+    client, db_session
+):
+    granted = await command(
+        client,
+        "policy",
+        {"maintainer_user_id": str(USER_CONSULTANT), "maintenance_delegated": True},
+    )
+    assert granted.status_code == 200
+    caller = await actor_context(db_session, USER_CONSULTANT, "consultant")
+    other = await db_session.get(KnowledgeAsset, KA_COMPANY_L4)
+    assert not decide(caller, other, AccessLayer.original).allowed
+    result = await command(
+        client,
+        "policy",
+        {"maintainer_user_id": str(USER_CONSULTANT), "maintenance_delegated": True},
+        asset=KA_COMPANY_L5,
+    )
+    assert result.status_code == 422
+    history = await client.get(
+        f"/api/v1/knowledge/{KA_COMPANY_L2}/versions", headers=headers(USER_CONSULTANT)
+    )
+    assert history.status_code == 200, history.text
+    assert not history.json()["can_update"]
+    assert not history.json()["updates"]
 
 
 async def test_suggestions_are_separate_and_retired_issues_hidden_then_reconciled(

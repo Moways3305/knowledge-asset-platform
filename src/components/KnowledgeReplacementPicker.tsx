@@ -80,6 +80,7 @@ export default function KnowledgeReplacementPicker({
       <label>
         新版资料
         <select
+          aria-label="新版资料"
           disabled={disabled || loading}
           value={candidate?.asset_id ?? ""}
           onChange={async (e) => {

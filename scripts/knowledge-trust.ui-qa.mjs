@@ -40,7 +40,7 @@ try {
   for (const width of [1440, 1024, 390]) {
     for (const scenario of ["normal", "empty", "failure"]) {
       const context = await browser.newContext({ viewport: { width, height: 1000 } });
-      await context.route("**/api/**", async (route) => {
+      await context.route("**/api/v1/**", async (route) => {
         const url = new URL(route.request().url());
         let body = { items: [], total: 0, unread_count: 0 };
         let status = 200;

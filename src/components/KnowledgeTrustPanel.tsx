@@ -289,6 +289,7 @@ function KnowledgeTrustContent({
                 <label>
                   维护人
                   <select
+                    aria-label="维护人"
                     value={owner}
                     disabled={busy || !state.can_assign}
                     onChange={(e) => {
@@ -310,6 +311,7 @@ function KnowledgeTrustContent({
                 <label>
                   复核安排
                   <select
+                    aria-label="复核安排"
                     value={schedule}
                     disabled={busy}
                     onChange={(e) => setSchedule(e.target.value)}

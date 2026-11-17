@@ -143,7 +143,7 @@ const listItem = {
 const browser = await chromium.launch({ args: ["--disable-gpu"] });
 const results = [];
 
-for (const scenario of scenarios) {
+for (const scenario of scenarios.filter(name => !process.env.UI_QA_CASE || name === process.env.UI_QA_CASE)) {
   for (const viewport of viewports) {
     let detailCalls = 0;
     let allowFailureRecovery = false;
