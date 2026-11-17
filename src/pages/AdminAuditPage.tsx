@@ -57,12 +57,18 @@ export default function AdminAuditPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const PAGE_SIZE = 50;
   const listRequest = useRef(0);
+  const loadedScope = useRef("");
 
   const loadList = useCallback(
     async (tab: LogTab, pageNum: number) => {
       const request = ++listRequest.current;
       setLoading(true);
       setError(null);
+      const scope = JSON.stringify([tab, pageNum, filterSeverity, filterProcessed]);
+      if (loadedScope.current !== scope) {
+        setItems([]);
+        setExpandedId(null);
+      }
       try {
         const response = await fetchAudit({
           logType: tab,
@@ -73,16 +79,22 @@ export default function AdminAuditPage() {
           pageSize: PAGE_SIZE,
         });
         if (request !== listRequest.current) return;
+        loadedScope.current = scope;
         setItems(response.items);
         setTotal(response.total);
         setPage(response.page);
         setView(response.view);
-        setExpandedId(null);
+        setExpandedId((current) =>
+          response.items.some((item) => item.id === current) ? current : null,
+        );
       } catch (reason) {
         if (request !== listRequest.current) return;
-        setItems([]);
-        setTotal(0);
-        setPage(1);
+        if (reason instanceof ApiError && [401, 403].includes(reason.status)) {
+          loadedScope.current = "";
+          setItems([]);
+          setTotal(0);
+          setExpandedId(null);
+        }
         setError(
           reason instanceof ApiError && reason.status === 403
             ? "当前身份没有审计日志查看权限。"
@@ -418,7 +430,7 @@ export default function AdminAuditPage() {
                         </td>
                       </tr>
                     )}
-                    {loading && (
+                    {loading && logs.length === 0 && (
                       <tr>
                         <td colSpan={activeTab === "exception" ? 6 : 5} className="secops-empty">
                           正在加载审计记录…

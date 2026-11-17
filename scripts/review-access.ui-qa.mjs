@@ -1,3 +1,4 @@
+import { auditResponsiveLayout } from "./responsive-layout-audit.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -490,6 +491,7 @@ try {
           if (["grants-confirm", "grants-action-failure"].includes(scenario.name)) {
             await page.getByRole("button", { name: "撤销授权", exact: true }).click();
             await page.getByRole("textbox", { name: "撤销理由", exact: true }).fill("验收结束");
+            await auditResponsiveLayout(page, { suite: "review-access", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
             await page.screenshot({
               path: path.join(outDir, `${scenario.name}-dialog-${viewport.name}.png`),
               fullPage: false,
@@ -773,6 +775,7 @@ try {
         consoleLeak: secrets.some((secret) => browserMessages.join("\n").includes(secret)),
       });
 
+      await auditResponsiveLayout(page, { suite: "review-access", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
       await page.screenshot({
         path: path.join(outDir, `${scenario.name}-${viewport.name}.png`),
         fullPage: false,

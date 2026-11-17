@@ -58,13 +58,18 @@ export default function ReviewCompletedPage() {
   const [forbidden, setForbidden] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const requestRef = useRef(0);
+  const loadedScope = useRef("");
 
   const load = useCallback(async () => {
     const requestId = ++requestRef.current;
     setLoading(true);
     setForbidden(false);
     setLoadFailed(false);
-    setItems([]);
+    const scope = JSON.stringify([page, reviewType, status]);
+    if (loadedScope.current !== scope) {
+      setItems([]);
+      setTotal(0);
+    }
     try {
       const response = await fetchReviewPage({
         queue: "completed",
@@ -74,13 +79,18 @@ export default function ReviewCompletedPage() {
         pageSize: PAGE_SIZE,
       });
       if (requestId !== requestRef.current) return;
+      loadedScope.current = scope;
       setItems(response.items);
       setTotal(response.total);
     } catch (error) {
       if (requestId !== requestRef.current) return;
       setForbidden(isForbidden(error));
       setLoadFailed(!isForbidden(error));
-      setTotal(0);
+      if (isForbidden(error) || (error instanceof ApiError && error.status === 401)) {
+        loadedScope.current = "";
+        setItems([]);
+        setTotal(0);
+      }
     } finally {
       if (requestId === requestRef.current) setLoading(false);
     }
@@ -187,6 +197,9 @@ export default function ReviewCompletedPage() {
         <span className="gw-total">共 {total} 条</span>
       </div>
 
+      {loadFailed && items.length > 0 && (
+        <p role="alert">记录更新失败，保留上次结果，请刷新核对。</p>
+      )}
       <DataTable
         columns={columns}
         rows={items}

@@ -1,3 +1,4 @@
+import { auditResponsiveLayout } from "./responsive-layout-audit.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -470,6 +471,7 @@ try {
           ),
         );
         timeoutRecoveryScreenshot = path.join(outDir, `timeout-recovery-open-${viewport.name}.png`);
+        await auditResponsiveLayout(page, { suite: "admin-operations", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
         await page.screenshot({
           path: timeoutRecoveryScreenshot,
           animations: "disabled",
@@ -488,6 +490,7 @@ try {
         });
       });
       const screenshot = path.join(outDir, `${scenario}-${viewport.name}.png`);
+      await auditResponsiveLayout(page, { suite: "admin-operations", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
       await page.screenshot({ path: screenshot, animations: "disabled", fullPage: true });
       await page.getByRole("button", { name: /^运行诊断/ }).click();
 

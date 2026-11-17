@@ -579,7 +579,15 @@ export default function AdminPeoplePage() {
                 </span>
                 <small>共 {total} 人</small>
               </div>
-              {error ? (
+              {error && people.length > 0 && (
+                <p role="alert">
+                  {error}，保留上次结果。
+                  <button type="button" className="btn-small" onClick={() => void load()}>
+                    重试更新
+                  </button>
+                </p>
+              )}
+              {error && people.length === 0 ? (
                 <div className="ig-empty-state">
                   <div className="gp-empty-visual is-error" aria-hidden="true">
                     <UsersRound size={22} />
@@ -591,7 +599,7 @@ export default function AdminPeoplePage() {
                     重试
                   </button>
                 </div>
-              ) : loading ? (
+              ) : loading && people.length === 0 ? (
                 <div className="ig-empty-state">
                   <div className="ig-empty-title">加载中…</div>
                 </div>

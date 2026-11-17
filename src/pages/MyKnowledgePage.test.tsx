@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -319,6 +319,32 @@ describe("MyKnowledgePage complete personal workflow", () => {
     );
     expect(await screen.findByText("资料信息已更新")).toBeInTheDocument();
     expect(fetchMyKnowledge).toHaveBeenCalledTimes(2);
+  });
+
+  it("retains personal rows while an operation refreshes and when that refresh fails", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const row = (await screen.findByText("项目复盘模板")).closest("tr");
+    let rejectRefresh!: (reason: Error) => void;
+    vi.mocked(fetchMyKnowledge).mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectRefresh = reject;
+        }),
+    );
+    await user.click(screen.getByRole("button", { name: "更多操作：项目复盘模板" }));
+    await user.click(screen.getByRole("menuitem", { name: "编辑资料" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "保存修改" }));
+    await waitFor(() => expect(fetchMyKnowledge).toHaveBeenCalledTimes(2));
+    expect(row?.isConnected).toBe(true);
+    expect(screen.queryByText("正在加载个人资料…")).not.toBeInTheDocument();
+    await act(async () => rejectRefresh(new ApiError(503, "private error")));
+    expect(await screen.findByText("列表更新失败，保留上次结果。")).toBeInTheDocument();
+    expect(row?.isConnected).toBe(true);
+    vi.mocked(fetchMyKnowledge).mockRejectedValueOnce(new ApiError(403, "无权限"));
+    await user.click(screen.getByRole("button", { name: "重试更新" }));
+    expect(await screen.findByText("当前身份无法使用个人知识")).toBeInTheDocument();
+    expect(row?.isConnected).toBe(false);
   });
 
   it("requires a delete confirmation and forwards the optional reason", async () => {

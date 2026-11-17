@@ -1,3 +1,4 @@
+import { auditResponsiveLayout } from "./responsive-layout-audit.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -261,6 +262,7 @@ try {
               })
             );
           });
+          await auditResponsiveLayout(page, { suite: "security-operations", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
           await page.screenshot({
             path: path.join(outDir, `alerts-threshold-edit-${viewport.name}.png`),
             fullPage: true,
@@ -275,6 +277,7 @@ try {
             writeRequests === 0;
         }
         const screenshot = path.join(outDir, `${target.name}-${scenario}-${viewport.name}.png`);
+        await auditResponsiveLayout(page, { suite: "security-operations", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
         await page.screenshot({ path: screenshot, fullPage: true, animations: "disabled" });
         const metrics = await page.evaluate(
           ({ scenario, secrets, targetName }) => {

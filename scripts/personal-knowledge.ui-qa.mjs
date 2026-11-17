@@ -1,3 +1,4 @@
+import { auditResponsiveLayout } from "./responsive-layout-audit.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -344,6 +345,7 @@ try {
         await row.getByRole("button", { name: "更多操作：项目复盘方法模板" }).click();
         await page.getByRole("menuitem", { name: "编辑资料" }).click();
         await page.getByRole("dialog").waitFor();
+        await auditResponsiveLayout(page, { suite: "personal-knowledge", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
         await page.screenshot({
           path: path.join(outDir, `edit-dialog-${viewport.name}.png`),
           animations: "disabled",
@@ -352,6 +354,7 @@ try {
         await row.getByRole("button", { name: "更多操作：项目复盘方法模板" }).click();
         await page.getByRole("menuitem", { name: "删除资料" }).click();
         await page.getByRole("dialog").waitFor();
+        await auditResponsiveLayout(page, { suite: "personal-knowledge", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
         await page.screenshot({
           path: path.join(outDir, `delete-dialog-${viewport.name}.png`),
           animations: "disabled",
@@ -480,6 +483,7 @@ try {
         result.queryReady &&
         result.publicationPayloadValid &&
         Boolean(result[stateKey]);
+      await auditResponsiveLayout(page, { suite: "personal-knowledge", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
       await page.screenshot({
         path: path.join(outDir, `${scenario}-${viewport.name}.png`),
         fullPage: false,

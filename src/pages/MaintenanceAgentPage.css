@@ -592,6 +592,130 @@
   justify-content: end;
   padding-top: 18px;
 }
+.agent-history-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0 16px;
+}
+.agent-history-table-wrap {
+  overflow-x: auto;
+}
+.agent-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  text-align: left;
+}
+.agent-history-table th {
+  padding: 10px 12px;
+  color: var(--text-secondary, #64748b);
+  font-size: 12px;
+  font-weight: 500;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+.agent-history-table td {
+  padding: 12px;
+  border-bottom: 1px solid #e2e8f0;
+  vertical-align: middle;
+}
+.agent-history-table th:first-child,
+.agent-history-table td:first-child {
+  width: 28px;
+  padding-left: 4px;
+}
+.agent-history-table strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.agent-history-table time,
+.agent-history-table small {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #64748b;
+}
+.agent-history-table progress {
+  display: block;
+  width: 132px;
+  height: 4px;
+  margin-top: 5px;
+  border: 0;
+  border-radius: 2px;
+  overflow: hidden;
+  accent-color: #3b6cff;
+}
+.agent-history-table progress::-webkit-progress-bar {
+  background: #edf1f7;
+}
+.agent-history-table progress::-webkit-progress-value {
+  background: #3b6cff;
+}
+.agent-history-count {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.agent-count-warning {
+  color: #a65c0b;
+}
+.agent-history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.agent-history-actions .product-button {
+  min-height: 28px;
+  padding: 3px 8px;
+  font-size: 12px;
+}
+.agent-item-progress {
+  padding: 10px 12px;
+  background: #f5f8ff;
+  border-radius: 6px;
+  color: #415a86;
+  font-size: 12px;
+}
+@media (max-width: 680px) {
+  .agent-history-table thead {
+    display: none;
+  }
+  .agent-history-table,
+  .agent-history-table tbody {
+    display: block;
+  }
+  .agent-history-table tr {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+    padding: 10px 0;
+    border-bottom: 1px solid #e2e8f0;
+    gap: 6px;
+  }
+  .agent-history-table td {
+    border: 0;
+    padding: 0;
+    min-width: 0;
+  }
+  .agent-history-table td:nth-child(4) {
+    grid-column: 2;
+  }
+  .agent-history-table td:nth-child(5)::before {
+    content: "未完成 / 跳过 ";
+    font-size: 11px;
+    color: #64748b;
+  }
+  .agent-history-table td:last-child {
+    grid-column: 2 / -1;
+  }
+  .agent-history-table time {
+    font-size: 11px;
+  }
+  .agent-history-toolbar {
+    align-items: flex-start;
+    font-size: 12px;
+  }
+}
 .agent-settings {
   max-width: 1000px;
 }

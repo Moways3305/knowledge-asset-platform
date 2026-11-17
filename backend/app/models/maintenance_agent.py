@@ -67,6 +67,10 @@ class MaintenanceRun(Base):
     last_progress_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    @property
+    def can_retry(self) -> bool:
+        return self.status in {"partial", "cancelled"} and self.scope_snapshot is not None
+
 
 class MaintenanceRunItem(Base):
     """Frozen target membership and per-run outcomes; never stores source text."""
@@ -82,6 +86,7 @@ class MaintenanceRunItem(Base):
     coverage: Mapped[dict] = mapped_column(JSON, default=dict)
     findings: Mapped[dict] = mapped_column(JSON, default=dict)
     reasons: Mapped[list] = mapped_column(JSON, default=list)
+    work_state: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 

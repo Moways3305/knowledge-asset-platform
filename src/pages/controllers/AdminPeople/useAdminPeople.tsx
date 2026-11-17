@@ -102,21 +102,39 @@ export function useAdminPeople() {
   }, []);
 
   const listRequest = useRef(0);
+  const loadedScope = useRef<string | null>(null);
   const detailPanel = useRef<HTMLElement>(null);
   const load = useCallback(async () => {
     const request = ++listRequest.current;
+    const scope = JSON.stringify([filterRole, filterStatus, q]);
+    const background = loadedScope.current === scope;
+    if (!background) {
+      loadedScope.current = null;
+      setPeople([]);
+      setTotal(0);
+    }
     setLoading(true);
     setError(null);
     try {
       const data = await fetchPeople({ role: filterRole, status: filterStatus, q });
       if (request !== listRequest.current) return;
+      loadedScope.current = scope;
       setPeople(data.items);
       setTotal(data.total);
     } catch (e) {
       if (request !== listRequest.current) return;
-      setTotal(0);
       setError(describeError(e, "人员列表暂时无法加载，请稍后重试"));
-      setPeople([]);
+      if (!background || (e instanceof ApiError && [401, 403].includes(e.status))) {
+        loadedScope.current = null;
+        setTotal(0);
+        setPeople([]);
+      }
+      if (e instanceof ApiError && [401, 403].includes(e.status)) {
+        detailRequestVersion.current += 1;
+        selectedUserIdRef.current = null;
+        setDetail(null);
+        setDetailLoadingId(null);
+      }
     } finally {
       if (request === listRequest.current) setLoading(false);
     }

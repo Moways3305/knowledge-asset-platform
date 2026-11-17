@@ -87,6 +87,7 @@ export default function MyKnowledgePage() {
     setDeleteReason,
     setActionError,
     loadState,
+    refreshFailed,
     load,
     items,
     pageAllSelected,
@@ -377,6 +378,14 @@ export default function MyKnowledgePage() {
                   批量删除（{selectedDeleteItems.length}）
                 </button>
               </BulkSelectionRail>
+              {refreshFailed && (
+                <p role="alert">
+                  列表更新失败，保留上次结果。
+                  <button type="button" className="btn-small" onClick={() => void load()}>
+                    重试更新
+                  </button>
+                </p>
+              )}
               {forbidden ? (
                 <div className="mk83-state">
                   <strong>当前身份无法使用个人知识</strong>

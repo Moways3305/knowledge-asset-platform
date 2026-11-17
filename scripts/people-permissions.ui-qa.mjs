@@ -1,3 +1,4 @@
+import { auditResponsiveLayout } from "./responsive-layout-audit.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -226,6 +227,7 @@ try {
           for (const name of ["账号", "公司角色", "项目任命"]) {
             await page.getByRole("button", { name, exact: true }).click();
             await page.getByRole("region", { name, exact: true }).waitFor();
+            await auditResponsiveLayout(page, { suite: "people-permissions", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
             await page.screenshot({
               path: path.join(outDir, `people-${name}-${viewport.name}.png`),
               fullPage: true,
@@ -234,6 +236,7 @@ try {
           }
         }
         const screenshot = path.join(outDir, `${target.name}-${scenario}-${viewport.name}.png`);
+        await auditResponsiveLayout(page, { suite: "people-permissions", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
         await page.screenshot({ path: screenshot, fullPage: true, animations: "disabled" });
 
         const metrics = await page.evaluate(

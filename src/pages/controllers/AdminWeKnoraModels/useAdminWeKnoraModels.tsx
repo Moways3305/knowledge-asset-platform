@@ -51,10 +51,11 @@ export function useAdminWeKnoraModels() {
 
   const canEdit = (isGlobalOperator || capabilities.isProjectManager) && !forbidden;
 
+  const loadedRole = useRef<boolean | null>(null);
   const loadVersion = useRef(0);
   const load = useCallback(async () => {
     const version = ++loadVersion.current;
-    setLoading(true);
+    setLoading(loadedRole.current !== isGlobalOperator);
     setPollError(false);
     setError(null);
     setNotConfigured(false);
@@ -69,6 +70,7 @@ export function useAdminWeKnoraModels() {
       setModels(availableModels);
       setKbConfigs(configs);
       setDefaults(modelDefaults);
+      loadedRole.current = isGlobalOperator;
       if (isGlobalOperator) {
         const [connections, assignments] = await Promise.all([
           fetchModelConnections(),
@@ -81,7 +83,13 @@ export function useAdminWeKnoraModels() {
     } catch (caught) {
       if (version !== loadVersion.current) return;
       if (caught instanceof ApiError && caught.status === 503) setNotConfigured(true);
-      else if (caught instanceof ApiError && caught.status === 403) {
+      else if (caught instanceof ApiError && [401, 403].includes(caught.status)) {
+        loadedRole.current = null;
+        setModels([]);
+        setKbConfigs([]);
+        setExternalConnections([]);
+        setSelectedKb(null);
+        setMigrationResult(null);
         setForbidden(true);
         setError("当前身份仅可查看允许的配置摘要。");
       } else setError("模型与知识库配置暂时无法加载，请刷新后重试。");

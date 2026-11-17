@@ -149,6 +149,7 @@ function ProjectKnowledgeWorkspace({
   const [evidenceCategory, setEvidenceCategory] =
     useState<EvidenceInputDTO["evidence_category"]>("meeting_minutes");
   const [evidenceDescription, setEvidenceDescription] = useState("");
+  const listScope = useRef("");
   const bulkDeleteRunRef = useRef(false);
   const bulkRetrySelectionRef = useRef<KnowledgeCardVM[] | null>(null);
 
@@ -174,9 +175,13 @@ function ProjectKnowledgeWorkspace({
 
     setLoading(true);
     setListError(null);
-    setSelectedAssets([]);
-    setAllMatchingSelected(false);
-    setMatchingSelectableAssets(null);
+    const nextScope = JSON.stringify(params);
+    if (listScope.current !== nextScope) {
+      setSelectedAssets([]);
+      setAllMatchingSelected(false);
+      setMatchingSelectableAssets(null);
+      listScope.current = nextScope;
+    }
     void fetchKnowledgePage(params)
       .then((nextResult) => {
         if (!active || requestId !== listRequestRef.current) return;

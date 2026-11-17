@@ -1,3 +1,4 @@
+import { auditResponsiveLayout } from "./responsive-layout-audit.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -354,6 +355,7 @@ for (const scenario of scenarios) {
         await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1),
         false,
       );
+      await auditResponsiveLayout(page, { suite: "knowledge-detail", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
       await page.screenshot({
         path: path.join(outDir, `${scenario}-maintenance-${viewport.name}.png`),
         animations: "disabled",
@@ -414,6 +416,7 @@ for (const scenario of scenarios) {
     await page
       .locator(".kdetail-page")
       .evaluate((element) => element.scrollIntoView({ block: "start" }));
+    await auditResponsiveLayout(page, { suite: "knowledge-detail", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
     await page.screenshot({
       path: screenshot,
       fullPage: scenario === "governed",

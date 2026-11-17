@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Inbox, LoaderCircle, MoveHorizontal } from "lucide-react";
 
 // 通用表格壳：列定义 + 行数据 + 空态 / 加载态。默认使用产品级表格类；尚未逐页迁移
+// 刷新时保留已挂载的行；调用方在资源范围改变或失权时负责清除旧 rows。
 // 的页面可通过 className 显式兼容旧表皮，避免默认实现依赖某个业务页面。
 export interface Column<T> {
   key: string;
@@ -83,7 +84,7 @@ export default function DataTable<T>({
             </tr>
           </thead>
           <tbody>
-            {loading ? (
+            {loading && rows.length === 0 ? (
               <tr>
                 <td className="product-table-state" colSpan={columns.length}>
                   <span className="product-table-state-content" role="status" aria-live="polite">

@@ -41,7 +41,7 @@ const routes: RouteContract[] = [
     component: "CompanyGovernancePage",
     guard: "viewCompanyKnowledge",
     owners: ["pages/CompanyGovernancePage.tsx"],
-    apiModules: ["governance", "knowledge"],
+    apiModules: ["governance", "http", "knowledge"],
   },
   {
     route: "/release-notes",

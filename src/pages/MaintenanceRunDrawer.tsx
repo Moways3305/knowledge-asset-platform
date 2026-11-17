@@ -62,31 +62,46 @@ export default function MaintenanceRunDrawer({
   categories: Record<string, string>;
   rules: Record<string, string>;
 }) {
-  const [data, setData] = useState<ScanRunDetail | null>(null);
+  const [storedData, setData] = useState<ScanRunDetail | null>(null);
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState("");
   const [refresh, setRefresh] = useState(0);
+  const [loadedScope, setLoadedScope] = useState("");
+  const scope = JSON.stringify([library, id, page, status]);
+  const data = loadedScope === scope ? storedData : null;
+  const [fetching, setFetching] = useState(false);
   useEffect(() => {
     let live = true;
     setError("");
-    setData(null);
+    setFetching(true);
     void fetchAgentRun(library, id, page, status)
       .then((value) => {
-        if (live) setData(value);
+        if (live) {
+          setData(value);
+          setLoadedScope(scope);
+        }
       })
       .catch((e: unknown) => {
-        if (live) setError(e instanceof ApiError ? e.message : "巡检详情加载失败，请重试。");
+        if (live) {
+          setError(e instanceof ApiError ? e.message : "巡检详情更新失败，保留上次结果，请重试。");
+          if (e instanceof ApiError && [401, 403, 404].includes(e.status)) setData(null);
+        }
+      })
+      .finally(() => {
+        if (live) setFetching(false);
       });
     return () => {
       live = false;
     };
-  }, [library, id, page, status, refresh]);
+  }, [library, id, page, status, scope, refresh]);
   useEffect(() => {
-    if (!data || !["queued", "running"].includes(data.status)) return;
-    const timer = window.setTimeout(() => setRefresh((n) => n + 1), 15000);
-    return () => window.clearTimeout(timer);
-  }, [data]);
+    if (fetching || !data || !["queued", "running"].includes(data.status)) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "hidden") setRefresh((n) => n + 1);
+    }, 15000);
+    return () => window.clearInterval(timer);
+  }, [data, fetching]);
   const waiting = data && ["queued", "running"].includes(data.status);
   return (
     <DetailDrawer
@@ -102,15 +117,15 @@ export default function MaintenanceRunDrawer({
         <Button
           size="small"
           icon={<RefreshCw size={14} />}
+          disabled={fetching}
           onClick={() => setRefresh((n) => n + 1)}
         >
           刷新详情
         </Button>
       </div>
-      {error ? (
-        <p role="alert">{error}</p>
-      ) : !data ? (
-        <p role="status">正在加载巡检详情…</p>
+      {error && <p role="alert">{error}</p>}
+      {!data ? (
+        !error && <p role="status">正在加载巡检详情…</p>
       ) : (
         <>
           <p className="agent-note">
@@ -210,6 +225,26 @@ export default function MaintenanceRunDrawer({
                           !item.current_version_matches &&
                           " · 当前版本已变化，本轮结果对应旧版本"}
                       </small>
+                    )}
+                    {item.progress && Object.keys(item.progress).length > 0 && (
+                      <div className="agent-item-progress">
+                        {typeof item.progress.body_total === "number" && (
+                          <div>
+                            正文进度：{(item.progress.body_checked || 0).toLocaleString()} /{" "}
+                            {item.progress.body_total.toLocaleString()} 字 · 已检查{" "}
+                            {item.progress.segments_checked || 0} 个片段
+                          </div>
+                        )}
+                        {typeof item.progress.comparison_total === "number" && (
+                          <div>
+                            同库比较：{(item.progress.comparison_checked || 0).toLocaleString()} /{" "}
+                            {item.progress.comparison_total.toLocaleString()} 份
+                          </div>
+                        )}
+                        {!!item.progress.retry_attempt && item.status === "pending" && (
+                          <div>当前片段正在重试，已尝试 {item.progress.retry_attempt} 次。</div>
+                        )}
+                      </div>
                     )}
                     {Object.keys(item.coverage).length > 0 && (
                       <dl>

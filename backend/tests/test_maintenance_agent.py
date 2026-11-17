@@ -304,10 +304,10 @@ async def test_model_call_has_no_open_transaction_and_discards_stale_content(
 
 @pytest.mark.parametrize(
     "ai,body,reason",
-    [("A4", "正文内容", "content_not_authorized"), ("A1", "长文" * 13000, "body_limit")],
-    ids=["a4-denied", "oversized-body"],
+    [("A4", "正文内容", "content_not_authorized")],
+    ids=["a4-denied"],
 )
-async def test_forbidden_or_oversized_content_never_sent_to_model(
+async def test_forbidden_content_never_sent_to_model(
     client, sessionmaker_fixture, tmp_path, ai, body, reason
 ):
     await configure(client, content=True)

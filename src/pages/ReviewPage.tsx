@@ -197,6 +197,9 @@ export default function ReviewPage() {
         )}
       </BulkSelectionRail>
 
+      {loadFailed && items.length > 0 && (
+        <p role="alert">审核队列更新失败，保留上次结果，请刷新核对。</p>
+      )}
       <DataTable
         columns={columns}
         rows={items}

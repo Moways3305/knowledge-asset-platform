@@ -62,6 +62,9 @@ export default function AdminIngestPage() {
           </div>
         }
       />
+      {controller.refreshFailed && (
+        <p role="alert">部分状态更新失败，已保留上次可用结果，可稍后刷新核对。</p>
+      )}
       <div className="ao84-console">
         <div className="irc-workspace-tabs" role="group" aria-label="索引恢复工作区">
           {(
@@ -216,7 +219,9 @@ export default function AdminIngestPage() {
       >
         {selectedJob && (
           <>
-            {jobsState === "error" && <p role="alert">状态更新失败，以下为上次读取的结果。</p>}
+            {(jobsState === "error" || controller.jobsRefreshFailed) && (
+              <p role="alert">状态更新失败，以下为上次读取的结果。</p>
+            )}
             <dl className="ingest-job-times">
               <div>
                 <dt>发起时间</dt>

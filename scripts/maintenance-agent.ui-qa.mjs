@@ -1,3 +1,4 @@
+import { auditResponsiveLayout } from "./responsive-layout-audit.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -93,9 +94,11 @@ try {
           assert.equal(await mobileAgent.isVisible(), true);
           assert.equal(await mobileAgent.getAttribute("aria-current"), "page");
         }
+        await auditResponsiveLayout(page, { suite: "maintenance-agent", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
         await page.screenshot({ path: path.join(out, `issues-normal-${width}.png`), fullPage: true, animations: "disabled" });
         await page.getByRole("button", { name: "疑似只有封面或目录" }).click();
         await page.getByText("目录第一章：交付标准；第二章：质量复核。", { exact: true }).waitFor();
+        await auditResponsiveLayout(page, { suite: "maintenance-agent", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
         await page.screenshot({ path: path.join(out, `detail-normal-${width}.png`), fullPage: true, animations: "disabled" });
         await page.getByLabel("处理原因").fill("正在核对资料正文");
         await page.getByRole("button", { name: "提交处理", exact: true }).click();
@@ -108,15 +111,18 @@ try {
         await page.getByText("巡检设置已保存。", { exact: true }).waitFor();
         assert.equal(saved, 1);
         await page.locator("main.app-content").evaluate(el => el.scrollTo(0, 0));
+        await auditResponsiveLayout(page, { suite: "maintenance-agent", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
         await page.screenshot({ path: path.join(out, `settings-normal-${width}.png`), fullPage: true, animations: "disabled" });
         await page.getByRole("button", { name: "巡检记录", exact: true }).click();
         await page.getByText("部分未完成", { exact: true }).waitFor();
+        await auditResponsiveLayout(page, { suite: "maintenance-agent", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
         await page.screenshot({ path: path.join(out, `runs-normal-${width}.png`), fullPage: true, animations: "disabled" });
         await page.getByRole("button", { name: "查看巡检详情", exact: true }).click();
         await page.getByRole("heading", { name: "逐项检查结果" }).waitFor();
         await page.getByRole("link", { name: item.title, exact: true }).waitFor();
         await page.getByLabel("检查结果筛选").selectOption("incomplete");
         await page.getByRole("heading", { name: "逐项检查结果" }).waitFor();
+        await auditResponsiveLayout(page, { suite: "maintenance-agent", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
         await page.screenshot({ path: path.join(out, `run-detail-${width}.png`), fullPage: true, animations: "disabled" });
         assert.equal(await page.getByRole("dialog").evaluate(el => el.scrollWidth <= el.clientWidth + 1), true);
         await page.getByRole("button", { name: "关闭详情" }).click();
@@ -126,11 +132,13 @@ try {
         await setup.waitFor();
         await page.locator("button:enabled").filter({ hasText: "配置并开始" }).waitFor();
         assert.equal(await setup.isEnabled(), true);
+        await auditResponsiveLayout(page, { suite: "maintenance-agent", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
         await page.screenshot({ path: path.join(out, `setup-before-${width}.png`), fullPage: true });
         await setup.click();
         await page.getByLabel("正文分析模型").selectOption("b".repeat(64));
         await page.getByLabel("授权检查可访问的原始文件，并使用所选模型分析正文").check();
         await page.locator("main.app-content").evaluate(el => el.scrollTo(0, 0));
+        await auditResponsiveLayout(page, { suite: "maintenance-agent", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
         await page.screenshot({ path: path.join(out, `setup-model-${width}.png`), fullPage: true });
         await page.getByRole("button", { name: "保存并开始巡检", exact: true }).click();
         await page.getByText("巡检已加入后台队列，可在巡检记录中查看进度。", { exact: true }).waitFor();
@@ -141,10 +149,11 @@ try {
       }
       if (["legacy_run", "zero_run"].includes(scenario)) {
         await page.getByRole("button", { name: "巡检记录", exact: true }).click();
-        await page.getByText("没有可巡检资产", { exact: true }).waitFor();
+        await page.getByText("无检查对象", { exact: true }).waitFor();
         await page.getByRole("button", { name: "查看巡检详情" }).click();
         if (scenario === "legacy_run") await page.getByText(/这是一条旧版巡检记录/).waitFor();
         else await page.getByText(/没有符合条件的资料/).first().waitFor();
+        await auditResponsiveLayout(page, { suite: "maintenance-agent", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
         await page.screenshot({ path: path.join(out, `run-${scenario}-${width}.png`), fullPage: true, animations: "disabled" });
         await page.getByRole("button", { name: "关闭详情" }).click();
       }
@@ -164,6 +173,7 @@ try {
       }
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 2), false, `${scenario} overflow at ${width}`);
       assert.deepEqual(failures, [], `${scenario} JS errors`);
+      await auditResponsiveLayout(page, { suite: "maintenance-agent", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
       await page.screenshot({ path: path.join(out, `maintenance-${scenario}-${width}.png`), fullPage: true, animations: "disabled" });
       cases.push({ page: "maintenance", scenario, viewport: String(width), passed: true });
       if (scenario === "normal") {
@@ -179,6 +189,7 @@ try {
         await page.getByRole("heading", { name: "智能体中心", exact: true }).click();
         await page.mouse.move(0, 0);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 2), false, `center overflow at ${width}`);
+        await auditResponsiveLayout(page, { suite: "maintenance-agent", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
         await page.screenshot({ path: path.join(out, `center-normal-${width}.png`), fullPage: true, animations: "disabled" });
         cases.push({ page: "center", scenario: "normal", viewport: String(width), passed: true });
       }

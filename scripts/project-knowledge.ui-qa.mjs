@@ -1,3 +1,4 @@
+import { auditResponsiveLayout } from "./responsive-layout-audit.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -511,6 +512,7 @@ try {
               ),
             };
           });
+          await auditResponsiveLayout(page, { suite: "project-knowledge", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
           await page.screenshot({
             path: path.join(outDir, `${scenario}-${viewport.name}-first-fold.png`),
             fullPage: false,
@@ -521,6 +523,7 @@ try {
             .isVisible();
           assert.equal(await page.locator(".pk-pagination").count(), 0);
           await page.locator(".pk-list-section").scrollIntoViewIfNeeded();
+          await auditResponsiveLayout(page, { suite: "project-knowledge", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
           await page.screenshot({
             path: path.join(outDir, `${scenario}-${viewport.name}-page-bottom.png`),
             fullPage: false,
@@ -766,6 +769,7 @@ try {
         ...initialLayout,
       });
 
+      await auditResponsiveLayout(page, { suite: "project-knowledge", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
       await page.screenshot({
         path: path.join(outDir, `${scenario}-${viewport.name}.png`),
         fullPage: false,

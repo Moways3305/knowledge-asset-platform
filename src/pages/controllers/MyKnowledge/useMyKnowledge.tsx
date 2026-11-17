@@ -71,14 +71,23 @@ export function useMyKnowledge() {
   >(null);
   const [matchingSelectionLoading, setMatchingSelectionLoading] = useState(false);
   const requestRef = useRef(0);
+  const loadedScope = useRef<string | null>(null);
+  const [refreshFailed, setRefreshFailed] = useState(false);
   const bulkRunRef = useRef(false);
   const models = useModelSelection();
 
   const load = useCallback(async () => {
     const request = ++requestRef.current;
-    setLoadState("loading");
-    setSelectedItems([]);
-    setAllMatchingSelected(false);
+    const scope = JSON.stringify([page, keyword, assetType, personalState, sortBy, sortDirection]);
+    const background = loadedScope.current === scope;
+    setRefreshFailed(false);
+    if (!background) {
+      loadedScope.current = null;
+      setLoadState("loading");
+      setItems([]);
+      setSelectedItems([]);
+      setAllMatchingSelected(false);
+    }
     setMatchingSelectableItems(null);
     try {
       const result = await fetchMyKnowledge({
@@ -91,6 +100,14 @@ export function useMyKnowledge() {
         sortDirection,
       });
       if (request !== requestRef.current) return;
+      loadedScope.current = scope;
+      setSelectedItems((selected) =>
+        selected.flatMap((item) => {
+          const fresh = result.items.find((row) => row.id === item.id);
+          return fresh ? [fresh] : [];
+        }),
+      );
+      setAllMatchingSelected(false);
       setItems(result.items);
       setSummary(result.summary);
       setTotal(result.total);
@@ -98,10 +115,20 @@ export function useMyKnowledge() {
       setLoadState("ready");
     } catch (error) {
       if (request !== requestRef.current) return;
+      if (background && !(error instanceof ApiError && [401, 403].includes(error.status))) {
+        setRefreshFailed(true);
+        return;
+      }
+      loadedScope.current = null;
       setItems([]);
+      setSelectedItems([]);
+      setActiveItem(null);
+      setDialogKind(null);
       setTotal(0);
       setHasNext(false);
-      setLoadState(error instanceof ApiError && error.status === 403 ? "forbidden" : "error");
+      setLoadState(
+        error instanceof ApiError && [401, 403].includes(error.status) ? "forbidden" : "error",
+      );
     }
   }, [assetType, keyword, page, personalState, sortBy, sortDirection]);
 
@@ -404,6 +431,7 @@ export function useMyKnowledge() {
     setDeleteReason,
     setActionError,
     loadState,
+    refreshFailed,
     load,
     items,
     pageAllSelected,

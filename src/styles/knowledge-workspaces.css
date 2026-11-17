@@ -414,6 +414,8 @@
   }
   .workspace-shell .kbl-page .kbl-table tbody td {
     display: block;
+    /* Table-cell height is a minimum in a table, but a fixed height in this grid. */
+    height: auto;
     padding: 0;
     border: 0;
     width: auto;
@@ -422,6 +424,11 @@
   }
   .workspace-shell .kbl-page .kbl-table td[data-column="asset"] {
     grid-column: 1 / -1;
+  }
+  .workspace-shell .kbl-page .kbl-table .product-table-state {
+    grid-column: 1 / -1;
+    height: auto !important;
+    min-height: 96px;
   }
   .workspace-shell .kbl-page .kbl-table td[data-column="source"] {
     grid-column: 1;

@@ -1077,6 +1077,7 @@
     > tr
     > td {
     display: block;
+    height: auto;
     position: static;
     grid-column: auto;
     grid-row: auto;
@@ -1109,6 +1110,10 @@
   }
   .refined-shell .workspace-page:not(.kbl-page) .product-table-scroll-hint {
     display: none;
+  }
+  .refined-shell .workspace-page:not(.kbl-page) .product-table-state {
+    height: auto !important;
+    min-height: 96px;
   }
   .refined-shell .workspace-page :is(.secops-table-wrap, .pp-table-wrap, .gp-table-wrap) {
     min-width: 0;
