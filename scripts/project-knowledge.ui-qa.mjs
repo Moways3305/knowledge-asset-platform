@@ -1,4 +1,5 @@
 import { auditResponsiveLayout } from "./responsive-layout-audit.mjs";
+import { auditKnowledgeRowInteraction } from "./knowledge-row-interaction.ui-qa.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -488,6 +489,11 @@ try {
           .waitFor();
 
         if (["member-list", "manager-list"].includes(scenario)) {
+          await auditKnowledgeRowInteraction(page, {
+            table: ".pk-table",
+            outDir,
+            name: `${scenario}-${viewport.name}`,
+          });
           initialLayout = await page.evaluate(() => {
             const toolbar = document.querySelector(".pk-filter-form");
             const list = document.querySelector(".pk-list-section");

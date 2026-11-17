@@ -1121,3 +1121,12 @@
     overflow-x: auto;
   }
 }
+
+/* Knowledge rows reflow into grid cards. Paint the record, including its gaps,
+   instead of painting isolated cells with the shared desktop-table hover rule. */
+.workspace-shell table.product-data-table:is(.kbl-table, .pk-table) tbody tr:hover {
+  background: var(--color-bg-hover);
+}
+.workspace-shell table.product-data-table:is(.kbl-table, .pk-table) tbody tr:hover > td {
+  background: transparent;
+}
