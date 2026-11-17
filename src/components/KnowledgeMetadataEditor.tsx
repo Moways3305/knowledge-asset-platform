@@ -201,6 +201,7 @@ export default function KnowledgeMetadataEditor({
               保密等级
               <select
                 value={level}
+                disabled={!editing?.access.canReclassify}
                 onChange={(e) => {
                   setLevel(e.target.value);
                   setConfirmed(false);

@@ -130,11 +130,23 @@ export default function MaintenanceAgentPage() {
   const status = params.get("status") || "active";
   const category = params.get("category") || "";
   const mine = params.get("mine") === "true";
+  const priority = params.get("priority") === "suggestion" ? "suggestion" : "actionable";
+  const assetId = params.get("asset_id") || "";
   const [policies, setPolicies] = useState<AgentPolicy[]>([]);
   const [storedData, setData] = useState<IssuePage | null>(null);
   const [storedRuns, setRuns] = useState<ScanRun[]>([]);
   const [loadedScope, setLoadedScope] = useState("");
-  const scope = JSON.stringify([isCenter, key, status, category, mine, page, tab]);
+  const scope = JSON.stringify([
+    isCenter,
+    key,
+    status,
+    category,
+    mine,
+    page,
+    tab,
+    priority,
+    assetId,
+  ]);
   const data = loadedScope === scope ? storedData : null;
   const runs = loadedScope === scope ? storedRuns : [];
   const [modelRefresh, setModelRefresh] = useState(0);
@@ -186,11 +198,13 @@ export default function MaintenanceAgentPage() {
     setError("");
     const filters = new URLSearchParams({
       library_key: key,
+      priority,
       status,
       mine: String(mine),
       page: String(page),
     });
     if (category) filters.set("category", category);
+    if (assetId) filters.set("asset_id", assetId);
     void Promise.all([fetchAgentPolicies(), fetchAgentIssues(filters)])
       .then(async ([list, items]) => {
         const current = list.find((p) => p.library_key === key);
@@ -222,7 +236,7 @@ export default function MaintenanceAgentPage() {
     return () => {
       live = false;
     };
-  }, [isCenter, key, status, category, mine, page, tab, scope, refresh]);
+  }, [isCenter, key, status, category, mine, page, tab, priority, assetId, scope, refresh]);
   const hasRunning = runs.some((r) => r.status === "queued" || r.status === "running");
   useEffect(() => {
     if (!hasRunning || loading) return;
@@ -409,6 +423,36 @@ export default function MaintenanceAgentPage() {
           {!data && !error && <p role="status">正在加载巡检信息…</p>}
           {tab === "issues" && data && (
             <section aria-label="巡检问题" className="agent-panel">
+              <div className="agent-priority" role="group" aria-label="维护优先级">
+                {(
+                  [
+                    ["actionable", "需要处理"],
+                    ["suggestion", "完善建议"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <Button
+                    key={value}
+                    variant={priority === value ? "primary" : "secondary"}
+                    aria-pressed={priority === value}
+                    onClick={() => update("priority", value)}
+                  >
+                    {label} {data.counts?.[value] ?? ""}
+                  </Button>
+                ))}
+              </div>
+              <p className="agent-note">
+                {priority === "suggestion"
+                  ? "摘要、分类、标签等完善建议按需处理，不重复发送待办提醒。"
+                  : "显示影响使用、内容可靠性或已经到期的维护事项。"}
+              </p>
+              {assetId && (
+                <p>
+                  仅显示当前资料的巡检问题。
+                  <Button variant="ghost" onClick={() => update("asset_id", "")}>
+                    查看全部资料
+                  </Button>
+                </p>
+              )}
               <div className="agent-filters">
                 <FormField label="检查类别">
                   <select value={category} onChange={(e) => update("category", e.target.value)}>
@@ -472,7 +516,11 @@ export default function MaintenanceAgentPage() {
                       <div className="agent-asset-title">{issue.title}</div>
                       <div className="agent-issue-foot">
                         <span>
-                          {issue.suspected ? "疑似问题 · 需要人工判断" : "客观检查项 · 修正后复检"}
+                          {issue.suspected
+                            ? "疑似问题 · 需要人工判断"
+                            : issue.priority === "suggestion"
+                              ? "完善建议 · 修改后自动同步"
+                              : "客观检查项 · 修正后自动同步"}
                         </span>
                         <span>
                           维护人：

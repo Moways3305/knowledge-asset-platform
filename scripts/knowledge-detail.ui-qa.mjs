@@ -224,6 +224,7 @@ for (const scenario of scenarios) {
           freshness: "unreviewed",
           replacement_asset_id: null,
           can_manage: scenario === "manager-publication",
+          can_assign: scenario === "manager-publication",
           corrections: [],
           maintainers:
             scenario === "manager-publication" ? [{ id: "manager", name: "知识治理负责人" }] : [],
@@ -308,7 +309,7 @@ for (const scenario of scenarios) {
 
     if (["full", "manager-publication"].includes(scenario)) {
       assert.equal(await page.getByLabel("处理说明或纠错问题").count(), 0);
-      const trigger = page.getByRole("button", { name: "知识维护与复核", exact: true });
+      const trigger = page.getByRole("button", { name: "知识维护", exact: true });
       const gaps = await page.locator(".kdetail-primary-action").evaluate((element) => {
         const boxes = [...element.querySelectorAll("button, a")]
           .map((child) => child.getBoundingClientRect())
@@ -340,17 +341,24 @@ for (const scenario of scenarios) {
       assert.equal(
         await page
           .locator(".kdetail-governance-panel")
-          .getByRole("button", { name: "知识维护与复核" })
+          .getByRole("button", { name: "知识维护" })
           .count(),
         1,
       );
       await trigger.click();
-      const dialog = page.getByRole("dialog", { name: "知识维护与复核", exact: true });
+      const dialog = page.getByRole("dialog", { name: "知识维护", exact: true });
       await dialog.getByText("尚未复核", { exact: true }).waitFor();
       assert.equal(
-        await dialog.getByText("安排复核与处理旧版", { exact: true }).count(),
+        await dialog.getByText("维护设置与新版替代", { exact: true }).count(),
         scenario === "manager-publication" ? 1 : 0,
       );
+      if (scenario === "manager-publication") {
+        await dialog.getByText("维护设置与新版替代", { exact: true }).click();
+        assert.equal(await dialog.getByLabel("复核安排", { exact: true }).inputValue(), "none");
+        assert.equal(await dialog.getByLabel("下次复核日期", { exact: true }).count(), 0);
+        await dialog.getByLabel("复核安排", { exact: true }).selectOption("interval");
+        await dialog.getByLabel("复核周期（天）", { exact: true }).fill("180");
+      }
       assert.equal(
         await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1),
         false,

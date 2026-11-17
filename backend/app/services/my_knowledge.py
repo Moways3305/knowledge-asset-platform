@@ -18,11 +18,11 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.errors import denied as _denied  # noqa: F401
 from app.models.identity import Project
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetTag
 from app.models.review import (
@@ -60,12 +60,6 @@ from app.services.personal_write_policy import (
     personal_asset_write_locked as _personal_asset_write_locked,
 )
 from app.worker.enqueue import enqueue_outbox_delivery
-
-
-def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code, detail={"denied_reason": reason, "message": message}
-    )
 
 
 async def _load_owned_personal_asset(

@@ -39,6 +39,8 @@ class GovernanceBatch(BaseModel):
     reason_code: Literal["historical", "superseded", "duplicate", "low_value", "other"]
     reason: str = Field(min_length=1, max_length=1000)
     replacement_asset_id: UUID | None = None
+    expected_replacement_updated_at: datetime | None = None
+    confirm_replacement: bool = False
 
     @field_validator("reason")
     @classmethod

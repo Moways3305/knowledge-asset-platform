@@ -10,11 +10,11 @@ import logging
 import uuid
 from collections.abc import Callable
 
-from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.errors import denied as _denied  # noqa: F401
 from app.core.logging import safe_log_exception
 from app.db.utils import utc_now
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
@@ -59,13 +59,6 @@ def can_delete(caller: CallerContext, asset: KnowledgeAsset) -> bool:
     if asset.scope == KnowledgeScope.company.value:
         return caller.can_discover_l5
     return False
-
-
-def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code,
-        detail={"denied_reason": reason, "message": message},
-    )
 
 
 async def delete_asset(

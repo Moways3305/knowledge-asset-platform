@@ -13,11 +13,11 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import HTTPException
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.errors import denied as _denied  # noqa: F401
 from app.models.identity import Project, ProjectMember, User
 from app.schemas.enums import (
     BUSINESS_COMPANY_ROLES,
@@ -49,12 +49,6 @@ from app.services import governance_policy
 
 # 拥有项目设置写权的项目角色。
 _MANAGEMENT_ROLES = {ProjectRole.project_manager.value}
-
-
-def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code, detail={"denied_reason": reason, "message": message}
-    )
 
 
 def _is_admin(caller: CallerContext) -> bool:

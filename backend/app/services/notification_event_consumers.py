@@ -256,7 +256,7 @@ async def consume_notification_event(
         if (
             asset is None
             or recipient_id is None
-            or notice_type not in {"assigned", "due", "correction", "resolved"}
+            or notice_type not in {"assigned", "due", "correction", "resolved", "closed"}
         ):
             raise ValueError("knowledge_trust_event_payload_invalid")
         await notifications.notify_knowledge_trust(

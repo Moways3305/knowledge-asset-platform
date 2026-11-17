@@ -15,10 +15,10 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import denied as _denied  # noqa: F401
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.weknora import WeknoraKbMapping
 from app.schemas.enums import AssetStatus, AuditAction, AuditLogType, KnowledgeScope
@@ -39,12 +39,6 @@ from app.services.weknora_model_selection import resolve_models_for_kb
 
 _STATUS_ACTIVE = "active"
 _CheckClient = "WeKnoraClient | NullWeKnoraClient"
-
-
-def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code, detail={"denied_reason": reason, "message": message}
-    )
 
 
 def _require_business_user(caller: CallerContext) -> None:

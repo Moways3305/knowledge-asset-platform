@@ -7,7 +7,7 @@
 强约束：
 - **绝不**把 asset_status 改为 archived——仅产生预警/候选信号，归档仍须人工 archive-confirm。
 - 复用既有 `asset_lifecycle_events` / 审计 action / 本地 `notification_records`。
-- 阈值取 `ensure_default_rules` 落库的规则；规则缺失/停用时回退默认值。
+- 阈值取 `ensure_default_rules` 落库的规则；规则缺失时回退默认值，停用时停止扫描。
 - 去重：按 asset + event_type + 时间窗口，避免重复扫描刷屏。
 - 生命周期 reason / 通知文本沿用值级脱敏（经 Outbox 消费端 + system 审计）。
 """
@@ -36,7 +36,7 @@ from app.services import operation_events
 from app.services.jobs import governance_scan
 from app.worker.enqueue import enqueue_outbox_delivery
 
-# 阈值回退默认值（与 alert.DEFAULT_ARCHIVE_RULES 一致；仅在规则缺失/停用时使用）。
+# 阈值回退默认值（与 alert.DEFAULT_ARCHIVE_RULES 一致；仅在规则缺失时使用）。
 _DEFAULT_INACTIVITY_DAYS = 730
 _DEFAULT_WARNING_DAYS = 30
 _RULE_INACTIVITY = "长期未调用归档预警"
@@ -50,11 +50,13 @@ def _to_naive_utc(dt: datetime) -> datetime:
     return dt
 
 
-async def _rule_threshold(session: AsyncSession, rule_name: str, default: int) -> int:
+async def _rule_threshold(session: AsyncSession, rule_name: str, default: int) -> int | None:
     rule = (
         await session.execute(select(AlertRule).where(AlertRule.rule_name == rule_name))
     ).scalar_one_or_none()
-    if rule is None or not rule.enabled or rule.threshold is None:
+    if rule is not None and not rule.enabled:
+        return None
+    if rule is None or rule.threshold is None:
         return default
     return int(rule.threshold)
 
@@ -126,6 +128,19 @@ async def scan_archive_candidates(
     if run is None:
         return {"warnings": 0, "candidates": 0, "scanned": 0}
     try:
+        # Recheck on every batch so a disabled rule stops an already-running cycle too.
+        disabled = await session.scalar(
+            select(AlertRule.id)
+            .where(
+                AlertRule.rule_name.in_([_RULE_INACTIVITY, _RULE_WARNING_PERIOD]),
+                AlertRule.enabled.is_(False),
+            )
+            .limit(1)
+        )
+        if disabled:
+            run.completed_at = run.cutoff_at
+            await session.commit()
+            return {"warnings": 0, "candidates": 0, "scanned": 0}
         if not run.parameters:
             await alert_service.ensure_default_rules(session, commit=False)
             run.parameters = {

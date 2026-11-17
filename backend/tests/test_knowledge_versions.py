@@ -120,7 +120,7 @@ async def test_upload_confirm_review_replace_and_history(client, db_session, sta
     route = f"/api/v1/knowledge/{asset.id}/versions"
     history = (await client.get(route, headers=headers(USER_CONSULTANT))).json()
     assert history["current_asset_id"] == str(asset.id)
-    assert history["updates"][0]["can_replace"] is False
+    assert history["updates"][0]["can_replace"] is True
     new_version = next(row for row in history["items"] if row["asset_id"] == new_id)
     assert new_version["version"] == "V2" and not new_version["is_current"]
     candidate_history = (
@@ -128,7 +128,6 @@ async def test_upload_confirm_review_replace_and_history(client, db_session, sta
     ).json()
     assert candidate_history["can_update"] is False
     assert candidate_history["current_asset_id"] == str(asset.id)
-    await verify(client, uuid.UUID(new_id), USER_CONSULTANT)
     current = await state(client, uuid.UUID(new_id), USER_CONSULTANT)
     if stale_baseline:
         from app.db.utils import utc_now

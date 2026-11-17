@@ -51,6 +51,7 @@ function mapAccess(a: AccessInfoDTO): AccessInfoVM {
     existingGrantExpiresAt: a.existing_grant_expires_at,
     canDelete: a.can_delete,
     canEditMetadata: a.can_edit_metadata ?? false,
+    canReclassify: a.can_reclassify ?? false,
     canManageLifecycle: a.can_manage_lifecycle ?? false,
     canRetryIndex: a.can_retry_index ?? false,
   };

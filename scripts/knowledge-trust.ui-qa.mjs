@@ -30,7 +30,7 @@ const maintenanceActions = [
   },
   {
     id: "asset-review",
-    label: "安排或完成复核",
+    label: "按计划复核或更新",
     section: "review",
     heading: "trust-review-heading",
     button: "保存维护安排",
@@ -94,6 +94,7 @@ try {
             freshness: "due",
             replacement_asset_id: null,
             can_manage: item.section !== "verify",
+            can_assign: item.section !== "verify",
             maintainers: [{ id: "reader", name: "验收维护人" }],
             corrections:
               item.section === "review"
@@ -174,7 +175,7 @@ try {
           assert(box && box.x >= 0 && box.x + box.width <= width + 1);
           await action.click();
           await page.waitForURL(`${base}${target}`);
-          const dialog = page.getByRole("dialog", { name: "知识维护与复核", exact: true });
+          const dialog = page.getByRole("dialog", { name: "知识维护", exact: true });
           await dialog.waitFor();
           await dialog.locator(`#${item.heading}`).waitFor();
           await page.waitForFunction(

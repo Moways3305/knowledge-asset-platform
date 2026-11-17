@@ -34,6 +34,8 @@ SEMANTIC = {
     "cover_only",
     "missing_content",
 }
+SUGGESTIONS = {"missing_summary", "missing_tags", "missing_directory", "missing_maintainer"}
+RETIRED = {"missing_review_date"}
 
 
 def digest(value):
@@ -65,12 +67,11 @@ def deterministic(snapshot, settings, now):
         ("missing_summary", not facts["has_summary"]),
         ("missing_directory", not facts["directory"]),
         ("missing_maintainer", not facts["valid_maintainer"]),
-        ("missing_review_date", not facts["review_due"]),
     ):
         if absent:
             add(code)
     missing = sorted(set(settings.required_tags) - set(facts["tags"]))
-    if not facts["tags"] or missing:
+    if missing:
         add("missing_tags", {"missing_tags": missing})
     for code, failed in (
         ("parse_failed", facts["parse_status"] == "failed"),

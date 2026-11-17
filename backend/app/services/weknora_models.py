@@ -13,10 +13,10 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
-from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import denied as _denied  # noqa: F401
 from app.models.identity import Project, User
 from app.models.indexing_job import IndexingOperationJob
 from app.models.weknora import WeknoraKbMapping
@@ -56,12 +56,6 @@ _WK_TO_ALIAS = {v: k for k, v in _ALIAS_TO_WK.items()}
 # 类型别名：仅供静态检查。运行时值仍是同一字符串（future annotations 下注解不求值），无行为变化。
 _CheckClient: TypeAlias = "WeKnoraClient | NullWeKnoraClient"
 _CredentialStatus: TypeAlias = Literal["configured", "missing", "unknown"]
-
-
-def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code, detail={"denied_reason": reason, "message": message}
-    )
 
 
 def _alias(wk_type: str | None) -> str:

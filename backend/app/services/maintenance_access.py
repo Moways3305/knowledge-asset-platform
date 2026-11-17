@@ -1,12 +1,13 @@
 """Live authority for scheduled maintenance and its read projections."""
 
 import uuid
-from datetime import timezone
 
 from fastapi import HTTPException
 from sqlalchemy import and_, false, or_, select
 from sqlalchemy.orm import selectinload
 
+# Compatibility export for scan workers; one shared implementation normalizes time.
+from app.db.utils import as_utc as stamp  # noqa: F401
 from app.models.identity import ProjectMember, User, UserCompanyRole
 from app.models.knowledge import KnowledgeAsset
 from app.models.maintenance_agent import MaintenanceIssue, MaintenancePolicy
@@ -16,13 +17,8 @@ from app.services.permission import (
     build_caller_context,
     decide,
     discovery_filter,
-    knowledge_manager_allowed,
 )
 from app.services.permission_rules import load_access_policy
-
-
-def stamp(value):
-    return value.replace(tzinfo=value.tzinfo or timezone.utc) if value else None
 
 
 def reject(status=404, message="知识库或巡检记录不存在或不可访问"):
@@ -59,7 +55,16 @@ def manager_filter(caller, *, include_inactive=False):
         discovery_filter(caller, include_inactive=include_inactive),
         KnowledgeAsset.confidentiality_level != "L5" if not caller.can_discover_l5 else True,
         or_(
-            and_(KnowledgeAsset.scope == "company", caller.can_discover_l5),
+            and_(
+                KnowledgeAsset.scope == "company",
+                or_(
+                    caller.can_discover_l5,
+                    and_(
+                        KnowledgeAsset.maintenance_delegated.is_(True),
+                        KnowledgeAsset.maintainer_user_id == caller.user_id,
+                    ),
+                ),
+            ),
             and_(KnowledgeAsset.scope == "project", KnowledgeAsset.project_id.in_(projects)),
         ),
     )
@@ -108,7 +113,10 @@ def responsibility_filter(caller):
         business,
         or_(KnowledgeAsset.confidentiality_level != "L5", governor),
         or_(
-            and_(KnowledgeAsset.scope == "company", governor),
+            and_(
+                KnowledgeAsset.scope == "company",
+                or_(governor, KnowledgeAsset.maintenance_delegated.is_(True)),
+            ),
             and_(KnowledgeAsset.scope == "project", project_manager),
         ),
     )
@@ -116,6 +124,8 @@ def responsibility_filter(caller):
 
 
 def visible_issue_query(caller, *, mine=False):
+    from app.services.maintenance_rules import RETIRED
+
     visible = select(KnowledgeAsset.id).where(
         manager_filter(caller),
         KnowledgeAsset.deleted_at.is_(None),
@@ -127,6 +137,7 @@ def visible_issue_query(caller, *, mine=False):
         .join(KnowledgeAsset, MaintenanceIssue.asset_id == KnowledgeAsset.id)
         .join(MaintenancePolicy, MaintenanceIssue.policy_id == MaintenancePolicy.id)
         .where(
+            MaintenanceIssue.rule.notin_(RETIRED),
             MaintenanceIssue.asset_id.in_(visible),
             or_(
                 MaintenanceIssue.related_asset_id.is_(None),
@@ -188,27 +199,12 @@ async def original_allowed(session, caller, asset, *, agent=False):
 
 
 async def recipients(session, asset):
-    """Assignment never adds business permissions; evaluate every active identity."""
-    users = (
-        await session.scalars(
-            select(User)
-            .where(User.status == "active")
-            .options(selectinload(User.company_roles), selectinload(User.project_members))
-        )
-    ).all()
-    qualified = [
-        u
-        for u in users
-        if any(
-            knowledge_manager_allowed(
-                build_caller_context(u, active_company_role=r.company_role), asset
-            )
-            for r in u.company_roles
-            if r.status == "active"
-        )
-    ]
-    assigned = [u for u in qualified if u.id == asset.maintainer_user_id]
-    return [{"id": str(u.id), "name": u.name} for u in assigned or qualified]
+    """Use the same live assignment/role policy as manual maintenance."""
+    from app.services.knowledge_responsibility import maintainer_contexts, responsible_for
+
+    candidates = await maintainer_contexts(session)
+    ids = set(responsible_for(asset, candidates))
+    return [{"id": str(user.id), "name": user.name} for user, _ in candidates if user.id in ids]
 
 
 def parse_key(key):

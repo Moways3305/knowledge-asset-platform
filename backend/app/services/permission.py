@@ -267,6 +267,18 @@ def decide(
     `has_original_grant` 由调用方按 active access_grants 查得后传入（运行时联动）。
     """
     profile = _build_profile(caller, asset, policy, has_original_grant)
+    if (
+        channel == AccessChannel.human
+        and profile.max_layer == AccessLayer.summary
+        and knowledge_delegate_allowed(caller, asset)
+    ):
+        profile = replace(
+            profile,
+            max_layer=AccessLayer.original,
+            exceed_reason=DeniedReason.allowed,
+            source=EffectiveAccessSource.access_grant,
+            original_audit_required=True,
+        )
     max_rank = layer_rank(profile.max_layer)
     req_rank = layer_rank(layer)
 
@@ -402,6 +414,24 @@ def lifecycle_visibility(caller: CallerContext, asset: KnowledgeAsset) -> Denied
     if asset.confidentiality_level == ConfidentialityLevel.L5.value and not caller.can_discover_l5:
         return DeniedReason.l5_not_discoverable
     return None
+
+
+def knowledge_delegate_allowed(caller: CallerContext, asset: KnowledgeAsset) -> bool:
+    """Explicit per-asset human maintenance grant; never a company governance role."""
+    return bool(
+        caller.is_active
+        and caller.is_business_user
+        and asset.scope == "company"
+        and asset.confidentiality_level != "L5"
+        and asset.asset_status in {"active", "needs_update"}
+        and getattr(asset, "maintenance_delegated", False)
+        and asset.maintainer_user_id == caller.user_id
+        and getattr(asset, "deleted_at", None) is None
+    )
+
+
+def knowledge_maintainer_allowed(caller: CallerContext, asset: KnowledgeAsset) -> bool:
+    return knowledge_manager_allowed(caller, asset) or knowledge_delegate_allowed(caller, asset)
 
 
 def knowledge_manager_allowed(caller: CallerContext, asset: KnowledgeAsset) -> bool:

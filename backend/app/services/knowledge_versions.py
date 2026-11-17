@@ -12,7 +12,7 @@ from app.services import knowledge_review as trust
 from app.services.directories import display_path
 from app.services.ingest_review_state import effective_status, reviews_by_task
 from app.services.knowledge_version_baseline import replacement_baseline_matches
-from app.services.permission import AccessLayer, decide
+from app.services.permission import AccessLayer, decide, knowledge_manager_allowed
 from app.services.permission_rules import load_access_policy
 from app.services.summary_policy import REDACTED_SUMMARY_LEVELS
 
@@ -41,6 +41,8 @@ async def writable_source(session, caller, asset_id, expected_updated_at, *, loc
         Command(expected_updated_at=expected_updated_at, reason="上传关联新版"),
         lock=lock,
     )
+    if not knowledge_manager_allowed(caller, asset):
+        raise trust.reject(403, "新版发布须由知识库管理人处理")
     if asset.asset_status not in {"active", "needs_update"} or asset.replacement_asset_id:
         raise trust.reject(409, "请在当前有效资料上发起更新")
     if await pending_adoption(session, asset.id):
@@ -87,7 +89,7 @@ async def prepare_upload(
 
 async def update_context_for_task(session, caller, task):
     asset = await trust._load(session, caller, task.update_of_asset_id)
-    if not trust.can_manage(caller, asset):
+    if not knowledge_manager_allowed(caller, asset):
         raise trust.reject(404, "原资料不可管理")
     version = await session.get(KnowledgeAssetVersion, task.update_of_version_id)
     return dict(
@@ -122,7 +124,7 @@ async def pending_adoption(session, asset_id):
 
 async def validate_update_confirmation(session, caller, task, request):
     source = await trust._load(session, caller, task.update_of_asset_id, write=True)
-    if not trust.can_manage(caller, source):
+    if not knowledge_manager_allowed(caller, source):
         raise trust.reject(404, "原资料不可管理")
     from app.services.personal_write_policy import personal_asset_write_locked
 
@@ -259,7 +261,7 @@ async def history(session, caller, asset_id):
         for v in rows[:100]
     ]
     updates = []
-    if trust.can_manage(caller, source):
+    if knowledge_manager_allowed(caller, source):
         tasks = await session.scalars(
             select(IngestTask)
             .where(IngestTask.update_of_asset_id == source.id)
@@ -281,7 +283,6 @@ async def history(session, caller, asset_id):
                         and source.asset_status in {"active", "needs_update"}
                         and target.asset_status == "active"
                         and not target.replacement_asset_id
-                        and trust.freshness(target) == "verified"
                         and not source.replacement_asset_id
                     ),
                 )
@@ -303,7 +304,7 @@ async def history(session, caller, asset_id):
         current_asset_id=str(current.id)
         if current and current.asset_status in {"active", "needs_update"}
         else None,
-        can_update=trust.can_manage(caller, source)
+        can_update=knowledge_manager_allowed(caller, source)
         and source.asset_status in {"active", "needs_update"}
         and not source.replacement_asset_id
         and not await pending_adoption(session, source.id),

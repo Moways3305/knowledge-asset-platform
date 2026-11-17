@@ -257,6 +257,7 @@ async def test_due_notification_deduplicates_without_archiving(client, db_sessio
 
 async def test_assignment_notification_completes_after_successful_review(client):
     await policy(client)
+    await command(client, "review", {"outcome": "needs_update"})
     inbox = await client.get("/api/v1/notifications", headers=headers(USER_BOSS))
     assigned = next(
         row
@@ -309,10 +310,14 @@ async def test_assignment_notification_reopens_for_current_maintenance_work(
     assigned = next(
         row for row in inbox.json()["items"] if row["event_type"] == "knowledge.assigned"
     )
-    assert assigned["action_required"] is True
-    assert assigned["task_status"] == "needs_action"
+    assert assigned["action_required"] is (change not in {"unscheduled", "changed"})
+    assert assigned["task_status"] == (
+        "completed" if change in {"unscheduled", "changed"} else "needs_action"
+    )
     maintenance = await client.get("/api/v1/knowledge-maintenance", headers=headers(USER_BOSS))
-    assert str(KA_COMPANY_L2) in {row["asset_id"] for row in maintenance.json()["items"]}
+    assert (str(KA_COMPANY_L2) in {row["asset_id"] for row in maintenance.json()["items"]}) is (
+        change not in {"unscheduled", "changed"}
+    )
 
 
 async def test_verified_reschedule_does_not_create_perpetual_assignment_task(client):
@@ -349,7 +354,7 @@ async def test_assignment_notifications_remain_recipient_and_role_scoped(client)
     assert not any(row["event_type"] == "knowledge.assigned" for row in old_inbox.json()["items"])
     new_inbox = await client.get("/api/v1/notifications", headers=headers(USER_DIRECTOR))
     assert any(
-        row["event_type"] == "knowledge.assigned" and row["action_required"]
+        row["event_type"] == "knowledge.assigned" and not row["action_required"]
         for row in new_inbox.json()["items"]
     )
 
@@ -448,6 +453,9 @@ async def test_replacement_requires_verified_same_scope_target_and_archives(clie
 
 
 async def test_maintenance_list_is_scoped_and_admin_cannot_read(client):
+    await command(
+        client, "review", {"outcome": "needs_update"}, asset=KA_PERSONAL, user=USER_CONSULTANT
+    )
     response = await client.get("/api/v1/knowledge-maintenance", headers=headers(USER_CONSULTANT))
     assert response.status_code == 200, response.text
     ids = {row["asset_id"] for row in response.json()["items"]}

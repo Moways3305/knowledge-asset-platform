@@ -15,10 +15,10 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import denied as _denied  # noqa: F401
 from app.db.utils import utc_now
 from app.models.audit import AuditEvent
 from app.models.identity import ProjectMember, User
@@ -329,12 +329,6 @@ _L5_ACTIONS = {
     AuditAction.preview_l5_used.value,
     "agent.l5_access",
 }
-
-
-def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code, detail={"denied_reason": reason, "message": message}
-    )
 
 
 def _is_admin(caller: CallerContext) -> bool:

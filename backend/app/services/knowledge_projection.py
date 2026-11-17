@@ -5,10 +5,10 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import HTTPException
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import denied as _denied  # noqa: F401
 from app.models.identity import Project, User
 from app.models.knowledge import (
     KnowledgeAsset,
@@ -38,6 +38,7 @@ from app.services import (
 from app.services.knowledge_metadata import can_edit_metadata
 from app.services.permission import (
     decide,
+    knowledge_manager_allowed,
     lifecycle_actor_allowed,
     lifecycle_visibility,
 )
@@ -85,13 +86,6 @@ def can_retry_index(caller: CallerContext, asset: KnowledgeAsset) -> bool:
     if scope == KnowledgeScope.company.value:
         return caller.can_discover_l5
     return False
-
-
-def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    """构造带 denied_reason 的错误（detail 内含 denied_reason，供前端读取）。"""
-    return HTTPException(
-        status_code=status_code, detail={"denied_reason": reason, "message": message}
-    )
 
 
 def _summary_map(asset: KnowledgeAsset) -> dict[str, str | None]:
@@ -150,6 +144,8 @@ def _build_access_info(
         existing_grant_expires_at=grant_expires_at if has_grant else None,
         can_delete=_can_delete(caller, asset),
         can_edit_metadata=can_edit_metadata(caller, asset),
+        can_reclassify=can_edit_metadata(caller, asset)
+        and knowledge_manager_allowed(caller, asset),
         can_manage_lifecycle=(
             caller.is_business_user
             and lifecycle_visibility(caller, asset) is None

@@ -44,6 +44,7 @@ export interface MaintenanceIssue {
   category: string;
   status: string;
   suspected: boolean;
+  priority?: "actionable" | "suggestion";
   first_seen_at: string;
   last_seen_at: string;
   updated_at: string;
@@ -116,6 +117,7 @@ export const fetchAgentRun = (key: string, id: string, page = 1, status = "") =>
     `/api/v1/maintenance-agent/policies/${encodeURIComponent(key)}/runs/${encodeURIComponent(id)}?page=${page}${status ? `&status=${status}` : ""}`,
   );
 export interface IssuePage {
+  counts?: Record<string, number>;
   items: MaintenanceIssue[];
   total: number;
   page: number;

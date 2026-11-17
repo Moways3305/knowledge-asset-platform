@@ -101,6 +101,8 @@ async def test_project_replacement_does_not_archive_company_asset(client):
             reason_code="superseded",
             reason="新版替代",
             replacement_asset_id=str(KA_PROJECT_ALPHA),
+            expected_replacement_updated_at=item["expected_updated_at"],
+            confirm_replacement=True,
         ),
     )
     assert response.status_code == 200

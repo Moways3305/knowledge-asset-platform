@@ -115,6 +115,7 @@ class IssueOut(BaseModel):
     snooze_until: datetime | None
     responsible: list[dict[str, str]]
     can_act: bool
+    priority: Literal["actionable", "suggestion"] = "actionable"
 
 
 class IssuePage(BaseModel):
@@ -122,6 +123,7 @@ class IssuePage(BaseModel):
     total: int
     page: int
     page_size: int
+    counts: dict[str, int] = Field(default_factory=dict)
 
 
 class IssueDetail(IssueOut):

@@ -21,8 +21,10 @@ class Command(BaseModel):
 
 
 class ReviewPolicyCommand(Command):
-    maintainer_user_id: uuid.UUID
-    review_due_at: datetime
+    maintainer_user_id: uuid.UUID | None = None
+    review_due_at: datetime | None = None
+    review_interval_days: int | None = Field(default=None, ge=1, le=3650)
+    maintenance_delegated: bool = False
 
 
 class ReviewCommand(Command):
@@ -41,7 +43,7 @@ class CorrectionCommand(Command):
 
 
 class CorrectionTransition(Command):
-    action: Literal["resolve", "verify", "reopen"]
+    action: Literal["resolve", "verify", "reopen", "reject", "duplicate", "withdraw", "close"]
 
 
 class CorrectionOut(BaseModel):
@@ -52,6 +54,9 @@ class CorrectionOut(BaseModel):
     updated_at: datetime
     can_resolve: bool
     can_verify: bool
+    can_withdraw: bool = False
+    can_reopen: bool = False
+    can_close: bool = False
 
 
 class ReviewState(BaseModel):
@@ -60,6 +65,9 @@ class ReviewState(BaseModel):
     maintainer_user_id: uuid.UUID | None
     maintainer_name: str | None
     review_due_at: datetime | None
+    review_interval_days: int | None = None
+    maintenance_delegated: bool = False
+    can_assign: bool = False
     verified_at: datetime | None
     freshness: Literal["unreviewed", "verified", "changed", "due", "needs_update", "archived"]
     replacement_asset_id: uuid.UUID | None
@@ -76,6 +84,8 @@ class MaintenanceItem(BaseModel):
     freshness: str
     needs_correction: bool
     awaiting_my_verification: bool
+    agent_issue_count: int = 0
+    library_key: str | None = None
 
 
 class MaintenancePage(BaseModel):

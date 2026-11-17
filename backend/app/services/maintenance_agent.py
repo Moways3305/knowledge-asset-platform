@@ -28,7 +28,8 @@ from app.services import maintenance_access as access
 from app.services.generation_models import safe_generation_model_options
 from app.services.maintenance_jobs import ACTIVE, start_run
 from app.services.maintenance_reports import cancel_pending, project_detail
-from app.services.permission import knowledge_manager_allowed
+from app.services.maintenance_rules import SUGGESTIONS
+from app.services.permission import knowledge_maintainer_allowed
 
 
 async def policies(session, caller):
@@ -224,14 +225,26 @@ async def _project(session, caller, issue, asset, policy):
         updated_at=issue.updated_at,
         snooze_until=issue.snooze_until,
         responsible=owners,
-        can_act=knowledge_manager_allowed(caller, asset),
+        can_act=knowledge_maintainer_allowed(caller, asset),
+        priority="suggestion" if issue.rule in SUGGESTIONS else "actionable",
     )
 
 
 async def list_issues(
-    session, caller, *, key=None, status="active", category=None, mine=False, page=1
+    session,
+    caller,
+    *,
+    key=None,
+    status="active",
+    category=None,
+    mine=False,
+    page=1,
+    priority="all",
+    asset_id=None,
 ):
     query = issue_query(caller)
+    if asset_id:
+        query = query.where(MaintenanceIssue.asset_id == asset_id)
     if key:
         query = query.where(MaintenancePolicy.library_key == key)
     if status == "active":
@@ -243,6 +256,20 @@ async def list_issues(
     # Assignment validity is a live projection; filter before pagination/count.
     if mine:
         query = query.where(access.responsibility_filter(caller))
+    counts = {}
+    for kind in ("actionable", "suggestion"):
+        predicate = MaintenanceIssue.rule.in_(SUGGESTIONS)
+        counts[kind] = (
+            await session.scalar(
+                select(func.count()).select_from(
+                    query.where(predicate if kind == "suggestion" else ~predicate).subquery()
+                )
+            )
+            or 0
+        )
+    if priority != "all":
+        predicate = MaintenanceIssue.rule.in_(SUGGESTIONS)
+        query = query.where(predicate if priority == "suggestion" else ~predicate)
     total = await session.scalar(select(func.count()).select_from(query.subquery()))
     rows = (
         await session.execute(
@@ -256,6 +283,7 @@ async def list_issues(
         total=total,
         page=page,
         page_size=25,
+        counts=counts,
     )
 
 
@@ -353,7 +381,7 @@ async def transition(session, caller, issue_id, command, trace_id):
     )
     if access.stamp(issue.updated_at) != access.stamp(command.expected_updated_at):
         raise access.reject(409, "问题已更新，请刷新后再处理")
-    if not knowledge_manager_allowed(caller, asset):
+    if not knowledge_maintainer_allowed(caller, asset):
         raise access.reject()
     action, now = command.action, utc_now()
     if action in {"snoozed", "false_positive", "resolved"} and not command.reason.strip():

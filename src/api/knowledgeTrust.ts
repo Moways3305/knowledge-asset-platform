@@ -2,12 +2,15 @@ import { apiGet, apiPatch, apiPost, ApiError } from "./http";
 
 export interface Correction {
   id: string;
-  status: "open" | "resolved" | "verified";
+  status: "open" | "resolved" | "verified" | "rejected" | "duplicate" | "withdrawn";
   description: string;
   resolution: string | null;
   updated_at: string;
   can_resolve: boolean;
   can_verify: boolean;
+  can_withdraw?: boolean;
+  can_reopen?: boolean;
+  can_close?: boolean;
 }
 
 export interface TrustState {
@@ -16,12 +19,15 @@ export interface TrustState {
   maintainer_user_id: string | null;
   maintainer_name: string | null;
   review_due_at: string | null;
+  review_interval_days?: number | null;
+  maintenance_delegated?: boolean;
+  can_assign?: boolean;
   verified_at: string | null;
   freshness: "unreviewed" | "verified" | "changed" | "due" | "needs_update" | "archived";
   replacement_asset_id: string | null;
   can_manage: boolean;
   corrections: Correction[];
-  maintainers: { id: string; name: string }[];
+  maintainers: { id: string; name: string; requires_delegation?: string }[];
 }
 
 const path = (id: string) => `/api/v1/knowledge/${encodeURIComponent(id)}/trust` as const;
@@ -47,6 +53,8 @@ export interface MaintenancePage {
     review_due_at: string | null;
     needs_correction: boolean;
     awaiting_my_verification: boolean;
+    agent_issue_count?: number;
+    library_key?: string | null;
   }[];
   total: number;
   page: number;

@@ -13,13 +13,13 @@ from app.models.original_access import AccessGrant, OriginalAccessRequest
 from app.models.preview import PreviewCredential
 from app.schemas.enums import AuditAction, AuditLogType
 from app.services import audit
-from app.services.permission import knowledge_manager_allowed
+from app.services.permission import knowledge_maintainer_allowed, knowledge_manager_allowed
 
 
 def can_edit_metadata(caller, asset):
     if asset.asset_status not in {"active", "needs_update"}:
         return False
-    return knowledge_manager_allowed(caller, asset)
+    return knowledge_maintainer_allowed(caller, asset)
 
 
 def denied(code, message):
@@ -57,6 +57,8 @@ async def update_metadata(session, caller, asset_id, req, trace_id):
         else asset.confidentiality_level
     )
     changed_level = level != asset.confidentiality_level
+    if not knowledge_manager_allowed(caller, asset) and changed_level:
+        raise denied(403, "资料维护授权不包含密级调整，请交由知识库管理人处理")
     if level == "L5" and asset.scope != "personal" and not caller.can_discover_l5:
         raise denied(403, "当前身份不能管理 L5 资料，请交由具有该等级权限的管理人处理")
     if level < asset.confidentiality_level and not req.confirm_downgrade:
@@ -119,6 +121,7 @@ async def update_metadata(session, caller, asset_id, req, trace_id):
     now = utc_now()
     # Classification changes must not leave previously issued preview capabilities alive.
     if changed_level:
+        asset.maintenance_delegated = False
         await session.execute(
             update(PreviewCredential)
             .where(
@@ -177,5 +180,9 @@ async def update_metadata(session, caller, asset_id, req, trace_id):
         },
         risk_level="high" if changed_level else None,
     )
+    from app.services.maintenance_reconcile import reconcile_asset
+
+    await session.flush()
+    await reconcile_asset(session, asset)
     await session.commit()
     return {"asset_id": asset.id, "updated_at": now}

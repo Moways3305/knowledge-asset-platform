@@ -32,7 +32,7 @@ export function applyGovernance(
   action: "archive" | "restore",
   reason_code: ReasonCode,
   reason: string,
-  replacement?: string,
+  replacement?: { asset_id: string; updated_at: string } | null,
 ) {
   return apiPost<BatchResult>("/api/v1/company-governance/batch", {
     items: items.map((i) => ({
@@ -43,6 +43,8 @@ export function applyGovernance(
     action,
     reason_code,
     reason,
-    replacement_asset_id: replacement || null,
+    replacement_asset_id: replacement?.asset_id ?? null,
+    expected_replacement_updated_at: replacement?.updated_at ?? null,
+    confirm_replacement: Boolean(replacement),
   });
 }

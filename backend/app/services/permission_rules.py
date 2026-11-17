@@ -23,10 +23,10 @@ from __future__ import annotations
 import uuid
 from typing import Literal
 
-from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import denied as _denied  # noqa: F401
 from app.models.identity import User
 from app.models.permission_rule import PermissionRule
 from app.schemas.enums import AuditAction, AuditLogType, CompanyRole
@@ -309,12 +309,6 @@ async def access_request_timeout_hours(session: AsyncSession) -> float | None:
     except (TypeError, ValueError):
         return None
     return hours if hours > 0 else None
-
-
-def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code, detail={"denied_reason": reason, "message": message}
-    )
 
 
 def _is_admin(caller: CallerContext) -> bool:
