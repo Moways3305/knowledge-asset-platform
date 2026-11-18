@@ -103,13 +103,23 @@ _PERSONAL_FIELDS = (
     ("personal_id", r"护照号(?:码)?|社保号(?:码)?|驾驶证号(?:码)?|微信号|出生日期|passport_number"),
     ("personal_finance", r"个人收入|个人薪资|个人工资|个人银行账户|personal_salary"),
     ("phone", r"联系电话|手机号码|电话号码|mobile_phone|phone_number"),
-    ("contact", r"个人姓名|真实姓名|full_name|patient_name"),
+    ("contact", r"个人姓名|真实姓名|姓名|客户联系人|项目联系人|联系人|full_name|patient_name"),
+)
+# A space inside a name is part of the value; a following labeled field is not.
+_NEXT_FIELD = (
+    r"\s+(?:[A-Za-z_\u4e00-\u9fff]{1,20}\s*[:：=]"
+    r"|(?:手机|电话|邮箱|身份证|银行卡)(?=[\s:：【0-9]))"
 )
 _FIELD_RULES = tuple(
     (
         category,
         re.compile(
-            r"(?:" + labels + r")[\"'\s]*[:：=][\s\"']*(?P<val>[^\n\r，,。；;\"'<>]{1,200})", re.I
+            r"(?:"
+            + labels
+            + r")[\"'\s]*[:：=][\s\"']*(?P<val>(?:(?!"
+            + _NEXT_FIELD
+            + r")[^\n\r，,。；;\"'<>]){1,200})",
+            re.I,
         ),
     )
     for category, labels in _PERSONAL_FIELDS
