@@ -142,13 +142,19 @@ def sanitize_text(value: str | None) -> str | None:
     return _sanitize_value(value)
 
 
-def _sanitize(value):
+def _sanitize(value, *, target_type=None):
     """递归脱敏快照 / extra：剔除禁止键 + 对字符串值做值级脱敏（写入时兜底防线）。"""
     if isinstance(value, dict):
         return {
             k: _sanitize(v)
             for k, v in value.items()
-            if str(k).lower() not in _FORBIDDEN_KEYS and not is_personal_field(k)
+            if str(k).lower() not in _FORBIDDEN_KEYS
+            and (
+                not is_personal_field(k)
+                # Only the project's own name is a business label. Nested contacts
+                # and user snapshots still have their personal fields removed.
+                or (target_type == "project" and k == "name")
+            )
         }
     if isinstance(value, list):
         return [_sanitize(v) for v in value]
@@ -225,8 +231,8 @@ async def record_event(
         action=action,
         target_type=target_type,
         target_id=target_id,
-        before_snapshot=_sanitize(before) if before is not None else None,
-        after_snapshot=_sanitize(after) if after is not None else None,
+        before_snapshot=_sanitize(before, target_type=target_type) if before is not None else None,
+        after_snapshot=_sanitize(after, target_type=target_type) if after is not None else None,
         severity=severity.value if severity is not None else None,
         trace_id=trace_id,
         extra=merged_extra or None,
@@ -266,8 +272,8 @@ async def record_system_event(
         action=action,
         target_type=target_type,
         target_id=target_id,
-        before_snapshot=_sanitize(before) if before is not None else None,
-        after_snapshot=_sanitize(after) if after is not None else None,
+        before_snapshot=_sanitize(before, target_type=target_type) if before is not None else None,
+        after_snapshot=_sanitize(after, target_type=target_type) if after is not None else None,
         severity=severity.value if severity is not None else None,
         trace_id=trace_id,
         extra=merged_extra or None,
@@ -383,8 +389,8 @@ def _to_out(event: AuditEvent, view: str, names: dict[uuid.UUID, str]) -> AuditE
             denied_reason=denied_reason,
             risk_level=risk_level,
             created_at=event.created_at,
-            before_snapshot=_sanitize(event.before_snapshot),
-            after_snapshot=_sanitize(event.after_snapshot),
+            before_snapshot=_sanitize(event.before_snapshot, target_type=event.target_type),
+            after_snapshot=_sanitize(event.after_snapshot, target_type=event.target_type),
             extra=_sanitize(event.extra),
         )
 

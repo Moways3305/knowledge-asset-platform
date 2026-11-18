@@ -149,6 +149,13 @@ def test_audit_write_and_historical_projection_share_personal_redaction():
     assert PHONE not in json.dumps(safe) and EMAIL not in json.dumps(safe)
     assert "家庭住址" not in safe and "phoneNumber" not in safe
     assert safe["asset_id"] == payload["asset_id"]
+    project = _sanitize(
+        {"name": "合成测试项目", "contact": {"name": "测试个人", "phone": PHONE}},
+        target_type="project",
+    )
+    assert project == {"name": "合成测试项目", "contact": {}}
+    assert _sanitize({"name": "测试个人"}, target_type="user") == {}
+    assert PHONE not in _sanitize({"name": f"合成项目 {PHONE}"}, target_type="project")["name"]
 
 
 async def test_quality_model_never_receives_personal_identifiers():
