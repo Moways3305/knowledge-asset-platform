@@ -2,6 +2,7 @@
 
 from sqlalchemy import func, select, update
 
+from app.core.personal_information import redact_personal_information
 from app.db.utils import utc_now
 from app.models.knowledge import KnowledgeAsset
 from app.models.maintenance_agent import MaintenanceRun, MaintenanceRunItem
@@ -131,7 +132,7 @@ async def project_detail(session, caller, policy, run, *, page=1, status=None):
         items.append(
             RunItemOut(
                 asset_id=asset.id,
-                title=asset.title,
+                title=redact_personal_information(asset.title),
                 status=item.status,
                 version_id=item.version_id,
                 current_version_matches=item.version_id == asset.current_version_id,

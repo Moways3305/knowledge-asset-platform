@@ -20,6 +20,7 @@ from typing import Generic, TypeVar
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core.personal_information import redact_personal_information
 from app.db.utils import utc_now
 from app.models.lifecycle import NotificationRecord
 from app.models.notification import BusinessNotification
@@ -169,8 +170,8 @@ async def dispatch(
                 await asyncio.wait_for(
                     sender.send(
                         wecom_user_id=prepared.recipient,
-                        title=prepared.title,
-                        content=prepared.content,
+                        title=redact_personal_information(prepared.title),
+                        content=redact_personal_information(prepared.content),
                         trace_id=trace_id,
                     ),
                     timeout=min(SEND_TIMEOUT_SECONDS, remaining),

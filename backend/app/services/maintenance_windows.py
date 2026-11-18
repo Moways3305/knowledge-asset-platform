@@ -4,6 +4,7 @@ from hashlib import sha256
 
 from sqlalchemy import func, select
 
+from app.core.personal_information import PERSONAL_LOOKAHEAD
 from app.models.knowledge import KnowledgeAssetChunk, KnowledgeAssetSummary
 from app.services.maintenance_rules import digest
 
@@ -83,6 +84,24 @@ async def capture_windows(session, asset, version, settings, work):
             )
         )
     ).all()
+    privacy_summaries = sorted(
+        (
+            r
+            for r in summaries
+            if r[1]
+            in {
+                "detailed_summary",
+                "detailed",
+                "summary",
+                "one_liner",
+                "key_points",
+                "redacted_summary",
+                "redacted_one_liner",
+                "safe_summary",
+            }
+        ),
+        key=lambda r: (r[1], str(r[0])),
+    )
     priority = [
         "detailed_summary",
         "detailed",
@@ -107,7 +126,30 @@ async def capture_windows(session, asset, version, settings, work):
     body_end, summary_end = start + len(body), summary_start + len(summary)
     body_last, summary_last = body_end >= body_total, summary_end >= summary_total
     partial = start > 0 or not body_last or summary_start > 0 or not summary_last
+    privacy = None
+    if not work.get("privacy_done"):
+        size = BODY_BATCH
+        privacy = {"size": size, "summary_ranges": []}
+        summary_position = 0
+        for _, summary_type, length in privacy_summaries:
+            privacy["summary_ranges"].append(
+                {"type": summary_type, "start": summary_position, "end": summary_position + length}
+            )
+            summary_position += length + 1
+        for source, model, source_layout in (
+            ("body", KnowledgeAssetChunk, layout),
+            ("summary", KnowledgeAssetSummary, [(r[0], r[2]) for r in privacy_summaries]),
+        ):
+            total = max(0, sum(length for _, length in source_layout) + len(source_layout) - 1)
+            offset = work.get("privacy_" + source + "_offset", 0)
+            privacy[source] = await text_window(
+                session, model, source_layout, offset, size + PERSONAL_LOOKAHEAD
+            )
+            privacy[source + "_offset"] = offset
+            privacy[source + "_next"] = min(total, offset + size)
+            privacy[source + "_last"] = offset + size >= total
     return {
+        "privacy": privacy,
         "body": body,
         "summary": summary,
         "body_total": body_total,
@@ -122,6 +164,12 @@ async def capture_windows(session, asset, version, settings, work):
         "next_summary": summary_end
         if summary_last
         else max(summary_start + 1, summary_end - OVERLAP),
-        "signature": digest([signature.hexdigest(), [[str(i), n] for i, n in summary_layout]]),
+        "signature": digest(
+            [
+                signature.hexdigest(),
+                [[str(i), n] for i, n in summary_layout],
+                [[str(i), kind, n] for i, kind, n in privacy_summaries],
+            ]
+        ),
         "inactive": has_inactive,
     }

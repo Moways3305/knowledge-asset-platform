@@ -141,7 +141,9 @@ async def issues(
         "snoozed",
         "not_applicable",
     ] = "active",
-    category: Literal["integrity", "availability", "maintenance", "duplicates", "quality"]
+    category: Literal[
+        "integrity", "availability", "maintenance", "duplicates", "quality", "privacy"
+    ]
     | None = None,
     mine: bool = False,
     page: int = Query(1, ge=1),

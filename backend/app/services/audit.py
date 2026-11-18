@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import denied as _denied  # noqa: F401
+from app.core.personal_information import is_personal_field, redact_personal_information
 from app.db.utils import utc_now
 from app.models.audit import AuditEvent
 from app.models.identity import ProjectMember, User
@@ -125,7 +126,7 @@ def _sanitize_value(value: str) -> str:
     lowered = value.lower()
     if any(marker in lowered for marker in _FORBIDDEN_VALUE_MARKERS):
         return _VALUE_REDACTED
-    return value
+    return redact_personal_information(value)
 
 
 def sanitize_text(value: str | None) -> str | None:
@@ -144,7 +145,11 @@ def sanitize_text(value: str | None) -> str | None:
 def _sanitize(value):
     """递归脱敏快照 / extra：剔除禁止键 + 对字符串值做值级脱敏（写入时兜底防线）。"""
     if isinstance(value, dict):
-        return {k: _sanitize(v) for k, v in value.items() if str(k).lower() not in _FORBIDDEN_KEYS}
+        return {
+            k: _sanitize(v)
+            for k, v in value.items()
+            if str(k).lower() not in _FORBIDDEN_KEYS and not is_personal_field(k)
+        }
     if isinstance(value, list):
         return [_sanitize(v) for v in value]
     if isinstance(value, str):
@@ -378,9 +383,9 @@ def _to_out(event: AuditEvent, view: str, names: dict[uuid.UUID, str]) -> AuditE
             denied_reason=denied_reason,
             risk_level=risk_level,
             created_at=event.created_at,
-            before_snapshot=event.before_snapshot,
-            after_snapshot=event.after_snapshot,
-            extra=event.extra,
+            before_snapshot=_sanitize(event.before_snapshot),
+            after_snapshot=_sanitize(event.after_snapshot),
+            extra=_sanitize(event.extra),
         )
 
     # admin 元数据视图：不回快照；extra 仅安全子集；L5 事件隐藏 target_id。
@@ -406,7 +411,7 @@ def _to_out(event: AuditEvent, view: str, names: dict[uuid.UUID, str]) -> AuditE
         created_at=event.created_at,
         before_snapshot=None,
         after_snapshot=None,
-        extra=safe_extra or None,
+        extra=_sanitize(safe_extra) or None,
     )
 
 

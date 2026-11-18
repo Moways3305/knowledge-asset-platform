@@ -14,6 +14,7 @@ from app.models.knowledge import (
 from app.models.knowledge_correction import KnowledgeCorrection
 from app.models.maintenance_agent import MaintenanceCheck
 from app.services import maintenance_access as access
+from app.services.maintenance_privacy import PRIVACY_RULE_VERSION
 from app.services.maintenance_rules import digest
 from app.services.maintenance_windows import capture_windows
 from app.services.permission import knowledge_manager_allowed
@@ -138,6 +139,7 @@ async def capture(session, policy, asset, settings, now, work=None):
         "duplicates": "complete" if len(pairs) <= 500 else "in_progress",
         "availability": "complete",
         "quality": "complete",
+        "privacy": "complete",
     }
     window = None
     if allowed:
@@ -147,6 +149,7 @@ async def capture(session, policy, asset, settings, now, work=None):
             coverage["quality"] = "body_unavailable"
         if window["inactive"]:
             coverage["quality"] = "body_incomplete"
+        coverage["privacy"] = coverage["quality"]
         refs = list(
             (
                 await session.scalars(
@@ -160,6 +163,7 @@ async def capture(session, policy, asset, settings, now, work=None):
         )
     else:
         coverage["quality"] = "content_not_authorized"
+        coverage["privacy"] = "content_not_authorized"
         coverage["availability"] = "content_not_authorized"
     if version.weknora_parse_status in {"pending", "processing"} or version.index_status in {
         "not_indexed",
@@ -174,6 +178,7 @@ async def capture(session, policy, asset, settings, now, work=None):
             allowed,
             policy.revision,
             responsible,
+            PRIVACY_RULE_VERSION,
         ]
     )
     check = await session.scalar(
@@ -185,6 +190,7 @@ async def capture(session, policy, asset, settings, now, work=None):
         "facts": facts,
         "body": body,
         "window": window,
+        "privacy_window": window["privacy"] if window else None,
         "summary": summary,
         "refs": refs,
         "allowed": allowed,
@@ -193,7 +199,7 @@ async def capture(session, policy, asset, settings, now, work=None):
         "candidate_fingerprint": digest(candidates),
         "candidate_count": candidate_count,
         "comparison_done": len(pairs) <= 500,
-        "window_fingerprint": digest([body, summary]),
+        "window_fingerprint": digest([body, summary, window["privacy"] if window else None]),
         "candidates": candidates,
         "responsible": responsible,
         "unchanged": bool(
@@ -201,5 +207,6 @@ async def capture(session, policy, asset, settings, now, work=None):
             and check.fingerprint == fingerprint
             and check.policy_revision == policy.revision
             and check.coverage.get("quality") == "complete"
+            and check.coverage.get("privacy") == "complete"
         ),
     }, None

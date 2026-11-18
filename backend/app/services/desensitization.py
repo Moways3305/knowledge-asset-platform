@@ -36,6 +36,12 @@ import time
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from app.core.personal_information import (
+    _CONTACT_RE,
+    _PERSON_CONTEXT_RES,
+    _SIMPLE_RULES,
+    redact_personal_information,
+)
 from app.services.llm_client import LLMClient, LLMError, NullLLMClient
 
 
@@ -103,45 +109,14 @@ _AMOUNT_RES = (
 )
 
 # 联系人 / 客户公司字段：保留标签与分隔符，仅擦洗字段值。
-_CONTACT_RE = re.compile(
-    r"(?P<label>客户联系人|项目联系人|联系人|对接人|姓名|受访者|受访人|访谈对象|负责人)"
-    r"(?P<sep>[\s:：]+)"
-    r"(?P<val>[^\s，,。；;、:：\n]{1,20})"
-)
 _CUSTOMER_RE = re.compile(
     r"(?P<label>客户名称|客户单位|客户|公司名称|单位名称|甲方|乙方)(?P<sep>\s*[:：]\s*)"
     r"(?P<val>[^\s，,。；;、:：\n]{2,40})"
 )
 
-# 有明确角色/称呼的人名。并非通用 NER，不能把任意 2–4 个汉字都当作姓名。
-_PERSON_CONTEXT_RES = (
-    re.compile(
-        r"(?P<label>董事长|总经理|副总经理|财务总监|总监|经理|顾问|受访者|负责人)"
-        r"\s*(?!负责|表示|指出|认为|提出|介绍|需要|要求|应当|必须)"
-        r"(?P<val>[\u4e00-\u9fff]{2,4}?)(?=表示|指出|认为|提出|介绍|负责|[，,。；;：:\s]|$)"
-    ),
-    re.compile(r"(?<![\u4e00-\u9fff])(?P<val>[\u4e00-\u9fff]{2,4})(?P<label>先生|女士)"),
-)
-
 _LABELED_AMOUNT_RE = re.compile(
     r"(?P<label>合同金额|项目金额|报价|薪酬|工资|奖金|营业收入|净利润|金额)"
     r"(?P<sep>\s*[:：]\s*)(?P<val>\d[\d,]*(?:\.\d+)?)(?![\d.])"
-)
-
-# 顺序敏感：长/结构化标识先替换，避免被泛数字规则吞掉（手机号不能先被长数字账号吃掉）。
-_SIMPLE_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
-    # 邮箱
-    ("email", re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")),
-    # 身份证号（18 位：17 数字 + 校验位 0-9/X；或 15 位）。先于银行卡 / 手机号。
-    ("id_card", re.compile(r"(?<![0-9Xx])(?:\d{17}[0-9Xx]|\d{15})(?![0-9Xx])")),
-    # 银行卡号 / 长账号（16-19 连续数字）。先于手机号。
-    ("bank_card", re.compile(r"(?<!\d)\d{16,19}(?!\d)")),
-    # 中国大陆手机号（11 位，1[3-9] 开头）。
-    ("phone", re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)")),
-    # 固话（区号 + 号码，可带分隔符）。
-    ("landline", re.compile(r"(?<!\d)0\d{2,3}[\-\s]?\d{7,8}(?!\d)")),
-    # 其余长数字账号（12-19 位，前面规则未覆盖到的）。
-    ("account", re.compile(r"(?<!\d)\d{12,19}(?!\d)")),
 )
 
 
@@ -197,7 +172,8 @@ class RuleBasedDesensitizer:
         )
         _bump("customer", n)
 
-        status = "applied" if counts else "unchanged"
+        out = redact_personal_information(out)
+        status = "applied" if counts or out != text else "unchanged"
         return DesensitizationResult(text=out, status=status, counts=counts)
 
 
@@ -354,7 +330,7 @@ class LlmOutputDesensitizer:
         # 不外泄未脱敏原文。比较去首尾空白后是否与输入逐字节相同（不依赖 LLM 自觉脱敏）。
         if out == text.strip():
             return None
-        return out
+        return redact_personal_information(out)
 
     async def _scrub_long(self, text: str, *, trace_id: str | None) -> str | None:
         started = time.monotonic()

@@ -63,6 +63,16 @@ export interface IssueDetail extends MaintenanceIssue {
     due_at?: string;
     missing_tags?: string[];
     missing_sections?: string[];
+    counts?: Record<string, number>;
+    total?: number;
+    locations?: {
+      source: string;
+      category: string;
+      start: number;
+      end: number;
+      summary_type?: string;
+    }[];
+    locations_truncated?: boolean;
   };
   evidence_available: boolean;
   current_version_matches: boolean;

@@ -6,9 +6,11 @@ import re
 from difflib import SequenceMatcher
 from hashlib import sha256
 
+from app.core.personal_information import redact_personal_data, redact_personal_information
 from app.services.llm_client import LLMError, safe_llm_diagnostic
 
 RULES = {
+    "personal_information": ("privacy", "疑似包含敏感个人信息"),
     "missing_summary": ("integrity", "缺少摘要"),
     "missing_tags": ("integrity", "缺少必要标签"),
     "missing_directory": ("integrity", "缺少正式分类"),
@@ -28,6 +30,7 @@ RULES = {
     "missing_content": ("quality", "疑似缺少关键内容"),
 }
 SEMANTIC = {
+    "personal_information",
     "possible_duplicate",
     "possible_version",
     "summary_mismatch",
@@ -45,7 +48,7 @@ def digest(value):
 
 
 def finding(rule, *, evidence=None, related=""):
-    evidence = evidence or {}
+    evidence = redact_personal_data(evidence or {})
     return {
         "rule": rule,
         "category": RULES[rule][0],
@@ -112,11 +115,11 @@ def deterministic(snapshot, settings, now):
 
 async def analyze(snapshot, settings, client):
     """Only accepts whitelisted, grounded findings; incomplete responses fail closed."""
-    body = snapshot["body"]
+    body = redact_personal_information(snapshot["body"], preserve_offsets=True)
     prompt = {
-        "summary": snapshot["summary"],
+        "summary": redact_personal_information(snapshot["summary"], preserve_offsets=True),
         "document": body,
-        "required_sections": settings.required_sections,
+        "required_sections": [redact_personal_information(s) for s in settings.required_sections],
         "document_window": snapshot.get("window", {}).get("partial", False)
         if snapshot.get("window")
         else False,
@@ -157,7 +160,7 @@ async def analyze(snapshot, settings, client):
                 not isinstance(substantive, bool)
                 or not isinstance(sections, list)
                 or any(
-                    not isinstance(s, str) or s not in settings.required_sections for s in sections
+                    not isinstance(s, str) or s not in prompt["required_sections"] for s in sections
                 )
             ):
                 return [], "model_response_incomplete"

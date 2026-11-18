@@ -85,6 +85,52 @@ function mount(tab = "issues") {
     </MemoryRouter>,
   );
 }
+
+it("shows privacy findings as counts and locations with a dedicated category", async () => {
+  const item: api.MaintenanceIssue = {
+    id: "privacy-issue",
+    asset_id: "asset",
+    title: "验收资料",
+    library_key: "company",
+    rule: "personal_information",
+    category: "privacy",
+    status: "open",
+    suspected: true,
+    first_seen_at: run.started_at,
+    last_seen_at: run.started_at,
+    updated_at: run.started_at,
+    snooze_until: null,
+    responsible: [],
+    can_act: true,
+  };
+  vi.mocked(api.fetchAgentIssues).mockResolvedValue({
+    items: [item],
+    total: 1,
+    page: 1,
+    page_size: 25,
+  });
+  vi.mocked(api.fetchAgentIssue).mockResolvedValue({
+    ...item,
+    evidence_available: true,
+    current_version_matches: true,
+    history: [],
+    evidence: {
+      basis: "local_personal_information_check",
+      counts: { phone: 1 },
+      total: 1,
+      locations: [{ source: "body", category: "phone", start: 5996, end: 6007 }],
+    },
+  });
+  mount();
+  expect(await screen.findByRole("option", { name: "敏感个人信息" })).toBeInTheDocument();
+  fireEvent.click(await screen.findByRole("button", { name: "疑似包含敏感个人信息" }));
+  expect(await screen.findByRole("region", { name: "个人信息检查结果" })).toHaveTextContent(
+    "电话：1 处",
+  );
+  expect(screen.getByRole("region", { name: "个人信息检查结果" })).toHaveTextContent(
+    "第 5997—6007 字符",
+  );
+});
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(api.fetchAgentPolicies).mockResolvedValue([structuredClone(policy)]);
