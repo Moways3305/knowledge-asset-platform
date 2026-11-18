@@ -28,11 +28,18 @@ export default function KnowledgeMaintenancePage() {
   const [data, setData] = useState<MaintenancePage | null>(null);
   const [error, setError] = useState("");
   const taskKind = (item: MaintenancePage["items"][number]) =>
-    item.awaiting_my_verification ? "verify" : item.needs_correction ? "corrections" : "review";
+    item.awaiting_my_verification
+      ? "verify"
+      : item.needs_correction
+        ? "corrections"
+        : item.agent_issue_count
+          ? "agent"
+          : "review";
   const labels: Record<string, string> = {
     verify: "验证处理结果",
     corrections: "处理纠错",
-    review: "安排或完成复核",
+    review: "按计划复核或更新",
+    agent: "查看巡检问题",
   };
   const items =
     data?.items.filter(
@@ -59,7 +66,7 @@ export default function KnowledgeMaintenancePage() {
         <PageHeader
           title="知识维护"
           actions={<KnowledgeInsightsButton />}
-          description="你负责的待安排、待复核和待纠错资料，以及等待你验证的处理结果。"
+          description="汇总到期复核、资料反馈和智能体发现的待处理问题。"
         />
         <ListWorkspace className="maintenance-workspace" label="维护待办">
           {error && (
@@ -117,7 +124,7 @@ export default function KnowledgeMaintenancePage() {
                     key: "due",
                     header: "复核日期",
                     render: (item) =>
-                      item.review_due_at ? formatBeijingTime(item.review_due_at) : "尚未安排",
+                      item.review_due_at ? formatBeijingTime(item.review_due_at) : "不定期复核",
                   },
                   { key: "task", header: "待办", render: (item) => labels[taskKind(item)] },
                   {
@@ -128,7 +135,11 @@ export default function KnowledgeMaintenancePage() {
                     render: (item) => (
                       <Link
                         className="list-row-action"
-                        to={`/knowledge/${encodeURIComponent(item.asset_id)}?maintenance=${taskKind(item)}`}
+                        to={
+                          taskKind(item) === "agent"
+                            ? `/agents/knowledge-maintenance?library=${encodeURIComponent(item.library_key ?? "company")}&asset_id=${encodeURIComponent(item.asset_id)}`
+                            : `/knowledge/${encodeURIComponent(item.asset_id)}?maintenance=${taskKind(item)}`
+                        }
                         state={{
                           backTo: `/knowledge-maintenance${params.size ? `?${params}` : ""}`,
                           backLabel: "返回知识维护",
@@ -143,7 +154,7 @@ export default function KnowledgeMaintenancePage() {
                 emptyText={
                   data.items.length
                     ? "本页没有符合筛选的待办，可调整条件或查看其他页。"
-                    : "暂无待办。资料更新、到期或收到纠错时会出现在这里。"
+                    : "暂无待办。到期复核、收到反馈或巡检发现问题时会出现在这里。"
                 }
               />
               <PagePagination

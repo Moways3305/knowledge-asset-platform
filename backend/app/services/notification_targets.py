@@ -29,7 +29,7 @@ from app.schemas.permission import AccessLayer, CallerContext
 from app.services import maintenance_access
 from app.services.company_confirmation_policy import select_confirmation_role
 from app.services.ingest_review_state import effective_status
-from app.services.permission import decide, knowledge_manager_allowed
+from app.services.permission import decide, knowledge_maintainer_allowed
 from app.services.review_queries import decision_states
 from app.services.storage import LocalFileStorage
 
@@ -105,6 +105,9 @@ async def resolve(
         if not digest or digest.recipient_id != caller.user_id:
             return None
         query = maintenance_access.visible_issue_query(caller, mine=True)
+        from app.services.maintenance_rules import SUGGESTIONS
+
+        query = query.where(MaintenanceIssue.rule.notin_(SUGGESTIONS))
         if not await session.scalar(query.limit(1)):
             return None
         actionable = bool(
@@ -267,7 +270,7 @@ async def resolve(
         if asset is None or asset.deleted_at is not None:
             return None
         visible = decide(caller, asset, AccessLayer.discovery).allowed
-        if row.event_type == "knowledge.resolved" and not visible:
+        if row.event_type in {"knowledge.resolved", "knowledge.closed"} and not visible:
             reported = await session.scalar(
                 select(KnowledgeCorrection.id)
                 .where(
@@ -298,7 +301,7 @@ async def resolve(
         status = "failed" if action_required else "completed"
         if row.event_type.startswith("knowledge."):
             if row.event_type in {"knowledge.assigned", "knowledge.due", "knowledge.correction"}:
-                if not knowledge_manager_allowed(caller, asset):
+                if not knowledge_maintainer_allowed(caller, asset):
                     return None
                 due = asset.review_due_at
                 action_required = row.event_type != "knowledge.due" or (
@@ -322,11 +325,10 @@ async def resolve(
                     # list's current review conditions without marking history read.
                     action_required = (
                         asset.asset_status == "needs_update"
-                        or due is None
-                        or due.replace(tzinfo=due.tzinfo or timezone.utc) <= utc_now()
-                        or asset.verified_at is None
-                        or asset.verified_updated_at is None
-                        or asset.verified_updated_at != asset.updated_at
+                        or (
+                            due is not None
+                            and due.replace(tzinfo=due.tzinfo or timezone.utc) <= utc_now()
+                        )
                         or bool(
                             await session.scalar(
                                 select(KnowledgeCorrection.id)
@@ -338,6 +340,8 @@ async def resolve(
                             )
                         )
                     )
+            elif row.event_type == "knowledge.closed":
+                action_required = False
             else:
                 action_required = bool(
                     await session.scalar(

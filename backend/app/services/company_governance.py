@@ -7,12 +7,12 @@ Candidate signals are heuristics, never automatic deletion instructions.
 
 import re
 from collections import Counter
-from datetime import timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from app.db.utils import as_utc as _stamp
 from app.db.utils import utc_now
 from app.models.knowledge import KnowledgeAsset
 from app.schemas.governance import (
@@ -21,8 +21,9 @@ from app.schemas.governance import (
     GovernanceOutcome,
     GovernancePage,
 )
+from app.schemas.knowledge_review import ReplacementCommand
 from app.schemas.lifecycle import ArchiveConfirmBody, ReenableConfirmBody
-from app.services import audit, lifecycle
+from app.services import audit, knowledge_review, lifecycle
 from app.services.knowledge_projection import _select_summary_text, _summary_map
 from app.services.permission import lifecycle_actor_allowed, lifecycle_visibility
 
@@ -130,14 +131,6 @@ async def list_company(
     )
 
 
-def _stamp(value):
-    return (
-        value.replace(tzinfo=timezone.utc)
-        if value.tzinfo is None
-        else value.astimezone(timezone.utc)
-    )
-
-
 async def _company_asset(session, caller, asset_id):
     asset = await session.scalar(
         select(KnowledgeAsset)
@@ -166,11 +159,31 @@ async def apply_batch(session, caller, body, trace_id) -> GovernanceBatchResult:
         raise HTTPException(422, detail={"message": "新版替代须填写替代资产ID"})
     if body.replacement_asset_id in {i.asset_id for i in body.items}:
         raise HTTPException(422, detail={"message": "替代资料不能包含在本批归档清单中"})
+    if (
+        body.action == "archive"
+        and body.reason_code == "superseded"
+        and (
+            not body.confirm_replacement
+            or body.expected_replacement_updated_at is None
+            or len(body.items) != 1
+        )
+    ):
+        raise HTTPException(
+            422, detail={"message": "新版替代请逐份核对新版内容并确认，不能批量建立版本关系"}
+        )
     results = []
     # Per-item transactions intentionally report partial success. A stale selection
     # is never overwritten, including an ABA status change (updated_at checked).
     for item in body.items:
         try:
+            if body.reason_code == "superseded" and body.replacement_asset_id:
+                # Match the detail replacement flow's global lock order.
+                await session.execute(
+                    select(KnowledgeAsset)
+                    .where(KnowledgeAsset.id.in_([item.asset_id, body.replacement_asset_id]))
+                    .order_by(KnowledgeAsset.id)
+                    .with_for_update()
+                )
             asset = await _company_asset(session, caller, item.asset_id)
             if asset.asset_status != item.expected_status or _stamp(asset.updated_at) != _stamp(
                 item.expected_updated_at
@@ -178,14 +191,24 @@ async def apply_batch(session, caller, body, trace_id) -> GovernanceBatchResult:
                 raise HTTPException(409, detail={"message": "资料已变更，请刷新后重新核验"})
             reason = f"[{REASONS[body.reason_code]}] {body.reason}"
             if body.action == "archive":
-                if body.replacement_asset_id:
-                    replacement = await _company_asset(session, caller, body.replacement_asset_id)
-                    if replacement.asset_status != "active":
-                        raise HTTPException(409, detail={"message": "替代资料须为有效的公司知识"})
-                    reason += f"\n替代资产ID: {replacement.id}"
-                await lifecycle.archive_confirm(
-                    session, caller, item.asset_id, ArchiveConfirmBody(reason=reason), trace_id
-                )
+                if body.reason_code == "superseded":
+                    await knowledge_review.replace(
+                        session,
+                        caller,
+                        item.asset_id,
+                        ReplacementCommand(
+                            expected_updated_at=item.expected_updated_at,
+                            replacement_asset_id=body.replacement_asset_id,
+                            expected_replacement_updated_at=body.expected_replacement_updated_at,
+                            confirm_archive=body.confirm_replacement,
+                            reason=reason,
+                        ),
+                        trace_id,
+                    )
+                else:
+                    await lifecycle.archive_confirm(
+                        session, caller, item.asset_id, ArchiveConfirmBody(reason=reason), trace_id
+                    )
             else:
                 await lifecycle.reenable_confirm(
                     session,

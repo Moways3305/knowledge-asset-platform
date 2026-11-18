@@ -128,6 +128,8 @@ async def retry_run(
 @router.get("/issues", response_model=IssuePage)
 async def issues(
     library_key: str | None = None,
+    priority: Literal["all", "actionable", "suggestion"] = "all",
+    asset_id: uuid.UUID | None = None,
     status: Literal[
         "active",
         "all",
@@ -147,7 +149,15 @@ async def issues(
     session: AsyncSession = Depends(get_db),
 ):
     return await service.list_issues(
-        session, caller, key=library_key, status=status, category=category, mine=mine, page=page
+        session,
+        caller,
+        key=library_key,
+        status=status,
+        category=category,
+        mine=mine,
+        page=page,
+        priority=priority,
+        asset_id=asset_id,
     )
 
 

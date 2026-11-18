@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import denied as _denied  # noqa: F401
 from app.models.identity import User
 from app.models.lifecycle import AlertRule, NotificationRecord
 from app.schemas.alert import (
@@ -104,12 +104,6 @@ DEFAULT_OPS_ALERT_RULES = [
         "dedup_strategy": None,
     },
 ]
-
-
-def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code, detail={"denied_reason": reason, "message": message}
-    )
 
 
 def _require_operator(caller: CallerContext) -> None:

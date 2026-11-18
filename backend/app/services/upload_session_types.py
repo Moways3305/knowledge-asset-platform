@@ -7,8 +7,7 @@ import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from fastapi import HTTPException
-
+from app.core.errors import denied as _denied  # noqa: F401
 from app.models.ingest import (
     IngestTask,
 )
@@ -63,12 +62,6 @@ def extract_formed_on_from_filename(file_name: str) -> str | None:
         return f"{year:04d}-{month:02d}-{day:02d}"
     except (TypeError, ValueError):
         return None
-
-
-def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code, detail={"denied_reason": reason, "message": message}
-    )
 
 
 def _display_name(value: str) -> str:

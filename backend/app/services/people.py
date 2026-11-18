@@ -21,11 +21,11 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import HTTPException
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.errors import denied as _denied  # noqa: F401
 from app.models.auth_session import UserSession
 from app.models.identity import Project, ProjectMember, User, UserCompanyRole
 from app.schemas.enums import (
@@ -56,12 +56,6 @@ from app.services import governance_policy, session_revocation
 from app.services import passwords as password_service
 
 _MAX_LIMIT = 100
-
-
-def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code, detail={"denied_reason": reason, "message": message}
-    )
 
 
 def _is_admin(caller: CallerContext) -> bool:

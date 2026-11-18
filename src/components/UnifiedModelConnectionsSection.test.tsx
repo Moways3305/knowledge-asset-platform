@@ -63,6 +63,8 @@ describe("UnifiedModelConnectionsSection", () => {
   it("assigns one external LLM as the content generation and project QA default", async () => {
     render(<UnifiedModelConnectionsSection canEdit />);
     const content = await screen.findByLabelText("内容生成默认模型");
+    // The labelled select exists while loading; choose only after its options arrive.
+    await waitFor(() => expect(content).toBeEnabled());
     fireEvent.change(content, { target: { value: chat.model_ref } });
     expect(screen.getByLabelText("项目问答默认模型")).toHaveValue(chat.model_ref);
     fireEvent.click(screen.getByText("保存默认用途"));

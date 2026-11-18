@@ -4,7 +4,7 @@ import uuid
 
 import pytest
 from sqlalchemy import select, update
-from test_maintenance_agent import configure, drain, headers, run_asset
+from test_maintenance_agent import configure, drain, headers, make_overdue, run_asset
 
 from app.models.knowledge import KnowledgeAsset
 from app.models.maintenance_agent import MaintenancePolicy, MaintenanceRun, MaintenanceRunItem
@@ -19,6 +19,7 @@ def path(run_id, suffix=""):
 async def test_material_records_are_targets_and_have_persistent_results(
     client, sessionmaker_fixture
 ):
+    await make_overdue(sessionmaker_fixture)
     await configure(client)
     async with sessionmaker_fixture() as session:
         asset = await session.get(KnowledgeAsset, KA_COMPANY_L2)
@@ -33,7 +34,7 @@ async def test_material_records_are_targets_and_have_persistent_results(
     assert after["historical_details_available"]
     assert after["items"][0]["status"] == "incomplete"
     assert after["items"][0]["coverage"]["quality"] == "content_not_authorized"
-    assert after["items"][0]["findings"]
+    assert after["items"][0]["findings"] == {"review_overdue": 1}
     assert "quote" not in str(after)
     second_id = await run_asset(sessionmaker_fixture)
     await drain(sessionmaker_fixture)

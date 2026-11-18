@@ -27,7 +27,14 @@ from app.services.generation_models import resolve_generation_llm_client
 from app.services.llm_client import NullLLMClient
 from app.services.maintenance_batches import advance
 from app.services.maintenance_reports import cancel_pending, seed_targets
-from app.services.maintenance_rules import analyze, deterministic, digest, finding
+from app.services.maintenance_rules import (
+    RETIRED,
+    SUGGESTIONS,
+    analyze,
+    deterministic,
+    digest,
+    finding,
+)
 from app.services.maintenance_snapshots import capture
 from app.services.storage import get_storage
 
@@ -342,7 +349,7 @@ async def persist_findings(
         ):
             row.status, row.updated_at, row.snooze_until = "resolved", now, None
             session.add(MaintenanceIssueEvent(issue_id=row.id, action="recheck_passed"))
-        if row.status in ACTIVE:
+        if row.status in ACTIVE and row.rule not in RETIRED | SUGGESTIONS:
             for recipient in snapshot["responsible"]:
                 await _digest(session, row, uuid.UUID(recipient["id"]), settings, now)
     if not finalize:
@@ -686,6 +693,7 @@ async def retire_unavailable(session):
             .where(
                 MaintenanceIssue.status != "not_applicable",
                 or_(
+                    MaintenanceIssue.rule.in_(RETIRED),
                     KnowledgeAsset.deleted_at.is_not(None),
                     KnowledgeAsset.scope.notin_(["company", "project"]),
                     KnowledgeAsset.asset_status.notin_(["active", "needs_update"]),

@@ -6,11 +6,11 @@ import uuid
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
-from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.errors import denied as _denied  # noqa: F401
 from app.models.ingest import IngestTask
 from app.schemas.enums import (
     AlertSeverity,
@@ -50,13 +50,6 @@ class ValidatedConfirmationContext:
 
 
 ConfirmationRoute = ValidatedConfirmationContext | IngestConfirmResponse
-
-
-def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code,
-        detail={"denied_reason": reason, "message": message},
-    )
 
 
 def apply_authoritative_project_subject(

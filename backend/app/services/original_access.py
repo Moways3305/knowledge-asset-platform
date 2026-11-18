@@ -17,11 +17,11 @@ import uuid
 from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 
-from fastapi import HTTPException
 from sqlalchemy import and_, case, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.errors import denied as _denied  # noqa: F401
 from app.db.utils import utc_now
 from app.models.identity import ProjectMember, User, UserCompanyRole
 from app.models.knowledge import KnowledgeAsset
@@ -57,12 +57,6 @@ _logger = logging.getLogger(__name__)
 
 _MANAGEMENT_ROLES = {ProjectRole.project_manager.value, ProjectRole.coach.value}
 _DEFAULT_GRANT_DAYS = 7
-
-
-def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code, detail={"denied_reason": reason, "message": message}
-    )
 
 
 def _as_aware(dt: datetime | None) -> datetime | None:

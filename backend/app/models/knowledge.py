@@ -19,6 +19,7 @@ from datetime import datetime
 from sqlalchemy import (
     JSON,
     BigInteger,
+    Boolean,
     DateTime,
     ForeignKey,
     Index,
@@ -87,6 +88,10 @@ class KnowledgeAsset(Base):
     review_scan_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     reuse_scan_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     review_due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    review_interval_days: Mapped[int | None] = mapped_column(Integer)
+    maintenance_delegated: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false")
+    )
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     verified_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     verified_by_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id"))

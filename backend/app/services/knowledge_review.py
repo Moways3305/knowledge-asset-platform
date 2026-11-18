@@ -2,15 +2,14 @@
 
 import json
 import time
-import uuid
-from datetime import timezone
+from datetime import timedelta
 from hashlib import sha256
 from types import SimpleNamespace
 
 from fastapi import HTTPException
 from sqlalchemy import and_, func, or_, select
-from sqlalchemy.orm import selectinload
 
+from app.db.utils import as_utc as stamp
 from app.db.utils import utc_now
 from app.models.identity import User
 from app.models.knowledge import (
@@ -31,18 +30,20 @@ from app.schemas.knowledge_review import (
 from app.schemas.lifecycle import ArchiveConfirmBody
 from app.services import audit, lifecycle, operation_events
 from app.services.jobs import governance_scan
+from app.services.knowledge_responsibility import (
+    eligible_maintainers,
+    maintainer_contexts,
+    responsible_for,
+    responsible_recipients,
+)
 from app.services.permission import (
     AccessLayer,
-    build_caller_context,
     decide,
+    knowledge_maintainer_allowed,
     knowledge_manager_allowed,
 )
 from app.services.permission_rules import load_access_policy
 from app.worker.enqueue import enqueue_outbox_delivery
-
-
-def stamp(value):
-    return value.replace(tzinfo=value.tzinfo or timezone.utc) if value else None
 
 
 def _active_projection(asset):
@@ -58,8 +59,8 @@ def _active_projection(asset):
 
 
 def can_manage(caller, asset):
-    # Assignment is responsibility, not a new grant of project/company edit permissions.
-    return asset.deleted_at is None and knowledge_manager_allowed(caller, asset)
+    # Explicit delegated maintenance is restricted to this asset; assignment alone grants nothing.
+    return asset.deleted_at is None and knowledge_maintainer_allowed(caller, asset)
 
 
 def reject(status, message):
@@ -161,47 +162,21 @@ async def fingerprint(session, asset):
     return sha256(json.dumps(data, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
-async def _maintainer_contexts(session):
-    users = (
-        await session.scalars(
-            select(User)
-            .where(User.status == "active")
-            .options(selectinload(User.company_roles), selectinload(User.project_members))
-        )
-    ).all()
-    return [
-        (
-            user,
-            [
-                build_caller_context(user, active_company_role=role.company_role)
-                for role in user.company_roles
-                if role.status == "active"
-            ],
-        )
-        for user in users
-    ]
-
-
-def _eligible_maintainers(asset, candidates):
-    # Any assigned active business identity may qualify, regardless of default identity.
-    return [
-        {"id": str(user.id), "name": user.name}
-        for user, contexts in candidates
-        if any(can_manage(ctx, asset) for ctx in contexts)
-    ]
-
-
 async def _maintainers(session, asset):
-    return _eligible_maintainers(asset, await _maintainer_contexts(session))
-
-
-def _responsible_for(asset, candidates):
-    ids = [uuid.UUID(item["id"]) for item in _eligible_maintainers(asset, candidates)]
-    return [asset.maintainer_user_id] if asset.maintainer_user_id in ids else ids
-
-
-async def responsible_recipients(session, asset):
-    return _responsible_for(asset, await _maintainer_contexts(session))
+    candidates = await maintainer_contexts(session)
+    if asset.scope == "company" and asset.confidentiality_level != "L5":
+        return [
+            {
+                "id": str(user.id),
+                "name": user.name,
+                "requires_delegation": "true"
+                if not any(knowledge_manager_allowed(ctx, asset) for ctx in contexts)
+                else "false",
+            }
+            for user, contexts in candidates
+            if any(ctx.is_active and ctx.is_business_user for ctx in contexts)
+        ]
+    return eligible_maintainers(asset, candidates)
 
 
 def freshness(asset):
@@ -255,6 +230,9 @@ async def get_state(session, caller, asset_id):
         maintainer_user_id=asset.maintainer_user_id,
         maintainer_name=maintainer.name if maintainer else None,
         review_due_at=asset.review_due_at,
+        review_interval_days=asset.review_interval_days,
+        maintenance_delegated=asset.maintenance_delegated,
+        can_assign=knowledge_manager_allowed(caller, asset),
         verified_at=asset.verified_at,
         freshness=freshness(asset),
         replacement_asset_id=replacement_id,
@@ -274,10 +252,17 @@ async def get_state(session, caller, asset_id):
                 updated_at=row.updated_at,
                 can_resolve=manager and row.status == "open",
                 can_verify=row.reporter_user_id == caller.user_id and row.status == "resolved",
+                can_withdraw=row.reporter_user_id == caller.user_id
+                and row.status in {"open", "resolved"},
+                can_reopen=(row.reporter_user_id == caller.user_id or manager)
+                and row.status in {"resolved", "verified", "rejected", "duplicate", "withdrawn"},
+                can_close=knowledge_manager_allowed(caller, asset) and row.status == "resolved",
             )
             for row in rows
         ],
-        maintainers=await _maintainers(session, asset) if manager else [],
+        maintainers=await _maintainers(session, asset)
+        if knowledge_manager_allowed(caller, asset)
+        else [],
     )
 
 
@@ -285,11 +270,29 @@ async def set_policy(session, caller, asset_id, req, trace_id):
     asset = await _write_asset(session, caller, asset_id, req)
     if asset.asset_status not in {"active", "needs_update"}:
         raise reject(409, "请先处理归档或停用状态")
-    if stamp(req.review_due_at) <= utc_now():
+    if req.review_due_at and stamp(req.review_due_at) <= utc_now():
         raise reject(422, "下次复核时间必须在未来")
-    eligible = await _maintainers(session, asset)
-    if str(req.maintainer_user_id) not in {row["id"] for row in eligible}:
-        raise reject(422, "维护人必须具有该知识库的管理权限")
+    if not knowledge_manager_allowed(caller, asset):
+        if (
+            req.maintainer_user_id != asset.maintainer_user_id
+            or req.maintenance_delegated != asset.maintenance_delegated
+        ):
+            raise reject(403, "维护人和授权只能由知识库管理人调整")
+    elif req.maintainer_user_id:
+        candidates = await maintainer_contexts(session)
+        eligible = eligible_maintainers(asset, candidates)
+        if req.maintenance_delegated:
+            if asset.scope != "company" or asset.confidentiality_level == "L5":
+                raise reject(422, "受限维护授权仅适用于公司库 L1—L4 资料")
+            eligible = [
+                {"id": str(u.id)}
+                for u, contexts in candidates
+                if any(ctx.is_business_user for ctx in contexts)
+            ]
+        if str(req.maintainer_user_id) not in {row["id"] for row in eligible}:
+            raise reject(422, "请选择有管理权限的维护人，或明确授予此资料的维护权限")
+    elif req.maintenance_delegated:
+        raise reject(422, "请先选择被授权的维护人")
     # updated_at remains the optimistic-concurrency token for all asset writes.
     # Carry a CURRENT verification across responsibility/schedule-only changes,
     # without inventing a new review or masking an earlier content change.
@@ -298,8 +301,28 @@ async def set_policy(session, caller, asset_id, req, trace_id):
         and asset.verified_updated_at is not None
         and stamp(asset.verified_updated_at) == stamp(asset.updated_at)
     )
+    if (asset.maintainer_user_id, asset.maintenance_delegated) != (
+        req.maintainer_user_id,
+        req.maintenance_delegated,
+    ):
+        from sqlalchemy import update
+
+        from app.models.preview import PreviewCredential
+
+        await session.execute(
+            update(PreviewCredential)
+            .where(
+                PreviewCredential.target_asset_id == asset.id,
+                PreviewCredential.credential_status == "active",
+            )
+            .values(credential_status="revoked", revoked_at=utc_now())
+        )
     asset.maintainer_user_id = req.maintainer_user_id
-    asset.review_due_at = req.review_due_at
+    asset.maintenance_delegated = req.maintenance_delegated
+    asset.review_interval_days = req.review_interval_days
+    asset.review_due_at = req.review_due_at or (
+        utc_now() + timedelta(days=req.review_interval_days) if req.review_interval_days else None
+    )
     asset.updated_at = utc_now()
     if verification_current:
         asset.verified_updated_at = asset.updated_at
@@ -310,11 +333,21 @@ async def set_policy(session, caller, asset_id, req, trace_id):
         "review_policy_changed",
         trace_id,
         maintainer_user_id=str(req.maintainer_user_id),
-        review_due_at=req.review_due_at.isoformat(),
+        review_due_at=asset.review_due_at.isoformat() if asset.review_due_at else None,
+        review_interval_days=req.review_interval_days,
+        maintenance_delegated=req.maintenance_delegated,
     )
     await operation_events.publish_knowledge_trust(
-        session, asset, [req.maintainer_user_id], "assigned", str(asset.updated_at)
+        session,
+        asset,
+        [req.maintainer_user_id] if req.maintainer_user_id else [],
+        "assigned",
+        str(asset.updated_at),
     )
+    from app.services.maintenance_reconcile import reconcile_asset
+
+    await session.flush()
+    await reconcile_asset(session, asset)
     await session.commit()
     await enqueue_outbox_delivery(session)
     return await get_state(session, caller, asset_id)
@@ -324,12 +357,10 @@ async def review(session, caller, asset_id, req, trace_id):
     asset = await _write_asset(session, caller, asset_id, req)
     if asset.asset_status not in {"active", "needs_update"} or asset.replacement_asset_id:
         raise reject(409, "归档、停用或已替代资料不可直接验证")
-    if not asset.maintainer_user_id:
-        raise reject(422, "请先指定维护人")
     now = utc_now()
     if req.outcome == "verified":
-        if req.next_review_at is None or stamp(req.next_review_at) <= now:
-            raise reject(422, "验证通过时必须设置未来的复核日期")
+        if req.next_review_at is not None and stamp(req.next_review_at) <= now:
+            raise reject(422, "指定的下次复核日期必须在未来")
         unresolved = await session.scalar(
             select(KnowledgeCorrection.id)
             .where(KnowledgeCorrection.asset_id == asset.id, KnowledgeCorrection.status == "open")
@@ -341,7 +372,9 @@ async def review(session, caller, asset_id, req, trace_id):
         asset.verified_at = now
         asset.verified_updated_at = now
         asset.verified_by_user_id = caller.user_id
-        asset.review_due_at = req.next_review_at
+        asset.review_due_at = req.next_review_at or (
+            now + timedelta(days=asset.review_interval_days) if asset.review_interval_days else None
+        )
     else:
         asset.asset_status = "needs_update"
         asset.verified_updated_at = None
@@ -349,6 +382,10 @@ async def review(session, caller, asset_id, req, trace_id):
     await _audit(
         session, caller, asset, "review_completed", trace_id, outcome=req.outcome, reason=req.reason
     )
+    from app.services.maintenance_reconcile import reconcile_asset
+
+    await session.flush()
+    await reconcile_asset(session, asset)
     await session.commit()
     await enqueue_outbox_delivery(session)
     return await get_state(session, caller, asset_id)
@@ -373,9 +410,6 @@ async def replacement_options(session, caller, asset_id, keyword):
         target.asset_status == "active",
         target.replacement_asset_id.is_(None),
         target.current_version_id.is_not(None),
-        target.verified_at.is_not(None),
-        target.verified_updated_at == target.updated_at,
-        target.review_due_at > utc_now(),
         ~open_issue,
     )
     if asset.scope == "personal":
@@ -400,6 +434,8 @@ async def replace(session, caller, asset_id, req, trace_id):
         .with_for_update()
     )
     asset = await _write_asset(session, caller, asset_id, req)
+    if not knowledge_manager_allowed(caller, asset):
+        raise reject(403, "新版发布与旧版归档须由知识库管理人确认")
     if req.replacement_asset_id is None:
         asset.replacement_asset_id = None
         asset.updated_at = utc_now()
@@ -442,25 +478,28 @@ async def replace(session, caller, asset_id, req, trace_id):
         target.confidentiality_level,
     ):
         raise reject(422, "新版必须在同一知识库且保密等级一致，请先走正式调整流程")
-    if (
-        target.asset_status != "active"
-        or target.replacement_asset_id
-        or freshness(target) != "verified"
-    ):
-        raise reject(409, "新版必须是已复核的有效资料，且不能再次指向其它新版")
+    if target.asset_status != "active" or target.replacement_asset_id:
+        raise reject(409, "新版必须是有效资料，且不能再次指向其它新版")
     pending = await session.scalar(
         select(KnowledgeCorrection.id)
         .where(KnowledgeCorrection.asset_id == target.id, KnowledgeCorrection.status == "open")
         .limit(1)
     )
     if pending:
-        raise reject(409, "新版仍有未处理纠错，请先处理并复核")
+        raise reject(409, "新版仍有未处理纠错，请先处理反馈")
     # Sequential historical chains are valid. Both endpoints are locked above;
     # source must be active and target must be terminal, preventing inverse cycles.
     if not req.confirm_archive:
         raise reject(409, "尚未明确确认旧版归档")
     asset.replacement_asset_id = target.id
     asset.updated_at = utc_now()
+    # One explicit confirmation covers current content and adoption. Scheduling is optional.
+    target.verified_at = target.verified_updated_at = target.updated_at = utc_now()
+    target.verified_by_user_id = caller.user_id
+    if target.review_interval_days:
+        target.review_due_at = utc_now() + timedelta(days=target.review_interval_days)
+    elif target.review_due_at and stamp(target.review_due_at) <= utc_now():
+        target.review_due_at = None
     await _audit(
         session,
         caller,
@@ -473,6 +512,9 @@ async def replace(session, caller, asset_id, req, trace_id):
     # Both endpoints are already locked. Persist the replacement link before the
     # lifecycle command refreshes its locked row; keep the same atomic transaction.
     await session.flush()
+    from app.services.maintenance_reconcile import reconcile_asset
+
+    await reconcile_asset(session, target)
     # Existing lifecycle command keeps revocation/audit behavior and commits atomically.
     await lifecycle.archive_confirm(
         session, caller, asset.id, ArchiveConfirmBody(reason=req.reason), trace_id
@@ -563,31 +605,61 @@ async def transition(session, caller, asset_id, correction_id, req, trace_id):
         await operation_events.publish_knowledge_trust(
             session, asset, [row.reporter_user_id], "resolved", str(row.id) + str(now)
         )
+    elif req.action in {"reject", "duplicate", "withdraw"}:
+        if req.action == "withdraw":
+            if row.reporter_user_id != caller.user_id or row.status not in {"open", "resolved"}:
+                raise reject(409, "只能撤回自己尚未结束的反馈")
+            row.status = "withdrawn"
+        else:
+            if not can_manage(caller, asset) or row.status != "open":
+                raise reject(409, "只有维护人可处理尚未结束的反馈")
+            row.status = "rejected" if req.action == "reject" else "duplicate"
+        row.resolution = audit.sanitize_text(req.reason)
+        row.resolved_by_user_id = caller.user_id
+        await operation_events.publish_knowledge_trust(
+            session, asset, [row.reporter_user_id], "closed", str(row.id) + str(now)
+        )
+    elif req.action == "reopen":
+        if not (
+            row.reporter_user_id == caller.user_id or can_manage(caller, asset)
+        ) or row.status not in {"resolved", "verified", "rejected", "duplicate", "withdrawn"}:
+            raise reject(409, "此条反馈不可重新打开")
+        row.status = "open"
+        target = (
+            await session.get(KnowledgeAsset, row.resolved_asset_id)
+            if row.resolved_asset_id
+            else asset
+        )
+        row.reported_updated_at = (target or asset).updated_at
+        row.reported_fingerprint = await fingerprint(session, target or asset)
+        await operation_events.publish_knowledge_trust(
+            session,
+            asset,
+            await responsible_recipients(session, asset),
+            "correction",
+            str(row.id) + str(now),
+        )
     else:
-        if row.reporter_user_id != caller.user_id or row.status != "resolved":
+        permitted = (
+            row.reporter_user_id == caller.user_id
+            if req.action == "verify"
+            else knowledge_manager_allowed(caller, asset)
+        )
+        if not permitted or row.status != "resolved":
             raise reject(409, "只有提出者可验证待验证的纠错")
-        if req.action == "verify":
+        if req.action in {"verify", "close"}:
             target = await _load(session, caller, row.resolved_asset_id, write=True)
             if (await fingerprint(session, target)) != row.resolved_fingerprint:
                 raise reject(409, "处理后的资料又有修改，请重新打开纠错并核查")
-            if freshness(target) != "verified":
-                raise reject(409, "处理后的资料尚未复核通过，请联系维护人复核")
+            if target.asset_status not in {"active", "needs_update"}:
+                raise reject(409, "处理后的资料已停用，请重新核查")
             if target.id != (asset.replacement_asset_id or asset.id):
                 raise reject(409, "新版关联已变化，请重新打开纠错并核查")
             row.status = "verified"
-        else:
-            row.status = "open"
-            # Keep the failed resolution for traceability; require another change next time.
-            target = await session.get(KnowledgeAsset, row.resolved_asset_id)
-            row.reported_updated_at = target.updated_at if target else asset.updated_at
-            row.reported_fingerprint = await fingerprint(session, target or asset)
-            await operation_events.publish_knowledge_trust(
-                session,
-                asset,
-                await responsible_recipients(session, asset),
-                "correction",
-                str(row.id) + str(now),
-            )
+            if req.action == "close":
+                await operation_events.publish_knowledge_trust(
+                    session, asset, [row.reporter_user_id], "closed", str(row.id) + str(now)
+                )
     row.updated_at = now
     await _audit(
         session,
@@ -598,6 +670,10 @@ async def transition(session, caller, asset_id, correction_id, req, trace_id):
         correction_id=str(row.id),
         reason=req.reason,
     )
+    from app.services.maintenance_reconcile import reconcile_asset
+
+    await session.flush()
+    await reconcile_asset(session, asset)
     await session.commit()
     await enqueue_outbox_delivery(session)
     return await get_state(session, caller, asset_id)
@@ -610,12 +686,29 @@ async def scan_due_reviews(session, *, resume_only=False):
     if run is None:
         return 0
     try:
+        from app.models.maintenance_agent import MaintenancePolicy
+
+        agent_scheduled = (
+            select(MaintenancePolicy.id)
+            .where(
+                MaintenancePolicy.enabled.is_(True),
+                or_(
+                    and_(KnowledgeAsset.scope == "company", MaintenancePolicy.project_id.is_(None)),
+                    and_(
+                        KnowledgeAsset.scope == "project",
+                        MaintenancePolicy.project_id == KnowledgeAsset.project_id,
+                    ),
+                ),
+            )
+            .exists()
+        )
         conditions = (
             KnowledgeAsset.review_due_at <= run.cutoff_at,
             KnowledgeAsset.asset_status.in_(["active", "needs_update"]),
+            ~agent_scheduled,
         )
         assets = await governance_scan.claim_assets(session, run, *conditions)
-        candidates = await _maintainer_contexts(session) if assets else []
+        candidates = await maintainer_contexts(session) if assets else []
         processed = []
         for asset in assets:
             if governance_scan.budget_exhausted(started, processed):
@@ -623,7 +716,7 @@ async def scan_due_reviews(session, *, resume_only=False):
             await operation_events.publish_knowledge_trust(
                 session,
                 asset,
-                _responsible_for(asset, candidates),
+                responsible_for(asset, candidates),
                 "due",
                 str(asset.review_due_at),
             )
@@ -649,7 +742,17 @@ async def list_maintenance(session, caller, *, page=1, page_size=25):
     asset = KnowledgeAsset
     managed = or_(
         and_(asset.scope == "personal", asset.owner_user_id == caller.user_id),
-        and_(asset.scope == "company", caller.can_discover_l5),
+        and_(
+            asset.scope == "company",
+            or_(
+                caller.can_discover_l5,
+                and_(
+                    asset.maintenance_delegated.is_(True),
+                    asset.maintainer_user_id == caller.user_id,
+                    asset.confidentiality_level != "L5",
+                ),
+            ),
+        ),
         and_(
             asset.scope == "project",
             asset.project_id.in_(manager_projects),
@@ -674,15 +777,30 @@ async def list_maintenance(session, caller, *, page=1, page_size=25):
     from app.services.permission import discovery_filter
 
     report_visible = and_(own_resolved, discovery_filter(caller, include_inactive=True))
+    from app.models.maintenance_agent import MaintenanceIssue
+    from app.services.maintenance_access import visible_issue_query
+    from app.services.maintenance_rules import SUGGESTIONS
+
+    visible_issues = (
+        visible_issue_query(caller)
+        .where(
+            MaintenanceIssue.status.in_(["open", "in_progress", "awaiting_recheck"]),
+            MaintenanceIssue.rule.notin_(SUGGESTIONS),
+        )
+        .subquery()
+    )
+    agent_count = (
+        select(func.count())
+        .select_from(visible_issues)
+        .where(visible_issues.c.asset_id == asset.id)
+        .correlate(asset)
+        .scalar_subquery()
+    )
     attention = or_(
-        asset.maintainer_user_id.is_(None),
-        asset.review_due_at.is_(None),
         asset.review_due_at <= utc_now(),
-        asset.verified_at.is_(None),
-        asset.verified_updated_at.is_(None),
-        asset.verified_updated_at != asset.updated_at,
         asset.asset_status == "needs_update",
         open_issue,
+        agent_count > 0,
     )
     filters = [
         asset.deleted_at.is_(None),
@@ -694,7 +812,12 @@ async def list_maintenance(session, caller, *, page=1, page_size=25):
     total = await session.scalar(select(func.count()).select_from(asset).where(*filters))
     rows = (
         await session.execute(
-            select(asset, open_issue.label("open_issue"), own_resolved.label("own_resolved"))
+            select(
+                asset,
+                open_issue.label("open_issue"),
+                own_resolved.label("own_resolved"),
+                agent_count.label("agent_count"),
+            )
             .where(*filters)
             .order_by(asset.updated_at.desc(), asset.id)
             .offset((page - 1) * page_size)
@@ -711,8 +834,14 @@ async def list_maintenance(session, caller, *, page=1, page_size=25):
                 freshness=freshness(row),
                 needs_correction=bool(open_ and can_manage(caller, row)),
                 awaiting_my_verification=bool(own),
+                agent_issue_count=count,
+                library_key=f"project:{row.project_id}"
+                if row.scope == "project"
+                else "company"
+                if row.scope == "company"
+                else None,
             )
-            for row, open_, own in rows
+            for row, open_, own, count in rows
         ],
         total=total or 0,
         page=page,

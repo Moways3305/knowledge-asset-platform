@@ -26,6 +26,9 @@ import {
 import { ActionGroup } from "../components/ActionLayout";
 import DetailDrawer from "../components/DetailDrawer";
 import TaskModal from "../components/TaskModal";
+import KnowledgeReplacementPicker, {
+  type ReplacementSelection,
+} from "../components/KnowledgeReplacementPicker";
 import "./CompanyGovernancePage.css";
 
 const signals: Record<string, string> = {
@@ -98,7 +101,7 @@ export default function CompanyGovernancePage() {
   const [busy, setBusy] = useState(false);
   const [reason, setReason] = useState("");
   const [code, setCode] = useState<ReasonCode>("historical");
-  const [replacement, setReplacement] = useState("");
+  const [replacement, setReplacement] = useState<ReplacementSelection | null>(null);
   const [result, setResult] = useState<BatchResult | null>(null);
   const [actionError, setActionError] = useState("");
   const serial = useRef(0);
@@ -185,13 +188,13 @@ export default function CompanyGovernancePage() {
         archived ? "restore" : "archive",
         code,
         reason.trim(),
-        !archived && code === "superseded" ? replacement.trim() : undefined,
+        !archived && code === "superseded" ? replacement : undefined,
       );
       setResult(r);
       setConfirm(false);
       setDetail(null);
       setReason("");
-      setReplacement("");
+      setReplacement(null);
       await load();
     } catch {
       setActionError("未能确认执行结果。请关闭预览并刷新清单，核对状态后再操作。");
@@ -272,7 +275,11 @@ export default function CompanyGovernancePage() {
             >
               {<option value="">全部原因</option>}
               {Object.entries(signals).map(([key, label]) => (
-                <option key={key} value={key}>
+                <option
+                  key={key}
+                  value={key}
+                  disabled={key === "superseded" && selected.length !== 1}
+                >
                   {label}
                 </option>
               ))}
@@ -538,7 +545,7 @@ export default function CompanyGovernancePage() {
               disabled={
                 busy ||
                 !reason.trim() ||
-                (!archived && code === "superseded" && !replacement.trim())
+                (!archived && code === "superseded" && (selected.length !== 1 || !replacement))
               }
               onClick={() => void execute()}
             >
@@ -561,22 +568,23 @@ export default function CompanyGovernancePage() {
               onChange={(e) => setCode(e.target.value as ReasonCode)}
             >
               {Object.entries(reasons).map(([key, label]) => (
-                <option key={key} value={key}>
+                <option
+                  key={key}
+                  value={key}
+                  disabled={key === "superseded" && selected.length !== 1}
+                >
                   {label}
                 </option>
               ))}
             </select>
           </label>
-          {!archived && code === "superseded" && (
-            <label>
-              替代资产 ID
-              <input
-                value={replacement}
-                disabled={busy}
-                onChange={(e) => setReplacement(e.target.value)}
-                placeholder="有效公司知识的资产 ID"
-              />
-            </label>
+          {!archived && code === "superseded" && selected.length === 1 && (
+            <KnowledgeReplacementPicker
+              key={selected[0].asset_id}
+              assetId={selected[0].asset_id}
+              disabled={busy}
+              onChange={setReplacement}
+            />
           )}
           <label>
             处理原因（必填）

@@ -234,6 +234,11 @@
             "title": "Can Manage Lifecycle",
             "type": "boolean"
           },
+          "can_reclassify": {
+            "default": false,
+            "title": "Can Reclassify",
+            "type": "boolean"
+          },
           "can_request_original": {
             "default": false,
             "title": "Can Request Original",
@@ -3616,12 +3621,27 @@
       },
       "CorrectionOut": {
         "properties": {
+          "can_close": {
+            "default": false,
+            "title": "Can Close",
+            "type": "boolean"
+          },
+          "can_reopen": {
+            "default": false,
+            "title": "Can Reopen",
+            "type": "boolean"
+          },
           "can_resolve": {
             "title": "Can Resolve",
             "type": "boolean"
           },
           "can_verify": {
             "title": "Can Verify",
+            "type": "boolean"
+          },
+          "can_withdraw": {
+            "default": false,
+            "title": "Can Withdraw",
             "type": "boolean"
           },
           "description": {
@@ -3673,7 +3693,11 @@
             "enum": [
               "resolve",
               "verify",
-              "reopen"
+              "reopen",
+              "reject",
+              "duplicate",
+              "withdraw",
+              "close"
             ],
             "title": "Action",
             "type": "string"
@@ -5355,6 +5379,23 @@
             ],
             "title": "Action",
             "type": "string"
+          },
+          "confirm_replacement": {
+            "default": false,
+            "title": "Confirm Replacement",
+            "type": "boolean"
+          },
+          "expected_replacement_updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Replacement Updated At"
           },
           "items": {
             "items": {
@@ -7909,6 +7950,15 @@
             "title": "Library Key",
             "type": "string"
           },
+          "priority": {
+            "default": "actionable",
+            "enum": [
+              "actionable",
+              "suggestion"
+            ],
+            "title": "Priority",
+            "type": "string"
+          },
           "responsible": {
             "items": {
               "additionalProperties": {
@@ -8010,6 +8060,15 @@
             "title": "Library Key",
             "type": "string"
           },
+          "priority": {
+            "default": "actionable",
+            "enum": [
+              "actionable",
+              "suggestion"
+            ],
+            "title": "Priority",
+            "type": "string"
+          },
           "responsible": {
             "items": {
               "additionalProperties": {
@@ -8075,6 +8134,13 @@
       },
       "IssuePage": {
         "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/IssueOut"
@@ -9788,6 +9854,11 @@
       },
       "MaintenanceItem": {
         "properties": {
+          "agent_issue_count": {
+            "default": 0,
+            "title": "Agent Issue Count",
+            "type": "integer"
+          },
           "asset_id": {
             "format": "uuid",
             "title": "Asset Id",
@@ -9800,6 +9871,17 @@
           "freshness": {
             "title": "Freshness",
             "type": "string"
+          },
+          "library_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Library Key"
           },
           "needs_correction": {
             "title": "Needs Correction",
@@ -17386,9 +17468,21 @@
             "type": "string"
           },
           "maintainer_user_id": {
-            "format": "uuid",
-            "title": "Maintainer User Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maintainer User Id"
+          },
+          "maintenance_delegated": {
+            "default": false,
+            "title": "Maintenance Delegated",
+            "type": "boolean"
           },
           "reason": {
             "maxLength": 1000,
@@ -17397,16 +17491,34 @@
             "type": "string"
           },
           "review_due_at": {
-            "format": "date-time",
-            "title": "Review Due At",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Due At"
+          },
+          "review_interval_days": {
+            "anyOf": [
+              {
+                "maximum": 3650.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Interval Days"
           }
         },
         "required": [
           "expected_updated_at",
-          "reason",
-          "maintainer_user_id",
-          "review_due_at"
+          "reason"
         ],
         "title": "ReviewPolicyCommand",
         "type": "object"
@@ -17430,6 +17542,11 @@
             "format": "uuid",
             "title": "Asset Id",
             "type": "string"
+          },
+          "can_assign": {
+            "default": false,
+            "title": "Can Assign",
+            "type": "boolean"
           },
           "can_manage": {
             "title": "Can Manage",
@@ -17485,6 +17602,11 @@
             "title": "Maintainers",
             "type": "array"
           },
+          "maintenance_delegated": {
+            "default": false,
+            "title": "Maintenance Delegated",
+            "type": "boolean"
+          },
           "replacement_asset_id": {
             "anyOf": [
               {
@@ -17508,6 +17630,17 @@
               }
             ],
             "title": "Review Due At"
+          },
+          "review_interval_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Interval Days"
           },
           "updated_at": {
             "format": "date-time",
@@ -38781,6 +38914,38 @@
                 }
               ],
               "title": "Library Key"
+            }
+          },
+          {
+            "in": "query",
+            "name": "priority",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "enum": [
+                "all",
+                "actionable",
+                "suggestion"
+              ],
+              "title": "Priority",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "asset_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Asset Id"
             }
           },
           {

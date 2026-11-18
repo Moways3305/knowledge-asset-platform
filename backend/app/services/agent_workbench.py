@@ -20,11 +20,11 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.errors import denied as _denied  # noqa: F401
 from app.db.utils import utc_now
 from app.models.identity import Project
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
@@ -81,12 +81,6 @@ _NON_TERMINAL_REVIEW = (
 _RESTRICTED_TITLE = "（受限知识）"
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 _RECENT_WINDOW_DAYS = 30
-
-
-def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code, detail={"denied_reason": reason, "message": message}
-    )
 
 
 def _clamp(value: int | None, *, default: int, lo: int, hi: int) -> int:

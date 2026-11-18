@@ -75,10 +75,7 @@ async def capture(session, policy, asset, settings, now, work=None):
         "directory": version.directory_key,
         "tags": tags,
         "has_summary": has_summary,
-        "valid_maintainer": bool(
-            asset.maintainer_user_id
-            and any(x["id"] == str(asset.maintainer_user_id) for x in responsible)
-        ),
+        "valid_maintainer": bool(responsible),
         "review_due": access.stamp(asset.review_due_at),
         "updated_at": access.stamp(asset.updated_at),
         "parse_status": version.weknora_parse_status,

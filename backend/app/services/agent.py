@@ -30,6 +30,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import denied as _denied  # noqa: F401
 from app.db.utils import utc_now
 from app.models.agent import (
     AgentCall,
@@ -99,12 +100,6 @@ _QA_ASSET_OPERATIONAL_FIELDS = frozenset(
 
 class _QaContextChanged(Exception):
     """The request's identity or knowledge snapshot is no longer valid."""
-
-
-def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code, detail={"denied_reason": reason, "message": message}
-    )
 
 
 def _is_governance(caller: CallerContext) -> bool:

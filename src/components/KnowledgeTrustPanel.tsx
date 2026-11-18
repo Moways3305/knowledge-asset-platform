@@ -3,7 +3,6 @@ import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { ApiError } from "../api/http";
 import {
   fetchTrust,
-  fetchReplacementOptions,
   reportCorrection,
   replaceTrust,
   reviewTrust,
@@ -13,6 +12,9 @@ import {
 } from "../api/knowledgeTrust";
 import { formatBeijingTime } from "../utils/time";
 import TaskModal from "./TaskModal";
+import KnowledgeReplacementPicker, {
+  type ReplacementSelection,
+} from "./KnowledgeReplacementPicker";
 import "./KnowledgeTrustPanel.css";
 
 const freshnessLabels: Record<TrustState["freshness"], string> = {
@@ -23,7 +25,14 @@ const freshnessLabels: Record<TrustState["freshness"], string> = {
   needs_update: "需要更新",
   archived: "已归档或停用",
 };
-const correctionLabels = { open: "待处理", resolved: "待提出者验证", verified: "已验证解决" };
+const correctionLabels = {
+  open: "待处理",
+  resolved: "待验证",
+  verified: "已解决",
+  rejected: "不采纳",
+  duplicate: "重复反馈",
+  withdrawn: "已撤回",
+};
 
 interface KnowledgeTrustPanelProps {
   assetId: string;
@@ -54,12 +63,12 @@ export default function KnowledgeTrustPanel(props: KnowledgeTrustPanelProps) {
         aria-expanded={open}
         onClick={() => setOpen(true)}
       >
-        知识维护与复核
+        知识维护
       </button>
       <TaskModal
         open={open}
-        title="知识维护与复核"
-        description="安排复核、处理旧版或反馈资料问题。"
+        title="知识维护"
+        description="处理反馈、按需安排复核或采用新版。"
         size="large"
         portal
         busy={busy}
@@ -86,7 +95,6 @@ export default function KnowledgeTrustPanel(props: KnowledgeTrustPanelProps) {
 
 function KnowledgeTrustContent({
   assetId,
-  revision,
   onChanged,
   onBusyChange,
   initialSection,
@@ -100,19 +108,15 @@ function KnowledgeTrustContent({
   const [busy, setBusy] = useState(false);
   const [owner, setOwner] = useState("");
   const [due, setDue] = useState("");
+  const [schedule, setSchedule] = useState("none");
+  const [interval, setInterval] = useState(180);
+  const [delegated, setDelegated] = useState(false);
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const sectionRef = useRef<HTMLElement>(null);
   const focusedSection = useRef(false);
-  const [replacementId, setReplacementId] = useState("");
-  const [replacementQuery, setReplacementQuery] = useState("");
-  const [replacementOptions, setReplacementOptions] = useState<
-    { asset_id: string; title: string }[]
-  >([]);
-  const [candidate, setCandidate] = useState<TrustState | null>(null);
-  const [confirmArchive, setConfirmArchive] = useState(false);
+  const [candidate, setCandidate] = useState<ReplacementSelection | null>(null);
   const generation = useRef(0);
   const lock = useRef(false);
-  const candidateRequest = useRef(0);
 
   useEffect(() => {
     const current = ++generation.current;
@@ -120,16 +124,17 @@ function KnowledgeTrustContent({
     setError("");
     setNote("");
     setCandidate(null);
-    setReplacementId("");
-    setReplacementQuery("");
-    setReplacementOptions([]);
     setReasons({});
-    setConfirmArchive(false);
     setDue("");
     void fetchTrust(assetId)
       .then((result) => {
         if (generation.current !== current) return;
         setState(result);
+        setSchedule(
+          result.review_interval_days ? "interval" : result.review_due_at ? "date" : "none",
+        );
+        setInterval(result.review_interval_days ?? 180);
+        setDelegated(result.maintenance_delegated ?? false);
         setOwner(result.maintainer_user_id ?? "");
         if (result.review_due_at) {
           const date = new Date(result.review_due_at);
@@ -144,7 +149,7 @@ function KnowledgeTrustContent({
     return () => {
       generation.current = current + 1;
     };
-  }, [assetId, revision]);
+  }, [assetId]);
 
   useEffect(() => {
     if (!state || !initialSection || focusedSection.current) return;
@@ -185,7 +190,7 @@ function KnowledgeTrustContent({
 
   if (!state)
     return (
-      <section className="knowledge-trust" aria-label="知识维护与复核">
+      <section className="knowledge-trust" aria-label="知识维护">
         <p role="status">{error || "加载复核信息…"}</p>
         {error && (
           <button type="button" onClick={() => void run(() => fetchTrust(assetId), "已刷新")}>
@@ -214,12 +219,7 @@ function KnowledgeTrustContent({
   const deadline = due && !Number.isNaN(Date.parse(due)) ? new Date(due).toISOString() : null;
 
   return (
-    <section
-      ref={sectionRef}
-      className="knowledge-trust"
-      aria-label="知识维护与复核"
-      aria-busy={busy}
-    >
+    <section ref={sectionRef} className="knowledge-trust" aria-label="知识维护" aria-busy={busy}>
       <header>
         <h3>复核状态</h3>
         <span>{freshnessLabels[state.freshness]}</span>
@@ -227,25 +227,36 @@ function KnowledgeTrustContent({
       <dl>
         <div>
           <dt>维护人</dt>
-          <dd>{state.maintainer_name ?? "尚未指定"}</dd>
+          <dd>{state.maintainer_name ?? "知识库负责人"}</dd>
         </div>
         <div>
           <dt>下次复核</dt>
-          <dd>{state.review_due_at ? formatBeijingTime(state.review_due_at) : "尚未安排"}</dd>
+          <dd>{state.review_due_at ? formatBeijingTime(state.review_due_at) : "不定期复核"}</dd>
         </div>
         <div>
           <dt>最近复核</dt>
           <dd>{state.verified_at ? formatBeijingTime(state.verified_at) : "暂无记录"}</dd>
         </div>
       </dl>
-      <p>到期只提醒复核，不自动归档。资料修改后需要重新复核。</p>
+      <p>复核用于确认内容是否仍然适用，可按需设置；到期只提醒，不自动归档。</p>
       {state.replacement_asset_id && (
         <p>
           该资料已被新版替代：
           <Link to={`/knowledge/${state.replacement_asset_id}`}>查看当前新版</Link>
         </p>
       )}
-      {error && <p role="alert">{error}</p>}
+      {error && (
+        <div role="alert">
+          {error}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void run(() => fetchTrust(assetId), "已读取最新状态，请核对后再提交。")}
+          >
+            重新核对最新状态
+          </button>
+        </div>
+      )}
       {note && <p role="status">{note}</p>}
       {active && (
         <div className="knowledge-trust-task">
@@ -268,7 +279,7 @@ function KnowledgeTrustContent({
       )}
       {state.can_manage && (
         <details open={initialSection === "review" || undefined}>
-          <summary>安排复核与处理旧版</summary>
+          <summary>维护设置与新版替代</summary>
           <h3 id="trust-review-heading" tabIndex={-1}>
             维护安排与复核
           </h3>
@@ -277,8 +288,19 @@ function KnowledgeTrustContent({
               <div className="knowledge-trust-fields">
                 <label>
                   维护人
-                  <select value={owner} onChange={(e) => setOwner(e.target.value)}>
-                    <option value="">请选择维护人</option>
+                  <select
+                    aria-label="维护人"
+                    value={owner}
+                    disabled={busy || !state.can_assign}
+                    onChange={(e) => {
+                      setOwner(e.target.value);
+                      setDelegated(false);
+                    }}
+                  >
+                    <option value="">继承知识库负责人</option>
+                    {!state.can_assign && owner && (
+                      <option value={owner}>{state.maintainer_name}</option>
+                    )}
                     {state.maintainers.map((person) => (
                       <option key={person.id} value={person.id}>
                         {person.name}
@@ -287,26 +309,77 @@ function KnowledgeTrustContent({
                   </select>
                 </label>
                 <label>
-                  下次复核日期
-                  <input
-                    type="datetime-local"
-                    value={due}
-                    onChange={(e) => setDue(e.target.value)}
-                  />
+                  复核安排
+                  <select
+                    aria-label="复核安排"
+                    value={schedule}
+                    disabled={busy}
+                    onChange={(e) => setSchedule(e.target.value)}
+                  >
+                    <option value="none">不定期复核</option>
+                    <option value="date">指定日期</option>
+                    <option value="interval">周期复核</option>
+                  </select>
                 </label>
+                {schedule === "date" && (
+                  <label>
+                    下次复核日期
+                    <input
+                      type="datetime-local"
+                      value={due}
+                      disabled={busy}
+                      onChange={(e) => setDue(e.target.value)}
+                    />
+                  </label>
+                )}
+                {schedule === "interval" && (
+                  <label>
+                    复核周期（天）
+                    <input
+                      type="number"
+                      min={1}
+                      max={3650}
+                      value={interval}
+                      disabled={busy}
+                      onChange={(e) => setInterval(Number(e.target.value))}
+                    />
+                  </label>
+                )}
               </div>
+              {state.can_assign &&
+                state.maintainers.find((p) => p.id === owner)?.requires_delegation === "true" && (
+                  <label className="knowledge-trust-confirm">
+                    <input
+                      type="checkbox"
+                      checked={delegated}
+                      disabled={busy}
+                      onChange={(e) => setDelegated(e.target.checked)}
+                    />
+                    授权维护这份资料，含人工原文访问；密级调整、新版发布与归档仍由知识库管理人处理。
+                  </label>
+                )}
               {reasonField("policy", "维护安排说明")}
               <div className="knowledge-trust-actions">
                 <button
                   type="button"
-                  disabled={!valid("policy") || !owner || !deadline}
+                  disabled={
+                    !valid("policy") ||
+                    (schedule === "date" && !deadline) ||
+                    (schedule === "interval" &&
+                      (!Number.isInteger(interval) || interval < 1 || interval > 3650)) ||
+                    (state.maintainers.find((p) => p.id === owner)?.requires_delegation ===
+                      "true" &&
+                      !delegated)
+                  }
                   onClick={() =>
                     void run(
                       () =>
                         saveTrustPolicy(assetId, {
                           ...body("policy"),
-                          maintainer_user_id: owner,
-                          review_due_at: deadline,
+                          maintainer_user_id: owner || null,
+                          maintenance_delegated: delegated,
+                          review_due_at: schedule === "date" ? deadline : null,
+                          review_interval_days: schedule === "interval" ? interval : null,
                         }),
                       "维护责任和复核日期已保存。",
                       "policy",
@@ -320,25 +393,29 @@ function KnowledgeTrustContent({
               <div className="knowledge-trust-actions">
                 <button
                   type="button"
-                  disabled={!valid("review") || !deadline || !state.maintainer_user_id}
+                  disabled={!valid("review")}
                   onClick={() =>
                     void run(
                       () =>
                         reviewTrust(assetId, {
                           ...body("review"),
                           outcome: "verified",
-                          next_review_at: deadline,
+                          next_review_at: state.review_interval_days
+                            ? null
+                            : state.review_due_at && Date.parse(state.review_due_at) > Date.now()
+                              ? state.review_due_at
+                              : null,
                         }),
                       "复核已通过。",
                       "review",
                     )
                   }
                 >
-                  确认复核通过
+                  确认内容仍适用
                 </button>
                 <button
                   type="button"
-                  disabled={!valid("review") || !state.maintainer_user_id}
+                  disabled={!valid("review")}
                   onClick={() =>
                     void run(
                       () => reviewTrust(assetId, { ...body("review"), outcome: "needs_update" }),
@@ -350,127 +427,40 @@ function KnowledgeTrustContent({
                   标记需要更新
                 </button>
               </div>
-              <h3>关联新版与归档</h3>
-              {reasonField("replacement", "替代关系说明")}
-              <label>
-                查找新版资料
-                <input
-                  value={replacementQuery}
-                  onChange={(e) => {
-                    setReplacementQuery(e.target.value);
-                    candidateRequest.current++;
-                    setReplacementOptions([]);
-                    setCandidate(null);
-                    setReplacementId("");
-                    setConfirmArchive(false);
-                  }}
-                  placeholder="输入新版资料标题关键词"
-                  maxLength={200}
-                />
-              </label>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={async () => {
-                  const current = generation.current;
-                  const request = ++candidateRequest.current;
-                  setError("");
-                  setCandidate(null);
-                  setReplacementId("");
-                  setConfirmArchive(false);
-                  try {
-                    const result = await fetchReplacementOptions(assetId, replacementQuery);
-                    if (generation.current === current && candidateRequest.current === request) {
-                      setReplacementOptions(result);
-                      if (!result.length) setNote("没有符合条件的新版，请先完成入库并复核。");
+              {state.can_assign && (
+                <>
+                  <h3>关联新版与归档</h3>
+                  {reasonField("replacement", "替代关系说明")}
+                  <KnowledgeReplacementPicker
+                    key={assetId}
+                    assetId={assetId}
+                    disabled={busy}
+                    onChange={setCandidate}
+                  />
+                  <button
+                    type="button"
+                    disabled={!valid("replacement") || !candidate}
+                    onClick={() =>
+                      void run(
+                        () =>
+                          replaceTrust(assetId, {
+                            ...body("replacement"),
+                            replacement_asset_id: candidate?.asset_id,
+                            expected_replacement_updated_at: candidate?.updated_at,
+                            confirm_archive: true,
+                          }),
+                        "已关联新版并归档旧版。",
+                        "replacement",
+                      )
                     }
-                  } catch (e) {
-                    if (generation.current === current && candidateRequest.current === request)
-                      setError(e instanceof ApiError ? e.message : "新版查找失败。");
-                  }
-                }}
-              >
-                查找可关联新版
-              </button>
-              <label>
-                新版资料
-                <select
-                  value={replacementId}
-                  onChange={(e) => {
-                    setReplacementId(e.target.value);
-                    candidateRequest.current++;
-                    setCandidate(null);
-                    setConfirmArchive(false);
-                  }}
-                >
-                  <option value="">请选择已复核新版</option>
-                  {replacementOptions.map((item) => (
-                    <option key={item.asset_id} value={item.asset_id}>
-                      {item.title}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                type="button"
-                disabled={busy || !replacementId.trim()}
-                onClick={async () => {
-                  setError("");
-                  const current = generation.current;
-                  const request = ++candidateRequest.current;
-                  try {
-                    const result = await fetchTrust(replacementId.trim());
-                    if (generation.current === current && candidateRequest.current === request)
-                      setCandidate(result);
-                  } catch (e) {
-                    if (generation.current === current)
-                      setError(e instanceof ApiError ? e.message : "新版读取失败。");
-                  }
-                }}
-              >
-                核对新版
-              </button>
-              {candidate && (
-                <p>
-                  新版状态：{freshnessLabels[candidate.freshness]}。
-                  <Link to={`/knowledge/${candidate.asset_id}`}>打开新版核对内容</Link>
-                </p>
+                  >
+                    关联新版并归档旧版
+                  </button>
+                </>
               )}
-              <label className="knowledge-trust-confirm">
-                <input
-                  type="checkbox"
-                  checked={confirmArchive}
-                  onChange={(e) => setConfirmArchive(e.target.checked)}
-                />
-                我已核对新版，确认将当前旧版归档并退出默认检索。
-              </label>
-              <button
-                type="button"
-                disabled={
-                  !valid("replacement") ||
-                  !candidate ||
-                  candidate.freshness !== "verified" ||
-                  !confirmArchive
-                }
-                onClick={() =>
-                  void run(
-                    () =>
-                      replaceTrust(assetId, {
-                        ...body("replacement"),
-                        replacement_asset_id: candidate?.asset_id,
-                        expected_replacement_updated_at: candidate?.updated_at,
-                        confirm_archive: true,
-                      }),
-                    "已关联新版并归档旧版。",
-                    "replacement",
-                  )
-                }
-              >
-                关联新版并归档旧版
-              </button>
             </>
           )}
-          {state.replacement_asset_id && (
+          {state.can_assign && state.replacement_asset_id && (
             <div>
               {reasonField("replacement", "替代关系说明")}
               <button
@@ -500,68 +490,47 @@ function KnowledgeTrustContent({
           <strong>{correctionLabels[item.status]}</strong>
           <p>{item.description}</p>
           {item.resolution && <p>处理说明：{item.resolution}</p>}
-          {(item.can_resolve || item.can_verify) &&
-            reasonField(`correction:${item.id}`, `此条纠错的处理说明`)}
-          {item.can_resolve && (
-            <button
-              type="button"
-              disabled={!valid(`correction:${item.id}`)}
-              onClick={() =>
-                void run(
-                  () =>
-                    transitionCorrection(assetId, item.id, {
-                      expected_updated_at: item.updated_at,
-                      reason: reasons[`correction:${item.id}`] ?? "",
-                      action: "resolve",
-                    }),
-                  "已处理，等待提出者验证。",
-                  `correction:${item.id}`,
-                )
-              }
-            >
-              已更新，交给提出者验证
-            </button>
-          )}
-          {item.can_verify && (
-            <div className="knowledge-trust-actions">
-              <button
-                type="button"
-                disabled={!valid(`correction:${item.id}`)}
-                onClick={() =>
-                  void run(
-                    () =>
-                      transitionCorrection(assetId, item.id, {
-                        expected_updated_at: item.updated_at,
-                        reason: reasons[`correction:${item.id}`] ?? "",
-                        action: "verify",
-                      }),
-                    "纠错已验证解决。",
-                    `correction:${item.id}`,
-                  )
-                }
-              >
-                验证已解决
-              </button>
-              <button
-                type="button"
-                disabled={!valid(`correction:${item.id}`)}
-                onClick={() =>
-                  void run(
-                    () =>
-                      transitionCorrection(assetId, item.id, {
-                        expected_updated_at: item.updated_at,
-                        reason: reasons[`correction:${item.id}`] ?? "",
-                        action: "reopen",
-                      }),
-                    "已重新打开纠错，等待再次处理。",
-                    `correction:${item.id}`,
-                  )
-                }
-              >
-                仍有问题，重新处理
-              </button>
-            </div>
-          )}
+          {(item.can_resolve ||
+            item.can_verify ||
+            item.can_close ||
+            item.can_reopen ||
+            item.can_withdraw) &&
+            reasonField(`correction:${item.id}`, "此条反馈的处理说明")}
+          <div className="knowledge-trust-actions">
+            {(
+              [
+                [item.can_resolve, "resolve", "已更新，交给提出者验证"],
+                [item.can_resolve, "reject", "不采纳"],
+                [item.can_resolve, "duplicate", "标记重复反馈"],
+                [item.can_verify, "verify", "验证已解决"],
+                [item.can_close, "close", "管理人核实并关闭"],
+                [item.can_reopen, "reopen", "仍有问题，重新处理"],
+                [item.can_withdraw, "withdraw", "撤回反馈"],
+              ] as const
+            )
+              .filter(([allowed]) => allowed)
+              .map(([, action, label]) => (
+                <button
+                  key={action}
+                  type="button"
+                  disabled={!valid(`correction:${item.id}`)}
+                  onClick={() =>
+                    void run(
+                      () =>
+                        transitionCorrection(assetId, item.id, {
+                          expected_updated_at: item.updated_at,
+                          reason: reasons[`correction:${item.id}`] ?? "",
+                          action,
+                        }),
+                      "反馈状态已更新。",
+                      `correction:${item.id}`,
+                    )
+                  }
+                >
+                  {label}
+                </button>
+              ))}
+          </div>
         </article>
       ))}
     </section>

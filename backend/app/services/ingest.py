@@ -21,6 +21,7 @@ from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.errors import denied as _denied  # noqa: F401
 from app.models.ingest import IngestTask, IngestTaskAiResult, UploadSession, UploadSessionItem
 from app.models.knowledge import (
     KnowledgeAsset,
@@ -148,12 +149,6 @@ def _desensitization_message(status: str | None) -> str | None:
     if status is None:
         return None
     return _DESENSITIZATION_MESSAGES.get(status)
-
-
-def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code, detail={"denied_reason": reason, "message": message}
-    )
 
 
 def _is_admin(caller: CallerContext) -> bool:

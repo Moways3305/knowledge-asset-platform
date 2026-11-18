@@ -16,10 +16,10 @@ import hashlib
 import secrets
 import uuid
 
-from fastapi import HTTPException
 from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import denied as _denied  # noqa: F401
 from app.db.utils import utc_now
 from app.models.agent_registry import AgentWhitelistRule
 from app.models.identity import User
@@ -55,12 +55,6 @@ async def record_successful_connection(
         .values(last_connected_at=utc_now())
     )
     await session.commit()
-
-
-def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code, detail={"denied_reason": reason, "message": message}
-    )
 
 
 def _require_admin(caller: CallerContext) -> None:

@@ -70,6 +70,7 @@ _EVENT_COPY = {
     "knowledge.assigned": ("review", "知识维护任务已分配", "请查看资料维护责任和下次复核日期。"),
     "knowledge.due": ("review", "知识已到复核日期", "请复核资料是否仍有效；到期不会自动归档。"),
     "knowledge.correction": ("review", "知识资料收到纠错", "请查看并处理资料纠错。"),
+    "knowledge.closed": ("review", "资料反馈已处理", "请查看反馈的处理结论和说明。"),
     "knowledge.resolved": (
         "review",
         "资料纠错待验证",

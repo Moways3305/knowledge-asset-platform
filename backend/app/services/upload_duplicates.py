@@ -7,10 +7,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Literal, cast
 
-from fastapi import HTTPException
 from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import denied as _denied  # noqa: F401
 from app.models.identity import Project
 from app.models.ingest import IngestTask, UploadSessionItem
 from app.models.knowledge import (
@@ -217,13 +217,6 @@ async def read_duplicates_batch(session, caller, tasks, *, metadata_by_task=None
                 )
             await finish_duplicate_preview(session, caller, rows)
     return result
-
-
-def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code,
-        detail={"denied_reason": reason, "message": message},
-    )
 
 
 def _task_scope(

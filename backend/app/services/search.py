@@ -14,11 +14,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from fastapi import HTTPException
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.errors import denied as _denied  # noqa: F401
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetTag, KnowledgeAssetVersion
 from app.schemas.enums import AuditAction, AuditLogType
 from app.schemas.permission import AccessChannel, CallerContext
@@ -64,12 +64,6 @@ class _SearchProgress:
 
 def _qa_timeout_seconds(remote_limit: float) -> float:
     return min(30.0, remote_limit * 0.8)
-
-
-def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code, detail={"denied_reason": reason, "message": message}
-    )
 
 
 def _passes_filters(asset, filters) -> bool:

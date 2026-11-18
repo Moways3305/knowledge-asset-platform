@@ -166,7 +166,7 @@ export default function KnowledgeVersionPanel({
       <TaskModal
         open={open === "upload"}
         title="更新这份资料"
-        description="新版沿用原库、目录和密级。上传不会归档旧版；完成入库和复核后再确认替代。"
+        description="新版沿用原库、目录和密级。上传不会归档旧版；完成入库后再确认替代。"
         busy={busy}
         onClose={() => setOpen(null)}
       >
@@ -403,7 +403,7 @@ export default function KnowledgeVersionPanel({
       <TaskModal
         open={open === "replace"}
         title="确认新版替代旧版"
-        description="旧版将归档并退出默认检索与问答，原文件及版本历史保留。新版必须已复核；权限和并发冲突由服务端再次校验。"
+        description="旧版将归档并退出默认检索与问答，原文件及版本历史保留。请确认新版内容仍然适用。"
         onClose={() => setOpen(null)}
         busy={busy}
       >

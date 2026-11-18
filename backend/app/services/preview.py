@@ -17,12 +17,12 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from starlette.concurrency import run_in_threadpool
 
+from app.core.errors import denied as _denied  # noqa: F401
 from app.db.utils import utc_now
 from app.models.identity import User
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetFileObject, KnowledgeAssetVersion
@@ -136,12 +136,6 @@ async def _resolve_original(
     if task is None or not task.source_file_ref:
         return None
     return task.source_file_ref, task.source_file_name or "document", task.source_file_mime_type
-
-
-def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code, detail={"denied_reason": reason, "message": message}
-    )
 
 
 def _as_aware(dt: datetime) -> datetime:

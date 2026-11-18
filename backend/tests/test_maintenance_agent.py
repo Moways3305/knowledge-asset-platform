@@ -95,6 +95,7 @@ async def test_invalid_scope_never_configurable(client, key):
 
 async def test_scan_dedup_and_no_source_mutation(client, sessionmaker_fixture):
     maker = sessionmaker_fixture
+    await make_overdue(sessionmaker_fixture)
     await configure(client)
     async with maker() as session:
         asset = await session.get(KnowledgeAsset, KA_COMPANY_L2)
@@ -148,6 +149,7 @@ async def test_expired_authorization_stops_queued_scan(client, sessionmaker_fixt
 
 
 async def test_actions_require_stamp_reason_and_recheck(client, sessionmaker_fixture):
+    await make_overdue(sessionmaker_fixture)
     await configure(client)
     await run_asset(sessionmaker_fixture)
     await drain(sessionmaker_fixture)
@@ -322,6 +324,7 @@ async def test_forbidden_content_never_sent_to_model(
 
 
 async def test_recheck_resolves_fixed_fact_and_keeps_read_separate(client, sessionmaker_fixture):
+    await make_overdue(sessionmaker_fixture)
     await configure(client)
     await run_asset(sessionmaker_fixture)
     await drain(sessionmaker_fixture)
@@ -329,7 +332,7 @@ async def test_recheck_resolves_fixed_fact_and_keeps_read_separate(client, sessi
         issue = await session.scalar(
             select(MaintenanceIssue).where(
                 MaintenanceIssue.asset_id == KA_COMPANY_L2,
-                MaintenanceIssue.rule == "missing_review_date",
+                MaintenanceIssue.rule == "review_overdue",
             )
         )
         assert issue
@@ -401,6 +404,7 @@ async def test_fenced_worker_cannot_commit_after_claim_stolen(
 
 async def test_recheck_after_cursor_passed_is_queued_instead_of_lost(client, sessionmaker_fixture):
     maker = sessionmaker_fixture
+    await make_overdue(sessionmaker_fixture)
     await configure(client)
     first_run = await run_asset(maker)
     await process_one(maker, client=Model())
@@ -408,7 +412,7 @@ async def test_recheck_after_cursor_passed_is_queued_instead_of_lost(client, ses
         issue = await session.scalar(
             select(MaintenanceIssue).where(
                 MaintenanceIssue.asset_id == KA_COMPANY_L2,
-                MaintenanceIssue.rule == "missing_review_date",
+                MaintenanceIssue.rule == "review_overdue",
             )
         )
         issue_id = issue.id
@@ -441,6 +445,7 @@ async def test_digest_is_deduplicated_and_rechecks_current_responsibility(
     from app.services.notification_targets import resolve
 
     maker = sessionmaker_fixture
+    await make_overdue(sessionmaker_fixture)
     await configure(client)
     await run_asset(maker)
     await drain(maker)
@@ -463,3 +468,10 @@ async def test_digest_is_deduplicated_and_rechecks_current_responsibility(
         asset.maintainer_user_id = USER_DIRECTOR
         await session.commit()
         assert await resolve(session, caller, rows[0]) is None
+
+
+async def make_overdue(maker):
+    async with maker() as session:
+        asset = await session.get(KnowledgeAsset, KA_COMPANY_L2)
+        asset.review_due_at = utc_now() - timedelta(days=1)
+        await session.commit()

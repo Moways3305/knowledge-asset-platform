@@ -17,10 +17,10 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import denied as _denied  # noqa: F401
 from app.db.utils import utc_now
 from app.models.identity import User
 from app.models.knowledge import KnowledgeAsset
@@ -63,12 +63,6 @@ _ARCHIVABLE_FROM = {
     AssetStatus.needs_update.value,
     AssetStatus.deprecated.value,
 }
-
-
-def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code, detail={"denied_reason": reason, "message": message}
-    )
 
 
 async def _load_governable_asset(
@@ -285,6 +279,9 @@ async def archive_confirm(
         notice_type="lifecycle_archived",
         audit_event_id=audit_event.id,
     )
+    from app.services.maintenance_reconcile import reconcile_asset
+
+    await reconcile_asset(session, asset)
     await session.commit()
     await enqueue_outbox_delivery(session)
     return ArchiveConfirmResponse(

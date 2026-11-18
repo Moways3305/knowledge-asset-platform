@@ -36,6 +36,7 @@ export interface AccessInfoDTO {
   existing_grant_expires_at: string | null;
   can_delete: boolean;
   can_edit_metadata?: boolean;
+  can_reclassify?: boolean;
   can_manage_lifecycle: boolean;
   can_retry_index?: boolean;
 }
@@ -169,6 +170,7 @@ export interface KnowledgeDetailDTO {
 // ---- 前端 ViewModel ----
 export interface AccessInfoVM {
   canEditMetadata?: boolean;
+  canReclassify?: boolean;
   discovery: boolean;
   summary: boolean;
   original: boolean;

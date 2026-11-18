@@ -9,6 +9,7 @@ import {
   replaceTrust,
   transitionCorrection,
   saveTrustPolicy,
+  reviewTrust,
   type TrustState,
 } from "../api/knowledgeTrust";
 import { ApiError } from "../api/http";
@@ -32,6 +33,7 @@ const initial: TrustState = {
   freshness: "unreviewed",
   replacement_asset_id: null,
   can_manage: true,
+  can_assign: true,
   corrections: [],
   maintainers: [{ id: "manager", name: "维护人" }],
 };
@@ -39,13 +41,71 @@ beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(fetchTrust).mockResolvedValue(initial);
 });
+
+it("allows unscheduled content confirmation and optional periodic review", async () => {
+  vi.mocked(fetchTrust).mockResolvedValue({
+    ...initial,
+    review_due_at: null,
+    maintainer_user_id: null,
+  });
+  vi.mocked(reviewTrust).mockResolvedValue({
+    ...initial,
+    review_due_at: null,
+    freshness: "verified",
+  });
+  open();
+  await screen.findByText("尚未复核");
+  fireEvent.click(screen.getByText("维护设置与新版替代"));
+  expect(screen.getByLabelText("复核安排")).toHaveValue("none");
+  expect(screen.queryByLabelText("下次复核日期")).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("复核结论说明（必填）"), {
+    target: { value: "内容仍然适用" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "确认内容仍适用" }));
+  await waitFor(() =>
+    expect(reviewTrust).toHaveBeenCalledWith(
+      "old",
+      expect.objectContaining({ next_review_at: null }),
+    ),
+  );
+  fireEvent.change(screen.getByLabelText("复核安排"), { target: { value: "interval" } });
+  expect(screen.getByLabelText("复核周期（天）")).toHaveValue(180);
+});
+
+it("keeps an open form draft and its concurrency token when the parent refreshes", async () => {
+  const { rerender } = render(
+    <MemoryRouter>
+      <KnowledgeTrustPanel assetId="old" revision="first" />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "知识维护" }));
+  await screen.findByText("尚未复核");
+  fireEvent.change(screen.getByLabelText("纠错问题（必填）"), {
+    target: { value: "正在核对的详细说明" },
+  });
+  rerender(
+    <MemoryRouter>
+      <KnowledgeTrustPanel assetId="old" revision="background-change" />
+    </MemoryRouter>,
+  );
+  expect(screen.getByLabelText("纠错问题（必填）")).toHaveValue("正在核对的详细说明");
+  expect(fetchTrust).toHaveBeenCalledTimes(1);
+  vi.mocked(reportCorrection).mockResolvedValue(initial);
+  fireEvent.click(screen.getByRole("button", { name: "提出纠错" }));
+  await waitFor(() =>
+    expect(reportCorrection).toHaveBeenCalledWith(
+      "old",
+      expect.objectContaining({ expected_updated_at: initial.updated_at }),
+    ),
+  );
+});
 function open() {
   render(
     <MemoryRouter>
       <KnowledgeTrustPanel assetId="old" />
     </MemoryRouter>,
   );
-  fireEvent.click(screen.getByRole("button", { name: "知识维护与复核" }));
+  fireEvent.click(screen.getByRole("button", { name: "知识维护" }));
 }
 
 function LocationProbe() {
@@ -86,16 +146,16 @@ it("keeps each maintenance reason scoped to its action and preserves other draft
   vi.mocked(saveTrustPolicy).mockResolvedValue({ ...initial, updated_at: "2026-10-08T02:00:00Z" });
   open();
   await screen.findByText("尚未复核");
-  fireEvent.click(screen.getByText("安排复核与处理旧版"));
+  fireEvent.click(screen.getByText("维护设置与新版替代"));
   fireEvent.change(screen.getByLabelText("纠错问题（必填）"), {
     target: { value: "另一条待提交纠错" },
   });
   expect(screen.getByRole("button", { name: "保存维护安排" })).toBeDisabled();
-  expect(screen.getByRole("button", { name: "确认复核通过" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "确认内容仍适用" })).toBeDisabled();
   fireEvent.change(screen.getByLabelText("维护安排说明（必填）"), {
     target: { value: "调整复核安排" },
   });
-  expect(screen.getByRole("button", { name: "确认复核通过" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "确认内容仍适用" })).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "保存维护安排" }));
   await waitFor(() =>
     expect(saveTrustPolicy).toHaveBeenCalledWith(
@@ -116,8 +176,8 @@ it("opens the requested maintenance section without exposing manager actions to 
     </MemoryRouter>,
   );
   await screen.findByText("尚未复核");
-  expect(screen.getByRole("dialog", { name: "知识维护与复核" })).toBeInTheDocument();
-  expect(screen.queryByText("安排复核与处理旧版")).not.toBeInTheDocument();
+  expect(screen.getByRole("dialog", { name: "知识维护" })).toBeInTheDocument();
+  expect(screen.queryByText("维护设置与新版替代")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "保存维护安排" })).not.toBeInTheDocument();
   fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -131,11 +191,11 @@ it("keeps the form off the page and loads fresh state each time the dialog opens
   );
   expect(fetchTrust).not.toHaveBeenCalled();
   expect(screen.queryByLabelText("纠错问题（必填）")).not.toBeInTheDocument();
-  const trigger = screen.getByRole("button", { name: "知识维护与复核" });
+  const trigger = screen.getByRole("button", { name: "知识维护" });
   trigger.focus();
   fireEvent.click(trigger);
   await screen.findByText("尚未复核");
-  expect(screen.getByRole("dialog", { name: "知识维护与复核" })).toBeInTheDocument();
+  expect(screen.getByRole("dialog", { name: "知识维护" })).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("纠错问题（必填）"), {
     target: { value: "未提交内容" },
   });
@@ -173,7 +233,7 @@ it("does not expose governance controls to ordinary readers", async () => {
   vi.mocked(fetchTrust).mockResolvedValue({ ...initial, can_manage: false, maintainers: [] });
   open();
   await screen.findByText("尚未复核");
-  expect(screen.queryByText("安排复核与处理旧版")).not.toBeInTheDocument();
+  expect(screen.queryByText("维护设置与新版替代")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "提出纠错" })).toBeDisabled();
 });
 
@@ -205,7 +265,7 @@ it("requires candidate verification and explicit old-version archive confirmatio
   });
   open();
   await screen.findByText("尚未复核");
-  fireEvent.click(screen.getByText("安排复核与处理旧版"));
+  fireEvent.click(screen.getByText("维护设置与新版替代"));
   fireEvent.change(screen.getByLabelText("替代关系说明（必填）"), {
     target: { value: "新版替代" },
   });
@@ -215,8 +275,7 @@ it("requires candidate verification and explicit old-version archive confirmatio
     target: { value: "new" },
   });
   expect(screen.getByRole("button", { name: "关联新版并归档旧版" })).toBeDisabled();
-  fireEvent.click(screen.getByRole("button", { name: "核对新版" }));
-  await screen.findByText(/新版状态/);
+  await screen.findByRole("link", { name: "打开新版核对内容" });
   expect(screen.getByRole("button", { name: "关联新版并归档旧版" })).toBeDisabled();
   fireEvent.click(screen.getByRole("checkbox"));
   fireEvent.click(screen.getByRole("button", { name: "关联新版并归档旧版" }));
@@ -255,14 +314,15 @@ it("allows the reporter to reopen a resolved correction", async () => {
         updated_at: "stamp",
         can_resolve: false,
         can_verify: true,
+        can_reopen: true,
       },
     ],
   });
   vi.mocked(transitionCorrection).mockResolvedValue(initial);
   open();
   await screen.findByText("尚未复核");
-  await screen.findByText("待提出者验证");
-  fireEvent.change(screen.getByLabelText("此条纠错的处理说明（必填）"), {
+  await screen.findByText("待验证");
+  fireEvent.change(screen.getByLabelText("此条反馈的处理说明（必填）"), {
     target: { value: "还没有解决" },
   });
   fireEvent.click(screen.getByRole("button", { name: "仍有问题，重新处理" }));

@@ -5,10 +5,10 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import denied as _denied  # noqa: F401
 from app.models.knowledge import (
     KnowledgeAsset,
     KnowledgeAssetChunk,
@@ -47,12 +47,6 @@ _NON_TERMINAL = {
     ReviewTaskStatus.approving.value,
     ReviewTaskStatus.approval_failed.value,
 }
-
-
-def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code, detail={"denied_reason": reason, "message": message}
-    )
 
 
 def _is_admin(caller: CallerContext) -> bool:
