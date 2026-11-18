@@ -552,15 +552,22 @@ def _card_summary_fields(
     L2–L4 取脱敏摘要（redacted/safe），key_points 置空（原始要点未脱敏，不外泄）。
     无摘要层权限 → 全空（卡片只剩发现层元数据）。
     """
+    from app.core.personal_information import redact_personal_information
+
     if not summary_allowed:
         return None, None, []
     smap = _summary_map(asset)
     if asset.confidentiality_level in _REDACTED_LEVELS:
         safe = smap.get("redacted_summary") or smap.get("safe_summary")
+        safe = redact_personal_information(safe)
         return safe, safe, []
     kp_raw = smap.get("key_points")
     key_points = [ln.strip() for ln in kp_raw.split("\n") if ln.strip()] if kp_raw else []
-    return smap.get("one_liner"), smap.get("detailed"), key_points
+    return (
+        redact_personal_information(smap.get("one_liner")),
+        redact_personal_information(smap.get("detailed")),
+        [redact_personal_information(point) for point in key_points],
+    )
 
 
 async def load_card_aux(

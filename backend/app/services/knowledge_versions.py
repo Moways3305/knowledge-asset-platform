@@ -316,6 +316,8 @@ async def history(session, caller, asset_id):
 
 
 async def compare(session, caller, asset_id, left_id, right_id):
+    from app.core.personal_information import redact_personal_information
+
     state = await history(session, caller, asset_id)
     allowed = {row["version_id"] for row in state["items"]}
     if str(left_id) not in allowed or str(right_id) not in allowed:
@@ -349,7 +351,7 @@ async def compare(session, caller, asset_id, left_id, right_id):
                 version=label(version),
                 directory=(version.naming_metadata or {}).get("directory_name")
                 or await display_path(session, version.directory_key, asset.project_id),
-                summary=summary,
+                summary=redact_personal_information(summary),
             )
         )
     return dict(

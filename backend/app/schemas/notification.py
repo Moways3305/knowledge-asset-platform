@@ -5,7 +5,9 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.core.personal_information import redact_personal_information
 
 
 class NotificationTarget(BaseModel):
@@ -14,6 +16,19 @@ class NotificationTarget(BaseModel):
 
 
 class BusinessNotificationOut(BaseModel):
+    @field_validator(
+        "title",
+        "summary",
+        "project_name",
+        "object_name",
+        "failure_reason",
+        "recovery_suggestion",
+        "next_action_label",
+    )
+    @classmethod
+    def safe_text(cls, value):
+        return redact_personal_information(value)
+
     id: uuid.UUID
     event_type: str
     category: str

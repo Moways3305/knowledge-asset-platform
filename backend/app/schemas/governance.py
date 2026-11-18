@@ -6,8 +6,15 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.core.personal_information import redact_personal_information
+
 
 class GovernanceItem(BaseModel):
+    @field_validator("summary", "archive_reason")
+    @classmethod
+    def safe_text(cls, value):
+        return redact_personal_information(value)
+
     asset_id: UUID
     title: str
     asset_status: str

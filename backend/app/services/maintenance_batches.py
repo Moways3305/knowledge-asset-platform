@@ -2,6 +2,8 @@
 
 from copy import deepcopy
 
+from app.core.personal_information import redact_personal_information
+from app.services.maintenance_privacy import advance_privacy
 from app.services.maintenance_rules import finding
 
 RETRYABLE = {
@@ -19,6 +21,7 @@ def advance(snapshot, settings, previous, findings, reason):
     work = deepcopy(previous or {})
     work["fingerprint"] = snapshot["fingerprint"]
     progress = work.setdefault("progress", {})
+    advance_privacy(snapshot, work, findings)
     if not work.get("comparison_done"):
         progress["comparison_checked"] = progress.get("comparison_checked", 0) + len(
             snapshot["candidates"]
@@ -61,7 +64,10 @@ def advance(snapshot, settings, previous, findings, reason):
                             findings.append(
                                 finding("cover_only", evidence={"basis": "all_segments_reviewed"})
                             )
-                        missing = sorted(set(settings.required_sections) - set(work["sections"]))
+                        missing = sorted(
+                            set(redact_personal_information(s) for s in settings.required_sections)
+                            - set(work["sections"])
+                        )
                         if missing:
                             findings.append(
                                 finding(
@@ -83,5 +89,9 @@ def advance(snapshot, settings, previous, findings, reason):
     work["seen"] = [list(key) for key in sorted(seen)]
     snapshot["coverage"]["duplicates"] = "complete" if work["comparison_done"] else "in_progress"
     snapshot["coverage"]["quality"] = work.get("quality_result", "in_progress")
-    complete = bool(work.get("quality_done") and work.get("comparison_done"))
+    complete = bool(
+        work.get("quality_done")
+        and work.get("comparison_done")
+        and ("privacy" not in snapshot["coverage"] or work.get("privacy_done"))
+    )
     return work, complete, delayed

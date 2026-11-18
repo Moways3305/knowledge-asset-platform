@@ -38981,7 +38981,8 @@
                     "availability",
                     "maintenance",
                     "duplicates",
-                    "quality"
+                    "quality",
+                    "privacy"
                   ],
                   "type": "string"
                 },

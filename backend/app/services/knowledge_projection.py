@@ -9,6 +9,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import denied as _denied  # noqa: F401
+from app.core.personal_information import redact_personal_information
 from app.models.identity import Project, User
 from app.models.knowledge import (
     KnowledgeAsset,
@@ -93,7 +94,7 @@ def _summary_map(asset: KnowledgeAsset) -> dict[str, str | None]:
     if asset.current_version_id is None:
         return {}
     return {
-        summary.summary_type: summary.content
+        summary.summary_type: redact_personal_information(summary.content)
         for summary in asset.summaries
         if summary.version_id == asset.current_version_id
     }
@@ -102,9 +103,11 @@ def _summary_map(asset: KnowledgeAsset) -> dict[str, str | None]:
 def _select_summary_text(level: str, smap: dict[str, str | None]) -> str | None:
     """列表用的单段摘要文本（按保密级别选择安全摘要）。"""
     if level in _REDACTED_LEVELS:
-        full = smap.get("redacted_summary") or smap.get("safe_summary")
-        return smap.get("redacted_one_liner") or (full[:200] if full else None)
-    return smap.get("one_liner") or smap.get("detailed")
+        full = redact_personal_information(smap.get("redacted_summary") or smap.get("safe_summary"))
+        return redact_personal_information(
+            smap.get("redacted_one_liner") or (full[:200] if full else None)
+        )
+    return redact_personal_information(smap.get("one_liner") or smap.get("detailed"))
 
 
 def _build_access_info(

@@ -210,11 +210,13 @@ def issue_query(caller):
 
 
 async def _project(session, caller, issue, asset, policy):
+    from app.core.personal_information import redact_personal_information
+
     owners = await access.recipients(session, asset)
     return IssueOut(
         id=issue.id,
         asset_id=asset.id,
-        title=asset.title,
+        title=redact_personal_information(asset.title),
         library_key=policy.library_key,
         rule=issue.rule,
         category=issue.category,
@@ -288,6 +290,8 @@ async def list_issues(
 
 
 async def detail(session, caller, issue_id, trace_id=None):
+    from app.core.personal_information import redact_personal_data, redact_personal_information
+
     row = (
         await session.execute(issue_query(caller).where(MaintenanceIssue.id == issue_id))
     ).first()
@@ -332,13 +336,13 @@ async def detail(session, caller, issue_id, trace_id=None):
         await session.commit()
     return IssueDetail(
         **(await _project(session, caller, issue, asset, policy)).model_dump(),
-        evidence=evidence,
+        evidence=redact_personal_data(evidence),
         evidence_available=allowed,
         current_version_matches=issue.version_id == asset.current_version_id,
         history=[
             {
                 "action": h.action,
-                "reason": h.reason if allowed else "",
+                "reason": redact_personal_information(h.reason) if allowed else "",
                 "created_at": h.created_at.isoformat(),
             }
             for h in history
@@ -347,6 +351,8 @@ async def detail(session, caller, issue_id, trace_id=None):
 
 
 async def transition(session, caller, issue_id, command, trace_id):
+    from app.core.personal_information import redact_personal_information
+
     # Same lock order as scan finalization: run/policy commands are serialized by policy.
     visible = (
         await session.execute(issue_query(caller).where(MaintenanceIssue.id == issue_id))
@@ -417,7 +423,10 @@ async def transition(session, caller, issue_id, command, trace_id):
     issue.snooze_until = command.snooze_until if action == "snoozed" else None
     session.add(
         MaintenanceIssueEvent(
-            issue_id=issue.id, actor_id=caller.user_id, action=action, reason=command.reason.strip()
+            issue_id=issue.id,
+            actor_id=caller.user_id,
+            action=action,
+            reason=redact_personal_information(command.reason.strip()),
         )
     )
     await audit.record_event(

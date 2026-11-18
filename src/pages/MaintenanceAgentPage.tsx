@@ -47,6 +47,7 @@ const categories: Record<string, string> = {
   maintenance: "维护状态",
   duplicates: "重复与版本关系",
   quality: "内容质量",
+  privacy: "敏感个人信息",
 };
 const states: Record<string, string> = {
   active: "待处理",
@@ -66,6 +67,7 @@ const states: Record<string, string> = {
   empty: "没有可巡检资产",
 };
 const rules: Record<string, string> = {
+  personal_information: "疑似包含敏感个人信息",
   missing_summary: "缺少摘要",
   missing_tags: "缺少必要标签",
   missing_directory: "缺少正式分类",
@@ -85,6 +87,7 @@ const rules: Record<string, string> = {
   missing_content: "疑似缺少关键内容",
 };
 const reasons: Record<string, string> = {
+  privacy_check_failed: "个人信息检查未完成，请重新检查",
   content_not_authorized: "正文未授权或当前权限不足",
   current_version_unavailable: "当前版本不可用",
   body_unavailable: "正文尚不可用",
@@ -119,6 +122,37 @@ const reasons: Record<string, string> = {
 };
 const message = (error: unknown) =>
   error instanceof ApiError ? error.message : "操作未完成，请稍后重试。";
+
+const personalTypes: Record<string, string> = {
+  email: "邮箱",
+  phone: "电话",
+  landline: "固定电话",
+  id_card: "身份证号",
+  bank_card: "银行卡号",
+  account: "个人账号",
+  contact: "姓名或联系人",
+  address: "住址或位置",
+  health: "健康信息",
+  biometric: "生物识别信息",
+  personal_id: "个人证件或标识",
+  personal_finance: "个人财务信息",
+};
+const personalSources: Record<string, string> = {
+  body: "正文",
+  summary: "摘要",
+  title: "标题",
+  tag: "标签",
+};
+const summarySources: Record<string, string> = {
+  one_liner: "短摘要",
+  key_points: "摘要要点",
+  detailed: "完整摘要",
+  detailed_summary: "完整摘要",
+  summary: "摘要",
+  redacted_one_liner: "脱敏短摘要",
+  redacted_summary: "脱敏完整摘要",
+  safe_summary: "安全摘要",
+};
 
 export default function MaintenanceAgentPage() {
   const location = useLocation();
@@ -903,7 +937,7 @@ function PolicyEditor({
               value={tags}
               maxLength={2000}
               onChange={(e) => setTags(e.target.value)}
-              placeholder="留空时检查是否至少有一个标签"
+              placeholder="留空时不检查必要标签"
             />
           </FormField>
           <FormField label="必要内容章节（逗号分隔）">
@@ -944,7 +978,7 @@ function PolicyEditor({
           </p>
         </div>
         <p>
-          五类检查全部启用；到期复核和长期未处理事项每天都会检查。首次运行全面巡检，之后每天检查新增或变更内容。重复比较限于同一知识库。
+          六类检查全部启用；到期复核和长期未处理事项每天都会检查。首次运行全面巡检，之后每天检查新增或变更内容。重复比较限于同一知识库。
         </p>
         {error && (
           <p role="alert" className="agent-error">
@@ -1058,6 +1092,35 @@ function IssueDrawer({
               <p>当前无原文权限，检查依据已隐藏。请到资料详情申请访问。</p>
             ) : (
               <>
+                {issue.evidence.basis === "local_personal_information_check" && (
+                  <section aria-label="个人信息检查结果">
+                    <p>
+                      仅展示疑似信息的类型和位置，不展示原始值。请在有权访问的资料中核实并完成脱敏，再重新检查。
+                    </p>
+                    <ul>
+                      {Object.entries(issue.evidence.counts || {}).map(([type, count]) => (
+                        <li key={type}>
+                          {personalTypes[type] || "个人信息"}：{count} 处
+                        </li>
+                      ))}
+                    </ul>
+                    <ol>
+                      {issue.evidence.locations?.map((location, index) => (
+                        <li key={index}>
+                          {(location.summary_type && summarySources[location.summary_type]) ||
+                            personalSources[location.source] ||
+                            "资料"}
+                          第 {location.start + 1}—{location.end} 字符：
+                          {personalTypes[location.category] || "个人信息"}
+                        </li>
+                      ))}
+                    </ol>
+                    {issue.evidence.locations_truncated && (
+                      <p>仅列出前 20 处位置，数量包含本次已检查部分的全部命中。</p>
+                    )}
+                    <small>位置以解析文本为准。未检出不代表已排除所有个人信息风险。</small>
+                  </section>
+                )}
                 {issue.evidence.quote && <blockquote>{issue.evidence.quote}</blockquote>}
                 {issue.evidence.related_asset_id && (
                   <p>

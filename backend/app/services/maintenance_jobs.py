@@ -41,6 +41,7 @@ from app.services.storage import get_storage
 BEIJING = timezone(timedelta(hours=8))
 ACTIVE = {"open", "in_progress", "awaiting_recheck"}
 TECHNICAL_FAILURES = {
+    "privacy_check_failed",
     "file_unavailable",
     "parse_failed",
     "index_failed",

@@ -12,8 +12,9 @@ from datetime import datetime
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
+from app.core.personal_information import redact_personal_information
 from app.schemas.external_agent import ProjectAccessLabel, ProjectAccessMode
 
 
@@ -43,6 +44,11 @@ class AccessInfoOut(BaseModel):
 
 class KnowledgeListItemOut(BaseModel):
     """知识列表条目。summary_text 已按权限/保密级别过滤（L3/L4 为脱敏/安全摘要）。"""
+
+    @field_validator("summary_text")
+    @classmethod
+    def safe_summary(cls, value):
+        return redact_personal_information(value)
 
     id: uuid.UUID
     title: str
@@ -113,6 +119,16 @@ class SummaryOut(BaseModel):
     detailed: str | None = None
     key_points: list[str] = []
     status: Literal["ready", "safe_pending", "generation_pending"] = "generation_pending"
+
+    @field_validator("one_liner", "detailed")
+    @classmethod
+    def safe_summary(cls, value):
+        return redact_personal_information(value)
+
+    @field_validator("key_points")
+    @classmethod
+    def safe_points(cls, value):
+        return [redact_personal_information(item) for item in value]
 
 
 class CurrentVersionOut(BaseModel):

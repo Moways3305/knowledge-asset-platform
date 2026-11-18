@@ -4,7 +4,7 @@
 `timestamp` / `level` / `logger` / `trace_id`（来自请求或任务上下文）+ 调用方经 `extra=`
 传入的安全字段。
 
-安全红线（**由各调用点负责，不在此处过滤**）：日志**绝不**记录业务原文 / extracted_text、
+安全红线（调用点最小化记录，格式化器再过滤个人信息和禁止字段）：日志**绝不**记录业务原文 / extracted_text、
 密码 / password_hash / token_hash / session token / cookie、WeKnora kb_id·doc_id、API key /
 base url 真实值、OAuth state·code·access_token·app_secret、raw IP / email / identifier_hash 全文。
 允许：safe model_ref、hash 前缀（≤8）、asset_id / user_id（UUID）、safe error code、method /
@@ -19,6 +19,12 @@ import re
 import sys
 from contextvars import ContextVar
 from datetime import datetime, timezone
+
+from app.core.personal_information import (
+    is_personal_field,
+    redact_personal_data,
+    redact_personal_information,
+)
 
 # 跨请求 / 任务的关联 id（由 TraceIdMiddleware 与 worker run_task 设置）。
 trace_id_var: ContextVar[str | None] = ContextVar("trace_id", default=None)
@@ -54,7 +60,11 @@ class JsonFormatter(logging.Formatter):
             # 仅记异常**类型名**（安全）；不记 message / stack（避免泄露内部细节；后续如需排查细节，
             # 应通过受控诊断通道处理）。
             payload["exc_type"] = record.exc_info[0].__name__
-        return json.dumps(payload, ensure_ascii=False, default=str)
+        safe = _safe_log_fields(payload)
+        # UUID.hex is the application's generated correlation format, not a phone/account.
+        if isinstance(trace_id, str) and re.fullmatch(r"[0-9a-fA-F]{32}", trace_id):
+            safe["trace_id"] = trace_id
+        return json.dumps(safe, ensure_ascii=False)
 
 
 _configured = False
@@ -121,6 +131,62 @@ _MAX_SUMMARY_LEN = 300
 # 不可信（上游可能把 model id / OAuth code / 内部 id 放进去），不匹配则不写 error_code。
 _SAFE_ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
+_PRIVATE_FIELDS = frozenset(
+    {
+        "body",
+        "request_body",
+        "response_body",
+        "document",
+        "content",
+        "content_text",
+        "extracted_text",
+        "prompt",
+        "messages",
+        "quote",
+        "raw",
+        "raw_response",
+        "payload",
+        "password",
+        "password_hash",
+        "token",
+        "token_hash",
+        "session_token",
+        "cookie",
+        "authorization",
+        "api_key",
+        "email",
+        "phone",
+        "phone_number",
+        "mobile",
+        "address",
+        "name",
+        "full_name",
+        "medical_history",
+        "id_card",
+        "bank_card",
+        "biometric_template",
+    }
+)
+
+
+def _safe_log_fields(value, depth=0):
+    if depth > 8:
+        return "<omitted>"
+    if isinstance(value, dict):
+        return {
+            redact_personal_information(str(key)): "<redacted>"
+            if str(key).lower() in _PRIVATE_FIELDS or is_personal_field(key)
+            else _safe_log_fields(item, depth + 1)
+            for key, item in list(value.items())[:100]
+        }
+    if isinstance(value, (tuple, list)):
+        return [_safe_log_fields(item, depth + 1) for item in value[:100]]
+    if isinstance(value, str):
+        return redact_personal_data(value)
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return "<omitted>"
+
 
 def sanitize_exception_message(exc: BaseException) -> str:
     """把异常消息清洗为可安全入日志的摘要：移除 URL / email / IP / Bearer / key·token /
@@ -128,6 +194,7 @@ def sanitize_exception_message(exc: BaseException) -> str:
     text = str(exc)
     for pattern, repl in _REDACTIONS:
         text = pattern.sub(repl, text)
+    text = redact_personal_information(text)
     if len(text) > _MAX_SUMMARY_LEN:
         text = text[:_MAX_SUMMARY_LEN] + "…"
     return text
