@@ -12,10 +12,13 @@ from app.core.logging import JsonFormatter
 from app.core.personal_information import personal_information_matches, redact_personal_information
 from app.db.utils import utc_now
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetChunk, KnowledgeAssetSummary
+from app.models.lifecycle import NotificationRecord
 from app.models.maintenance_agent import MaintenanceIssue, MaintenanceIssueEvent, MaintenanceRunItem
 from app.schemas.knowledge import SummaryOut
 from app.schemas.maintenance_agent import ScanSettings
 from app.schemas.notification import BusinessNotificationOut
+from app.seed.dev_seed import USER_CONSULTANT
+from app.services.alert import record_local_notification
 from app.services.llm_client import NullLLMClient
 from app.services.maintenance_rules import analyze
 
@@ -85,6 +88,29 @@ def test_summary_and_notification_projection_filter_historical_values():
     # Redact before a fallback preview truncates an identifier into an unrecognizable suffix.
     preview = _select_summary_text("L3", {"safe_summary": "正文" * 98 + PHONE})
     assert "1380" not in preview
+
+
+async def test_admin_alert_list_redacts_historical_and_new_records(client, db_session):
+    fields = {
+        "recipient_user_id": USER_CONSULTANT,
+        "channel": "in_app",
+        "title": f"巡检提醒 {EMAIL}",
+        "content": f"请联系维护人 {PHONE}。",
+    }
+    historical = NotificationRecord(**fields)
+    db_session.add(historical)
+    current = await record_local_notification(db_session, **fields)
+    await db_session.commit()
+
+    response = await client.get("/api/v1/admin/alerts/notifications", headers=headers())
+    assert response.status_code == 200
+    items = {row["id"]: row for row in response.json()["items"]}
+    for record in (historical, current):
+        item = items[str(record.id)]
+        assert item["title"] == "巡检提醒 【个人信息已隐藏】"
+        assert item["content"] == "请联系维护人 【个人信息已隐藏】。"
+        assert item["send_status"] == "pending"
+    assert EMAIL not in response.text and PHONE not in response.text
 
 
 def test_logging_sanitizes_message_args_nested_fields_and_exceptions():
