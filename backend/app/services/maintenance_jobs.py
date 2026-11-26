@@ -77,7 +77,7 @@ async def start_run(
     )
     if active and asset_id is None:
         return active
-    if active and asset_id:
+    if active and asset_id and not replacement:
         queued = await session.scalar(
             select(MaintenanceRun)
             .where(
@@ -90,7 +90,6 @@ async def start_run(
         )
         if queued:
             return queued
-    if active and asset_id and not replacement:
         pending = await session.scalar(
             select(func.count())
             .select_from(MaintenanceRun)
@@ -264,7 +263,7 @@ async def flush_digests(session, now=None):
 
 
 async def persist_findings(
-    session, policy, asset, snapshot, findings, now, *, finalize=True, seen_keys=()
+    session, policy, asset, snapshot, findings, now, *, run_started_at, finalize=True, seen_keys=()
 ):
     existing = (
         await session.scalars(
@@ -274,6 +273,22 @@ async def persist_findings(
         )
     ).all()
     by_key = {(i.rule, i.related_key): i for i in existing}
+    # A multi-batch scan may already have passed the comparison candidate that
+    # was replaced. Its checkpoint cannot verify the new relationship.
+    carried = [i.id for i in existing if i.requires_recheck]
+    stale = (
+        set(
+            await session.scalars(
+                select(MaintenanceIssueEvent.issue_id).where(
+                    MaintenanceIssueEvent.issue_id.in_(carried),
+                    MaintenanceIssueEvent.action.in_(["version_replaced", "history_linked"]),
+                    MaintenanceIssueEvent.created_at >= run_started_at,
+                )
+            )
+        )
+        if carried
+        else set()
+    )
     seen = set()
     settings = ScanSettings(**policy.settings)
     for fact in findings:
@@ -294,6 +309,8 @@ async def persist_findings(
             ]
         )
         row = by_key.get(key)
+        if row and row.id in stale:
+            continue
         if row is None:
             row = MaintenanceIssue(
                 id=uuid.uuid4(),
@@ -331,6 +348,8 @@ async def persist_findings(
             row.last_seen_at = now
     seen.update(tuple(key) for key in seen_keys)
     for row in existing:
+        if row.id in stale:
+            continue
         if (
             finalize
             and row.status == "awaiting_recheck"
@@ -622,6 +641,7 @@ async def process_one(maker, *, storage=None, client=None):
                 snapshot,
                 findings,
                 now,
+                run_started_at=run.started_at,
                 finalize=complete,
                 seen_keys=next_work["seen"],
             )

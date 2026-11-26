@@ -21,7 +21,7 @@ from app.models.knowledge import (
 from app.models.maintenance_agent import MaintenancePolicy
 from app.seed.dev_seed import PROJECT_ALPHA, USER_CONSULTANT, USER_PROJECT_MANAGER
 from app.services import outbox
-from app.services.maintenance_jobs import flush_digests, start_run
+from app.services.maintenance_jobs import flush_digests, process_one, start_run
 
 ROOT = "/api/v1/maintenance-agent"
 KEY = f"project:{PROJECT_ALPHA}"
@@ -280,6 +280,16 @@ async def project_version_workflow(client, maker, tmp_path, prescanned):
         (duplicate,) = (
             await client.get(f"{ROOT}/issues?asset_id={new_id}&category=privacy", headers=PM)
         ).json()["items"]
+        queued_before_adoption = await client.post(
+            f"{ROOT}/issues/{duplicate['id']}/actions",
+            headers=PM,
+            json={
+                "action": "recheck",
+                "expected_updated_at": duplicate["updated_at"],
+                "reason": "",
+            },
+        )
+        assert queued_before_adoption.status_code == 200
 
     adopted = await client.post(
         f"/api/v1/knowledge/{old_id}/trust/replacement",
@@ -308,6 +318,9 @@ async def project_version_workflow(client, maker, tmp_path, prescanned):
     if prescanned:
         alias = await client.get(f"{ROOT}/issues/{duplicate['id']}", headers=PM)
         assert alias.json()["id"] == issue["id"]
+        assert await process_one(maker, client=Segments(), storage=client._kap_storage)
+        unchanged = (await client.get(issue_url, headers=PM)).json()
+        assert unchanged["status"] == "awaiting_recheck" and not unchanged["evidence_available"]
 
     await finish(maker, Segments(), client._kap_storage)
     partial = await client.get(issue_url, headers=PM)
