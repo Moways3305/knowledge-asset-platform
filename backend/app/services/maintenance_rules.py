@@ -39,6 +39,7 @@ SEMANTIC = {
 }
 SUGGESTIONS = {"missing_summary", "missing_tags", "missing_directory", "missing_maintainer"}
 RETIRED = {"missing_review_date"}
+ACTIVE = {"open", "in_progress", "awaiting_recheck"}
 
 
 def digest(value):

@@ -19,7 +19,7 @@ from app.models.indexing_job import IndexingOperationJob
 from app.models.ingest import IngestTask
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.knowledge_correction import KnowledgeCorrection
-from app.models.maintenance_agent import MaintenanceDigest, MaintenanceIssue, MaintenanceRun
+from app.models.maintenance_agent import MaintenanceIssue, MaintenanceRun
 from app.models.notification import BusinessNotification
 from app.models.original_access import OriginalAccessRequest
 from app.models.review import CompanyAssetReviewDecision, ReviewTask
@@ -29,6 +29,7 @@ from app.schemas.permission import AccessLayer, CallerContext
 from app.services import maintenance_access
 from app.services.company_confirmation_policy import select_confirmation_role
 from app.services.ingest_review_state import effective_status
+from app.services.maintenance_rules import ACTIVE
 from app.services.permission import decide, knowledge_maintainer_allowed
 from app.services.review_queries import decision_states
 from app.services.storage import LocalFileStorage
@@ -101,24 +102,14 @@ async def resolve(
             action_required=False,
         )
     if row.target_kind == "maintenance_digest":
-        digest = await session.get(MaintenanceDigest, row.target_id)
-        if not digest or digest.recipient_id != caller.user_id:
-            return None
-        query = maintenance_access.visible_issue_query(caller, mine=True)
-        from app.services.maintenance_rules import SUGGESTIONS
-
-        query = query.where(MaintenanceIssue.rule.notin_(SUGGESTIONS))
+        query = maintenance_access.digest_issue_query(caller, row.target_id)
         if not await session.scalar(query.limit(1)):
             return None
         actionable = bool(
-            await session.scalar(
-                query.where(
-                    MaintenanceIssue.status.in_(["open", "in_progress", "awaiting_recheck"])
-                ).limit(1)
-            )
+            await session.scalar(query.where(MaintenanceIssue.status.in_(ACTIVE)).limit(1))
         )
         return VisibleNotificationTarget(
-            target=NotificationTarget(route_key="maintenance_agent", resource_id=digest.id),
+            target=NotificationTarget(route_key="maintenance_agent", resource_id=row.target_id),
             status="needs_action" if actionable else "completed",
             action_required=actionable,
         )

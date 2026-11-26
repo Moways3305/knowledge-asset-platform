@@ -13,6 +13,7 @@ from app.models.knowledge import KnowledgeAsset
 from app.models.maintenance_agent import (
     MaintenanceCheck,
     MaintenanceDigest,
+    MaintenanceDigestIssue,
     MaintenanceIssue,
     MaintenanceIssueEvent,
     MaintenancePolicy,
@@ -28,6 +29,7 @@ from app.services.llm_client import NullLLMClient
 from app.services.maintenance_batches import advance
 from app.services.maintenance_reports import cancel_pending, seed_targets
 from app.services.maintenance_rules import (
+    ACTIVE,
     RETIRED,
     SUGGESTIONS,
     analyze,
@@ -39,7 +41,6 @@ from app.services.maintenance_snapshots import capture
 from app.services.storage import get_storage
 
 BEIJING = timezone(timedelta(hours=8))
-ACTIVE = {"open", "in_progress", "awaiting_recheck"}
 TECHNICAL_FAILURES = {
     "privacy_check_failed",
     "file_unavailable",
@@ -62,7 +63,9 @@ TECHNICAL_FAILURES = {
 }
 
 
-async def start_run(session, policy, *, kind="full", asset_id=None, retry_run_id=None):
+async def start_run(
+    session, policy, *, kind="full", asset_id=None, retry_run_id=None, replacement=False
+):
     """Caller holds the policy row lock; repeated requests share its active run."""
     active = await session.scalar(
         select(MaintenanceRun)
@@ -80,12 +83,14 @@ async def start_run(session, policy, *, kind="full", asset_id=None, retry_run_id
             .where(
                 MaintenanceRun.policy_id == policy.id,
                 MaintenanceRun.target_asset_id == asset_id,
+                MaintenanceRun.policy_revision == policy.revision,
                 MaintenanceRun.status == "queued",
             )
             .limit(1)
         )
         if queued:
             return queued
+    if active and asset_id and not replacement:
         pending = await session.scalar(
             select(func.count())
             .select_from(MaintenanceRun)
@@ -174,18 +179,12 @@ async def _digest(session, issue, recipient_id, settings, now):
     )
     if row is None:
         # Different library runs may reach the same recipient concurrently.
-        dialect = session.bind.dialect.name
-        if dialect == "postgresql":
-            from sqlalchemy.dialects.postgresql import insert
-        else:
-            from sqlalchemy.dialects.sqlite import insert
         await session.execute(
-            insert(MaintenanceDigest)
+            _insert(session, MaintenanceDigest)
             .values(
                 id=uuid.uuid4(),
                 recipient_id=recipient_id,
                 day=day,
-                issue_ids=[],
                 created_at=now,
                 due_at=due_at,
             )
@@ -198,14 +197,22 @@ async def _digest(session, issue, recipient_id, settings, now):
             .execution_options(populate_existing=True)
         )
     row.due_at = max(access.stamp(row.due_at), due_at)
-    # The notification is a generic daily hint, with live task visibility on read.
-    if str(issue.id) not in row.issue_ids and len(row.issue_ids) < 500:
-        row.issue_ids = [*row.issue_ids, str(issue.id)]
+    await session.execute(
+        _insert(session, MaintenanceDigestIssue)
+        .values(digest_id=row.id, issue_id=issue.id)
+        .on_conflict_do_nothing(index_elements=["digest_id", "issue_id"])
+    )
+
+
+def _insert(session, model):
+    if session.bind.dialect.name == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert
+    else:
+        from sqlalchemy.dialects.sqlite import insert
+    return insert(model)
 
 
 async def _publish_digest(session, row, now):
-    if not row.issue_ids:
-        return
     await domain_events.publish(
         session,
         domain_events.DomainEvent(
@@ -231,20 +238,22 @@ async def flush_digests(session, now=None):
         )
     ).all()
     for row in rows:
-        issues = (
-            await session.scalars(
-                select(MaintenanceIssue).where(
-                    MaintenanceIssue.id.in_([uuid.UUID(x) for x in row.issue_ids])
-                )
-            )
-        ).all()
         policies = (
             await session.scalars(
                 select(MaintenancePolicy).where(
-                    MaintenancePolicy.id.in_({i.policy_id for i in issues})
+                    MaintenancePolicy.id.in_(
+                        select(MaintenanceIssue.policy_id)
+                        .join(
+                            MaintenanceDigestIssue,
+                            MaintenanceDigestIssue.issue_id == MaintenanceIssue.id,
+                        )
+                        .where(MaintenanceDigestIssue.digest_id == row.id)
+                    )
                 )
             )
         ).all()
+        if not policies:
+            continue
         hour = max((ScanSettings(**p.settings).digest_hour for p in policies), default=9)
         if (
             row.day < now.astimezone(BEIJING).date().isoformat()
@@ -349,6 +358,12 @@ async def persist_findings(
             and row.status not in {"false_positive", "resolved", "not_applicable"}
         ):
             row.status, row.updated_at, row.snooze_until = "resolved", now, None
+            if row.requires_recheck:
+                row.version_id, row.evidence, row.requires_recheck = (
+                    asset.current_version_id,
+                    {},
+                    False,
+                )
             session.add(MaintenanceIssueEvent(issue_id=row.id, action="recheck_passed"))
         if row.status in ACTIVE and row.rule not in RETIRED | SUGGESTIONS:
             for recipient in snapshot["responsible"]:
@@ -675,7 +690,10 @@ async def process_one(maker, *, storage=None, client=None):
 
 
 async def tick(maker):
+    from app.services.maintenance_replacement import recover_archived_replacements
+
     async with maker() as session:
+        await recover_archived_replacements(session)
         await retire_unavailable(session)
         await schedule(session)
         await flush_digests(session)
@@ -709,6 +727,6 @@ async def retire_unavailable(session):
         )
     ).all()
     for issue in rows:
-        issue.status, issue.updated_at = "not_applicable", utc_now()
+        issue.status, issue.updated_at, issue.requires_recheck = "not_applicable", utc_now(), False
         session.add(MaintenanceIssueEvent(issue_id=issue.id, action="not_applicable"))
     await session.commit()

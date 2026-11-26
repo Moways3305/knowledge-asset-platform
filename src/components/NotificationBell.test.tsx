@@ -88,6 +88,39 @@ beforeEach(() => {
   vi.mocked(saveNotificationPreferences).mockImplementation(async (body) => body);
 });
 describe("Notification inbox lifecycle", () => {
+  it.each(["needs_action", "completed"] as const)(
+    "opens the exact maintenance digest for %s work",
+    async (status) => {
+      const notice = {
+        ...notification,
+        event_type: "maintenance.digest",
+        task_status: status,
+        target: { route_key: "maintenance_agent", resource_id: "daily-digest" },
+      };
+      vi.mocked(fetchNotificationEvents).mockResolvedValue({ items: [notice], total: 1 });
+      vi.mocked(fetchInbox).mockResolvedValue({
+        ...initial,
+        items: [{ ...group, latest: { ...notice, title: "知识维护巡检摘要" } }],
+      });
+      renderBell();
+      await open();
+      if (status === "completed") {
+        fireEvent.click(screen.getByRole("button", { name: "查看详情" }));
+        fireEvent.click(await screen.findByRole("button", { name: "前往处理" }));
+      } else {
+        fireEvent.click(screen.getByRole("button", { name: "知识维护巡检摘要" }));
+      }
+      await waitFor(() =>
+        expect(JSON.parse(screen.getByTestId("location").textContent!).pathname).toBe(
+          "/agents/knowledge-maintenance",
+        ),
+      );
+      const route = JSON.parse(screen.getByTestId("location").textContent!);
+      const params = new URLSearchParams(route.search);
+      expect(params.get("target_id")).toBe("daily-digest");
+      expect(params.get("status")).toBe(status === "completed" ? "all" : null);
+    },
+  );
   it("opening clears new badge without marking unread work complete", async () => {
     renderBell();
     await open();

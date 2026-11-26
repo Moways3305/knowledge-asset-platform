@@ -423,6 +423,13 @@ async def replacement_options(session, caller, asset_id, keyword):
 
 
 async def replace(session, caller, asset_id, req, trace_id):
+    from app.services import maintenance_replacement
+
+    policy = (
+        await maintenance_replacement.lock_policy(session, asset_id)
+        if req.replacement_asset_id
+        else None
+    )
     # Acquire both assets in a globally stable order to prevent inverse replacement deadlocks.
     ids = {asset_id}
     if req.replacement_asset_id:
@@ -515,6 +522,7 @@ async def replace(session, caller, asset_id, req, trace_id):
     from app.services.maintenance_reconcile import reconcile_asset
 
     await reconcile_asset(session, target)
+    await maintenance_replacement.continue_on_replacement(session, policy, asset, target)
     # Existing lifecycle command keeps revocation/audit behavior and commits atomically.
     await lifecycle.archive_confirm(
         session, caller, asset.id, ArchiveConfirmBody(reason=req.reason), trace_id

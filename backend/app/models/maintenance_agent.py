@@ -110,6 +110,7 @@ class MaintenanceIssue(Base):
             "policy_id", "asset_id", "rule", "related_key", name="uq_maintenance_issue_fact"
         ),
         Index("ix_maintenance_issue_policy_status", "policy_id", "status"),
+        Index("ix_maintenance_issue_recheck_status", "requires_recheck", "status", "asset_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -125,6 +126,7 @@ class MaintenanceIssue(Base):
     fingerprint: Mapped[str] = mapped_column(String(64))
     evidence: Mapped[dict] = mapped_column(JSON, default=dict)
     suspected: Mapped[bool] = mapped_column(Boolean, default=False)
+    requires_recheck: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[str] = mapped_column(String(24), default="open")
     snooze_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
@@ -153,7 +155,28 @@ class MaintenanceDigest(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     recipient_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"))
     day: Mapped[str] = mapped_column(String(10))
-    issue_ids: Mapped[list] = mapped_column(JSON, default=list)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class MaintenanceDigestIssue(Base):
+    __tablename__ = "maintenance_digest_issues"
+
+    digest_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("maintenance_agent_digests.id"), primary_key=True
+    )
+    issue_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("maintenance_agent_issues.id"), primary_key=True, index=True
+    )
+
+
+class MaintenanceIssueAlias(Base):
+    """Keep links to a pre-inspected successor valid when two findings converge."""
+
+    __tablename__ = "maintenance_issue_aliases"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    issue_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("maintenance_agent_issues.id"), index=True
+    )

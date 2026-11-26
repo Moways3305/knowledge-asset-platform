@@ -19,7 +19,7 @@ const GROUP_LABEL: Record<TaskCenterGroup, string> = {
 };
 const ROUTES: Record<string, { path: string; allowed: (capabilities: Capabilities) => boolean }> = {
   maintenance_agent: {
-    path: "/agents/knowledge-maintenance?mine=true",
+    path: "/agents/knowledge-maintenance?view=mine&mine=true",
     allowed: can.viewKnowledge,
   },
   reviews: { path: "/review", allowed: can.viewReview },

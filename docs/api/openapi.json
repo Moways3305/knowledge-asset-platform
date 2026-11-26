@@ -7959,6 +7959,11 @@
             "title": "Priority",
             "type": "string"
           },
+          "requires_recheck": {
+            "default": false,
+            "title": "Requires Recheck",
+            "type": "boolean"
+          },
           "responsible": {
             "items": {
               "additionalProperties": {
@@ -8140,6 +8145,13 @@
             },
             "title": "Counts",
             "type": "object"
+          },
+          "digest_libraries": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Digest Libraries",
+            "type": "array"
           },
           "items": {
             "items": {
@@ -38914,6 +38926,23 @@
                 }
               ],
               "title": "Library Key"
+            }
+          },
+          {
+            "in": "query",
+            "name": "digest_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Digest Id"
             }
           },
           {
