@@ -128,6 +128,7 @@ async def retry_run(
 @router.get("/issues", response_model=IssuePage)
 async def issues(
     library_key: str | None = None,
+    digest_id: uuid.UUID | None = None,
     priority: Literal["all", "actionable", "suggestion"] = "all",
     asset_id: uuid.UUID | None = None,
     status: Literal[
@@ -160,6 +161,7 @@ async def issues(
         page=page,
         priority=priority,
         asset_id=asset_id,
+        digest_id=digest_id,
     )
 
 

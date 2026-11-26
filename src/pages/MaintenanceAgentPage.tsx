@@ -158,13 +158,16 @@ export default function MaintenanceAgentPage() {
   const location = useLocation();
   const [params, setParams] = useSearchParams();
   const isCenter = location.pathname === "/agents";
-  const key = params.get("library") || "company";
-  const tab = params.get("tab") || "issues";
+  const digestId = params.get("target_id") || "";
+  const inbox = Boolean(digestId) || params.get("view") === "mine";
+  const key = params.get("library") || (inbox ? "" : "company");
+  const tab = inbox ? "issues" : params.get("tab") || "issues";
   const page = Math.max(1, Number(params.get("page")) || 1);
   const status = params.get("status") || "active";
   const category = params.get("category") || "";
-  const mine = params.get("mine") === "true";
-  const priority = params.get("priority") === "suggestion" ? "suggestion" : "actionable";
+  const mine = inbox || params.get("mine") === "true";
+  const priority =
+    !digestId && params.get("priority") === "suggestion" ? "suggestion" : "actionable";
   const assetId = params.get("asset_id") || "";
   const [policies, setPolicies] = useState<AgentPolicy[]>([]);
   const [storedData, setData] = useState<IssuePage | null>(null);
@@ -180,8 +183,14 @@ export default function MaintenanceAgentPage() {
     tab,
     priority,
     assetId,
+    digestId,
+    inbox,
   ]);
   const data = loadedScope === scope ? storedData : null;
+  const libraries = digestId
+    ? policies.filter((p) => data?.digest_libraries?.includes(p.library_key))
+    : policies;
+  const displayLibrary = key || (libraries.length === 1 ? libraries[0].library_key : "");
   const runs = loadedScope === scope ? storedRuns : [];
   const [modelRefresh, setModelRefresh] = useState(0);
   const [editorRevision, setEditorRevision] = useState(0);
@@ -209,9 +218,9 @@ export default function MaintenanceAgentPage() {
   useEffect(() => {
     setSelectedRun(null);
     setSelected(null);
-  }, [key]);
+  }, [key, digestId, inbox]);
   useEffect(() => {
-    if (isCenter) return;
+    if (isCenter || inbox) return;
     let live = true;
     setModelError("");
     void fetchAgentModels()
@@ -224,27 +233,29 @@ export default function MaintenanceAgentPage() {
     return () => {
       live = false;
     };
-  }, [isCenter, modelRefresh]);
+  }, [isCenter, inbox, modelRefresh]);
   useEffect(() => {
     if (isCenter) return;
     let live = true;
     setLoading(true);
     setError("");
     const filters = new URLSearchParams({
-      library_key: key,
       priority,
       status,
       mine: String(mine),
       page: String(page),
     });
+    if (key) filters.set("library_key", key);
+    if (digestId) filters.set("digest_id", digestId);
     if (category) filters.set("category", category);
     if (assetId) filters.set("asset_id", assetId);
     void Promise.all([fetchAgentPolicies(), fetchAgentIssues(filters)])
       .then(async ([list, items]) => {
         const current = list.find((p) => p.library_key === key);
-        const history = current?.can_configure
-          ? await fetchAgentRuns(key, tab === "runs" ? page : 1)
-          : [];
+        const history =
+          !inbox && current?.can_configure
+            ? await fetchAgentRuns(key, tab === "runs" ? page : 1)
+            : [];
         if (live) {
           setPolicies(list);
           setData(items);
@@ -270,7 +281,21 @@ export default function MaintenanceAgentPage() {
     return () => {
       live = false;
     };
-  }, [isCenter, key, status, category, mine, page, tab, priority, assetId, scope, refresh]);
+  }, [
+    isCenter,
+    key,
+    status,
+    category,
+    mine,
+    page,
+    tab,
+    priority,
+    assetId,
+    digestId,
+    inbox,
+    scope,
+    refresh,
+  ]);
   const hasRunning = runs.some((r) => r.status === "queued" || r.status === "running");
   useEffect(() => {
     if (!hasRunning || loading) return;
@@ -342,88 +367,110 @@ export default function MaintenanceAgentPage() {
         <AgentCatalog />
       ) : (
         <>
-          <div className="agent-toolbar">
-            <FormField label="巡检知识库">
-              <select value={key} onChange={(e) => update("library", e.target.value)}>
-                {policies.length ? (
-                  policies.map((p) => (
+          {inbox ? (
+            <div className="agent-toolbar">
+              <FormField label={digestId ? "本次提醒的知识库" : "待办所属知识库"}>
+                <select value={displayLibrary} onChange={(e) => update("library", e.target.value)}>
+                  {libraries.length !== 1 && <option value="">全部相关知识库</option>}
+                  {libraries.map((p) => (
                     <option key={p.library_key} value={p.library_key}>
                       {p.name}
                     </option>
-                  ))
-                ) : (
-                  <option value="company">公司知识库</option>
-                )}
-              </select>
-            </FormField>
-            <div className="agent-scope">
-              <CalendarClock size={18} />
-              <span>
-                全部有效资料 · 每日增量 / 每周全量
-                <br />
-                <small>仅巡检所选知识库，个人知识库不参与</small>
-              </span>
+                  ))}
+                </select>
+              </FormField>
+              {displayLibrary && (
+                <Link to={`?library=${encodeURIComponent(displayLibrary)}&tab=issues`}>
+                  查看该知识库全部待办
+                </Link>
+              )}
             </div>
-            <div className="agent-run-action">
-              <Button
-                variant="primary"
-                icon={policy?.id ? <ClipboardCheck size={16} /> : <Settings2 size={16} />}
-                disabled={busy || loading || !policy?.can_configure}
-                aria-describedby="agent-run-guidance"
-                onClick={() =>
-                  hasRunning
-                    ? update("tab", "runs")
-                    : !policy?.id
-                      ? update("tab", "settings")
-                      : void runNow()
-                }
-              >
-                {busy
-                  ? "正在提交…"
-                  : hasRunning
-                    ? "查看巡检进度"
-                    : !policy?.id
-                      ? "配置并开始"
-                      : "立即全面巡检"}
-              </Button>
-              <small id="agent-run-guidance">
-                {loading
-                  ? "正在读取巡检配置"
-                  : !policy
-                    ? "配置读取失败，请刷新重试"
-                    : !policy.can_configure
-                      ? "需由公司知识治理人员或该项目经理操作"
-                      : !policy.id
-                        ? "首次使用，先配置模型与巡检授权"
-                        : hasRunning
-                          ? "已有巡检任务，点击查看进度"
-                          : "检查本知识库全部有效资料的当前版本"}
-              </small>
-            </div>
-          </div>
-          <div className="agent-readiness" aria-label="智能体当前配置">
-            <Cpu size={17} aria-hidden="true" />
-            <span>
-              分析模型：
-              <strong>
-                {modelError
-                  ? "暂时无法读取"
-                  : !models
-                    ? "正在读取…"
-                    : selectedModel?.display_name || "尚无可用模型"}
-              </strong>
-            </span>
-            <span>{policy?.enabled ? "自动巡检已开启" : "自动巡检未开启"}</span>
-            <span>{policy?.content_authorized ? "正文分析已授权" : "正文分析未授权"}</span>
-            <Button
-              variant="ghost"
-              size="small"
-              onClick={() => update("tab", "settings")}
-              icon={<Settings2 size={14} />}
-            >
-              模型与巡检配置
-            </Button>
-          </div>
+          ) : (
+            <>
+              <div className="agent-toolbar">
+                <FormField label="巡检知识库">
+                  <select value={key} onChange={(e) => update("library", e.target.value)}>
+                    {policies.length ? (
+                      policies.map((p) => (
+                        <option key={p.library_key} value={p.library_key}>
+                          {p.name}
+                        </option>
+                      ))
+                    ) : (
+                      <option value="company">公司知识库</option>
+                    )}
+                  </select>
+                </FormField>
+                <div className="agent-scope">
+                  <CalendarClock size={18} />
+                  <span>
+                    全部有效资料 · 每日增量 / 每周全量
+                    <br />
+                    <small>仅巡检所选知识库，个人知识库不参与</small>
+                  </span>
+                </div>
+                <div className="agent-run-action">
+                  <Button
+                    variant="primary"
+                    icon={policy?.id ? <ClipboardCheck size={16} /> : <Settings2 size={16} />}
+                    disabled={busy || loading || !policy?.can_configure}
+                    aria-describedby="agent-run-guidance"
+                    onClick={() =>
+                      hasRunning
+                        ? update("tab", "runs")
+                        : !policy?.id
+                          ? update("tab", "settings")
+                          : void runNow()
+                    }
+                  >
+                    {busy
+                      ? "正在提交…"
+                      : hasRunning
+                        ? "查看巡检进度"
+                        : !policy?.id
+                          ? "配置并开始"
+                          : "立即全面巡检"}
+                  </Button>
+                  <small id="agent-run-guidance">
+                    {loading
+                      ? "正在读取巡检配置"
+                      : !policy
+                        ? "配置读取失败，请刷新重试"
+                        : !policy.can_configure
+                          ? "需由公司知识治理人员或该项目经理操作"
+                          : !policy.id
+                            ? "首次使用，先配置模型与巡检授权"
+                            : hasRunning
+                              ? "已有巡检任务，点击查看进度"
+                              : "检查本知识库全部有效资料的当前版本"}
+                  </small>
+                </div>
+              </div>
+              <div className="agent-readiness" aria-label="智能体当前配置">
+                <Cpu size={17} aria-hidden="true" />
+                <span>
+                  分析模型：
+                  <strong>
+                    {modelError
+                      ? "暂时无法读取"
+                      : !models
+                        ? "正在读取…"
+                        : selectedModel?.display_name || "尚无可用模型"}
+                  </strong>
+                </span>
+                <span>{policy?.enabled ? "自动巡检已开启" : "自动巡检未开启"}</span>
+                <span>{policy?.content_authorized ? "正文分析已授权" : "正文分析未授权"}</span>
+                <Button
+                  variant="ghost"
+                  size="small"
+                  onClick={() => update("tab", "settings")}
+                  icon={<Settings2 size={14} />}
+                >
+                  模型与巡检配置
+                </Button>
+              </div>
+            </>
+          )}
           {error && (
             <p role="alert" className="agent-error">
               {error}{" "}
@@ -438,46 +485,52 @@ export default function MaintenanceAgentPage() {
               {reasons[policy.last_error] || "巡检配置需要检查"}
             </p>
           )}
-          <nav className="agent-tabs" aria-label="知识维护视图">
-            {[
-              ["issues", "维护待办"],
-              ["runs", "巡检记录"],
-              ["settings", "巡检设置"],
-            ].map(([value, label]) => (
-              <button
-                type="button"
-                key={value}
-                aria-current={tab === value ? "page" : undefined}
-                onClick={() => update("tab", value)}
-              >
-                {label}
-              </button>
-            ))}
-          </nav>
+          {!inbox && (
+            <nav className="agent-tabs" aria-label="知识维护视图">
+              {[
+                ["issues", "维护待办"],
+                ["runs", "巡检记录"],
+                ["settings", "巡检设置"],
+              ].map(([value, label]) => (
+                <button
+                  type="button"
+                  key={value}
+                  aria-current={tab === value ? "page" : undefined}
+                  onClick={() => update("tab", value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </nav>
+          )}
           {!data && !error && <p role="status">正在加载巡检信息…</p>}
           {tab === "issues" && data && (
             <section aria-label="巡检问题" className="agent-panel">
-              <div className="agent-priority" role="group" aria-label="维护优先级">
-                {(
-                  [
-                    ["actionable", "需要处理"],
-                    ["suggestion", "完善建议"],
-                  ] as const
-                ).map(([value, label]) => (
-                  <Button
-                    key={value}
-                    variant={priority === value ? "primary" : "secondary"}
-                    aria-pressed={priority === value}
-                    onClick={() => update("priority", value)}
-                  >
-                    {label} {data.counts?.[value] ?? ""}
-                  </Button>
-                ))}
-              </div>
+              {!digestId && (
+                <div className="agent-priority" role="group" aria-label="维护优先级">
+                  {(
+                    [
+                      ["actionable", "需要处理"],
+                      ["suggestion", "完善建议"],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <Button
+                      key={value}
+                      variant={priority === value ? "primary" : "secondary"}
+                      aria-pressed={priority === value}
+                      onClick={() => update("priority", value)}
+                    >
+                      {label} {data.counts?.[value] ?? ""}
+                    </Button>
+                  ))}
+                </div>
+              )}
               <p className="agent-note">
-                {priority === "suggestion"
-                  ? "摘要、分类、标签等完善建议按需处理，不重复发送待办提醒。"
-                  : "显示影响使用、内容可靠性或已经到期的维护事项。"}
+                {digestId
+                  ? "本次巡检提醒中由你负责的问题"
+                  : priority === "suggestion"
+                    ? "摘要、分类、标签等完善建议按需处理，不重复发送待办提醒。"
+                    : "显示影响使用、内容可靠性或已经到期的维护事项。"}
               </p>
               {assetId && (
                 <p>
@@ -523,6 +576,7 @@ export default function MaintenanceAgentPage() {
                   <input
                     type="checkbox"
                     checked={mine}
+                    disabled={inbox}
                     onChange={(e) => update("mine", String(e.target.checked))}
                   />{" "}
                   只看我负责的
@@ -534,6 +588,11 @@ export default function MaintenanceAgentPage() {
                   {data.items.map((issue) => (
                     <li key={issue.id}>
                       <div className="agent-issue-meta">
+                        {inbox && !displayLibrary && (
+                          <span>
+                            {libraries.find((p) => p.library_key === issue.library_key)?.name}
+                          </span>
+                        )}
                         <span>{categories[issue.category]}</span>
                         <span className={`agent-status agent-status-${issue.status}`}>
                           {states[issue.status]}
@@ -569,13 +628,15 @@ export default function MaintenanceAgentPage() {
               ) : (
                 <div className="agent-empty">
                   <ClipboardCheck size={28} />
-                  <h3>{!policy?.id ? "从首次巡检开始" : "当前筛选下没有维护待办"}</h3>
+                  <h3>{inbox || policy?.id ? "当前筛选下没有维护待办" : "从首次巡检开始"}</h3>
                   <p>
-                    {policy?.id
-                      ? "可切换条件，或在巡检记录中确认检查是否完整。"
-                      : policy?.can_configure
-                        ? "点击“配置并开始”，选择分析模型并确认授权后，发起首次巡检。"
-                        : "请由知识库管理人先保存巡检设置，再开始检查。"}
+                    {inbox
+                      ? "可切换处理状态查看已办结的问题。"
+                      : policy?.id
+                        ? "可切换条件，或在巡检记录中确认检查是否完整。"
+                        : policy?.can_configure
+                          ? "点击“配置并开始”，选择分析模型并确认授权后，发起首次巡检。"
+                          : "请由知识库管理人先保存巡检设置，再开始检查。"}
                   </p>
                 </div>
               )}
@@ -1087,6 +1148,7 @@ function IssueDrawer({
             <p>维护人：{issue.responsible.map((r) => r.name).join("、") || "等待管理人认领"}</p>
             <p>首次发现：{formatBeijingTime(issue.first_seen_at)}</p>
             {!issue.current_version_matches && <p role="status">资料版本已变化，请重新检查。</p>}
+            {issue.requires_recheck && <p>此问题已随资料换版继续跟踪，复检通过后自动关闭。</p>}
             <h3>检查依据</h3>
             {!issue.evidence_available ? (
               <p>当前无原文权限，检查依据已隐藏。请到资料详情申请访问。</p>
@@ -1173,8 +1235,10 @@ function IssueDrawer({
                       <option value="in_progress">标记处理中</option>
                       <option value="recheck">修正后重新检查</option>
                       <option value="snoozed">暂缓处理</option>
-                      {issue.evidence_available && <option value="false_positive">标记误报</option>}
-                      {issue.suspected && issue.evidence_available && (
+                      {issue.evidence_available && !issue.requires_recheck && (
+                        <option value="false_positive">标记误报</option>
+                      )}
+                      {issue.suspected && issue.evidence_available && !issue.requires_recheck && (
                         <option value="resolved">人工确认已解决</option>
                       )}
                     </select>
@@ -1215,6 +1279,9 @@ function IssueDrawer({
                           detected: "发现问题",
                           reopened: "重新发现",
                           recheck_passed: "复检通过",
+                          recheck_incomplete: "复检未完成",
+                          version_replaced: "资料换版，继续跟踪",
+                          history_linked: "已关联旧版处理记录",
                         } as Record<string, string>
                       )[event.action] ||
                       "状态更新"}

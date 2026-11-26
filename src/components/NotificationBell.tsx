@@ -236,7 +236,10 @@ export default function NotificationBell() {
     }
     const route = routeTemplate.replace(":id", encodeURIComponent(item.target.resource_id));
     const query = new URLSearchParams({ target_id: item.target.resource_id });
-    if (item.target.route_key === "maintenance_agent") query.set("mine", "true");
+    if (item.target.route_key === "maintenance_agent") {
+      query.set("mine", "true");
+      if (item.task_status === "completed") query.set("status", "all");
+    }
     if (item.target.route_key === "original_access") {
       query.set("box", item.event_type === "original_access.pending" ? "inbox" : "mine");
     }
@@ -559,8 +562,16 @@ export default function NotificationBell() {
                   </div>
                   <button
                     className="inbox-title"
-                    aria-expanded={expanded === group.id}
-                    onClick={() => setExpanded(expanded === group.id ? undefined : group.id)}
+                    aria-expanded={
+                      group.latest.target.route_key === "maintenance_agent"
+                        ? undefined
+                        : expanded === group.id
+                    }
+                    onClick={() =>
+                      group.latest.target.route_key === "maintenance_agent"
+                        ? void openItem(group.latest, group)
+                        : setExpanded(expanded === group.id ? undefined : group.id)
+                    }
                   >
                     {group.id.startsWith("upload:") ? "批量入库进展" : group.latest.title}
                   </button>

@@ -10,6 +10,7 @@ from app.models.identity import Project
 from app.models.knowledge import KnowledgeAsset
 from app.models.maintenance_agent import (
     MaintenanceIssue,
+    MaintenanceIssueAlias,
     MaintenanceIssueEvent,
     MaintenancePolicy,
     MaintenanceRun,
@@ -26,9 +27,9 @@ from app.schemas.maintenance_agent import (
 from app.services import audit
 from app.services import maintenance_access as access
 from app.services.generation_models import safe_generation_model_options
-from app.services.maintenance_jobs import ACTIVE, start_run
+from app.services.maintenance_jobs import start_run
 from app.services.maintenance_reports import cancel_pending, project_detail
-from app.services.maintenance_rules import SUGGESTIONS
+from app.services.maintenance_rules import ACTIVE, SUGGESTIONS
 from app.services.permission import knowledge_maintainer_allowed
 
 
@@ -243,8 +244,23 @@ async def list_issues(
     page=1,
     priority="all",
     asset_id=None,
+    digest_id=None,
 ):
     query = issue_query(caller)
+    digest_libraries = []
+    if digest_id:
+        query = access.digest_issue_query(caller, digest_id).add_columns(
+            KnowledgeAsset, MaintenancePolicy
+        )
+        digest_libraries = list(
+            await session.scalars(
+                query.with_only_columns(MaintenancePolicy.library_key)
+                .distinct()
+                .order_by(MaintenancePolicy.library_key)
+            )
+        )
+        if not digest_libraries:
+            raise access.reject()
     if asset_id:
         query = query.where(MaintenanceIssue.asset_id == asset_id)
     if key:
@@ -281,6 +297,7 @@ async def list_issues(
         )
     ).all()
     return IssuePage(
+        digest_libraries=digest_libraries,
         items=[await _project(session, caller, *row) for row in rows],
         total=total,
         page=page,
@@ -292,6 +309,7 @@ async def list_issues(
 async def detail(session, caller, issue_id, trace_id=None):
     from app.core.personal_information import redact_personal_data, redact_personal_information
 
+    issue_id = await _canonical_id(session, issue_id)
     row = (
         await session.execute(issue_query(caller).where(MaintenanceIssue.id == issue_id))
     ).first()
@@ -305,6 +323,7 @@ async def detail(session, caller, issue_id, trace_id=None):
         other = await session.get(KnowledgeAsset, issue.related_asset_id)
         allowed = (
             allowed
+            and other is not None
             and issue.evidence.get("related_version_id") == str(other.current_version_id)
             and await access.original_allowed(session, caller, other)
         )
@@ -334,7 +353,13 @@ async def detail(session, caller, issue_id, trace_id=None):
             extra={"issue_id": str(issue.id)},
         )
         await session.commit()
+    # Permissions and assignees are evaluated on the successor. Free-text notes
+    # from before adoption remain in the audit trail under their original scope.
+    boundary = next(
+        (h.created_at for h in history if h.action in {"version_replaced", "history_linked"}), None
+    )
     return IssueDetail(
+        requires_recheck=issue.requires_recheck,
         **(await _project(session, caller, issue, asset, policy)).model_dump(),
         evidence=redact_personal_data(evidence),
         evidence_available=allowed,
@@ -342,7 +367,9 @@ async def detail(session, caller, issue_id, trace_id=None):
         history=[
             {
                 "action": h.action,
-                "reason": redact_personal_information(h.reason) if allowed else "",
+                "reason": redact_personal_information(h.reason)
+                if allowed and (boundary is None or h.created_at > boundary)
+                else "",
                 "created_at": h.created_at.isoformat(),
             }
             for h in history
@@ -350,10 +377,16 @@ async def detail(session, caller, issue_id, trace_id=None):
     )
 
 
+async def _canonical_id(session, issue_id):
+    alias = await session.get(MaintenanceIssueAlias, issue_id)
+    return alias.issue_id if alias else issue_id
+
+
 async def transition(session, caller, issue_id, command, trace_id):
     from app.core.personal_information import redact_personal_information
 
     # Same lock order as scan finalization: run/policy commands are serialized by policy.
+    issue_id = await _canonical_id(session, issue_id)
     visible = (
         await session.execute(issue_query(caller).where(MaintenanceIssue.id == issue_id))
     ).first()
@@ -399,6 +432,8 @@ async def transition(session, caller, issue_id, command, trace_id):
     ):
         raise access.reject(403, "确认判断需要原文权限")
     if action in {"resolved", "false_positive"}:
+        if issue.requires_recheck:
+            raise access.reject(409, "换版后须复检通过才能关闭此问题")
         if issue.version_id != asset.current_version_id:
             raise access.reject(409, "资产版本已变化，请重新检查")
         if issue.related_asset_id:

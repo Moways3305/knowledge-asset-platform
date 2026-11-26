@@ -53,6 +53,7 @@ export interface MaintenanceIssue {
   can_act: boolean;
 }
 export interface IssueDetail extends MaintenanceIssue {
+  requires_recheck?: boolean;
   evidence: {
     quote?: string;
     offset?: number;
@@ -127,6 +128,7 @@ export const fetchAgentRun = (key: string, id: string, page = 1, status = "") =>
     `/api/v1/maintenance-agent/policies/${encodeURIComponent(key)}/runs/${encodeURIComponent(id)}?page=${page}${status ? `&status=${status}` : ""}`,
   );
 export interface IssuePage {
+  digest_libraries?: string[];
   counts?: Record<string, number>;
   items: MaintenanceIssue[];
   total: number;

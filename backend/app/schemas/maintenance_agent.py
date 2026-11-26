@@ -119,6 +119,7 @@ class IssueOut(BaseModel):
 
 
 class IssuePage(BaseModel):
+    digest_libraries: list[str] = Field(default_factory=list)
     items: list[IssueOut]
     total: int
     page: int
@@ -127,6 +128,7 @@ class IssuePage(BaseModel):
 
 
 class IssueDetail(IssueOut):
+    requires_recheck: bool = False
     evidence: dict
     evidence_available: bool
     current_version_matches: bool

@@ -43,6 +43,7 @@ from app.services import original_access as original_access_service
 from app.services import review as review_service
 from app.services.discoverable_projects import list_knowledge_library_projects
 from app.services.maintenance_access import visible_issue_query
+from app.services.maintenance_rules import ACTIVE, SUGGESTIONS
 from app.services.storage import LocalFileStorage
 
 _logger = logging.getLogger(__name__)
@@ -594,7 +595,7 @@ async def build_task_center(
     maintenance_count = await session.scalar(
         select(func.count()).select_from(
             visible_issue_query(caller, mine=True)
-            .where(MaintenanceIssue.status.in_(["open", "in_progress", "awaiting_recheck"]))
+            .where(MaintenanceIssue.status.in_(ACTIVE), MaintenanceIssue.rule.notin_(SUGGESTIONS))
             .subquery()
         )
     )

@@ -74,6 +74,8 @@ async def reconcile_asset(session, asset):
         closed = row.rule in RETIRED
         if asset.deleted_at or asset.asset_status not in {"active", "needs_update"}:
             closed = True
+        elif row.requires_recheck:
+            continue
         elif row.rule == "missing_summary":
             closed = any(s and s.strip() for s in summaries)
         elif row.rule == "missing_directory":
@@ -103,6 +105,7 @@ async def reconcile_asset(session, asset):
                 else "resolved"
             )
             row.updated_at, row.snooze_until = now, None
+            row.requires_recheck = False
             session.add(
                 MaintenanceIssueEvent(
                     issue_id=row.id,

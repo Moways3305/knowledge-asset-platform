@@ -10,7 +10,12 @@ from sqlalchemy.orm import selectinload
 from app.db.utils import as_utc as stamp  # noqa: F401
 from app.models.identity import ProjectMember, User, UserCompanyRole
 from app.models.knowledge import KnowledgeAsset
-from app.models.maintenance_agent import MaintenanceIssue, MaintenancePolicy
+from app.models.maintenance_agent import (
+    MaintenanceDigest,
+    MaintenanceDigestIssue,
+    MaintenanceIssue,
+    MaintenancePolicy,
+)
 from app.schemas.permission import AccessChannel, AccessLayer
 from app.services.original_access import has_active_grant
 from app.services.permission import (
@@ -153,6 +158,21 @@ def visible_issue_query(caller, *, mine=False):
         )
     )
     return query.where(responsibility_filter(caller)) if mine else query
+
+
+def digest_issue_query(caller, digest_id):
+    from app.services.maintenance_rules import SUGGESTIONS
+
+    return (
+        visible_issue_query(caller, mine=True)
+        .join(MaintenanceDigestIssue, MaintenanceDigestIssue.issue_id == MaintenanceIssue.id)
+        .join(MaintenanceDigest, MaintenanceDigest.id == MaintenanceDigestIssue.digest_id)
+        .where(
+            MaintenanceDigest.id == digest_id,
+            MaintenanceDigest.recipient_id == caller.user_id,
+            MaintenanceIssue.rule.notin_(SUGGESTIONS),
+        )
+    )
 
 
 def library_allowed(caller, project_id):

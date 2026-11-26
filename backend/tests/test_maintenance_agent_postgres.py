@@ -17,6 +17,22 @@ from app.services.maintenance_jobs import process_one, start_run
 job_db = jobs.job_db
 
 
+async def test_project_version_recheck_with_foreign_keys(job_db, client, tmp_path, monkeypatch):
+    import test_maintenance_continuity as continuity
+
+    from app.db.session import get_db
+    from app.main import app
+
+    maker, _ = job_db
+
+    async def database():
+        async with maker() as session:
+            yield session
+
+    monkeypatch.setitem(app.dependency_overrides, get_db, database)
+    await continuity.project_version_workflow(client, maker, tmp_path, prescanned=True)
+
+
 async def save(maker, revision=0):
     async with maker() as session:
         caller = await actor_context(session, USER_BOSS, "boss")
