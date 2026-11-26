@@ -690,10 +690,7 @@ async def process_one(maker, *, storage=None, client=None):
 
 
 async def tick(maker):
-    from app.services.maintenance_replacement import recover_archived_replacements
-
     async with maker() as session:
-        await recover_archived_replacements(session)
         await retire_unavailable(session)
         await schedule(session)
         await flush_digests(session)
