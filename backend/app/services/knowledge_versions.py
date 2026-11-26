@@ -268,13 +268,15 @@ async def history(session, caller, asset_id):
             .order_by(IngestTask.created_at.desc())
             .limit(20)
         )
-        for task in tasks:
+        visible_tasks = tasks.all()
+        reviews = await reviews_by_task(session, visible_tasks)
+        for task in visible_tasks:
             target = assets.get(task.result_asset_id)
             updates.append(
                 dict(
                     task_id=str(task.id),
                     version=task.update_version_label,
-                    status=task.status,
+                    status=effective_status(task, reviews.get(task.id)),
                     result_asset_id=str(target.id) if target else None,
                     can_replace=bool(
                         target

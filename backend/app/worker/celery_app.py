@@ -66,6 +66,7 @@ def _make_celery() -> Celery:
         # 定时调度（celery beat）：扫描类作业按日触发；实际由 worker+beat 驱动，
         # 测试直接调用 service 层，不依赖 beat。
         beat_schedule={
+            "knowledge-task-recovery": {"task": "knowledge_tasks.recover", "schedule": 60.0},
             "maintenance-agent-tick": {
                 "task": "maintenance_agent.tick",
                 "schedule": 60.0,
