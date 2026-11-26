@@ -45,6 +45,7 @@ try {
           if (scenario === "model_error") { status = 503; body = { detail: { message: "模型信息暂时不可用" } }; }
         }
         if (p === "/api/v1/maintenance-agent/policies") body = [currentPolicy];
+        if (p === "/api/v1/maintenance-agent/libraries/company/tasks") body = [];
         if (p === "/api/v1/maintenance-agent/issues") body = { items: ["empty", "setup"].includes(scenario) ? [] : [item], total: ["empty", "setup"].includes(scenario) ? 0 : 1, page: 1, page_size: 25 };
         if (p.endsWith("/policies/company/runs")) {
           body = scenario === "setup" ? (started ? [{ ...run, status: "queued" }] : []) : [activeRun];
@@ -74,6 +75,10 @@ try {
       const failures = [];
       page.on("pageerror", error => failures.push(error.message));
       await page.goto(`${base}/agents/knowledge-maintenance`);
+      if (scenario !== "forbidden") {
+        await page.getByLabel("交代一件事").waitFor();
+        await page.getByRole("link", { name: "维护待办", exact: true }).click();
+      }
       if (scenario === "forbidden") {
         await page.getByText("当前账号无此入口", { exact: true }).waitFor();
         assert.equal(maintenanceRequests, 0);

@@ -61,6 +61,14 @@ from app.services.permission import (
 from app.services.permission_rules import load_access_policy
 
 
+def keyword_filter(keyword):
+    pattern = _like_pattern(keyword)
+    return or_(
+        KnowledgeAsset.title.ilike(pattern, escape="\\"),
+        KnowledgeAsset.tags.any(KnowledgeAssetTag.tag_name.ilike(pattern, escape="\\")),
+    )
+
+
 async def list_knowledge(
     session: AsyncSession,
     caller: CallerContext,
@@ -155,13 +163,7 @@ async def list_knowledge(
     if updated_to:
         conditions.append(KnowledgeAsset.updated_at <= updated_to)
     if keyword:
-        pattern = _like_pattern(keyword)
-        conditions.append(
-            or_(
-                KnowledgeAsset.title.ilike(pattern, escape="\\"),
-                KnowledgeAsset.tags.any(KnowledgeAssetTag.tag_name.ilike(pattern, escape="\\")),
-            )
-        )
+        conditions.append(keyword_filter(keyword))
 
     total = int(
         (

@@ -40,6 +40,7 @@ import { formatBeijingTime } from "../utils/time";
 import "./MaintenanceAgentPage.css";
 import MaintenanceRunDrawer from "./MaintenanceRunDrawer";
 import MaintenanceRunList from "./MaintenanceRunList";
+import KnowledgeTaskWorkspace from "./KnowledgeTaskWorkspace";
 
 const categories: Record<string, string> = {
   integrity: "信息完整性",
@@ -155,6 +156,21 @@ const summarySources: Record<string, string> = {
 };
 
 export default function MaintenanceAgentPage() {
+  const { pathname, search } = useLocation();
+  const query = new URLSearchParams(search);
+  const delegated = query.get("tab") === "tasks" || !search;
+  if (
+    pathname !== "/agents" &&
+    delegated &&
+    !query.has("target_id") &&
+    query.get("view") !== "mine"
+  ) {
+    return <KnowledgeTaskWorkspace />;
+  }
+  return <MaintenanceWorkspace />;
+}
+
+function MaintenanceWorkspace() {
   const location = useLocation();
   const [params, setParams] = useSearchParams();
   const isCenter = location.pathname === "/agents";
@@ -487,6 +503,7 @@ export default function MaintenanceAgentPage() {
           )}
           {!inbox && (
             <nav className="agent-tabs" aria-label="知识维护视图">
+              <Link to={`?tab=tasks&library=${encodeURIComponent(key)}`}>交代任务</Link>
               {[
                 ["issues", "维护待办"],
                 ["runs", "巡检记录"],
@@ -746,9 +763,10 @@ export default function MaintenanceAgentPage() {
 
 function AgentCatalog() {
   const [query, setQuery] = useState("");
-  const matches = "知识维护 Agent 知识治理 巡检 知识资产 完整性 可用性 内容质量 问题 待办 维护人"
-    .toLocaleLowerCase()
-    .includes(query.trim().toLocaleLowerCase());
+  const matches =
+    "知识维护 Agent 找资料 模板 版本 交代任务 知识治理 巡检 知识资产 完整性 可用性 内容质量 问题 待办 维护人"
+      .toLocaleLowerCase()
+      .includes(query.trim().toLocaleLowerCase());
   return (
     <section className="agent-directory" aria-label="预置智能体">
       <div className="agent-directory-toolbar">
@@ -786,7 +804,7 @@ function AgentCatalog() {
                 <span>让知识保持完整、可用</span>
               </div>
             </div>
-            <p>定期巡检知识资产，发现质量与维护问题，提醒对应维护人处理。</p>
+            <p>按用途找资料、核对版本，把需要更新的地方交给维护人。</p>
             <div className="agent-card-tags">
               <span>定期巡检</span>
               <span>问题待办</span>
