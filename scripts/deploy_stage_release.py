@@ -26,6 +26,14 @@ REVISION = "309e75d5e802aed2d152785b173db5e7c507f95d"
 BASELINE = "36fb851aa3e940cba0e877bf7c3429b6ba4c1d56"
 VERSION = "v1.1.0"
 SCHEMA = "0088_outbox_consumption"
+BASELINE_VERSION = "v1.0.1"
+BASELINE_SCHEMA = "0083_model_registry"
+RELEASE_TITLE = "平台稳定性与任务处理优化"
+RELEASE_ENTRIES = [
+    {"kind": "improved", "text": "优化资料检索、上传处理及后台任务的稳定性和资源使用。"},
+    {"kind": "fixed", "text": "改进任务中断恢复、重复处理防护和通知投递。"},
+    {"kind": "improved", "text": "移除不再使用的微盘扫描入口。"},
+]
 REPO = Path("/data/kap/repo")
 ROOT = Path("/data/kap/release-preparations")
 ORIGIN = "https://kap.moways.com.cn"
@@ -91,11 +99,11 @@ def validate_inventory(r, directory):
     report = json.loads((directory / "report.json").read_text())
     old = json.loads((directory / "runtime-private.json").read_text())
     require(
-        report.get("running_release") == {"version": "v1.0.1", "commit": BASELINE},
+        report.get("running_release") == {"version": BASELINE_VERSION, "commit": BASELINE},
         "unexpected_release",
     )
     require(
-        report.get("migration") == "0083_model_registry" and report.get("repository_clean") is True,
+        report.get("migration") == BASELINE_SCHEMA and report.get("repository_clean") is True,
         "unexpected_inventory",
     )
     require(
@@ -114,7 +122,7 @@ def validate_inventory(r, directory):
     )
     git(r, "merge-base", "--is-ancestor", BASELINE, REVISION)
     require(
-        sql(r, old[INFRA[0]], "SELECT version_num FROM alembic_version;") == "0083_model_registry",
+        sql(r, old[INFRA[0]], "SELECT version_num FROM alembic_version;") == BASELINE_SCHEMA,
         "schema_changed",
     )
     require(
@@ -162,7 +170,7 @@ def validate_inventory(r, directory):
             and env.get("CELERY_OCR_QUEUE", "ocr") == "ocr",
             "custom_queue_requires_review",
         )
-    public_health(r, old["kap-backend-1"]["Id"], BASELINE, "v1.0.1")
+    public_health(r, old["kap-backend-1"]["Id"], BASELINE, BASELINE_VERSION)
     return old
 
 
@@ -434,13 +442,9 @@ def execute(r, inventory, out, report, holder):
         "version": VERSION,
         "commit": REVISION,
         "previous_commit": BASELINE,
-        "title": "平台稳定性与任务处理优化",
+        "title": RELEASE_TITLE,
         "notify_users": True,
-        "entries": [
-            {"kind": "improved", "text": "优化资料检索、上传处理及后台任务的稳定性和资源使用。"},
-            {"kind": "fixed", "text": "改进任务中断恢复、重复处理防护和通知投递。"},
-            {"kind": "improved", "text": "移除不再使用的微盘扫描入口。"},
-        ],
+        "entries": RELEASE_ENTRIES,
     }
     write(out / "release-manifest.json", manifest)
     encoded = base64.b64encode(json.dumps(manifest, ensure_ascii=False).encode()).decode()
@@ -500,7 +504,7 @@ def execute(r, inventory, out, report, holder):
     runtime.state["data_mutated"] = True
     runtime.save()
     report["checkpoint"] = "database_upgrade"
-    print("=== 3/5 迁移至 0088 并核对原有数据，验证新版就绪 ===", flush=True)
+    print(f"=== 3/5 迁移至 {SCHEMA} 并核对原有数据，验证新版就绪 ===", flush=True)
     for name in INFRA:
         runtime.start(name)
     wait_database(r, originals[INFRA[0]])
@@ -653,7 +657,7 @@ def recover_record(r, inventory, out):
     runtime.token, runtime.helper_image, runtime.state = out.name, images["backend"], state
     runtime.recover(ORIGINAL_START)
     wait_healthy(r, ORIGINAL_START)
-    public_health(r, old["kap-backend-1"]["Id"], BASELINE, "v1.0.1")
+    public_health(r, old["kap-backend-1"]["Id"], BASELINE, BASELINE_VERSION)
 
 
 def main():
@@ -736,7 +740,7 @@ def main():
                                 r,
                                 runtime.state["originals"]["kap-backend-1"]["Id"],
                                 BASELINE,
-                                "v1.0.1",
+                                BASELINE_VERSION,
                             )
                             report["previous_release_recovered"] = True
                         except BaseException:
