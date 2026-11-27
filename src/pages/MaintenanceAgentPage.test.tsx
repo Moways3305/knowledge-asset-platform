@@ -86,44 +86,50 @@ function mount(tab = "issues") {
   );
 }
 
-it("opens an existing reminder in its project library and keeps multi-library filtering scoped to that reminder", async () => {
-  const project = { ...policy, library_key: "project:alpha", name: "交付项目库" };
-  vi.mocked(api.fetchAgentPolicies).mockResolvedValue([policy, project]);
-  const result = {
-    items: [],
-    total: 0,
-    page: 1,
-    page_size: 25,
-    digest_libraries: [project.library_key],
-  };
-  vi.mocked(api.fetchAgentIssues).mockResolvedValue(result);
-  mount("issues&target_id=day-one&mine=true");
-  const select = await screen.findByRole("combobox", { name: "本次提醒的知识库" });
-  await waitFor(() => expect(select).toHaveValue(project.library_key));
-  let query = vi.mocked(api.fetchAgentIssues).mock.lastCall![0];
-  expect(query.get("digest_id")).toBe("day-one");
-  expect(query.has("library_key")).toBe(false);
-  expect(screen.getByRole("link", { name: "查看该知识库全部待办" })).toHaveAttribute(
-    "href",
-    expect.stringContaining("project%3Aalpha"),
-  );
-  expect(api.fetchAgentRuns).not.toHaveBeenCalled();
-  vi.mocked(api.fetchAgentIssues).mockResolvedValue({
-    ...result,
-    digest_libraries: ["company", project.library_key],
-  });
-  fireEvent.click(screen.getByRole("button", { name: "刷新" }));
-  await waitFor(() => expect(select).toHaveValue(""));
-  fireEvent.change(select, { target: { value: project.library_key } });
-  await waitFor(() =>
-    expect(vi.mocked(api.fetchAgentIssues).mock.lastCall![0].get("library_key")).toBe(
-      project.library_key,
-    ),
-  );
-  query = vi.mocked(api.fetchAgentIssues).mock.lastCall![0];
-  expect(query.get("mine")).toBe("true");
-  expect(query.get("digest_id")).toBe("day-one");
-});
+it.each(["target_id", "digest_id"])(
+  "opens a %s reminder in its project library and keeps multi-library filtering scoped to that reminder",
+  async (parameter) => {
+    const project = { ...policy, library_key: "project:alpha", name: "交付项目库" };
+    vi.mocked(api.fetchAgentPolicies).mockResolvedValue([policy, project]);
+    const result = {
+      items: [],
+      total: 0,
+      page: 1,
+      page_size: 25,
+      digest_libraries: [project.library_key],
+    };
+    vi.mocked(api.fetchAgentIssues).mockResolvedValue(result);
+    mount(`issues&${parameter}=day-one&mine=true`);
+    const select = await screen.findByRole("combobox", { name: "本次提醒的知识库" });
+    await waitFor(() => expect(select).toHaveValue(project.library_key));
+    let query = vi.mocked(api.fetchAgentIssues).mock.lastCall![0];
+    expect(query.get("digest_id")).toBe("day-one");
+    expect(query.has("library_key")).toBe(false);
+    expect(screen.getByRole("link", { name: "查看该知识库全部待办" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("project%3Aalpha"),
+    );
+    expect(
+      screen.getByRole("link", { name: "查看该知识库全部待办" }).getAttribute("href"),
+    ).not.toMatch(/target_id=|digest_id=/);
+    expect(api.fetchAgentRuns).not.toHaveBeenCalled();
+    vi.mocked(api.fetchAgentIssues).mockResolvedValue({
+      ...result,
+      digest_libraries: ["company", project.library_key],
+    });
+    fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+    await waitFor(() => expect(select).toHaveValue(""));
+    fireEvent.change(select, { target: { value: project.library_key } });
+    await waitFor(() =>
+      expect(vi.mocked(api.fetchAgentIssues).mock.lastCall![0].get("library_key")).toBe(
+        project.library_key,
+      ),
+    );
+    query = vi.mocked(api.fetchAgentIssues).mock.lastCall![0];
+    expect(query.get("mine")).toBe("true");
+    expect(query.get("digest_id")).toBe("day-one");
+  },
+);
 
 it("shows privacy findings as counts and locations with a dedicated category", async () => {
   const item: api.MaintenanceIssue = {

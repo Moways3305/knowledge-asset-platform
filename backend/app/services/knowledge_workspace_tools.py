@@ -1,4 +1,4 @@
-"""Read-only knowledge tools. The planner sees match statistics and tool outcomes only."""
+"""Permission-aware catalogue, current-version and evidence tools shared by workspace Agents."""
 
 import re
 import uuid
@@ -9,7 +9,7 @@ from sqlalchemy import case, or_, select
 from app.core.personal_information import redact_personal_information as redact
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.knowledge_correction import KnowledgeCorrection
-from app.schemas.knowledge_task import SourceLink, TaskEvidence
+from app.schemas.knowledge_workspace import KnowledgeEvidence, SourceLink
 from app.services import knowledge, knowledge_versions
 from app.services.knowledge_catalog import keyword_filter
 from app.services.maintenance_access import parse_key, scope_filter
@@ -229,7 +229,7 @@ async def evidence(session, caller, key, selected, instruction):
             ):
                 pending = True
                 break
-    return "changed" if changed else "available", TaskEvidence(
+    return "changed" if changed else "available", KnowledgeEvidence(
         asset_id=detail.id,
         version_id=version.id,
         version=redact(current["version"]),

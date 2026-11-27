@@ -13,6 +13,7 @@ class Command(BaseModel):
 
 class SessionCreate(Command):
     request_id: uuid.UUID
+    agent_key: Literal["knowledge-maintenance"] | None = None
     title: str = Field(default="新会话", min_length=1, max_length=120)
 
     @field_validator("title")
@@ -45,8 +46,19 @@ class MessageCreate(Command):
         return value
 
 
-class RetryCommand(Command):
+class ResumeCommand(Command):
     request_id: uuid.UUID
+    content: str | None = Field(default=None, max_length=32000)
+
+    @field_validator("content")
+    @classmethod
+    def clean(cls, value):
+        return redact_personal_information(value.strip()) or None if value is not None else None
+
+
+class ActionDecision(Command):
+    request_id: uuid.UUID
+    decision: Literal["approve", "reject"]
 
 
 class ArtifactPatch(Command):
@@ -64,6 +76,7 @@ class SessionOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
     title: str
+    agent_key: Literal["knowledge-maintenance"] | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -77,13 +90,27 @@ class MessageOut(BaseModel):
     created_at: datetime
 
 
+class PendingAction(BaseModel):
+    id: uuid.UUID
+    tool: str
+    label: str
+    summary: str
+    arguments: dict
+
+
 class RunOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
-    status: Literal["queued", "running", "completed", "failed", "stopped"]
+    status: Literal[
+        "queued", "running", "completed", "failed", "stopped", "waiting", "awaiting_confirmation"
+    ]
     model_ref: str
     context_key: str | None
     error_code: str | None
+    pending_action: PendingAction | None = None
+    waiting_reason: str | None = None
+    step_count: int = 0
+    max_steps: int = 24
     created_at: datetime
     finished_at: datetime | None
 
@@ -99,11 +126,25 @@ class ArtifactOut(BaseModel):
     updated_at: datetime
 
 
+class ActionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    run_id: uuid.UUID
+    tool: str
+    label: str
+    status: str
+    summary: str
+    observation: dict
+    created_at: datetime
+    updated_at: datetime
+
+
 class SessionDetail(BaseModel):
     session: SessionOut
     messages: list[MessageOut]
     runs: list[RunOut]
     artifacts: list[ArtifactOut]
+    actions: list[ActionOut] = Field(default_factory=list)
 
 
 class EventOut(BaseModel):
@@ -136,7 +177,15 @@ class ToolOption(BaseModel):
     description: str
 
 
+class AgentOption(BaseModel):
+    key: str
+    label: str
+    description: str
+    tools: list[ToolOption]
+
+
 class OptionsOut(BaseModel):
     models: list[ModelOption]
     contexts: list[ContextOption]
     tools: list[ToolOption]
+    agents: list[AgentOption] = Field(default_factory=list)

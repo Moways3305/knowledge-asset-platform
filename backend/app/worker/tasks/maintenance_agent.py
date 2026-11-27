@@ -16,10 +16,3 @@ async def _tick(maker):
 @celery_app.task(name="maintenance_agent.tick", bind=True)
 def maintenance_tick(self):
     run_task(_tick, label="maintenance_agent.tick", trace_id=None)
-
-
-@celery_app.task(name="knowledge_tasks.recover")
-def recover_delegations():
-    from app.services.knowledge_tasks import recover
-
-    run_task(recover, label="knowledge_tasks.recover", trace_id=None)

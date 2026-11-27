@@ -149,15 +149,12 @@ async def test_stop_holds_session_lock_and_fences_waiting_result(job_db, monkeyp
         # A separate PostgreSQL connection reads the old committed running row,
         # then waits on the session UPDATE locked by stop's transaction.
         late = asyncio.create_task(
-            service.checkpoint(
+            service.save_decision(
                 maker,
                 run_id,
                 claim,
-                "completed",
-                "Synthetic late completion",
-                terminal="completed",
-                answer="Must not be published",
-                drafts=[{"title": "Late document", "content": "Must not be persisted"}],
+                {"action": "answer", "content": "Must not be published"},
+                0,
             )
         )
         done, _ = await asyncio.wait({late}, timeout=0.1)

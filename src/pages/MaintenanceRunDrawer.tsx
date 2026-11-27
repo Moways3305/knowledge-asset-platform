@@ -49,6 +49,7 @@ function ScopeSummary({ scope, current = false }: { scope: ScanScope; current?: 
 
 export default function MaintenanceRunDrawer({
   library,
+  embedded = false,
   id,
   onClose,
   reasons,
@@ -56,6 +57,7 @@ export default function MaintenanceRunDrawer({
   rules,
 }: {
   library: string;
+  embedded?: boolean;
   id: string;
   onClose: () => void;
   reasons: Record<string, string>;
@@ -110,7 +112,7 @@ export default function MaintenanceRunDrawer({
       description="查看本轮范围、逐项检查结果与未完成原因"
       onClose={onClose}
       portal
-      className="agent-run-drawer"
+      className={`agent-run-drawer${embedded ? " is-workspace-detail" : ""}`}
     >
       <div className="agent-report-toolbar">
         <span>仅所选知识库 · 不包含个人知识库</span>
