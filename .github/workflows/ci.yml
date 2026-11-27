@@ -117,7 +117,9 @@ jobs:
         working-directory: ${{ github.workspace }}
         env:
           KAP_CUTOVER_TEST_DATABASE_URL: ${{ env.DATABASE_URL }}
-        run: python -m unittest discover -s scripts -p 'test_production_cutover_snapshot.py' -v
+        run: |
+          python -m unittest discover -s scripts -p 'test_production_cutover_snapshot.py' -v
+          python -m unittest discover -s scripts -p 'test_agent_runtime_production_migration.py' -v
       - name: Alembic upgrade head
         run: python -m alembic upgrade head
       - name: Alembic downgrade -1 (latest migration must be reversible)

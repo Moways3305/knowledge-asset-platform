@@ -83,7 +83,7 @@ def wait_database(r, old):
     raise RuntimeError("database did not become ready")
 
 
-def table_snapshot(r, old, columns=None, *, project_columns=None):
+def table_snapshot(r, old, columns=None, *, project_columns=None, row_filter=None):
     before_upgrade = columns is None
     if before_upgrade:
         tables = json.loads(
@@ -122,6 +122,7 @@ def table_snapshot(r, old, columns=None, *, project_columns=None):
             + projection
             + " FROM public."
             + pg.ident(name)
+            + (" WHERE " + row_filter(name) if row_filter is not None else "")
             + ") t) s;",
         )
         if index % 10 == 0 or index == len(columns):
