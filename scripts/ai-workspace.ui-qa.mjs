@@ -337,6 +337,68 @@ try {
         await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
         `horizontal overflow at ${width}`,
       );
+    const panelNames = { issues: "维护问题", runs: "巡检记录", settings: "智能体配置" };
+    const panelActions = {
+      issues: "查看维护问题",
+      runs: "查看巡检记录",
+      settings: "配置智能体",
+    };
+    const stableAside = async (panel) => {
+      await panel.waitFor({state: "visible"});
+      await page.clock.runFor(500);
+      // CSS animations use the compositor timeline, not Playwright's virtual JS clock.
+      const label = await panel.getAttribute("aria-label");
+      await page.waitForFunction(name => {
+        const element = [...document.querySelectorAll("aside")]
+          .find(node => node.getAttribute("aria-label") === name && !node.hidden);
+        if (!element) return false;
+        const style = getComputedStyle(element);
+        return Number(style.opacity) === 1 &&
+          ["none", "matrix(1, 0, 0, 1, 0, 0)"].includes(style.transform);
+      }, label, {polling: 50, timeout: 5000});
+      const style = await panel.evaluate(el => ({
+        opacity: Number(getComputedStyle(el).opacity),
+        transform: getComputedStyle(el).transform,
+      }));
+      assert.equal(style.opacity, 1, "side panel is still transparent after entering");
+      assert.ok(["none", "matrix(1, 0, 0, 1, 0, 0)"].includes(style.transform), `side panel is still moving: ${style.transform}`);
+    };
+    const openMaintenancePanel = async (kind) => {
+      const sessionBefore = new URL(page.url()).searchParams.get("session");
+      await page.getByRole("button", { name: "智能体选项", exact: true }).click();
+      const options = page.getByRole("dialog", { name: "智能体选项", exact: true });
+      await options.getByRole("button", { name: panelActions[kind], exact: true }).click();
+      const panel = page.getByRole("complementary", { name: panelNames[kind], exact: true });
+      await panel.waitFor();
+      const url = new URL(page.url());
+      assert.equal(url.pathname, "/ai-workspace");
+      assert.equal(url.searchParams.get("panel"), kind);
+      assert.equal(url.searchParams.get("session"), sessionBefore);
+      assert.equal(await page.locator(".aw-agent-context, .aw-agent-workspace").count(), 0);
+      assert.equal(await page.getByRole("heading", { name: "巡检与跟进", exact: true }).count(), 0);
+      assert.equal(await page.locator('textarea[aria-label="消息"]').count(), 1);
+      assert.equal(context.pages().length, 1);
+      await stableAside(panel);
+      await page.screenshot({path: path.join(out, `panel-${kind}-${width}-${height}.png`), animations: "disabled"});
+      const bounds = await panel.boundingBox();
+      assert.ok(
+        bounds && bounds.x >= 0 && bounds.y >= 0 &&
+          bounds.x + bounds.width <= width + 1 && bounds.y + bounds.height <= height + 1,
+        `${kind} panel leaves viewport at ${width}x${height}: ${JSON.stringify(bounds)}`,
+      );
+      return panel;
+    };
+    const closeMaintenancePanel = async ({ restoresPreview = false } = {}) => {
+      await page.getByRole("button", { name: "关闭维护面板", exact: true }).click();
+      await page.getByRole("button", { name: "关闭维护面板", exact: true }).waitFor({ state: "detached" });
+      if (restoresPreview) {
+        await stableAside(page.getByRole("complementary", {name: "文档预览", exact: true}));
+        await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "关闭预览");
+      } else {
+        await page.getByLabel("消息", { exact: true }).waitFor({ state: "visible" });
+      }
+      assert.equal(new URL(page.url()).searchParams.has("panel"), false);
+    };
     const flatSurface = async (selector) => {
       const surface = page.locator(selector).first();
       await surface.waitFor({ state: "visible" });
@@ -465,17 +527,21 @@ try {
     assert.equal(await page.locator(".app-layout").count(), 0, "Agent returned to KAP shell");
     await noOverflow();
     await page.screenshot({ path: path.join(out, `agent-detail-${width}.png`) });
-    await page.getByRole("link", { name: "维护待办", exact: true }).click();
-    await page.getByRole("button", { name: "维护待办", exact: true }).waitFor();
-    await flatSurface(".is-workspace-agent");
+    const maintenanceDraft = "查看维护信息时保留这条尚未发送的要求";
+    await draft.fill(maintenanceDraft);
+    const maintenanceComposer = await draft.elementHandle();
+    await openMaintenancePanel("issues");
     await flatSurface(".agent-panel");
-    await flatSurface(".agent-readiness");
+    assert.equal(await maintenanceComposer.evaluate((el) => el.isConnected), true);
+    assert.equal(await maintenanceComposer.inputValue(), maintenanceDraft);
     await noOverflow();
     await page.screenshot({
       path: path.join(out, `flat-maintenance-issues-${width}.png`),
       animations: "disabled",
     });
-    await page.getByRole("button", { name: "巡检记录", exact: true }).click();
+    await closeMaintenancePanel();
+    assert.equal(await draft.inputValue(), maintenanceDraft);
+    await openMaintenancePanel("runs");
     await page.getByRole("button", { name: "查看巡检详情" }).waitFor();
     await flatSurface(".agent-panel");
     await noOverflow();
@@ -492,7 +558,8 @@ try {
       animations: "disabled",
     });
     await page.getByRole("button", { name: "关闭详情", exact: true }).click();
-    await page.getByRole("button", { name: "巡检设置", exact: true }).click();
+    await closeMaintenancePanel();
+    await openMaintenancePanel("settings");
     await page.getByRole("heading", { name: "巡检与授权", exact: true }).waitFor();
     await flatSurface(".agent-settings");
     await flatSurface(".agent-authorization");
@@ -501,7 +568,10 @@ try {
       path: path.join(out, `flat-maintenance-settings-${width}.png`),
       animations: "disabled",
     });
-    await page.getByRole("button", { name: "返回 Agent 会话", exact: true }).click();
+    await closeMaintenancePanel();
+    assert.equal(await maintenanceComposer.evaluate((el) => el.isConnected), true);
+    assert.equal(await draft.inputValue(), maintenanceDraft);
+    await draft.fill("");
     await nav("工具");
     await page.getByRole("heading", { name: "工作空间工具" }).waitFor();
     await flatSurface(".aw-tool-row");
@@ -610,15 +680,31 @@ try {
     await page.getByRole("tab", { name: "编辑", exact: true }).click();
     await page.getByLabel("文档正文", { exact: true }).fill("待保存的维护报告草稿");
     if (width < 900) await page.getByRole("button", { name: "关闭预览" }).click();
-    await page.getByRole("link", { name: "维护待办", exact: true }).click();
-    await page.getByRole("button", { name: "维护待办", exact: true }).waitFor();
-    await page.getByRole("button", { name: "返回 Agent 会话", exact: true }).click();
-    if (width < 900) await page.getByRole("button", { name: "打开文档预览" }).click();
+    await page.getByLabel("消息", { exact: true }).fill("核对问题时保留本轮跟进要求");
+    const agentComposer = await page.getByLabel("消息", { exact: true }).elementHandle();
+    await openMaintenancePanel("issues");
+    assert.equal(await agentComposer.evaluate((el) => el.isConnected), true);
+    assert.equal(await agentComposer.inputValue(), "核对问题时保留本轮跟进要求");
+    if (width === 1440) {
+      await page.setViewportSize({width: 390, height});
+      await page.waitForFunction(() => document.querySelector(".ai-workspace")?.getAttribute("data-preview") === "full");
+      await closeMaintenancePanel({restoresPreview: true});
+      assert.equal(await page.getByLabel("消息", {exact: true}).isVisible(), false);
+      await page.screenshot({path: path.join(out, "restored-preview-focus-390.png"), animations: "disabled"});
+      await page.setViewportSize({width, height});
+      await page.getByLabel("消息", {exact: true}).waitFor({state: "visible"});
+    } else {
+      await closeMaintenancePanel();
+    }
+    assert.equal(await agentComposer.evaluate((el) => el.isConnected), true);
+    assert.equal(await page.getByLabel("消息", { exact: true }).inputValue(), "核对问题时保留本轮跟进要求");
+    if (await page.getByRole("button", { name: "打开文档预览", exact: true }).count())
+      await page.getByRole("button", { name: "打开文档预览" }).click();
+    await stableAside(page.getByRole("complementary", {name: "文档预览", exact: true}));
     assert.equal(
       await page.getByLabel("文档正文", { exact: true }).inputValue(),
       "待保存的维护报告草稿",
     );
-    await page.clock.fastForward(300);
     await page.screenshot({
       path: path.join(out, `agent-preview-${width}.png`),
       animations: "disabled",
@@ -632,6 +718,9 @@ try {
       state_preserved: true,
       agent_navigation_same_tab: true,
       agent_round_trip_drafts_preserved: true,
+      maintenance_panels_keep_chat_mounted: true,
+      restored_preview_focus_on_narrow_screen: width === 1440,
+      legacy_management_surface_removed: true,
       edit_save: true,
       stop_resume_delete: true,
       agent_conversation_confirmation_resume_preview: true,

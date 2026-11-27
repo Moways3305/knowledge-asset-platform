@@ -20,7 +20,7 @@ const policy = { id: "policy", library_key: "company", name: "公司知识库", 
 const item = { id: "issue", asset_id: "asset", title: "项目交付标准与质量复核手册", library_key: "company", rule: "cover_only", category: "quality", status: "open", suspected: true, first_seen_at: "2026-11-16T02:10:00Z", last_seen_at: "2026-11-16T02:10:00Z", updated_at: "2026-11-16T02:10:00Z", snooze_until: null, responsible: [{ id: "reader", name: "张顾问" }], can_act: true };
 const run = { id: "run", policy_id: "policy", kind: "full", status: "partial", target_count: 138, completed_count: 132, incomplete_count: 6, skipped_count: 0, reasons: { content_not_authorized: 4, model_unavailable: 2 }, started_at: "2026-11-16T02:00:00Z", finished_at: "2026-11-16T02:20:00Z" };
 try {
-  for (const width of [1440, 1024, 390]) {
+  for (const width of [1440, 1024, 390, 320]) {
     for (const scenario of ["normal", "empty", "failure", "forbidden", "setup", "readonly", "model_missing", "model_error", "legacy_run", "zero_run"]) {
       const context = await browser.newContext({ viewport: { width, height: 1000 } });
       let actions = 0, saved = 0, maintenanceRequests = 0;
@@ -110,9 +110,36 @@ try {
       currentPage = page;
       const failures = [];
       page.on("pageerror", error => failures.push(error.message));
+      const closePanel = async () => {
+        await page.getByRole("button", {name: "关闭维护面板", exact: true}).click();
+        await page.getByLabel("消息", {exact: true}).waitFor({state: "visible"});
+      };
+      const openPanel = async (kind) => {
+        if (await page.getByRole("button", {name: "关闭维护面板", exact: true}).count())
+          await closePanel();
+        const input = await page.getByLabel("消息", {exact: true}).elementHandle();
+        const draft = await input.inputValue();
+        const sessionId = new URL(page.url()).searchParams.get("session");
+        await page.getByRole("button", {name: "智能体选项", exact: true}).click();
+        const actions = {issues: "查看维护问题", runs: "查看巡检记录", settings: "配置智能体"};
+        const titles = {issues: "维护问题", runs: "巡检记录", settings: "智能体配置"};
+        await page.getByRole("dialog", {name: "智能体选项", exact: true})
+          .getByRole("button", {name: actions[kind], exact: true}).click();
+        await page.getByRole("complementary", {name: titles[kind], exact: true}).waitFor();
+        assert.equal(new URL(page.url()).pathname, "/ai-workspace");
+        assert.equal(new URL(page.url()).searchParams.get("panel"), kind);
+        assert.equal(new URL(page.url()).searchParams.get("session"), sessionId);
+        assert.equal(await input.evaluate(el => el.isConnected), true, "opening a maintenance panel remounted the conversation");
+        assert.equal(await input.inputValue(), draft);
+        assert.equal(await page.locator(".aw-agent-context, .aw-agent-workspace").count(), 0);
+        assert.equal(await page.getByRole("heading", {name: "巡检与跟进", exact: true}).count(), 0);
+      };
       await page.goto(`${base}/agents/knowledge-maintenance?tab=issues`);
       if (scenario !== "forbidden") {
         await page.waitForURL(url => url.pathname === "/ai-workspace/agents/knowledge-maintenance" && url.searchParams.get("tab") === "issues");
+        await page.getByRole("complementary", {name: "维护问题", exact: true}).waitFor();
+        assert.equal(await page.locator('textarea[aria-label="消息"]').count(), 1, "legacy reminder should open alongside the conversation");
+        assert.equal(await page.locator(".aw-agent-context, .aw-agent-workspace").count(), 0);
       }
       if (scenario === "forbidden") {
         await page.getByText("当前账号无此入口", { exact: true }).waitFor();
@@ -128,7 +155,7 @@ try {
         assert.equal(await page.locator("#primary-navigation").count(), 0);
         assert.equal(await page.getByRole("navigation", { name: "知识库导航" }).count(), 0);
         assert.equal(await page.locator(".deck-context").count(), 0);
-        assert.equal(await page.getByRole("button", { name: "返回 Agent 会话", exact: true }).isVisible(), true);
+        assert.equal(await page.getByRole("button", { name: "关闭维护面板", exact: true }).isVisible(), true);
         await auditResponsiveLayout(page, { suite: "maintenance-agent", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
         await page.screenshot({ path: path.join(out, `issues-normal-${width}.png`), fullPage: true, animations: "disabled" });
         await page.getByRole("button", { name: "疑似只有封面或目录" }).click();
@@ -139,16 +166,16 @@ try {
         await page.getByRole("button", { name: "提交处理", exact: true }).click();
         await page.getByRole("button", { name: "关闭详情" }).click();
         assert.equal(actions, 1);
-        await page.getByRole("button", { name: "巡检设置", exact: true }).click();
+        await openPanel("settings");
         await page.getByLabel("正文分析模型").selectOption("b".repeat(64));
         await page.getByLabel("每日增量巡检（北京时间）").selectOption("4");
         await page.getByRole("button", { name: "保存巡检设置" }).click();
         await page.getByText("巡检设置已保存。", { exact: true }).waitFor();
         assert.equal(saved, 1);
-        await page.locator(".aw-agent-workspace").evaluate(el => el.scrollTo(0, 0));
+        await page.locator(".aw-maintenance-scroll").evaluate(el => el.scrollTo(0, 0));
         await auditResponsiveLayout(page, { suite: "maintenance-agent", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
         await page.screenshot({ path: path.join(out, `settings-normal-${width}.png`), fullPage: true, animations: "disabled" });
-        await page.getByRole("button", { name: "巡检记录", exact: true }).click();
+        await openPanel("runs");
         await page.getByText("部分未完成", { exact: true }).waitFor();
         await auditResponsiveLayout(page, { suite: "maintenance-agent", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
         await page.screenshot({ path: path.join(out, `runs-normal-${width}.png`), fullPage: true, animations: "disabled" });
@@ -164,27 +191,26 @@ try {
         await page.getByRole("button", { name: "关闭详情" }).click();
       }
       if (scenario === "setup") {
-        const setup = page.getByRole("button", { name: "配置并开始", exact: true });
-        await setup.waitFor();
-        await page.locator("button:enabled").filter({ hasText: "配置并开始" }).waitFor();
-        assert.equal(await setup.isEnabled(), true);
+        await page.getByRole("heading", {name: "从首次巡检开始", exact: true}).waitFor();
+        assert.equal(await page.getByRole("button", {name: "配置并开始", exact: true}).count(), 0);
         await auditResponsiveLayout(page, { suite: "maintenance-agent", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
         await page.screenshot({ path: path.join(out, `setup-before-${width}.png`), fullPage: true });
-        await setup.click();
+        await openPanel("settings");
         await page.getByLabel("正文分析模型").selectOption("b".repeat(64));
         await page.getByLabel("授权检查可访问的原始文件，并使用所选模型分析正文").check();
-        await page.locator(".aw-agent-workspace").evaluate(el => el.scrollTo(0, 0));
+        await page.locator(".aw-maintenance-scroll").evaluate(el => el.scrollTo(0, 0));
         await auditResponsiveLayout(page, { suite: "maintenance-agent", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
         await page.screenshot({ path: path.join(out, `setup-model-${width}.png`), fullPage: true });
         await page.getByRole("button", { name: "保存并开始巡检", exact: true }).click();
         await page.getByText("巡检已加入后台队列，可在巡检记录中查看进度。", { exact: true }).waitFor();
         assert.equal(saved, 1); assert.equal(started, 1);
         await page.getByRole("button", { name: "关闭详情" }).click();
-        await page.getByRole("button", { name: "查看巡检进度", exact: true }).click();
+        await openPanel("settings");
+        assert.equal(await page.getByRole("button", {name: "保存并开始巡检", exact: true}).isDisabled(), true);
         assert.equal(started, 1);
       }
       if (["legacy_run", "zero_run"].includes(scenario)) {
-        await page.getByRole("button", { name: "巡检记录", exact: true }).click();
+        await openPanel("runs");
         await page.getByText("无检查对象", { exact: true }).waitFor();
         await page.getByRole("button", { name: "查看巡检详情" }).click();
         if (scenario === "legacy_run") await page.getByText(/这是一条旧版巡检记录/).waitFor();
@@ -194,11 +220,15 @@ try {
         await page.getByRole("button", { name: "关闭详情" }).click();
       }
       if (scenario === "readonly") {
-        await page.getByText("需由公司知识治理人员或该项目经理操作", { exact: true }).waitFor();
-        assert.equal(await page.getByRole("button", { name: "立即全面巡检", exact: true }).isDisabled(), true);
+        await openPanel("settings");
+        await page.getByText("请由公司知识治理人员或该项目经理配置巡检。", { exact: true }).waitFor();
+        assert.equal(await page.getByRole("button", { name: "保存巡检设置", exact: true }).isDisabled(), true);
+        assert.equal(await page.getByRole("button", { name: "保存并开始巡检", exact: true }).isDisabled(), true);
+        assert.equal(saved, 0);
+        assert.equal(started, 0);
       }
       if (scenario === "model_missing" || scenario === "model_error") {
-        await page.getByRole("button", { name: "巡检设置", exact: true }).click();
+        await openPanel("settings");
         if (scenario === "model_missing") {
           await page.getByText("当前没有可用的分析模型。规则巡检仍可执行，正文质量检查会标记为未完成。", { exact: true }).waitFor();
           assert.equal(await page.getByLabel("正文分析模型").inputValue(), "c".repeat(64));
@@ -249,12 +279,14 @@ try {
         assert.equal(conversationSubmissions, 1);
         assert.equal(new URL(page.url()).searchParams.get("session"), workspaceSession.id);
         await page.getByLabel("消息", { exact: true }).fill("保留这个尚未发送的跟进要求");
-        await page.getByRole("link", { name: "维护待办", exact: true }).click();
+        const chatInput = await page.getByLabel("消息", {exact: true}).elementHandle();
+        await openPanel("issues");
         await page.getByRole("button", { name: "疑似只有封面或目录" }).waitFor();
         assert.equal(new URL(page.url()).searchParams.get("session"), workspaceSession.id);
         assert.equal(context.pages().length, openPages, "Agent opens in the same workspace tab");
         assert.equal(await page.locator(".ai-workspace").count(), 1);
-        await page.getByRole("button", { name: "返回 Agent 会话", exact: true }).click();
+        await closePanel();
+        assert.equal(await chatInput.evaluate(el => el.isConnected), true);
         await page.getByText("已核对本轮合成资料，请查看对应的维护待办。", { exact: true }).waitFor();
         assert.equal(await page.getByLabel("消息", { exact: true }).inputValue(), "保留这个尚未发送的跟进要求");
         assert.equal(new URL(page.url()).searchParams.get("session"), workspaceSession.id);
@@ -262,7 +294,9 @@ try {
         cases.push({ page: "conversation", scenario: "normal", viewport: String(width), passed: true });
         await page.goBack();
         await page.getByRole("button", { name: "疑似只有封面或目录" }).waitFor();
-        assert.deepEqual(failures, [], "embedded Agent deep link JS errors");
+        assert.equal(await chatInput.evaluate(el => el.isConnected), true);
+        assert.equal(await chatInput.inputValue(), "保留这个尚未发送的跟进要求");
+        assert.deepEqual(failures, [], "Agent conversation panel deep link JS errors");
       }
       await context.close();
     }

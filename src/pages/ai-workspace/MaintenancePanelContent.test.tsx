@@ -1,14 +1,14 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useSearchParams } from "react-router-dom";
 import { beforeEach, expect, it, vi } from "vitest";
-import MaintenanceAgentPage from "./MaintenanceAgentPage";
-import * as api from "../api/maintenanceAgent";
-import { ApiError } from "../api/http";
+import MaintenancePanelContent, { type MaintenancePolicyDraft } from "./MaintenancePanelContent";
+import * as api from "../../api/maintenanceAgent";
+import { ApiError } from "../../api/http";
 
-vi.mock("../auth/AuthContext", () => ({
+vi.mock("../../auth/AuthContext", () => ({
   useAuth: () => ({ capabilities: { isGovernance: true } }),
 }));
-vi.mock("../api/maintenanceAgent", () => ({
+vi.mock("../../api/maintenanceAgent", () => ({
   cancelAgentRun: vi.fn(),
   retryAgentRun: vi.fn(),
   deleteAgentRun: vi.fn(),
@@ -78,12 +78,39 @@ const run: api.ScanRun = {
   started_at: "2026-11-16T02:00:00Z",
   finished_at: null,
 };
-function mount(tab = "issues") {
-  return render(
-    <MemoryRouter initialEntries={[`/agents/knowledge-maintenance?tab=${tab}`]}>
-      <MaintenanceAgentPage />
+function mount(
+  tab = "issues",
+  onDirtyChange?: (dirty: boolean) => void,
+  draftCache?: Map<string, MaintenancePolicyDraft>,
+) {
+  let navigatePanel!: (panel: string) => void;
+  function PanelFixture() {
+    const [params, setParams] = useSearchParams();
+    const onNavigate = (changes: Record<string, string | null>) => {
+      const next = new URLSearchParams(params);
+      Object.entries(changes).forEach(([key, value]) =>
+        value === null ? next.delete(key) : next.set(key, value),
+      );
+      setParams(next);
+    };
+    navigatePanel = (panel) => onNavigate({ panel, tab: null });
+    return (
+      <>
+        <output aria-label="当前面板参数">{params.toString()}</output>
+        <MaintenancePanelContent
+          onNavigate={onNavigate}
+          onDirtyChange={onDirtyChange}
+          draftCache={draftCache}
+        />
+      </>
+    );
+  }
+  const result = render(
+    <MemoryRouter initialEntries={[`/ai-workspace?tab=${tab}`]}>
+      <PanelFixture />
     </MemoryRouter>,
   );
+  return { ...result, navigatePanel: (panel: string) => act(() => navigatePanel(panel)) };
 }
 
 it.each(["target_id", "digest_id"])(
@@ -105,13 +132,7 @@ it.each(["target_id", "digest_id"])(
     let query = vi.mocked(api.fetchAgentIssues).mock.lastCall![0];
     expect(query.get("digest_id")).toBe("day-one");
     expect(query.has("library_key")).toBe(false);
-    expect(screen.getByRole("link", { name: "查看该知识库全部待办" })).toHaveAttribute(
-      "href",
-      expect.stringContaining("project%3Aalpha"),
-    );
-    expect(
-      screen.getByRole("link", { name: "查看该知识库全部待办" }).getAttribute("href"),
-    ).not.toMatch(/target_id=|digest_id=/);
+    expect(screen.getByRole("button", { name: "查看该知识库全部待办" })).toBeEnabled();
     expect(api.fetchAgentRuns).not.toHaveBeenCalled();
     vi.mocked(api.fetchAgentIssues).mockResolvedValue({
       ...result,
@@ -128,6 +149,14 @@ it.each(["target_id", "digest_id"])(
     query = vi.mocked(api.fetchAgentIssues).mock.lastCall![0];
     expect(query.get("mine")).toBe("true");
     expect(query.get("digest_id")).toBe("day-one");
+    fireEvent.click(screen.getByRole("button", { name: "查看该知识库全部待办" }));
+    await waitFor(() => {
+      const all = vi.mocked(api.fetchAgentIssues).mock.lastCall![0];
+      expect(all.get("library_key")).toBe(project.library_key);
+      expect(all.has("digest_id")).toBe(false);
+      expect(all.get("mine")).toBe("false");
+    });
+    expect(screen.getByLabelText("当前面板参数")).not.toHaveTextContent(/target_id=|digest_id=/);
   },
 );
 
@@ -176,6 +205,58 @@ it("shows privacy findings as counts and locations with a dedicated category", a
     "第 5997—6007 字符",
   );
 });
+
+it("keeps replaced-version problems open for recheck and clears detail when access is revoked", async () => {
+  const issue: api.IssueDetail = {
+    id: "followed-issue",
+    asset_id: "asset",
+    title: "换版后的资料",
+    library_key: "company",
+    rule: "summary_mismatch",
+    category: "quality",
+    status: "open",
+    suspected: true,
+    first_seen_at: run.started_at,
+    last_seen_at: run.started_at,
+    updated_at: run.started_at,
+    snooze_until: null,
+    responsible: [],
+    can_act: true,
+    evidence_available: true,
+    current_version_matches: false,
+    requires_recheck: true,
+    evidence: {},
+    history: [],
+  };
+  vi.mocked(api.fetchAgentIssues).mockResolvedValue({
+    items: [issue],
+    total: 1,
+    page: 1,
+    page_size: 25,
+  });
+  vi.mocked(api.fetchAgentIssue).mockResolvedValue(issue);
+  vi.mocked(api.actOnAgentIssue).mockResolvedValue({ ...issue, status: "awaiting_recheck" });
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "摘要与正文可能不符" }));
+  await screen.findByText("此问题已随资料换版继续跟踪，复检通过后自动关闭。");
+  expect(screen.queryByRole("option", { name: "人工确认已解决" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("option", { name: "标记误报" })).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("处理方式"), { target: { value: "recheck" } });
+  fireEvent.click(screen.getByRole("button", { name: "提交处理" }));
+  await waitFor(() =>
+    expect(api.actOnAgentIssue).toHaveBeenCalledWith(issue.id, {
+      action: "recheck",
+      expected_updated_at: issue.updated_at,
+      reason: "",
+    }),
+  );
+  vi.mocked(api.fetchAgentIssues).mockRejectedValueOnce(new ApiError(403, "知识库不可访问"));
+  await waitFor(() => expect(screen.getByRole("button", { name: "刷新" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+  await screen.findByText("知识库不可访问");
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(screen.queryByText("换版后的资料")).not.toBeInTheDocument();
+});
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(api.fetchAgentPolicies).mockResolvedValue([structuredClone(policy)]);
@@ -208,7 +289,55 @@ beforeEach(() => {
   vi.mocked(api.startAgentRun).mockResolvedValue(run);
 });
 
-it("provides an enabled first-use action, shared refresh style, and saves the selected model before starting", async () => {
+it("uses the requested panel without rendering the retired page header or navigation tabs", async () => {
+  mount("issues&panel=settings");
+  await screen.findByLabelText("正文分析模型");
+  expect(screen.queryByRole("region", { name: "巡检问题" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "巡检与跟进" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("navigation", { name: "知识维护视图" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "立即全面巡检" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "任务会话" })).not.toBeInTheDocument();
+  expect(
+    screen.queryByText("定期检查知识资产，记录问题并提醒相应维护人。"),
+  ).not.toBeInTheDocument();
+});
+
+it.each(["target_id=notice", "digest_id=notice", "asset_id=asset", "view=mine"])(
+  "keeps the %s deep link on issues despite a stale settings panel parameter",
+  async (query) => {
+    mount(`settings&panel=settings&${query}`);
+    await screen.findByRole("region", { name: "巡检问题" });
+    expect(screen.queryByLabelText("正文分析模型")).not.toBeInTheDocument();
+  },
+);
+
+it("reports unsaved configuration without resetting edits on a background refresh and clears it after saving", async () => {
+  const dirty = vi.fn();
+  const panel = mount("settings", dirty);
+  const hour = await screen.findByLabelText("每日增量巡检（北京时间）");
+  expect(dirty).toHaveBeenLastCalledWith(false);
+  fireEvent.change(hour, { target: { value: "4" } });
+  expect(dirty).toHaveBeenLastCalledWith(true);
+  vi.mocked(api.fetchAgentPolicies).mockResolvedValue([{ ...policy, revision: 99 }]);
+  fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+  await waitFor(() => expect(api.fetchAgentPolicies).toHaveBeenCalledTimes(2));
+  expect(hour).toHaveValue("4");
+  expect(dirty).toHaveBeenLastCalledWith(true);
+  const saved = { ...policy, revision: 100, settings: { ...policy.settings, daily_hour: 4 } };
+  vi.mocked(api.saveAgentPolicy).mockResolvedValue(saved);
+  vi.mocked(api.fetchAgentPolicies).mockResolvedValue([saved]);
+  fireEvent.click(screen.getByRole("button", { name: "保存巡检设置" }));
+  await waitFor(() => expect(dirty).toHaveBeenLastCalledWith(false));
+  expect(api.saveAgentPolicy).toHaveBeenCalledWith(
+    "company",
+    expect.objectContaining({ settings: expect.objectContaining({ daily_hour: 4 }) }),
+  );
+  expect(api.startAgentRun).not.toHaveBeenCalled();
+  panel.unmount();
+  expect(dirty).toHaveBeenLastCalledWith(false);
+});
+
+it("saves the selected model and authorization before starting from the configuration panel", async () => {
   let completeSave!: (saved: api.AgentPolicy) => void;
   vi.mocked(api.saveAgentPolicy).mockImplementation(
     () =>
@@ -216,14 +345,9 @@ it("provides an enabled first-use action, shared refresh style, and saves the se
         completeSave = resolve;
       }),
   );
-  mount();
-  const configure = await screen.findByRole("button", { name: "配置并开始" });
-  await waitFor(() => expect(configure).toBeEnabled());
-  expect(screen.getByRole("button", { name: "刷新" })).toHaveClass(
-    "product-button",
-    "is-secondary",
-  );
-  fireEvent.click(configure);
+  mount("settings");
+  expect(screen.queryByRole("button", { name: "立即全面巡检" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("navigation", { name: "知识维护视图" })).not.toBeInTheDocument();
   const model = await screen.findByLabelText("正文分析模型");
   fireEvent.change(model, { target: { value: "b".repeat(64) } });
   fireEvent.click(screen.getByLabelText("授权检查可访问的原始文件，并使用所选模型分析正文"));
@@ -254,11 +378,12 @@ it("provides an enabled first-use action, shared refresh style, and saves the se
   ).toBeInTheDocument();
 });
 
-it("explains permission restrictions beside the action without allowing a scan", async () => {
+it("keeps configuration read-only when the current identity cannot manage the library", async () => {
   vi.mocked(api.fetchAgentPolicies).mockResolvedValue([{ ...policy, can_configure: false }]);
-  mount();
-  await screen.findByText("需由公司知识治理人员或该项目经理操作");
-  expect(screen.getByRole("button", { name: "配置并开始" })).toBeDisabled();
+  mount("settings");
+  await screen.findByText("请由公司知识治理人员或该项目经理配置巡检。");
+  expect(screen.getByRole("button", { name: "保存并开始巡检" })).toBeDisabled();
+  expect(screen.getByLabelText("正文分析模型")).toBeDisabled();
   expect(api.startAgentRun).not.toHaveBeenCalled();
 });
 
@@ -280,13 +405,12 @@ it("retains an unavailable explicit selection instead of silently selecting the 
   expect(screen.getByLabelText("正文分析模型")).toHaveValue("c".repeat(64));
 });
 
-it("opens progress for a running scan instead of submitting another run", async () => {
+it("shows a running scan without a second standalone start action", async () => {
   vi.mocked(api.fetchAgentPolicies).mockResolvedValue([{ ...policy, id: "policy" }]);
   vi.mocked(api.fetchAgentRuns).mockResolvedValue([run]);
-  mount();
-  const progress = await screen.findByRole("button", { name: "查看巡检进度" });
-  fireEvent.click(progress);
+  mount("runs");
   await screen.findByText("等待巡检");
+  expect(screen.queryByRole("button", { name: "立即全面巡检" })).not.toBeInTheDocument();
   expect(api.startAgentRun).not.toHaveBeenCalled();
 });
 
@@ -338,7 +462,7 @@ it("shows per-category reasons, finding names and a server-filtered result page"
   });
   mount("runs");
   fireEvent.click(await screen.findByRole("button", { name: "查看巡检详情" }));
-  expect(await screen.findByRole("link", { name: "待核对资料" })).toHaveAttribute(
+  expect(await screen.findByRole("link", { name: /待核对资料/ })).toHaveAttribute(
     "href",
     "/knowledge/asset",
   );
@@ -417,7 +541,7 @@ it("polls in place through completion without unmounting history, detail or expa
 
 it("keeps detail on transient refresh failure and keeps unsaved settings across policy updates", async () => {
   vi.mocked(api.fetchAgentRuns).mockResolvedValue([run]);
-  mount("runs");
+  const panel = mount("runs");
   fireEvent.click(await screen.findByRole("button", { name: "查看巡检详情" }));
   const content = await screen.findByText(/这是一条旧版巡检记录/);
   vi.mocked(api.fetchAgentRun).mockRejectedValueOnce(new ApiError(503, "暂时无法更新"));
@@ -425,7 +549,7 @@ it("keeps detail on transient refresh failure and keeps unsaved settings across 
   await screen.findByText("暂时无法更新");
   expect(content.isConnected).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "关闭详情" }));
-  fireEvent.click(screen.getByRole("button", { name: "巡检设置" }));
+  panel.navigatePanel("settings");
   const hour = await screen.findByLabelText("每日增量巡检（北京时间）");
   fireEvent.change(hour, { target: { value: "4" } });
   vi.mocked(api.fetchAgentPolicies).mockResolvedValue([{ ...policy, revision: 99 }]);
@@ -433,6 +557,68 @@ it("keeps detail on transient refresh failure and keeps unsaved settings across 
   await waitFor(() => expect(api.fetchAgentPolicies).toHaveBeenCalledTimes(3));
   expect(screen.getByLabelText("每日增量巡检（北京时间）")).toBe(hour);
   expect(hour).toHaveValue("4");
+});
+
+it("restores a configuration draft after panel unmount and keeps its original revision for conflict checks", async () => {
+  const cache = new Map<string, MaintenancePolicyDraft>();
+  const dirty = vi.fn();
+  const first = mount("settings", dirty, cache);
+  const tags = await screen.findByLabelText("必要标签（逗号分隔）");
+  fireEvent.change(tags, { target: { value: "交付规范，待确认" } });
+  fireEvent.change(screen.getByLabelText("每日增量巡检（北京时间）"), {
+    target: { value: "4" },
+  });
+  expect(cache.get("company")?.expectedRevision).toBe(0);
+  expect(dirty).toHaveBeenLastCalledWith(true);
+  first.unmount();
+  expect(cache.get("company")?.tags).toBe("交付规范，待确认");
+  vi.mocked(api.fetchAgentPolicies).mockResolvedValue([{ ...policy, revision: 99 }]);
+  mount("settings", dirty, cache);
+  expect(await screen.findByLabelText("必要标签（逗号分隔）")).toHaveValue("交付规范，待确认");
+  expect(screen.getByLabelText("每日增量巡检（北京时间）")).toHaveValue("4");
+  expect(dirty).toHaveBeenLastCalledWith(true);
+  vi.mocked(api.saveAgentPolicy).mockRejectedValueOnce(new ApiError(409, "配置已更新，请核对"));
+  fireEvent.click(screen.getByRole("button", { name: "保存巡检设置" }));
+  await screen.findByText("配置已更新，请核对");
+  expect(api.saveAgentPolicy).toHaveBeenLastCalledWith(
+    "company",
+    expect.objectContaining({
+      expected_revision: 0,
+      settings: expect.objectContaining({ daily_hour: 4, required_tags: ["交付规范", "待确认"] }),
+    }),
+  );
+  expect(cache.has("company")).toBe(true);
+  vi.mocked(api.saveAgentPolicy).mockResolvedValueOnce({
+    ...policy,
+    revision: 100,
+    settings: { ...policy.settings, daily_hour: 4, required_tags: ["交付规范", "待确认"] },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "保存巡检设置" }));
+  await screen.findByText("巡检设置已保存。");
+  expect(cache.has("company")).toBe(false);
+  expect(dirty).toHaveBeenLastCalledWith(false);
+});
+
+it("does not discard a newer restored draft when an old unmounted editor finishes saving", async () => {
+  const cache = new Map<string, MaintenancePolicyDraft>();
+  let finishSave!: (saved: api.AgentPolicy) => void;
+  vi.mocked(api.saveAgentPolicy).mockImplementationOnce(
+    () => new Promise((resolve) => (finishSave = resolve)),
+  );
+  const first = mount("settings", undefined, cache);
+  fireEvent.change(await screen.findByLabelText("必要标签（逗号分隔）"), {
+    target: { value: "第一次编辑" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "保存巡检设置" }));
+  first.unmount();
+  mount("settings", undefined, cache);
+  const input = await screen.findByLabelText("必要标签（逗号分隔）");
+  fireEvent.change(input, { target: { value: "继续编辑的新草稿" } });
+  await act(async () => finishSave({ ...policy, revision: 1 }));
+  expect(input).toHaveValue("继续编辑的新草稿");
+  expect(cache.get("company")?.tags).toBe("继续编辑的新草稿");
+  expect(cache.get("company")?.expectedRevision).toBe(0);
+  expect(screen.queryByText("巡检设置已保存。")).not.toBeInTheDocument();
 });
 
 it("offers cancellation for active runs and confirmed deletion for terminal history", async () => {

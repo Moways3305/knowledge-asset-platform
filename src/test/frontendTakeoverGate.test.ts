@@ -8,7 +8,6 @@ type RouteContract = {
   owners: string[];
   apiModules: string[];
   allowedTimerOwners?: string[];
-  embeddedComponents?: string[];
 };
 
 type BusinessOptionContract = {
@@ -29,21 +28,22 @@ const routes: RouteContract[] = [
       "pages/AIWorkspacePage.tsx",
       "pages/ai-workspace/useWorkspaceData.ts",
       "pages/ai-workspace/ArtifactPanel.tsx",
+      "pages/ai-workspace/MaintenancePanelContent.tsx",
     ],
-    apiModules: ["http", "aiWorkspace"],
+    apiModules: ["http", "aiWorkspace", "maintenanceAgent"],
     allowedTimerOwners: [
       "pages/ai-workspace/useWorkspaceData.ts",
       "pages/ai-workspace/ArtifactPanel.tsx",
+      "pages/ai-workspace/MaintenancePanelContent.tsx",
     ],
   },
   {
     route: "/ai-workspace/agents/knowledge-maintenance",
     component: "AIWorkspacePage",
-    embeddedComponents: ["MaintenanceAgentPage"],
     guard: "viewKnowledge",
-    owners: ["pages/MaintenanceAgentPage.tsx"],
+    owners: ["pages/ai-workspace/MaintenancePanelContent.tsx"],
     apiModules: ["http", "maintenanceAgent"],
-    allowedTimerOwners: ["pages/MaintenanceAgentPage.tsx"],
+    allowedTimerOwners: ["pages/ai-workspace/MaintenancePanelContent.tsx"],
   },
   {
     route: "/company-governance",
@@ -490,7 +490,7 @@ describe("frontend route takeover gate", () => {
       .sort();
     // LoginPage is owned by LoginGate, before any business route is mounted.
     const registered = [
-      ...new Set(routes.flatMap((item) => [item.component, ...(item.embeddedComponents ?? [])])),
+      ...new Set(routes.map((item) => item.component)),
       "NotFoundPage",
       "LoginPage",
     ].sort();

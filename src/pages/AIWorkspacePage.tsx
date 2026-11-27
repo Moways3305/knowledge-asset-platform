@@ -59,6 +59,7 @@ import { MarkdownView } from "./knowledge/OnlyOfficePreview";
 import ArtifactPanel, { type ArtifactDraft, type PreviewTab } from "./ai-workspace/ArtifactPanel";
 import { useWorkspaceData, workspaceError } from "./ai-workspace/useWorkspaceData";
 import { WorkspaceIconButton, WorkspaceTooltip } from "./ai-workspace/WorkspaceTooltip";
+import type { MaintenancePolicyDraft } from "./ai-workspace/MaintenancePanelContent";
 import { ActionConfirmation, ToolReceipts } from "./ai-workspace/RunActions";
 import AgentPicker from "./ai-workspace/AgentPicker";
 import {
@@ -66,12 +67,18 @@ import {
   MAINTENANCE_AGENT_KEY,
   MAINTENANCE_AGENT_PATH,
   agentConversationHref,
-  maintenanceAgentHref,
+  maintenancePanelHref,
 } from "../navigation/agentRoutes";
 import "../styles/ai-workspace.css";
 
-const MaintenanceAgentPage = lazy(() => import("./MaintenanceAgentPage"));
-type View = "chat" | "agents" | "maintenance" | "tools" | "preferences" | "help";
+const MaintenancePanelContent = lazy(() => import("./ai-workspace/MaintenancePanelContent"));
+type View = "chat" | "agents" | "tools" | "preferences" | "help";
+type MaintenancePanel = "issues" | "runs" | "settings";
+const maintenancePanelTitles: Record<MaintenancePanel, string> = {
+  issues: "维护问题",
+  runs: "巡检记录",
+  settings: "智能体配置",
+};
 interface SessionView {
   input: string;
   model: string;
@@ -154,18 +161,9 @@ function Workspace() {
   const isMaintenance = location.pathname.replace(/\/$/, "") === MAINTENANCE_AGENT_PATH;
   const sessionId = params.get("session") ?? "";
   const requestedView = params.get("view");
-  const managementView =
-    isMaintenance &&
-    (params.has("target_id") ||
-      params.has("digest_id") ||
-      params.has("asset_id") ||
-      requestedView === "mine" ||
-      ["issues", "runs", "settings"].includes(params.get("tab") ?? ""));
-  const view: View = managementView
-    ? "maintenance"
-    : ["agents", "tools", "preferences", "help"].includes(requestedView ?? "")
-      ? (requestedView as View)
-      : "chat";
+  const view: View = ["agents", "tools", "preferences", "help"].includes(requestedView ?? "")
+    ? (requestedView as View)
+    : "chat";
   const state = useWorkspaceData(sessionId);
   const requestedAgent = isMaintenance ? MAINTENANCE_AGENT_KEY : params.get("agent");
   const requestedLibrary = params.get("library");
@@ -175,15 +173,23 @@ function Workspace() {
       null)
     : requestedAgent;
   const agent = state.options?.agents?.find((item) => item.key === agentKey);
+  const requestedPanel = params.get("panel") ?? (isMaintenance ? params.get("tab") : null);
+  const maintenancePanel: MaintenancePanel | null =
+    view === "chat" && (agentKey === MAINTENANCE_AGENT_KEY || isMaintenance)
+      ? params.has("target_id") ||
+        params.has("digest_id") ||
+        params.has("asset_id") ||
+        requestedView === "mine"
+        ? "issues"
+        : requestedPanel && ["issues", "runs", "settings"].includes(requestedPanel)
+          ? (requestedPanel as MaintenancePanel)
+          : null
+      : null;
   const currentAgent = useRef(agentKey);
   currentAgent.current = agentKey;
   const unknownAgent = Boolean(!sessionId && agentKey && state.options && !agent);
   const [sessionViews, setSessionViews] = useState<Record<string, SessionView>>({});
   const [artifactDrafts, setArtifactDrafts] = useState<Record<string, ArtifactDraft>>({});
-  const [lastAgentLocation, setLastAgentLocation] = useState<{
-    search: string;
-    hash: string;
-  } | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const navigationWasOpen = useRef(false);
   navigationWasOpen.current = sidebarOpen;
@@ -195,11 +201,19 @@ function Workspace() {
       return true;
     }
   });
+  const [maintenanceDirty, setMaintenanceDirty] = useState(false);
+  const maintenanceDrafts = useRef(new Map<string, MaintenancePolicyDraft>());
+  const maintenanceDirtyRef = useRef(false);
+  const onMaintenanceDirtyChange = useCallback((dirty: boolean) => {
+    maintenanceDirtyRef.current = dirty;
+    setMaintenanceDirty(dirty);
+  }, []);
+  const [pendingPanelNavigation, setPendingPanelNavigation] = useState<(() => void) | null>(null);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState<Set<string>>(new Set());
   const pendingSubmissions = useRef(new Set<string>());
   const [operationBusy, setOperationBusy] = useState(false);
-  const [dialog, setDialog] = useState<"context" | "rename" | "delete" | null>(null);
+  const [dialog, setDialog] = useState<"context" | "agent" | "rename" | "delete" | null>(null);
   const [rename, setRename] = useState("");
   const [dialogError, setDialogError] = useState("");
   const [followLatest, setFollowLatest] = useState(true);
@@ -209,6 +223,7 @@ function Workspace() {
   const navigationOpener = useRef<HTMLButtonElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
   const editor = useRef<HTMLTextAreaElement>(null);
+  const maintenanceHeading = useRef<HTMLHeadingElement>(null);
   const currentId = useRef(sessionId);
   currentId.current = sessionId;
   const routeKey = `${location.pathname}${location.search}${location.hash}`;
@@ -256,7 +271,9 @@ function Workspace() {
   const availableModel = state.options?.models.some((model) => model.model_ref === selected.model);
   const artifact = state.detail?.artifacts.find((item) => item.id === selected.artifact);
   const compact = width < 1040;
-  const showPreview = Boolean(artifact && selected.previewOpen && view === "chat");
+  const showPreview = Boolean(
+    artifact && selected.previewOpen && view === "chat" && !maintenancePanel,
+  );
   const fullPreview = selected.previewFull || width < 900;
   const closeSidebar = useCallback(() => {
     const restoreFocus = navigationWasOpen.current;
@@ -282,9 +299,6 @@ function Workspace() {
       mounted.current = false;
     };
   }, []);
-  useEffect(() => {
-    if (managementView) setLastAgentLocation({ search: location.search, hash: location.hash });
-  }, [managementView, location.search, location.hash]);
   useEffect(() => {
     if (!sessionId && view === "chat" && agentKey === MAINTENANCE_AGENT_KEY) {
       const library =
@@ -321,6 +335,9 @@ function Workspace() {
     if (main.current) main.current.inert = compact && sidebarOpen;
   }, [compact, sidebarOpen]);
   useEffect(() => {
+    if (maintenancePanel) maintenanceHeading.current?.focus({ preventScroll: true });
+  }, [maintenancePanel]);
+  useEffect(() => {
     if (!state.deniedSession) return;
     setSessionViews((previous) => {
       const next = { ...previous };
@@ -353,14 +370,14 @@ function Workspace() {
       const hasDraft = Object.values(artifactDrafts).some(
         (item) => item.content !== item.baseContent || item.title !== item.baseTitle,
       );
-      if (hasInput || hasDraft) {
+      if (hasInput || hasDraft || maintenanceDirty || maintenanceDrafts.current.size) {
         event.preventDefault();
         event.returnValue = "";
       }
     };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [sessionViews, artifactDrafts]);
+  }, [sessionViews, artifactDrafts, maintenanceDirty]);
   useLayoutEffect(() => {
     const element = scroll.current;
     if (!element) return;
@@ -374,21 +391,27 @@ function Workspace() {
       element.scrollTop = element.scrollHeight;
   }, [state.detail?.messages.length, state.events.length, key]);
 
+  function protectConfiguration(action: () => void) {
+    if (maintenanceDirtyRef.current) setPendingPanelNavigation(() => action);
+    else action();
+  }
   function navigate(
     nextView: View,
     id = sessionId,
     selectedAgent = agentKey,
     library: string | null = null,
   ) {
-    const next = new URLSearchParams();
-    if (id) next.set("session", id);
-    if (selectedAgent) next.set("agent", selectedAgent);
-    if (!id && library) next.set("library", library);
-    if (nextView !== "chat") next.set("view", nextView);
-    routeNavigate(`${AI_WORKSPACE_PATH}${next.size ? `?${next}` : ""}`);
-    closeSidebar();
-    setError("");
-    setDialog(null);
+    protectConfiguration(() => {
+      const next = new URLSearchParams();
+      if (id) next.set("session", id);
+      if (selectedAgent) next.set("agent", selectedAgent);
+      if (!id && library) next.set("library", library);
+      if (nextView !== "chat") next.set("view", nextView);
+      routeNavigate(`${AI_WORKSPACE_PATH}${next.size ? `?${next}` : ""}`);
+      closeSidebar();
+      setError("");
+      setDialog(null);
+    });
   }
   function onScroll() {
     const element = scroll.current;
@@ -409,6 +432,56 @@ function Workspace() {
           : ""),
     });
     navigate("chat", "", next);
+  }
+  function updateMaintenancePanel(changes: Record<string, string | null>) {
+    protectConfiguration(() =>
+      routeNavigate(
+        maintenancePanelHref(
+          location.search,
+          { panel: maintenancePanel, ...changes },
+          location.hash,
+        ),
+      ),
+    );
+  }
+  function openMaintenancePanel(panel: MaintenancePanel) {
+    const next = new URLSearchParams({ agent: MAINTENANCE_AGENT_KEY, panel });
+    if (sessionId) next.set("session", sessionId);
+    next.set("library", selected.context || "company");
+    setDialog(null);
+    protectConfiguration(() => routeNavigate(`${AI_WORKSPACE_PATH}?${next}`));
+  }
+  function dismissMaintenancePanel(focusComposer = true) {
+    const next = new URLSearchParams(params);
+    for (const field of [
+      "panel",
+      "tab",
+      "target_id",
+      "digest_id",
+      "asset_id",
+      "status",
+      "category",
+      "priority",
+      "mine",
+      "page",
+      "view",
+    ])
+      next.delete(field);
+    if (agentKey) next.set("agent", agentKey);
+    routeNavigate(`${AI_WORKSPACE_PATH}${next.size ? `?${next}` : ""}`);
+    if (focusComposer)
+      requestAnimationFrame(() => {
+        const target =
+          artifact && selected.previewOpen && fullPreview
+            ? frame.current?.querySelector<HTMLButtonElement>(
+                '.aw-preview:not([hidden]) button[aria-label="关闭预览"]',
+              )
+            : editor.current;
+        target?.focus({ preventScroll: true });
+      });
+  }
+  function closeMaintenancePanel() {
+    protectConfiguration(() => dismissMaintenancePanel());
   }
   function jumpLatest() {
     if (scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
@@ -474,7 +547,10 @@ function Workspace() {
       delete requests.current[submittedKey];
       positions.current[id] = { top: scroll.current?.scrollHeight ?? 0, follow: true };
       if (currentRoute.current === submittedRoute) {
-        navigate("chat", id);
+        const next = new URLSearchParams(params);
+        next.set("session", id);
+        if (agentKey) next.set("agent", agentKey);
+        routeNavigate(`${AI_WORKSPACE_PATH}?${next}${location.hash}`);
         state.refresh();
         setFollowLatest(true);
       }
@@ -529,8 +605,11 @@ function Workspace() {
     }
   }
   function openArtifact(item: WorkspaceArtifact) {
-    artifactOwners.current[item.id] = sessionId;
-    updateView({ artifact: item.id, previewOpen: true });
+    protectConfiguration(() => {
+      if (maintenancePanel) dismissMaintenancePanel(false);
+      artifactOwners.current[item.id] = sessionId;
+      updateView({ artifact: item.id, previewOpen: true });
+    });
   }
   async function saveSessionChange() {
     if (operationBusy) return;
@@ -586,7 +665,6 @@ function Workspace() {
       : (
           {
             agents: "Agent",
-            maintenance: "知识维护 Agent",
             tools: "工具",
             preferences: "偏好设置",
             help: "使用说明",
@@ -598,7 +676,17 @@ function Workspace() {
       ref={frame}
       className="ai-workspace"
       data-motion={motion ? "on" : "off"}
-      data-preview={showPreview ? (fullPreview ? "full" : "open") : "closed"}
+      data-preview={
+        maintenancePanel
+          ? width < 900
+            ? "full"
+            : "open"
+          : showPreview
+            ? fullPreview
+              ? "full"
+              : "open"
+            : "closed"
+      }
       data-compact={compact}
       data-nav-open={sidebarOpen}
     >
@@ -640,9 +728,7 @@ function Workspace() {
           </button>
           <button
             className="aw-nav-item"
-            data-active={
-              view === "agents" || view === "maintenance" || Boolean(agentKey && view === "chat")
-            }
+            data-active={view === "agents" || Boolean(agentKey && view === "chat")}
             onClick={() => navigate("agents")}
           >
             <Bot />
@@ -687,7 +773,23 @@ function Workspace() {
             <Settings2 />
             偏好设置
           </button>
-          <Link className="aw-nav-item" to="/">
+          <Link
+            className="aw-nav-item"
+            to="/"
+            onClick={(event) => {
+              if (
+                maintenanceDirtyRef.current &&
+                event.button === 0 &&
+                !event.metaKey &&
+                !event.ctrlKey &&
+                !event.shiftKey &&
+                !event.altKey
+              ) {
+                event.preventDefault();
+                protectConfiguration(() => routeNavigate("/"));
+              }
+            }}
+          >
             <ArrowLeft />
             返回 KAP
           </Link>
@@ -708,21 +810,6 @@ function Workspace() {
             >
               <Menu />
             </WorkspaceIconButton>
-            {view === "maintenance" && (
-              <WorkspaceIconButton
-                label="返回 Agent 会话"
-                onClick={() =>
-                  navigate(
-                    "chat",
-                    state.detail?.session.agent_key === MAINTENANCE_AGENT_KEY ? sessionId : "",
-                    MAINTENANCE_AGENT_KEY,
-                    requestedLibrary,
-                  )
-                }
-              >
-                <ArrowLeft />
-              </WorkspaceIconButton>
-            )}
             <span>{title}</span>
           </div>
           <div className="aw-inline-actions">
@@ -748,10 +835,12 @@ function Workspace() {
                 </WorkspaceIconButton>
                 <WorkspaceIconButton
                   label="删除会话"
-                  onClick={() => {
-                    setDialogError("");
-                    setDialog("delete");
-                  }}
+                  onClick={() =>
+                    protectConfiguration(() => {
+                      setDialogError("");
+                      setDialog("delete");
+                    })
+                  }
                 >
                   <Trash2 />
                 </WorkspaceIconButton>
@@ -764,11 +853,14 @@ function Workspace() {
               <WorkspaceIconButton
                 label={showPreview ? "收起文档预览" : "打开文档预览"}
                 onClick={() =>
-                  updateView({
-                    artifact:
-                      artifact?.id ||
-                      state.detail!.artifacts[state.detail!.artifacts.length - 1].id,
-                    previewOpen: !showPreview,
+                  protectConfiguration(() => {
+                    if (maintenancePanel) dismissMaintenancePanel(false);
+                    updateView({
+                      artifact:
+                        artifact?.id ||
+                        state.detail!.artifacts[state.detail!.artifacts.length - 1].id,
+                      previewOpen: !showPreview,
+                    });
                   })
                 }
               >
@@ -788,38 +880,6 @@ function Workspace() {
         {view === "chat" ? (
           <div className="aw-body">
             <section className="aw-chat" aria-label="会话">
-              {agentKey === MAINTENANCE_AGENT_KEY && (
-                <nav className="aw-agent-context" aria-label="知识维护辅助视图">
-                  <span>
-                    <Bot size={15} />
-                    知识维护 Agent
-                  </span>
-                  <div>
-                    {(
-                      [
-                        ["issues", "维护待办"],
-                        ["runs", "巡检记录"],
-                        ["settings", "巡检设置"],
-                      ] as const
-                    ).map(([tab, label]) => (
-                      <Link
-                        key={tab}
-                        to={maintenanceAgentHref(lastAgentLocation?.search ?? "", {
-                          tab,
-                          session: sessionId || null,
-                          library: selected.context || "company",
-                          target_id: null,
-                          digest_id: null,
-                          view: null,
-                          page: null,
-                        })}
-                      >
-                        {label}
-                      </Link>
-                    ))}
-                  </div>
-                </nav>
-              )}
               <div ref={scroll} className="aw-chat-scroll" onScroll={onScroll}>
                 {!sessionId ? (
                   <div className="aw-home">
@@ -1050,6 +1110,14 @@ function Workspace() {
                             onChange={selectAgent}
                           />
                         )}
+                        {agentKey === MAINTENANCE_AGENT_KEY && (
+                          <WorkspaceIconButton
+                            label="智能体选项"
+                            onClick={() => setDialog("agent")}
+                          >
+                            <Settings2 size={16} />
+                          </WorkspaceIconButton>
+                        )}
                       </div>
                       <div className="aw-composer-right">
                         <span className="aw-model-picker" data-available={Boolean(availableModel)}>
@@ -1210,6 +1278,36 @@ function Workspace() {
                 </div>
               )}
             </section>
+            {maintenancePanel && (
+              <aside
+                className="aw-preview aw-maintenance-preview"
+                aria-label={maintenancePanelTitles[maintenancePanel]}
+              >
+                <div className="aw-preview-toolbar">
+                  <h2 className="aw-maintenance-title" ref={maintenanceHeading} tabIndex={-1}>
+                    {maintenancePanelTitles[maintenancePanel]}
+                  </h2>
+                  <WorkspaceIconButton label="关闭维护面板" onClick={() => closeMaintenancePanel()}>
+                    <X />
+                  </WorkspaceIconButton>
+                </div>
+                <div className="aw-maintenance-scroll">
+                  <Suspense
+                    fallback={
+                      <p className="aw-loading" role="status">
+                        正在加载…
+                      </p>
+                    }
+                  >
+                    <MaintenancePanelContent
+                      onNavigate={updateMaintenancePanel}
+                      onDirtyChange={onMaintenanceDirtyChange}
+                      draftCache={maintenanceDrafts.current}
+                    />
+                  </Suspense>
+                </div>
+              </aside>
+            )}
             {artifact && (
               <ArtifactPanel
                 key={artifact.id}
@@ -1232,23 +1330,6 @@ function Workspace() {
                 onSaved={state.refresh}
               />
             )}
-          </div>
-        ) : view === "maintenance" ? (
-          <div className="aw-agent-workspace aw-section-scroll" aria-label="知识维护 Agent 工作区">
-            <Suspense
-              fallback={
-                <p className="aw-loading" role="status">
-                  正在打开知识维护 Agent…
-                </p>
-              }
-            >
-              <MaintenanceAgentPage
-                embedded
-                agentSessionId={
-                  state.detail?.session.agent_key === MAINTENANCE_AGENT_KEY ? sessionId : undefined
-                }
-              />
-            </Suspense>
           </div>
         ) : (
           <div className="aw-section-scroll">
@@ -1374,7 +1455,7 @@ function Workspace() {
                     <p>
                       在新会话输入框旁点击“添加智能体”，即可选择专门的工具和职责。侧栏 Agent
                       可查看介绍。知识维护 Agent
-                      可以查看问题、开展巡检和复检、准备维护报告。会话上方的待办、记录与设置用于查看明细和配置；需要确认的操作由你核对后执行。
+                      可以查看问题、开展巡检和复检、准备维护报告。需要查看明细或调整配置时，可从输入框旁的“智能体选项”按需打开侧栏；需要确认的操作由你核对后执行。
                     </p>
                   </div>
                   <div className="aw-help-row">
@@ -1390,6 +1471,53 @@ function Workspace() {
           </div>
         )}
       </main>
+      {pendingPanelNavigation && (
+        <WorkspaceDialog title="放弃未保存的配置？" onClose={() => setPendingPanelNavigation(null)}>
+          <p>智能体配置尚未保存，离开后会丢失这些修改。</p>
+          <footer>
+            <button onClick={() => setPendingPanelNavigation(null)}>继续编辑</button>
+            <button
+              className="aw-primary"
+              onClick={() => {
+                const proceed = pendingPanelNavigation;
+                setPendingPanelNavigation(null);
+                maintenanceDrafts.current.delete(params.get("library") || "company");
+                onMaintenanceDirtyChange(false);
+                proceed();
+              }}
+            >
+              放弃修改
+            </button>
+          </footer>
+        </WorkspaceDialog>
+      )}
+      {dialog === "agent" && (
+        <WorkspaceDialog title="智能体选项" onClose={() => setDialog(null)}>
+          <div className="aw-agent-options">
+            <button aria-label="查看维护问题" onClick={() => openMaintenancePanel("issues")}>
+              <BookOpen />
+              <span>
+                查看维护问题<small>核对依据和处理进展</small>
+              </span>
+              <ChevronRight />
+            </button>
+            <button aria-label="查看巡检记录" onClick={() => openMaintenancePanel("runs")}>
+              <History />
+              <span>
+                查看巡检记录<small>查看检查范围和执行结果</small>
+              </span>
+              <ChevronRight />
+            </button>
+            <button aria-label="配置智能体" onClick={() => openMaintenancePanel("settings")}>
+              <Settings2 />
+              <span>
+                配置智能体<small>模型、授权与自动巡检</small>
+              </span>
+              <ChevronRight />
+            </button>
+          </div>
+        </WorkspaceDialog>
+      )}
       {dialog === "context" && (
         <WorkspaceDialog title="添加上下文" onClose={() => setDialog(null)}>
           <p className="aw-muted">选择当前对话使用的知识库；可访问范围仍由你的权限决定。</p>

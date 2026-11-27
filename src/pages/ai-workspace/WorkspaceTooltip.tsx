@@ -167,14 +167,6 @@ export function WorkspaceTooltip({
               top: position?.top ?? 0,
               visibility: position ? "visible" : "hidden",
             }}
-            onPointerEnter={() => {
-              hover.current = true;
-              clearTimeout(leaveTimer.current);
-            }}
-            onPointerLeave={() => {
-              hover.current = false;
-              closeAfterLeave();
-            }}
           >
             {label}
           </div>,
