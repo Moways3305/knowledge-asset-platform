@@ -24,6 +24,8 @@ try {
     for (const scenario of ["normal", "empty", "failure", "forbidden", "setup", "readonly", "model_missing", "model_error", "legacy_run", "zero_run"]) {
       const context = await browser.newContext({ viewport: { width, height: 1000 } });
       let actions = 0, saved = 0, maintenanceRequests = 0;
+      let workspaceSession = null, workspaceRuns = [], workspaceMessages = [], workspaceEvents = [];
+      let sessionCreates = 0, conversationSubmissions = 0;
       let currentPolicy = { ...policy };
       const activeRun = ["legacy_run", "zero_run"].includes(scenario) ? { ...run, target_count: 0, completed_count: 0, incomplete_count: 0, reasons: {}, status: scenario === "zero_run" ? "empty" : "completed" } : run;
       const scope = { assessed_at: run.started_at, visible_count: scenario === "zero_run" ? 2 : 140, target_count: activeRun.target_count, excluded_counts: { archived: 2 } };
@@ -43,15 +45,43 @@ try {
           models: models.items.map(({ model_ref, display_name, is_default }) => ({ model_ref, display_name, is_default })),
           contexts: [{ key: "company", label: "公司知识库" }],
           tools: [],
+          agents: [{ key: "knowledge-maintenance", label: "知识维护 Agent", description: "核对知识、保留依据并持续跟进", tools: [{ key: "list_maintenance_issues", label: "查看维护问题", description: "核对当前知识库的问题和证据" }] }],
         };
-        if (p === "/api/v1/ai-workspace/sessions") body = [];
+        if (p === "/api/v1/ai-workspace/sessions") {
+          if (route.request().method() === "POST") {
+            const command = route.request().postDataJSON();
+            assert.equal(command.agent_key, "knowledge-maintenance");
+            sessionCreates++;
+            workspaceSession = { id: command.request_id, title: "验收维护会话", agent_key: command.agent_key, created_at: run.started_at, updated_at: run.started_at };
+            status = 201;
+            body = workspaceSession;
+          } else body = workspaceSession ? [workspaceSession] : [];
+        }
+        if (/\/ai-workspace\/sessions\/[^/]+$/.test(p)) body = { session: workspaceSession, runs: workspaceRuns, messages: workspaceMessages, events: workspaceEvents, actions: [], artifacts: [] };
+        if (p.includes("/ai-workspace/sessions/") && p.endsWith("/events")) {
+          const after = Number(url.searchParams.get("after") || 0);
+          const events = workspaceEvents.filter(event => event.id > after);
+          body = { events, cursor: events.at(-1)?.id ?? after };
+        }
+        if (p.includes("/ai-workspace/sessions/") && p.endsWith("/messages")) {
+          const command = route.request().postDataJSON();
+          assert.equal(command.context_key, "company");
+          assert.equal(command.model_ref, models.items[0].model_ref);
+          conversationSubmissions++;
+          const task = { id: command.request_id, status: "completed", model_ref: command.model_ref, context_key: command.context_key, error_code: null, pending_action: null, waiting_reason: null, step_count: 1, max_steps: 24, created_at: run.started_at, finished_at: run.finished_at };
+          workspaceRuns.push(task);
+          workspaceMessages.push({ id: "user-message", role: "user", run_id: task.id, content: command.content, created_at: run.started_at }, { id: "assistant-message", role: "assistant", run_id: task.id, content: "已核对本轮合成资料，请查看对应的维护待办。", created_at: run.finished_at });
+          workspaceEvents.push({ id: 1, run_id: task.id, type: "tool_completed", label: "已核对维护待办", created_at: run.finished_at });
+          status = 202;
+          body = task;
+        }
         if (p.startsWith("/api/v1/maintenance-agent/")) maintenanceRequests += 1;
         if (p === "/api/v1/generation/model-options") {
           body = models;
           if (scenario === "model_error") { status = 503; body = { detail: { message: "模型信息暂时不可用" } }; }
         }
         if (p === "/api/v1/maintenance-agent/policies") body = [currentPolicy];
-        if (p === "/api/v1/maintenance-agent/libraries/company/tasks") body = [];
+        assert.ok(!p.includes("/maintenance-agent/libraries/"), "obsolete task API must not be requested");
         if (p === "/api/v1/maintenance-agent/issues") body = { items: ["empty", "setup"].includes(scenario) ? [] : [item], total: ["empty", "setup"].includes(scenario) ? 0 : 1, page: 1, page_size: 25 };
         if (p.endsWith("/policies/company/runs")) {
           body = scenario === "setup" ? (started ? [{ ...run, status: "queued" }] : []) : [activeRun];
@@ -80,11 +110,9 @@ try {
       currentPage = page;
       const failures = [];
       page.on("pageerror", error => failures.push(error.message));
-      await page.goto(`${base}/agents/knowledge-maintenance`);
+      await page.goto(`${base}/agents/knowledge-maintenance?tab=issues`);
       if (scenario !== "forbidden") {
-        await page.waitForURL(url => url.pathname === "/ai-workspace/agents/knowledge-maintenance");
-        await page.getByLabel("交代一件事").waitFor();
-        await page.getByRole("link", { name: "维护待办", exact: true }).click();
+        await page.waitForURL(url => url.pathname === "/ai-workspace/agents/knowledge-maintenance" && url.searchParams.get("tab") === "issues");
       }
       if (scenario === "forbidden") {
         await page.getByText("当前账号无此入口", { exact: true }).waitFor();
@@ -100,7 +128,7 @@ try {
         assert.equal(await page.locator("#primary-navigation").count(), 0);
         assert.equal(await page.getByRole("navigation", { name: "知识库导航" }).count(), 0);
         assert.equal(await page.locator(".deck-context").count(), 0);
-        assert.equal(await page.getByRole("button", { name: "返回 Agent 列表", exact: true }).isVisible(), true);
+        assert.equal(await page.getByRole("button", { name: "返回 Agent 会话", exact: true }).isVisible(), true);
         await auditResponsiveLayout(page, { suite: "maintenance-agent", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
         await page.screenshot({ path: path.join(out, `issues-normal-${width}.png`), fullPage: true, animations: "disabled" });
         await page.getByRole("button", { name: "疑似只有封面或目录" }).click();
@@ -126,7 +154,8 @@ try {
         await page.screenshot({ path: path.join(out, `runs-normal-${width}.png`), fullPage: true, animations: "disabled" });
         await page.getByRole("button", { name: "查看巡检详情", exact: true }).click();
         await page.getByRole("heading", { name: "逐项检查结果" }).waitFor();
-        await page.getByRole("link", { name: item.title, exact: true }).waitFor();
+        await page.getByRole("link", { name: new RegExp(item.title) }).waitFor();
+        assert.equal(await page.getByRole("link", { name: new RegExp(item.title) }).getAttribute("target"), "_blank");
         await page.getByLabel("检查结果筛选").selectOption("incomplete");
         await page.getByRole("heading", { name: "逐项检查结果" }).waitFor();
         await auditResponsiveLayout(page, { suite: "maintenance-agent", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
@@ -184,6 +213,14 @@ try {
       await page.screenshot({ path: path.join(out, `maintenance-${scenario}-${width}.png`), fullPage: true, animations: "disabled" });
       cases.push({ page: "maintenance", scenario, viewport: String(width), passed: true });
       if (scenario === "normal") {
+        await page.goto(`${base}/agents/knowledge-maintenance`);
+        await page.waitForURL(url => url.pathname === "/ai-workspace/agents/knowledge-maintenance" && !url.searchParams.has("tab"));
+        await page.getByRole("heading", { name: "交给我一个知识维护目标", exact: true }).waitFor();
+        assert.equal(await page.getByLabel("消息", { exact: true }).count(), 1);
+        assert.equal(await page.locator(".aw-agent-workspace").count(), 0);
+        await auditResponsiveLayout(page, { suite: "maintenance-agent", caseName: "conversation-entry" });
+        await page.screenshot({ path: path.join(out, `conversation-entry-normal-${width}.png`), fullPage: true, animations: "disabled" });
+        cases.push({ page: "conversation-entry", scenario: "normal", viewport: String(width), passed: true });
         await page.goto(`${base}/agents`);
         await page.waitForURL(url => url.pathname === "/ai-workspace" && url.searchParams.get("view") === "agents");
         await page.getByRole("heading", { name: "让 Agent 接手一类工作", exact: true }).waitFor();
@@ -192,9 +229,9 @@ try {
         await page.screenshot({ path: path.join(out, `redirect-normal-${width}.png`), fullPage: true, animations: "disabled" });
         cases.push({ page: "redirect", scenario: "normal", viewport: String(width), passed: true });
         await page.locator(".aw-agent-row > summary").filter({ hasText: "知识维护 Agent" }).click();
-        const maintenanceEntry = page.getByRole("link", { name: "打开知识维护 Agent", exact: true });
+        const maintenanceEntry = page.getByRole("link", { name: "开始任务", exact: true });
         await maintenanceEntry.waitFor();
-        assert.equal(await maintenanceEntry.getAttribute("href"), "/ai-workspace/agents/knowledge-maintenance?tab=issues");
+        assert.equal(await maintenanceEntry.getAttribute("href"), "/ai-workspace?agent=knowledge-maintenance");
         assert.equal(await maintenanceEntry.getAttribute("target"), null);
         await page.mouse.move(0, 0);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 2), false, `center overflow at ${width}`);
@@ -203,12 +240,26 @@ try {
         cases.push({ page: "center", scenario: "normal", viewport: String(width), passed: true });
         const openPages = context.pages().length;
         await maintenanceEntry.click();
-        await page.waitForURL(url => url.pathname === "/ai-workspace/agents/knowledge-maintenance" && url.searchParams.get("tab") === "issues");
+        await page.waitForURL(url => url.pathname === "/ai-workspace" && url.searchParams.get("agent") === "knowledge-maintenance");
+        await page.getByRole("heading", { name: "交给我一个知识维护目标", exact: true }).waitFor();
+        await page.getByLabel("消息", { exact: true }).fill("核对公司知识库的维护待办，给出有依据的处理建议");
+        await page.getByRole("button", { name: "发送消息", exact: true }).click();
+        await page.getByText("已核对本轮合成资料，请查看对应的维护待办。", { exact: true }).waitFor();
+        assert.equal(sessionCreates, 1);
+        assert.equal(conversationSubmissions, 1);
+        assert.equal(new URL(page.url()).searchParams.get("session"), workspaceSession.id);
+        await page.getByLabel("消息", { exact: true }).fill("保留这个尚未发送的跟进要求");
+        await page.getByRole("link", { name: "维护待办", exact: true }).click();
         await page.getByRole("button", { name: "疑似只有封面或目录" }).waitFor();
+        assert.equal(new URL(page.url()).searchParams.get("session"), workspaceSession.id);
         assert.equal(context.pages().length, openPages, "Agent opens in the same workspace tab");
         assert.equal(await page.locator(".ai-workspace").count(), 1);
-        await page.getByRole("button", { name: "返回 Agent 列表", exact: true }).click();
-        await page.getByRole("heading", { name: "让 Agent 接手一类工作", exact: true }).waitFor();
+        await page.getByRole("button", { name: "返回 Agent 会话", exact: true }).click();
+        await page.getByText("已核对本轮合成资料，请查看对应的维护待办。", { exact: true }).waitFor();
+        assert.equal(await page.getByLabel("消息", { exact: true }).inputValue(), "保留这个尚未发送的跟进要求");
+        assert.equal(new URL(page.url()).searchParams.get("session"), workspaceSession.id);
+        await page.screenshot({ path: path.join(out, `conversation-normal-${width}.png`), fullPage: true, animations: "disabled" });
+        cases.push({ page: "conversation", scenario: "normal", viewport: String(width), passed: true });
         await page.goBack();
         await page.getByRole("button", { name: "疑似只有封面或目录" }).waitFor();
         assert.deepEqual(failures, [], "embedded Agent deep link JS errors");

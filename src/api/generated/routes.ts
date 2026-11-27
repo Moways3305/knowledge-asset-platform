@@ -89,8 +89,6 @@ export interface ApiRoutes {
     | `/api/v1/knowledge/${string}/versions/compare`
     | `/api/v1/maintenance-agent/issues`
     | `/api/v1/maintenance-agent/issues/${string}`
-    | `/api/v1/maintenance-agent/libraries/${string}/tasks`
-    | `/api/v1/maintenance-agent/libraries/${string}/tasks/${string}`
     | `/api/v1/maintenance-agent/policies`
     | `/api/v1/maintenance-agent/policies/${string}/runs`
     | `/api/v1/maintenance-agent/policies/${string}/runs/${string}`
@@ -167,7 +165,8 @@ export interface ApiRoutes {
     | `/api/v1/agent-gateway/tools/knowledge-search`
     | `/api/v1/ai-workspace/sessions`
     | `/api/v1/ai-workspace/sessions/${string}/messages`
-    | `/api/v1/ai-workspace/sessions/${string}/runs/${string}/retry`
+    | `/api/v1/ai-workspace/sessions/${string}/runs/${string}/actions/${string}`
+    | `/api/v1/ai-workspace/sessions/${string}/runs/${string}/resume`
     | `/api/v1/ai-workspace/sessions/${string}/runs/${string}/stop`
     | `/api/v1/auth/active-company-role`
     | `/api/v1/auth/login`
@@ -208,7 +207,6 @@ export interface ApiRoutes {
     | `/api/v1/knowledge/${string}/trust/replacement`
     | `/api/v1/knowledge/${string}/trust/review`
     | `/api/v1/maintenance-agent/issues/${string}/actions`
-    | `/api/v1/maintenance-agent/libraries/${string}/tasks`
     | `/api/v1/maintenance-agent/policies/${string}/runs`
     | `/api/v1/maintenance-agent/policies/${string}/runs/delete`
     | `/api/v1/maintenance-agent/policies/${string}/runs/${string}/cancel`

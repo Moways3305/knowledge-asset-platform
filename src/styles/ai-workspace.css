@@ -24,6 +24,163 @@
   position: relative;
   isolation: isolate;
 }
+.ai-workspace .aw-agent-context {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  padding: 10px 24px;
+  border-bottom: 1px solid var(--aw-line);
+  font-size: 12px;
+  color: var(--aw-muted);
+}
+.ai-workspace .aw-agent-context > span,
+.ai-workspace .aw-agent-context > div {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.ai-workspace .aw-agent-context > span {
+  gap: 8px;
+}
+.ai-workspace .aw-agent-context a {
+  padding: 5px 0;
+}
+.ai-workspace .aw-agent-context a:hover {
+  color: var(--aw-accent);
+}
+.ai-workspace .aw-session {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.ai-workspace .aw-session > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ai-workspace .aw-tool-receipts {
+  list-style: none;
+  padding: 6px 0 0;
+}
+.ai-workspace .aw-tool-receipts > li {
+  display: flex;
+  gap: 10px;
+  padding: 10px 0;
+}
+.ai-workspace .aw-tool-receipts > li > svg {
+  width: 14px;
+  height: 14px;
+  margin-top: 4px;
+}
+.ai-workspace .aw-tool-receipts > li > div {
+  min-width: 0;
+  flex: 1;
+}
+.ai-workspace .aw-receipt-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+}
+.ai-workspace .aw-receipt-heading > span {
+  color: var(--aw-muted);
+  font-size: 11px;
+}
+.ai-workspace .aw-receipt-evidence {
+  margin-top: 8px;
+  font-size: 12px;
+}
+.ai-workspace .aw-receipt-evidence > summary {
+  cursor: pointer;
+  color: var(--aw-muted);
+}
+.ai-workspace .aw-action-confirmation {
+  border-top: 1px solid var(--aw-line);
+  background: transparent;
+  padding: 18px 0;
+  margin: 18px 0;
+}
+.ai-workspace .aw-confirmation-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.ai-workspace .aw-confirmation-title svg {
+  width: 17px;
+  height: 17px;
+  color: var(--aw-accent);
+}
+.ai-workspace .aw-confirmation-title span {
+  color: var(--aw-muted);
+  font-size: 12px;
+}
+.ai-workspace .aw-confirmation-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 14px 0 8px;
+}
+.ai-workspace .aw-confirmation-buttons button {
+  border: 1px solid var(--aw-line);
+  border-radius: 6px;
+  padding: 7px 12px;
+  background: var(--aw-paper);
+}
+.ai-workspace .aw-confirmation-buttons button:first-child {
+  color: white;
+  background: var(--aw-accent);
+  border-color: var(--aw-accent);
+}
+.ai-workspace .aw-action-confirmation > small {
+  display: block;
+  color: var(--aw-muted);
+  font-size: 11px;
+}
+.ai-workspace .aw-evidence-facts dl {
+  margin: 8px 0;
+}
+.ai-workspace .aw-evidence-facts dl > div {
+  display: grid;
+  grid-template-columns: minmax(70px, 100px) minmax(0, 1fr);
+  gap: 10px;
+  padding: 3px 0;
+}
+.ai-workspace .aw-evidence-facts dt {
+  color: var(--aw-muted);
+}
+.ai-workspace .aw-evidence-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.ai-workspace .aw-evidence-facts ul {
+  padding-left: 16px;
+  margin: 6px 0;
+}
+.ai-workspace .aw-evidence-facts li {
+  border-top: 1px solid var(--aw-line);
+  padding: 6px 0;
+}
+.ai-workspace .aw-evidence-facts a {
+  display: inline-block;
+  margin-top: 6px;
+  color: var(--aw-accent);
+}
+@media (max-width: 600px) {
+  .ai-workspace .aw-agent-context {
+    padding: 8px 16px;
+    gap: 2px;
+  }
+  .ai-workspace .aw-agent-context > div {
+    gap: 18px;
+  }
+  .ai-workspace .aw-action-confirmation {
+    padding: 16px 0;
+  }
+}
 .ai-workspace *,
 .ai-workspace *::before,
 .ai-workspace *::after {
@@ -575,9 +732,9 @@
 .ai-workspace .aw-question {
   align-self: flex-end;
   max-width: 94%;
-  padding: 12px 17px;
-  background: var(--aw-rail);
-  border-radius: 16px 16px 4px 16px;
+  padding: 10px 0;
+  background: transparent;
+  border-radius: 0;
   white-space: pre-wrap;
   font-size: 14px;
   line-height: 1.75;
@@ -814,7 +971,7 @@
   z-index: 1;
 }
 .ai-workspace .aw-preview {
-  background: var(--aw-rail);
+  background: var(--aw-paper);
   border-left: 1px solid var(--aw-line);
   min-width: 0;
   min-height: 0;
@@ -880,7 +1037,7 @@
   background: var(--aw-paper);
   padding: 28px;
   min-height: 420px;
-  box-shadow: 0 2px 10px #18213b08;
+  box-shadow: none;
   overflow-wrap: anywhere;
 }
 .ai-workspace .aw-paper > h2 {
@@ -1005,6 +1162,8 @@
   margin: 0 auto;
   padding: 12px 0;
   border: 0;
+  border-radius: 0;
+  box-shadow: none;
   background: transparent;
 }
 .ai-workspace .is-workspace-agent > .product-page-header {
@@ -1021,10 +1180,44 @@
   padding: 0;
 }
 .ai-workspace .is-workspace-agent .agent-panel {
-  padding: clamp(14px, 2vw, 24px);
+  padding: 8px 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
 }
-.ai-workspace .is-workspace-agent :is(.agent-panel, .agent-readiness, .kt-board) {
+.ai-workspace .is-workspace-agent :is(.agent-panel, .agent-readiness) {
   min-width: 0;
+}
+.ai-workspace .is-workspace-agent :is(.agent-readiness, .agent-authorization) {
+  padding: 12px 0;
+  border: 0;
+  border-bottom: 1px solid var(--aw-line);
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.ai-workspace .is-workspace-agent :is(.agent-error, .agent-report-warning, .agent-item-progress) {
+  padding: 10px 0;
+  border-radius: 0;
+  background: transparent;
+}
+.ai-workspace .is-workspace-agent .agent-history-table th {
+  background: transparent;
+}
+.is-workspace-detail
+  :is(.agent-report-scope, .agent-run-items article, .agent-detail-content blockquote) {
+  padding: 14px 0;
+  border: 0;
+  border-top: 1px solid var(--color-border, #e7e9ed);
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.is-workspace-detail :is(.agent-report-warning, .agent-item-progress, .agent-error) {
+  padding: 10px 0;
+  border-radius: 0;
+  background: transparent;
 }
 .ai-workspace .is-workspace-agent .agent-tabs {
   flex-wrap: wrap;
@@ -1073,6 +1266,9 @@
   border-top: 1px solid var(--aw-line);
   border-bottom: 1px solid var(--aw-line);
   padding: 22px 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
 }
 .ai-workspace .aw-agent-row > summary {
   list-style: none;
@@ -1133,6 +1329,9 @@
   align-items: center;
   padding: 23px 0;
   border-bottom: 1px solid var(--aw-line);
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
 }
 .ai-workspace .aw-tool-row > svg {
   width: 19px;

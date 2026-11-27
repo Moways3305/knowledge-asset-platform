@@ -12,12 +12,29 @@ from sqlalchemy import select
 
 from app.core.personal_information import redact_personal_information as redact
 from app.models.identity import Project
-from app.services import knowledge_task_tools
-from app.services.knowledge_tasks import scope
+from app.services import knowledge_workspace_tools
+from app.services import maintenance_access as access
 
 
 async def check_context(session, caller, key):
-    await scope(session, caller, key)
+    project_id = access.parse_key(key)
+    if (
+        not caller
+        or not caller.is_active
+        or not caller.is_business_user
+        or not caller.active_company_role
+    ):
+        raise access.reject(403)
+    if project_id:
+        project = await session.get(Project, project_id)
+        if (
+            project_id not in caller.active_project_ids
+            or not project
+            or project.status == "archived"
+            or key != f"project:{project_id}"
+        ):
+            raise access.reject()
+    return project_id
 
 
 async def available_contexts(session, caller):
@@ -42,11 +59,11 @@ def _projection(detail):
 
 async def search_context(session, caller, key, query):
     await check_context(session, caller, key)
-    found = await knowledge_task_tools.search(session, caller, key, redact(query)[:2000])
+    found = await knowledge_workspace_tools.search(session, caller, key, redact(query)[:2000])
     rows = []
     seen = set()
     for asset_id, _ in found:
-        checked = await knowledge_task_tools.inspect(session, caller, key, asset_id)
+        checked = await knowledge_workspace_tools.inspect(session, caller, key, asset_id)
         if not checked:
             continue
         detail, current, _ = checked
@@ -81,7 +98,7 @@ async def sources_available(session, caller, refs):
         try:
             key = ref["context_key"]
             await check_context(session, caller, key)
-            checked = await knowledge_task_tools.inspect(
+            checked = await knowledge_workspace_tools.inspect(
                 session, caller, key, uuid.UUID(ref["asset_id"])
             )
             if not checked:

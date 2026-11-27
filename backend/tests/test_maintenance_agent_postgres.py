@@ -17,42 +17,6 @@ from app.services.maintenance_jobs import process_one, start_run
 job_db = jobs.job_db
 
 
-async def test_delegation_parallel_submit_and_claim(job_db, monkeypatch):
-    import uuid
-
-    from test_knowledge_tasks import ASK, template
-
-    from app.models.knowledge_task import KnowledgeTask
-    from app.schemas.knowledge_task import TaskCommand
-    from app.seed.dev_seed import USER_CONSULTANT
-    from app.services import knowledge_tasks
-
-    maker, _ = job_db
-    command = TaskCommand(request_id=uuid.uuid4(), instruction=ASK)
-    async with maker() as session:
-        await template(session)
-
-    async def submit():
-        async with maker() as session:
-            caller = await actor_context(session, USER_CONSULTANT, "consultant")
-            return await knowledge_tasks.create(session, caller, "company", command)
-
-    submitted = await asyncio.gather(submit(), submit())
-    assert [item.id for item in submitted] == [command.request_id] * 2
-    calls = []
-    actual = knowledge_tasks.run_tools
-
-    async def counted(*args):
-        calls.append(1)
-        return await actual(*args)
-
-    monkeypatch.setattr(knowledge_tasks, "run_tools", counted)
-    await asyncio.gather(*(knowledge_tasks.execute(maker, command.request_id) for _ in range(2)))
-    async with maker() as session:
-        row = await session.get(KnowledgeTask, command.request_id)
-        assert row.status == "ready" and len(calls) == 1
-
-
 async def test_project_version_recheck_with_foreign_keys(job_db, client, tmp_path, monkeypatch):
     import test_maintenance_continuity as continuity
 

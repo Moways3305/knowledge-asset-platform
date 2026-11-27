@@ -24,15 +24,22 @@ vi.mock("../api/aiWorkspace", () => ({
   createWorkspaceSession: vi.fn(),
   sendWorkspaceMessage: vi.fn(),
   stopWorkspaceRun: vi.fn(),
-  retryWorkspaceRun: vi.fn(),
+  resumeWorkspaceRun: vi.fn(),
+  decideWorkspaceAction: vi.fn(),
   renameWorkspaceSession: vi.fn(),
   deleteWorkspaceSession: vi.fn(),
   saveWorkspaceArtifact: vi.fn(),
   isWorkspaceRunActive: (run: api.WorkspaceRun) =>
-    run.status === "running" || run.status === "queued",
+    ["running", "queued", "waiting", "awaiting_confirmation"].includes(run.status),
 }));
 
 const date = "2026-11-27T02:00:00Z";
+const maintenanceAgent = {
+  key: "knowledge-maintenance",
+  label: "知识维护 Agent",
+  description: "检查知识、核对依据并持续跟进",
+  tools: [{ key: "list_issues", label: "查看维护问题", description: "查看选定知识库的未解决事项" }],
+};
 const session = (id = "one"): api.WorkspaceSession => ({
   id,
   title: `会话 ${id}`,
@@ -107,6 +114,7 @@ beforeEach(() => {
     models: [{ model_ref: "model-one", display_name: "模型一", is_default: true }],
     contexts: [{ key: "company", label: "公司知识库" }],
     tools: [],
+    agents: [maintenanceAgent],
   });
   vi.mocked(api.listWorkspaceSessions).mockResolvedValue([session(), session("two")]);
   vi.mocked(api.getWorkspaceEvents).mockResolvedValue({
@@ -120,6 +128,196 @@ afterEach(() => {
 });
 
 describe("AI workspace lifecycle", () => {
+  it("creates an Agent session with its identity and selected library instead of a legacy task", async () => {
+    vi.mocked(api.createWorkspaceSession).mockResolvedValue({
+      ...session("agent-session"),
+      agent_key: maintenanceAgent.key,
+    });
+    vi.mocked(api.sendWorkspaceMessage).mockResolvedValue({
+      ...run,
+      status: "queued",
+      context_key: "company",
+    });
+    mount("/ai-workspace/agents/knowledge-maintenance?tab=tasks");
+    await settle();
+    expect(screen.queryByText("内嵌业务页")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("消息"), { target: { value: "请跟进未解决的问题" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送消息" }));
+    await settle();
+    expect(api.createWorkspaceSession).toHaveBeenCalledWith(
+      expect.any(String),
+      maintenanceAgent.key,
+    );
+    expect(api.sendWorkspaceMessage).toHaveBeenCalledWith(
+      "agent-session",
+      expect.objectContaining({ context_key: "company", content: "请跟进未解决的问题" }),
+    );
+  });
+
+  it("keeps notification deep links in the maintenance view and returns to the same Agent conversation", async () => {
+    vi.mocked(api.getWorkspaceDetail).mockResolvedValue({
+      ...snapshot(),
+      session: { ...session(), agent_key: maintenanceAgent.key },
+      runs: [{ ...run, context_key: "project:example" }],
+    });
+    mount(
+      "/ai-workspace/agents/knowledge-maintenance?tab=issues&library=project%3Aexample&target_id=reminder&session=one#issue-detail",
+    );
+    await settle();
+    expect(screen.getByText("内嵌业务页")).toBeInTheDocument();
+    expect(screen.getByTestId("current-path")).toHaveTextContent(
+      "target_id=reminder&session=one#issue-detail",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "返回 Agent 会话" }));
+    await settle();
+    expect(screen.getByText("整理资料 one")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "维护待办" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("library=project%3Aexample"),
+    );
+    expect(screen.getByRole("link", { name: "维护待办" }).getAttribute("href")).not.toContain(
+      "target_id=",
+    );
+  });
+
+  it.each(["digest_id=reminder", "asset_id=asset", "target_id=reminder"])(
+    "opens the management view for a bare %s deep link",
+    async (query) => {
+      mount(`/ai-workspace/agents/knowledge-maintenance?library=company&${query}`);
+      await settle();
+      expect(screen.getByText("内嵌业务页")).toBeInTheDocument();
+      expect(screen.queryByLabelText("消息")).not.toBeInTheDocument();
+    },
+  );
+
+  it("retains a project scope when a reminder opens without an existing Agent session", async () => {
+    vi.mocked(api.createWorkspaceSession).mockResolvedValue({
+      ...session("agent-project"),
+      agent_key: maintenanceAgent.key,
+    });
+    vi.mocked(api.sendWorkspaceMessage).mockResolvedValue({ ...run, status: "queued" });
+    mount(
+      "/ai-workspace/agents/knowledge-maintenance?tab=issues&library=project%3Aexample&target_id=reminder",
+    );
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "返回 Agent 会话" }));
+    await settle();
+    fireEvent.change(screen.getByLabelText("消息"), { target: { value: "跟进这个项目的问题" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送消息" }));
+    await settle();
+    expect(api.sendWorkspaceMessage).toHaveBeenCalledWith(
+      "agent-project",
+      expect.objectContaining({ context_key: "project:example" }),
+    );
+  });
+
+  it("requires a decision on the concrete action and reuses its id after a lost acknowledgement", async () => {
+    const pending = {
+      id: "action-one",
+      tool: "request_recheck",
+      label: "复检指定资料",
+      summary: "复检合成资料的当前版本，通过后再关闭对应问题。",
+      arguments: { issue_id: "issue-one", version_id: "version-one" },
+    };
+    vi.mocked(api.getWorkspaceDetail).mockResolvedValue({
+      ...snapshot(),
+      session: { ...session(), agent_key: maintenanceAgent.key },
+      runs: [{ ...run, status: "awaiting_confirmation", pending_action: pending }],
+    });
+    vi.mocked(api.decideWorkspaceAction)
+      .mockRejectedValueOnce(new ApiError(503, "确认结果暂未返回"))
+      .mockResolvedValueOnce(run);
+    mount();
+    await settle();
+    expect(screen.getByRole("region", { name: "确认本次操作" })).toHaveTextContent(pending.summary);
+    expect(screen.queryByRole("button", { name: "发送消息" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "确认执行" }));
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "确认执行" }));
+    await settle();
+    const calls = vi.mocked(api.decideWorkspaceAction).mock.calls;
+    expect(calls[0]).toEqual(["one", run.id, "action-one", expect.any(String), "approve"]);
+    expect(calls[1][3]).toBe(calls[0][3]);
+    expect(api.sendWorkspaceMessage).not.toHaveBeenCalled();
+  });
+
+  it("rejects only the pending action and retains the draft", async () => {
+    vi.mocked(api.getWorkspaceDetail).mockResolvedValue({
+      ...snapshot(),
+      runs: [
+        {
+          ...run,
+          status: "awaiting_confirmation",
+          pending_action: {
+            id: "action-two",
+            tool: "scan",
+            label: "开展全面巡检",
+            summary: "仅检查公司知识库",
+            arguments: { library_key: "company" },
+          },
+        },
+      ],
+    });
+    vi.mocked(api.decideWorkspaceAction).mockResolvedValue(run);
+    mount();
+    await settle();
+    fireEvent.change(screen.getByLabelText("消息"), { target: { value: "先保留这个补充要求" } });
+    fireEvent.click(screen.getByRole("button", { name: "拒绝本次操作" }));
+    await settle();
+    expect(api.decideWorkspaceAction).toHaveBeenCalledWith(
+      "one",
+      run.id,
+      "action-two",
+      expect.any(String),
+      "reject",
+    );
+    expect(screen.getByLabelText("消息")).toHaveValue("先保留这个补充要求");
+  });
+
+  it.each(["running", "waiting"] as const)(
+    "adds instructions to the same %s run",
+    async (status) => {
+      vi.mocked(api.getWorkspaceDetail).mockResolvedValue({
+        ...snapshot(),
+        runs: [{ ...run, status, waiting_reason: "external_task" }],
+      });
+      vi.mocked(api.resumeWorkspaceRun).mockResolvedValue(run);
+      mount();
+      await settle();
+      expect(screen.getByRole("combobox", { name: "对话模型" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "添加上下文" })).toBeDisabled();
+      expect(screen.getByLabelText("消息")).toBeEnabled();
+      fireEvent.change(screen.getByLabelText("消息"), {
+        target: { value: "优先检查摘要里的个人信息" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "补充并继续" }));
+      await settle();
+      expect(api.resumeWorkspaceRun).toHaveBeenCalledWith(
+        "one",
+        run.id,
+        expect.any(String),
+        "优先检查摘要里的个人信息",
+      );
+      expect(api.sendWorkspaceMessage).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["failed", "stopped"] as const)(
+    "resumes the same %s run without repeating completed actions",
+    async (status) => {
+      vi.mocked(api.getWorkspaceDetail).mockResolvedValue({
+        ...snapshot(),
+        runs: [{ ...run, status }],
+      });
+      vi.mocked(api.resumeWorkspaceRun).mockResolvedValue(run);
+      mount();
+      await settle();
+      fireEvent.click(screen.getByRole("button", { name: "继续任务" }));
+      await settle();
+      expect(api.resumeWorkspaceRun).toHaveBeenCalledWith("one", run.id, expect.any(String));
+      expect(api.createWorkspaceSession).not.toHaveBeenCalled();
+    },
+  );
   it("keeps the same workspace and unsent drafts while entering and leaving an Agent", async () => {
     mount();
     await settle();
@@ -130,21 +328,23 @@ describe("AI workspace lifecycle", () => {
     const workspace = window.document.querySelector(".ai-workspace");
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
     fireEvent.click(screen.getByText("知识维护 Agent", { selector: "strong" }));
-    const entry = screen.getByRole("link", { name: "打开知识维护 Agent" });
+    const entry = screen.getByRole("link", { name: "开始任务" });
     expect(entry).not.toHaveAttribute("target");
-    expect(entry).toHaveAttribute(
-      "href",
-      "/ai-workspace/agents/knowledge-maintenance?tab=issues&session=one",
-    );
+    expect(entry).toHaveAttribute("href", "/ai-workspace?agent=knowledge-maintenance");
     fireEvent.click(entry);
     await settle();
-    expect(screen.getByText("内嵌业务页")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "交给我一个知识维护目标" })).toBeInTheDocument();
     expect(window.document.querySelector(".ai-workspace")).toBe(workspace);
     expect(screen.getByTestId("current-path")).toHaveTextContent(
-      "/ai-workspace/agents/knowledge-maintenance?tab=issues&session=one",
+      "/ai-workspace?agent=knowledge-maintenance",
     );
-    fireEvent.click(screen.getByRole("button", { name: "返回 Agent 列表" }));
-    expect(screen.getByRole("heading", { name: "让 Agent 接手一类工作" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("消息"), { target: { value: "Agent 自己的任务草稿" } });
+    fireEvent.click(screen.getByRole("link", { name: "维护待办" }));
+    await settle();
+    expect(screen.getByText("内嵌业务页")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "返回 Agent 会话" }));
+    await settle();
+    expect(screen.getByLabelText("消息")).toHaveValue("Agent 自己的任务草稿");
     fireEvent.click(screen.getByRole("button", { name: "会话 one" }));
     await settle();
     expect(screen.getByLabelText("消息")).toHaveValue("保留未发送的追问");

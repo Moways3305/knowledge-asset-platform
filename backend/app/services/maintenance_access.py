@@ -193,6 +193,7 @@ async def actor_context(session, user_id, role):
         select(User)
         .where(User.id == user_id)
         .options(selectinload(User.company_roles), selectinload(User.project_members))
+        .execution_options(populate_existing=True)
     )
     if (
         not user

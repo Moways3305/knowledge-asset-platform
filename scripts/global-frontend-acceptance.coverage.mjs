@@ -12,8 +12,11 @@ export function readReportCases(report) {
 export const routeDefinitions = [
   { route: "/agents", suite: "maintenance-agent", states: [{ name: "normal", scenario: "normal", page: "redirect" }] },
   { route: "/ai-workspace?view=agents", suite: "maintenance-agent", states: [{ name: "normal", scenario: "normal", page: "center" }] },
-  { route: "/agents/knowledge-maintenance", suite: "maintenance-agent", states: ["normal", "empty", "failure", "forbidden"].map(scenario => ({ name: scenario, scenario, page: "maintenance" })) },
-  { route: "/ai-workspace/agents/knowledge-maintenance", suite: "maintenance-agent", states: ["normal", "empty", "failure", "forbidden"].map(scenario => ({ name: scenario, scenario, page: "maintenance" })) },
+  { route: "/agents/knowledge-maintenance?tab=issues", suite: "maintenance-agent", states: ["normal", "empty", "failure", "forbidden"].map(scenario => ({ name: scenario, scenario, page: "maintenance" })) },
+  { route: "/ai-workspace/agents/knowledge-maintenance?tab=issues", suite: "maintenance-agent", states: ["normal", "empty", "failure", "forbidden"].map(scenario => ({ name: scenario, scenario, page: "maintenance" })) },
+  { route: "/agents/knowledge-maintenance", suite: "maintenance-agent", states: [{ name: "normal", scenario: "normal", page: "conversation-entry" }] },
+  { route: "/ai-workspace/agents/knowledge-maintenance", suite: "maintenance-agent", states: [{ name: "normal", scenario: "normal", page: "conversation-entry" }] },
+  { route: "/ai-workspace?agent=knowledge-maintenance", suite: "maintenance-agent", states: [{ name: "normal", scenario: "normal", page: "conversation" }] },
   {
     route: "/knowledge-maintenance",
     suite: "knowledge-trust",
