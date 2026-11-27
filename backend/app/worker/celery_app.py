@@ -33,6 +33,7 @@ def _make_celery() -> Celery:
         broker=broker,
         backend=backend,
         include=[
+            "app.worker.tasks.ai_workspace",
             "app.worker.tasks.maintenance_agent",
             "app.worker.tasks.ingest",
             "app.worker.tasks.ingest_recovery",
@@ -66,6 +67,7 @@ def _make_celery() -> Celery:
         # 定时调度（celery beat）：扫描类作业按日触发；实际由 worker+beat 驱动，
         # 测试直接调用 service 层，不依赖 beat。
         beat_schedule={
+            "ai-workspace-recovery": {"task": "ai_workspace.recover", "schedule": 60.0},
             "knowledge-task-recovery": {"task": "knowledge_tasks.recover", "schedule": 60.0},
             "maintenance-agent-tick": {
                 "task": "maintenance_agent.tick",

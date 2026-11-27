@@ -2,7 +2,7 @@
 
 由 `npm run api:frontend:generate` 生成，契约来源 `docs/api/openapi.json`，人工复核来源 `frontend-api-review.json`。
 
-共 267 个 HTTP 操作；静态调用已接入 214，已有替代流程 14，系统集成 33，传输基础设施 1，动态资源 2，兼容接口 3。
+共 278 个 HTTP 操作；静态调用已接入 225，已有替代流程 14，系统集成 33，传输基础设施 1，动态资源 2，兼容接口 3。
 
 静态调用仅表示找到了封装及直接导入/转导出，不代表每个接口都有独立按钮，也不证明真实环境全流程通过。动态资源单列；请求/响应 DTO 仍由领域适配器和测试校验。
 
@@ -127,6 +127,17 @@
 | `GET /api/v1/agent-gateway/reviews/pending` | 系统集成 | 见说明 | Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。 |
 | `GET /api/v1/agent-gateway/todos` | 系统集成 | 见说明 | Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。 |
 | `POST /api/v1/agent-gateway/tools/knowledge-search` | 系统集成 | 见说明 | Agent 网关使用独立凭证和权限边界；网页使用业务 API，不为网关操作添加重复按钮。 |
+| `GET /api/v1/ai-workspace/options` | 静态调用已接入 | `src/api/aiWorkspace.ts#getWorkspaceOptions` → `src/pages/ai-workspace/useWorkspaceData.ts` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `GET /api/v1/ai-workspace/sessions` | 静态调用已接入 | `src/api/aiWorkspace.ts#listWorkspaceSessions` → `src/pages/ai-workspace/useWorkspaceData.ts` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `POST /api/v1/ai-workspace/sessions` | 静态调用已接入 | `src/api/aiWorkspace.ts#createWorkspaceSession` → `src/pages/AIWorkspacePage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `GET /api/v1/ai-workspace/sessions/{session_id}` | 静态调用已接入 | `src/api/aiWorkspace.ts#getWorkspaceDetail` → `src/pages/ai-workspace/ArtifactPanel.tsx`、`src/pages/ai-workspace/useWorkspaceData.ts` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `PATCH /api/v1/ai-workspace/sessions/{session_id}` | 静态调用已接入 | `src/api/aiWorkspace.ts#renameWorkspaceSession` → `src/pages/AIWorkspacePage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `DELETE /api/v1/ai-workspace/sessions/{session_id}` | 静态调用已接入 | `src/api/aiWorkspace.ts#deleteWorkspaceSession` → `src/pages/AIWorkspacePage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `PATCH /api/v1/ai-workspace/sessions/{session_id}/artifacts/{artifact_id}` | 静态调用已接入 | `src/api/aiWorkspace.ts#saveWorkspaceArtifact` → `src/pages/ai-workspace/ArtifactPanel.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `GET /api/v1/ai-workspace/sessions/{session_id}/events` | 静态调用已接入 | `src/api/aiWorkspace.ts#getWorkspaceEvents` → `src/pages/ai-workspace/useWorkspaceData.ts` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `POST /api/v1/ai-workspace/sessions/{session_id}/messages` | 静态调用已接入 | `src/api/aiWorkspace.ts#sendWorkspaceMessage` → `src/pages/AIWorkspacePage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `POST /api/v1/ai-workspace/sessions/{session_id}/runs/{run_id}/retry` | 静态调用已接入 | `src/api/aiWorkspace.ts#retryWorkspaceRun` → `src/pages/AIWorkspacePage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `POST /api/v1/ai-workspace/sessions/{session_id}/runs/{run_id}/stop` | 静态调用已接入 | `src/api/aiWorkspace.ts#stopWorkspaceRun` → `src/pages/AIWorkspacePage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `POST /api/v1/auth/active-company-role` | 静态调用已接入 | `src/api/auth.ts#switchActiveCompanyRole` → `src/components/IdentityMenu.tsx`、`src/pages/LoginPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `GET /api/v1/auth/csrf` | 传输基础设施 | `src/api/http.ts#fetchCsrfToken` → 模块内部 / 暂无直接引用 | http.ts 内部通过 ensureCsrfToken 调用，不需要页面按钮。 |
 | `POST /api/v1/auth/login` | 静态调用已接入 | `src/api/auth.ts#login` → `src/components/IdentityMenu.tsx`、`src/pages/LoginPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |

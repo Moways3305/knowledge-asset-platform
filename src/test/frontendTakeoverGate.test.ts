@@ -21,12 +21,19 @@ type BusinessOptionContract = {
 
 const routes: RouteContract[] = [
   {
-    route: "/agents",
-    component: "MaintenanceAgentPage",
+    route: "/ai-workspace",
+    component: "AIWorkspacePage",
     guard: "viewKnowledge",
-    owners: ["pages/MaintenanceAgentPage.tsx"],
-    apiModules: ["http", "maintenanceAgent"],
-    allowedTimerOwners: ["pages/MaintenanceAgentPage.tsx"],
+    owners: [
+      "pages/AIWorkspacePage.tsx",
+      "pages/ai-workspace/useWorkspaceData.ts",
+      "pages/ai-workspace/ArtifactPanel.tsx",
+    ],
+    apiModules: ["http", "aiWorkspace"],
+    allowedTimerOwners: [
+      "pages/ai-workspace/useWorkspaceData.ts",
+      "pages/ai-workspace/ArtifactPanel.tsx",
+    ],
   },
   {
     route: "/agents/knowledge-maintenance",
@@ -567,6 +574,24 @@ describe("frontend route takeover gate", () => {
         expect(moduleSource).toContain('const KEY = "kap.login-return"');
         expect(moduleSource).toContain("JSON.stringify({ path, at: Date.now() })");
         expect(moduleSource).not.toMatch(/\blocalStorage\b/);
+        continue;
+      }
+      // This cross-tab invalidation marker contains no credentials or identity.
+      // The no-payload transport and deduplication contract have focused tests.
+      if (file === "../auth/authChanges.ts") {
+        expect(moduleSource).toContain('AUTH_CHANGE_KEY = "kap.auth.revision"');
+        expect(moduleSource).toContain("localStorage.setItem(AUTH_CHANGE_KEY, revision)");
+        expect(moduleSource).not.toMatch(/JSON\.stringify|sessionStorage|AuthMeVM/);
+        continue;
+      }
+      // Persist only the user's animation preference; drafts stay in memory.
+      if (file === "../pages/AIWorkspacePage.tsx") {
+        expect(moduleSource).toContain('localStorage.getItem("kap-ai-motion")');
+        expect(moduleSource).toContain(
+          'localStorage.setItem("kap-ai-motion", enabled ? "on" : "off")',
+        );
+        expect(moduleSource.match(/localStorage\./g)).toHaveLength(2);
+        expect(moduleSource).not.toContain("sessionStorage");
         continue;
       }
       expect(moduleSource, file).not.toMatch(/\b(?:localStorage|sessionStorage)\b/);

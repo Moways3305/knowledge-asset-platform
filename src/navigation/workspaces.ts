@@ -64,6 +64,7 @@ export function permittedEntries(entries: WorkspaceEntry[], capabilities: Capabi
 }
 
 export function workspaceForPath(pathname: string): WorkspaceKey {
+  if (pathname === "/ai-workspace") return "agents";
   if (pathname === "/agents" || pathname.startsWith("/agents/")) return "agents";
   if (pathname.startsWith("/admin") || pathname === "/company-governance") return "admin";
   if (pathname === "/projects" || pathname.startsWith("/project/")) return "project";
@@ -76,7 +77,7 @@ export function workspaceForPath(pathname: string): WorkspaceKey {
 export const workspaceLabels: Record<WorkspaceKey, string> = {
   work: "工作台",
   knowledge: "知识库",
-  agents: "智能体中心",
+  agents: "AI 工作空间",
   project: "项目空间",
   approval: "审批中心",
   admin: "管理中心",
@@ -84,7 +85,8 @@ export const workspaceLabels: Record<WorkspaceKey, string> = {
 };
 
 const utilityTitles: Record<string, string> = {
-  "/agents": "智能体中心",
+  "/agents": "Agent",
+  "/ai-workspace": "AI 工作空间",
   "/agents/knowledge-maintenance": "知识维护 Agent",
   "/": "我的工作",
   "/help": "帮助中心",

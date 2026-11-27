@@ -5,6 +5,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import NotFoundPage from "./pages/NotFoundPage";
 import RouteGuard from "./auth/RouteGuard";
 import { can } from "./auth/permissions";
+import AIWorkspaceLayout from "./layouts/AIWorkspaceLayout";
 
 // 路由级代码分割：每个页面按需动态 import，Vite 自动为其切分 chunk，首屏不再一次性
 // 加载全部 18 个页面。Suspense fallback 与内层 ErrorBoundary 放在 AppLayout 的 Outlet
@@ -39,6 +40,7 @@ const ReleaseNotesPage = lazy(() => import("./pages/ReleaseNotesPage"));
 const AdminReleaseNotesPage = lazy(() => import("./pages/AdminReleaseNotesPage"));
 const WorkbuddyAccessPage = lazy(() => import("./pages/WorkbuddyAccessPage"));
 const McpAuthorizePage = lazy(() => import("./pages/McpAuthorizePage"));
+const AIWorkspacePage = lazy(() => import("./pages/AIWorkspacePage"));
 
 export default function App() {
   return (
@@ -46,6 +48,16 @@ export default function App() {
       {/* 全局兜底：捕获连 AppLayout 外壳在内的渲染崩溃。内层另有针对内容区的 ErrorBoundary。 */}
       <ErrorBoundary>
         <Routes>
+          <Route element={<AIWorkspaceLayout />}>
+            <Route
+              path="ai-workspace"
+              element={
+                <RouteGuard cap={can.viewKnowledge}>
+                  <AIWorkspacePage />
+                </RouteGuard>
+              }
+            />
+          </Route>
           <Route element={<AppLayout />}>
             <Route path="login" element={<Navigate to="/" replace />} />
             <Route index element={<HomeDashboardPage />} />
@@ -87,7 +99,7 @@ export default function App() {
               path="agents"
               element={
                 <RouteGuard cap={can.viewKnowledge}>
-                  <MaintenanceAgentPage />
+                  <Navigate to="/ai-workspace?view=agents" replace />
                 </RouteGuard>
               }
             />

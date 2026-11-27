@@ -54,6 +54,10 @@ export interface ApiRoutes {
     | `/api/v1/agent-gateway/projects/${string}/knowledge`
     | `/api/v1/agent-gateway/reviews/pending`
     | `/api/v1/agent-gateway/todos`
+    | `/api/v1/ai-workspace/options`
+    | `/api/v1/ai-workspace/sessions`
+    | `/api/v1/ai-workspace/sessions/${string}`
+    | `/api/v1/ai-workspace/sessions/${string}/events`
     | `/api/v1/auth/csrf`
     | `/api/v1/auth/mcp-oauth/grants`
     | `/api/v1/auth/mcp-oauth/requests/${string}`
@@ -160,6 +164,10 @@ export interface ApiRoutes {
     | `/api/v1/agent-gateway/operations/uploads/${string}/batches`
     | `/api/v1/agent-gateway/operations/uploads/${string}/complete`
     | `/api/v1/agent-gateway/tools/knowledge-search`
+    | `/api/v1/ai-workspace/sessions`
+    | `/api/v1/ai-workspace/sessions/${string}/messages`
+    | `/api/v1/ai-workspace/sessions/${string}/runs/${string}/retry`
+    | `/api/v1/ai-workspace/sessions/${string}/runs/${string}/stop`
     | `/api/v1/auth/active-company-role`
     | `/api/v1/auth/login`
     | `/api/v1/auth/logout`
@@ -254,6 +262,8 @@ export interface ApiRoutes {
     | `/api/v1/admin/people/${string}/project-memberships/${string}`
     | `/api/v1/admin/permissions/agent-whitelist/${string}`
     | `/api/v1/admin/permissions/rules/${string}`
+    | `/api/v1/ai-workspace/sessions/${string}`
+    | `/api/v1/ai-workspace/sessions/${string}/artifacts/${string}`
     | `/api/v1/knowledge/${string}/metadata`
     | `/api/v1/knowledge/${string}/trust/policy`
     | `/api/v1/my/knowledge/${string}`
@@ -264,6 +274,7 @@ export interface ApiRoutes {
     | `/api/v1/admin/model-connections/items/${string}`
     | `/api/v1/admin/people/${string}/project-memberships/${string}`
     | `/api/v1/admin/weknora/models/${string}`
+    | `/api/v1/ai-workspace/sessions/${string}`
     | `/api/v1/auth/mcp-oauth/grants/${string}`
     | `/api/v1/auth/workbuddy-token`
     | `/api/v1/company/knowledge-base`

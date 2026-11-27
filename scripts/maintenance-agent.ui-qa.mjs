@@ -32,13 +32,19 @@ try {
       if (scenario === "setup") currentPolicy = { ...policy, id: null, revision: 0, enabled: false, content_authorized: false };
       if (scenario === "readonly") currentPolicy = { ...policy, can_configure: false };
       if (scenario === "model_missing") currentPolicy = { ...policy, settings: { ...settings, model_ref: "c".repeat(64) } };
-      await context.route("**/api/**", async route => {
+      await context.route(/\/api\/v1\//, async route => {
         const url = new URL(route.request().url());
         const p = url.pathname;
         let status = 200;
         let body = { items: [], total: 0, unread_count: 0, pending_count: 0 };
         if (p === "/api/v1/auth/me") body = { user_id: "reader", name: "验收用户", status: "active", company_roles: [scenario === "forbidden" ? "admin" : "consulting_director"], active_company_role: scenario === "forbidden" ? "admin" : "consulting_director", is_business_user: scenario !== "forbidden", can_discover_l5: scenario !== "forbidden", project_memberships: [] };
         if (p === "/api/v1/auth/csrf") body = { csrf_token: "test-csrf" };
+        if (p === "/api/v1/ai-workspace/options") body = {
+          models: models.items.map(({ model_ref, display_name, is_default }) => ({ model_ref, display_name, is_default })),
+          contexts: [{ key: "company", label: "公司知识库" }],
+          tools: [],
+        };
+        if (p === "/api/v1/ai-workspace/sessions") body = [];
         if (p.startsWith("/api/v1/maintenance-agent/")) maintenanceRequests += 1;
         if (p === "/api/v1/generation/model-options") {
           body = models;
@@ -89,15 +95,20 @@ try {
         await page.getByRole("heading", { name: "当前筛选下没有维护待办" }).waitFor();
       } else if (scenario === "normal") {
         await page.getByRole("button", { name: "疑似只有封面或目录" }).waitFor();
-        const agentNavigation = page.locator('#primary-navigation a[href="/agents"]');
+        const agentNavigation = page.locator('#primary-navigation a[href="/ai-workspace"]');
         assert.equal(await agentNavigation.getAttribute("aria-current"), "page");
+        assert.equal(await agentNavigation.innerText(), "AI 工作空间");
+        assert.equal(await agentNavigation.getAttribute("target"), "_blank");
         assert.equal(await page.locator('#primary-navigation a[href="/knowledge"]').getAttribute("aria-current"), null);
         assert.equal(await page.getByRole("navigation", { name: "知识库导航" }).count(), 0);
-        assert.equal(await page.locator('.deck-context a[aria-label="进入智能体中心"]').getAttribute("href"), "/agents");
+        assert.equal(await page.locator('.deck-context a[aria-label="进入AI 工作空间"]').getAttribute("href"), "/ai-workspace");
         if (width === 390) {
-          const mobileAgent = page.getByRole("link", { name: "底部智能体中心", exact: true });
+          const mobileAgent = page.getByRole("link", { name: "底部AI 工作空间", exact: true });
           assert.equal(await mobileAgent.isVisible(), true);
           assert.equal(await mobileAgent.getAttribute("aria-current"), "page");
+          assert.equal(await mobileAgent.getAttribute("href"), "/ai-workspace");
+          assert.equal(await mobileAgent.getAttribute("target"), "_blank");
+          assert.equal(await mobileAgent.innerText(), "AI 空间");
         }
         await auditResponsiveLayout(page, { suite: "maintenance-agent", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
         await page.screenshot({ path: path.join(out, `issues-normal-${width}.png`), fullPage: true, animations: "disabled" });
@@ -183,20 +194,32 @@ try {
       cases.push({ page: "maintenance", scenario, viewport: String(width), passed: true });
       if (scenario === "normal") {
         await page.goto(`${base}/agents`);
-        await page.getByRole("link", { name: "进入知识维护" }).waitFor();
-        await page.getByRole("searchbox", { name: "搜索智能体" }).fill("不存在的应用");
-        await page.getByText("没有找到匹配的智能体", { exact: true }).waitFor();
-        assert.equal(await page.getByRole("link", { name: "进入知识维护" }).count(), 0);
-        await page.getByRole("button", { name: "清空搜索", exact: true }).click();
-        await page.getByRole("searchbox", { name: "搜索智能体" }).fill("巡检");
-        await page.getByRole("link", { name: "进入知识维护" }).waitFor();
-        await page.getByRole("searchbox", { name: "搜索智能体" }).fill("");
-        await page.getByRole("heading", { name: "智能体中心", exact: true }).click();
+        await page.waitForURL(url => url.pathname === "/ai-workspace" && url.searchParams.get("view") === "agents");
+        await page.getByRole("heading", { name: "让 Agent 接手一类工作", exact: true }).waitFor();
+        assert.equal(await page.locator("#primary-navigation").count(), 0, "independent workspace must not contain KAP navigation");
+        assert.equal(await page.locator(".deck-context").count(), 0);
+        await page.screenshot({ path: path.join(out, `redirect-normal-${width}.png`), fullPage: true, animations: "disabled" });
+        cases.push({ page: "redirect", scenario: "normal", viewport: String(width), passed: true });
+        await page.locator(".aw-agent-row > summary").filter({ hasText: "知识维护 Agent" }).click();
+        const maintenanceEntry = page.getByRole("link", { name: "打开知识维护 Agent", exact: true });
+        await maintenanceEntry.waitFor();
+        assert.equal(await maintenanceEntry.getAttribute("href"), "/agents/knowledge-maintenance?tab=issues");
+        assert.equal(await maintenanceEntry.getAttribute("target"), "_blank");
         await page.mouse.move(0, 0);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 2), false, `center overflow at ${width}`);
         await auditResponsiveLayout(page, { suite: "maintenance-agent", caseName: typeof scenario === "undefined" ? "normal" : typeof scenario === "string" ? scenario : scenario.name || "normal" });
         await page.screenshot({ path: path.join(out, `center-normal-${width}.png`), fullPage: true, animations: "disabled" });
         cases.push({ page: "center", scenario: "normal", viewport: String(width), passed: true });
+        const opened = context.waitForEvent("page");
+        await maintenanceEntry.click();
+        const maintenancePage = await opened;
+        currentPage = maintenancePage;
+        maintenancePage.on("pageerror", error => failures.push(error.message));
+        await maintenancePage.waitForURL(url => url.pathname === "/agents/knowledge-maintenance" && url.searchParams.get("tab") === "issues");
+        await maintenancePage.getByRole("button", { name: "疑似只有封面或目录" }).waitFor();
+        assert.deepEqual(failures, [], "standalone Agent deep link JS errors");
+        await maintenancePage.close();
+        currentPage = page;
       }
       await context.close();
     }

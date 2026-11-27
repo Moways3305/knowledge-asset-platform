@@ -11,6 +11,13 @@ from app.models.agent import (
     AgentGatewayDecisionItem,
 )
 from app.models.agent_registry import AgentWhitelistRule
+from app.models.ai_workspace import (
+    WorkspaceArtifact,
+    WorkspaceEvent,
+    WorkspaceMessage,
+    WorkspaceRun,
+    WorkspaceSession,
+)
 from app.models.audit import AuditEvent
 from app.models.auth_security import AuthLoginAttempt
 from app.models.auth_session import UserSession
@@ -77,6 +84,11 @@ from app.models.weknora import WeknoraKbMapping
 from app.models.weknora_defaults import WeknoraDefaultModels
 
 __all__ = [
+    "WorkspaceArtifact",
+    "WorkspaceEvent",
+    "WorkspaceMessage",
+    "WorkspaceRun",
+    "WorkspaceSession",
     "MaintenanceCheck",
     "MaintenanceDigest",
     "MaintenanceIssue",

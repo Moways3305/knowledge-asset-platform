@@ -311,7 +311,7 @@ function LightTextPreview({ entry }: { entry: PreviewEntryVM }) {
   );
 }
 
-function MarkdownView({ text }: { text: string }) {
+export function MarkdownView({ text }: { text: string }) {
   const blocks = useMemo(() => renderMarkdownBlocks(text), [text]);
   return <div className="preview-markdown">{blocks}</div>;
 }
@@ -396,6 +396,18 @@ function renderMarkdownBlocks(text: string): ReactNode[] {
   return out;
 }
 
+export function safeMarkdownHref(value: string): string | null {
+  if ([...value].some((character) => character.charCodeAt(0) <= 32) || value.includes("\\"))
+    return null;
+  if (value.startsWith("/") && !value.startsWith("//")) return value;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
 function inlineMarkdown(text: string, keyBase: string): ReactNode {
   // 极简行内：**粗体**、`代码`、[文本](url)。只处理安全内容，不引入 HTML。
   const parts: ReactNode[] = [];
@@ -417,10 +429,15 @@ function inlineMarkdown(text: string, keyBase: string): ReactNode {
     } else {
       const linkMatch = token.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/);
       if (linkMatch) {
+        const href = safeMarkdownHref(linkMatch[2]);
         parts.push(
-          <a key={`${keyBase}-${idx}`} href={linkMatch[2]} target="_blank" rel="noreferrer">
-            {linkMatch[1]}
-          </a>,
+          href ? (
+            <a key={`${keyBase}-${idx}`} href={href} target="_blank" rel="noopener noreferrer">
+              {linkMatch[1]}
+            </a>
+          ) : (
+            linkMatch[1]
+          ),
         );
       } else {
         parts.push(token);
