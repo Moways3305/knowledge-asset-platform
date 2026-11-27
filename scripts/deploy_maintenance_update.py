@@ -188,7 +188,7 @@ def execute(r, inventory, out, report, holder):
     require(report.get("business_data_preserved") is True, "existing_data_verification_missing")
     report.update(
         existing_agent_configuration_preserved=True,
-        database_schema_changed=True,
+        database_schema_changed=stage.SCHEMA != stage.BASELINE_SCHEMA,
         previous_revision=stage.BASELINE,
         previous_version=stage.BASELINE_VERSION,
     )

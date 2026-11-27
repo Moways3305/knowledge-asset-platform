@@ -214,6 +214,7 @@ def finalize(r, out, result):
         version=deploy.VERSION,
         revision=deploy.REVISION,
         migration_target=deploy.SCHEMA,
+        database_schema_changed=deploy.SCHEMA != deploy.BASELINE_SCHEMA,
         source_updated=True,
         release_recorded=True,
         operational_image_references_updated=True,
