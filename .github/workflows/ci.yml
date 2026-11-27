@@ -262,6 +262,8 @@ jobs:
         run: npm run test:ui:global-acceptance
       - name: UI QA (background refresh preserves reading state)
         run: node scripts/maintenance-background.ui-qa.mjs
+      - name: UI QA (independent AI workspace and persistent editing)
+        run: node scripts/ai-workspace.ui-qa.mjs
       - name: UI QA (additional responsive workspaces)
         run: |
           node scripts/supplemental-responsive.ui-qa.mjs

@@ -10,6 +10,7 @@ import {
   apiPost,
   apiPostNoBody,
 } from "./http";
+import { announceAuthChange } from "../auth/authChanges";
 
 // ---- 身份上下文（会话身份；用于顶栏展示与入库时选择目标项目） ----
 export interface AuthMeVM {
@@ -79,6 +80,9 @@ export async function switchActiveCompanyRole(companyRole: string): Promise<Auth
   await apiPost<AuthMeDTO>(`/api/v1/auth/active-company-role`, {
     company_role: companyRole,
   });
+  // The cookie changed even if the confirmation request subsequently fails.
+  clearCsrfToken();
+  announceAuthChange();
 
   // 2. The backend sets kap_active_company_role via Set-Cookie;
   //    immediately call /auth/me to confirm the cookie took effect
@@ -113,6 +117,7 @@ export async function login(email: string, password?: string): Promise<AuthMeVM>
   const me = mapAuthMe(await handleResponse<AuthMeDTO>(resp));
   // 会话已变化 → 清旧 token 并预取绑定新会话的 CSRF token。
   clearCsrfToken();
+  announceAuthChange();
   await ensureCsrfToken();
   return me;
 }
@@ -121,4 +126,5 @@ export async function logout(): Promise<void> {
   await apiPostNoBody<{ ok: boolean }>(`/api/v1/auth/logout`);
   // 登出后本地 CSRF token 绑定的会话已失效，清理缓存。
   clearCsrfToken();
+  announceAuthChange();
 }

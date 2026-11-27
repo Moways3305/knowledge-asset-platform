@@ -171,9 +171,13 @@ describe("AppLayout shell contract", () => {
     renderLayout("/admin/ingest");
     const nav = screen.getByRole("navigation", { name: "主导航" });
     expect(within(nav).getAllByRole("link")).toHaveLength(6);
-    expect(within(nav).getByRole("link", { name: "智能体中心" })).toHaveAttribute(
+    expect(within(nav).getByRole("link", { name: "AI 工作空间" })).toHaveAttribute(
       "href",
-      "/agents",
+      "/ai-workspace",
+    );
+    expect(within(nav).getByRole("link", { name: "AI 工作空间" })).toHaveAttribute(
+      "target",
+      "_blank",
     );
     expect(within(nav).getByRole("link", { name: "管理中心" })).toHaveAttribute(
       "aria-current",
