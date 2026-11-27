@@ -239,13 +239,17 @@ describe("AI workspace lifecycle", () => {
     expect(screen.getByRole("heading", { name: "今天，想推进什么？" })).toBeInTheDocument();
   });
 
-  it("closes compact navigation with Escape and returns focus to its opener", async () => {
+  it("dismisses a keyboard tooltip before navigation and returns focus to its opener", async () => {
     mount();
     await settle();
     const opener = screen.getByRole("button", { name: "打开导航" });
-    opener.focus();
+    act(() => opener.focus());
     fireEvent.click(opener);
     const navigation = screen.getByRole("dialog", { name: "工作空间导航" });
+    expect(screen.getByRole("tooltip")).toHaveTextContent("关闭导航");
+    fireEvent.keyDown(navigation, { key: "Escape" });
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    expect(navigation).toBeInTheDocument();
     fireEvent.keyDown(navigation, { key: "Escape" });
     await settle(20);
     expect(screen.queryByRole("dialog", { name: "工作空间导航" })).not.toBeInTheDocument();
@@ -273,6 +277,20 @@ describe("AI workspace lifecycle", () => {
     expect(screen.getByLabelText("消息")).toHaveValue("正在输入的目标");
     expect(screen.getByLabelText("对话模型")).toHaveValue("loaded");
     expect(screen.getByRole("button", { name: "发送消息" })).toBeEnabled();
+  });
+
+  it("opens context from its icon and describes the active knowledge library", async () => {
+    mount("/ai-workspace");
+    await settle();
+    const button = screen.getByRole("button", { name: "添加上下文" });
+    expect(button.textContent).toBe("");
+    fireEvent.click(button);
+    fireEvent.click(screen.getByRole("radio", { name: "公司知识库" }));
+    fireEvent.click(screen.getByRole("button", { name: "完成" }));
+    expect(button).toHaveAttribute("data-selected", "true");
+    fireEvent.pointerOver(button, { pointerType: "mouse" });
+    expect(screen.getByRole("tooltip")).toHaveTextContent("上下文：公司知识库");
+    expect(screen.getByRole("combobox", { name: "对话模型" })).toHaveValue("model-one");
   });
 
   it("does not redirect the newly selected session when an earlier deletion completes", async () => {

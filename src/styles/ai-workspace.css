@@ -222,7 +222,7 @@
   min-width: 0;
   gap: 9px;
 }
-.ai-workspace .aw-heading > span {
+.ai-workspace .aw-heading > span:not(.aw-tooltip-anchor) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -432,20 +432,19 @@
   margin-top: 11px;
 }
 .ai-workspace .aw-context-button {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--aw-muted);
-  padding: 4px 0;
-  min-height: 32px;
-  min-width: 0;
-  max-width: 48%;
+  position: relative;
 }
-.ai-workspace .aw-context-button span {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.ai-workspace .aw-context-button[data-selected="true"] {
+  color: var(--aw-accent);
+}
+.ai-workspace .aw-selection-dot {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  width: 5px;
+  height: 5px;
+  background: var(--aw-accent);
+  border-radius: 50%;
 }
 .ai-workspace .aw-composer-right {
   display: flex;
@@ -454,15 +453,42 @@
   min-width: 0;
   margin-left: auto;
 }
-.ai-workspace .aw-composer select {
-  max-width: 190px;
-  width: auto;
-  min-height: 32px;
-  padding: 4px 3px;
+.ai-workspace .aw-model-picker {
+  display: inline-flex;
+  position: relative;
+  color: var(--aw-muted);
+  border-radius: 7px;
+}
+.ai-workspace .aw-model-picker:hover {
+  background: var(--aw-hover);
+}
+.ai-workspace .aw-model-picker:focus-within {
+  outline: 2px solid var(--aw-accent);
+  outline-offset: 3px;
+}
+.ai-workspace .aw-model-picker[data-available="false"] .aw-model-icon {
+  opacity: 0.45;
+}
+.ai-workspace .aw-model-icon {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 17px;
+  height: 17px;
+  pointer-events: none;
+}
+.ai-workspace .aw-composer .aw-model-select {
+  opacity: 0;
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  max-width: none;
+  padding: 0;
   border: 0;
-  box-shadow: none;
-  background: transparent;
-  font-size: 12px;
+  cursor: pointer;
+}
+.ai-workspace .aw-model-select:disabled {
+  cursor: not-allowed;
 }
 .ai-workspace .aw-send {
   width: 33px;
@@ -776,7 +802,10 @@
   border: 1px solid var(--aw-line);
   border-radius: 20px;
   background: var(--aw-canvas);
-  padding: 7px 12px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  justify-content: center;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1282,7 +1311,7 @@
     padding-inline: 22px;
   }
   .ai-workspace[data-preview="open"] .aw-composer select {
-    max-width: 130px;
+    max-width: none;
   }
 }
 @media (max-width: 600px) {
@@ -1295,8 +1324,8 @@
     gap: 0;
   }
   .ai-workspace .aw-header .aw-icon {
-    width: 29px;
-    height: 32px;
+    width: 44px;
+    height: 44px;
   }
   .ai-workspace .aw-chat-scroll {
     padding: 16px 18px 0;
@@ -1329,14 +1358,14 @@
     padding: 13px;
     border-radius: 14px;
   }
-  .ai-workspace .aw-composer select {
-    max-width: 137px;
-  }
-  .ai-workspace .aw-context-button {
-    max-width: 45%;
-  }
-  .ai-workspace .aw-context-button span {
-    max-width: 110px;
+  .ai-workspace .aw-icon,
+  .ai-workspace .aw-preview-toolbar .aw-icon,
+  .ai-workspace .aw-send,
+  .ai-workspace .aw-jump,
+  .ai-workspace .aw-composer .aw-model-select {
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
   }
   .ai-workspace .aw-shortcuts {
     gap: 23px 15px;
@@ -1396,15 +1425,8 @@
   }
 }
 @media (max-width: 360px) {
-  .ai-workspace .aw-context-button {
-    max-width: 100%;
-  }
   .ai-workspace .aw-composer-toolbar {
-    gap: 3px;
-  }
-  .ai-workspace .aw-composer-right {
-    width: 100%;
-    justify-content: flex-end;
+    gap: 8px;
   }
   .ai-workspace .aw-shortcut small {
     line-height: 1.6;
@@ -1412,6 +1434,42 @@
   .ai-workspace .aw-greeting h1 {
     font-size: 22px;
   }
+}
+.ai-workspace .aw-tooltip-anchor {
+  display: inline-flex;
+  vertical-align: middle;
+  flex-shrink: 0;
+  width: fit-content;
+}
+.ai-workspace .aw-tooltip-anchor:has(> .aw-open-nav),
+.ai-workspace .aw-tooltip-anchor:has(> .aw-close-nav) {
+  display: none;
+}
+.ai-workspace[data-compact="true"] .aw-tooltip-anchor:has(> .aw-open-nav),
+.ai-workspace[data-compact="true"] .aw-tooltip-anchor:has(> .aw-close-nav) {
+  display: inline-flex;
+}
+.ai-workspace .aw-chat > .aw-tooltip-anchor:has(> .aw-jump) {
+  align-self: center;
+  z-index: 1;
+}
+.aw-workspace-tooltip {
+  position: fixed;
+  z-index: 1000;
+  max-width: min(280px, calc(100vw - 16px));
+  padding: 7px 10px;
+  border-radius: 6px;
+  background: #292d35;
+  color: #fff;
+  font:
+    12px/1.6 "Hanken Grotesk",
+    "PingFang SC",
+    "Microsoft YaHei",
+    system-ui,
+    sans-serif;
+  overflow-wrap: anywhere;
+  pointer-events: auto;
+  box-shadow: 0 3px 12px #18213b1a;
 }
 .ai-workspace[data-motion="off"] *,
 .ai-workspace[data-motion="off"] *::before,

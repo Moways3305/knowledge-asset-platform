@@ -8,6 +8,7 @@ import {
   Bot,
   Check,
   ChevronRight,
+  Cpu,
   FileDiff,
   FileText,
   HelpCircle,
@@ -46,6 +47,7 @@ import { useDialogSurface } from "../components/useDialogSurface";
 import { MarkdownView } from "./knowledge/OnlyOfficePreview";
 import ArtifactPanel, { type ArtifactDraft, type PreviewTab } from "./ai-workspace/ArtifactPanel";
 import { useWorkspaceData, workspaceError } from "./ai-workspace/useWorkspaceData";
+import { WorkspaceIconButton, WorkspaceTooltip } from "./ai-workspace/WorkspaceTooltip";
 import "../styles/ai-workspace.css";
 
 type View = "chat" | "agents" | "tools" | "preferences" | "help";
@@ -106,9 +108,9 @@ function WorkspaceDialog({
       >
         <header>
           <h2>{title}</h2>
-          <button className="aw-icon" aria-label="关闭弹窗" onClick={onClose}>
+          <WorkspaceIconButton label="关闭弹窗" onClick={onClose}>
             <X />
-          </button>
+          </WorkspaceIconButton>
         </header>
         {children}
       </div>
@@ -481,9 +483,13 @@ function Workspace() {
             <strong>博维 AI</strong>
             <small>工作空间</small>
           </span>
-          <button className="aw-icon aw-close-nav" aria-label="关闭导航" onClick={closeSidebar}>
+          <WorkspaceIconButton
+            className="aw-icon aw-close-nav"
+            label="关闭导航"
+            onClick={closeSidebar}
+          >
             <PanelLeftClose />
-          </button>
+          </WorkspaceIconButton>
         </div>
         <nav className="aw-navigation">
           <button
@@ -553,23 +559,21 @@ function Workspace() {
       <main ref={main} className="aw-main">
         <header className="aw-header">
           <div className="aw-heading">
-            <button
+            <WorkspaceIconButton
               className="aw-icon aw-open-nav"
               ref={navigationOpener}
-              aria-label="打开导航"
+              label="打开导航"
               onClick={() => setSidebarOpen(true)}
             >
               <Menu />
-            </button>
+            </WorkspaceIconButton>
             <span>{title}</span>
           </div>
           <div className="aw-inline-actions">
             {sessionId && view === "chat" && state.detail && (
               <>
-                <button
-                  className="aw-icon"
-                  aria-label="重命名会话"
-                  title="重命名会话"
+                <WorkspaceIconButton
+                  label="重命名会话"
                   onClick={() => {
                     setRename(state.detail!.session.title);
                     setDialogError("");
@@ -577,33 +581,24 @@ function Workspace() {
                   }}
                 >
                   <Pencil />
-                </button>
-                <button
-                  className="aw-icon"
-                  aria-label="删除会话"
-                  title="删除会话"
+                </WorkspaceIconButton>
+                <WorkspaceIconButton
+                  label="删除会话"
                   onClick={() => {
                     setDialogError("");
                     setDialog("delete");
                   }}
                 >
                   <Trash2 />
-                </button>
+                </WorkspaceIconButton>
               </>
             )}
-            <button
-              className="aw-icon"
-              aria-label="使用说明"
-              title="使用说明"
-              onClick={() => navigate("help")}
-            >
+            <WorkspaceIconButton label="使用说明" onClick={() => navigate("help")}>
               <HelpCircle />
-            </button>
+            </WorkspaceIconButton>
             {view === "chat" && (state.detail?.artifacts.length ?? 0) > 0 && (
-              <button
-                className="aw-icon"
-                aria-label={showPreview ? "收起文档预览" : "打开文档预览"}
-                title="文档预览"
+              <WorkspaceIconButton
+                label={showPreview ? "收起文档预览" : "打开文档预览"}
                 onClick={() =>
                   updateView({
                     artifact:
@@ -614,16 +609,16 @@ function Workspace() {
                 }
               >
                 <PanelRight />
-              </button>
+              </WorkspaceIconButton>
             )}
           </div>
         </header>
         {state.initialError && (
           <div className="aw-banner" role="alert">
             {state.initialError}
-            <button className="aw-text-button" onClick={state.reloadOptions}>
-              重试
-            </button>
+            <WorkspaceIconButton label="重试" onClick={state.reloadOptions}>
+              <RotateCcw />
+            </WorkspaceIconButton>
           </div>
         )}
         {view === "chat" ? (
@@ -729,14 +724,13 @@ function Workspace() {
                             </p>
                           )}
                           {(run.status === "failed" || run.status === "stopped") && (
-                            <button
-                              className="aw-text-button"
+                            <WorkspaceIconButton
+                              label="重新执行"
                               disabled={Boolean(activeRun) || operationBusy}
                               onClick={() => void runAction(run, "retry")}
                             >
                               <RotateCcw />
-                              重新执行
-                            </button>
+                            </WorkspaceIconButton>
                           )}
                           {isWorkspaceRunActive(run) && (
                             <p className="aw-running" role="status">
@@ -759,16 +753,15 @@ function Workspace() {
               {state.connectionError && (
                 <div className="aw-banner" role="alert">
                   {state.connectionError}
-                  <button className="aw-text-button" onClick={state.refresh}>
-                    重新连接
-                  </button>
+                  <WorkspaceIconButton label="重新连接" onClick={state.refresh}>
+                    <RotateCcw />
+                  </WorkspaceIconButton>
                 </div>
               )}
               {sessionId && !followLatest && (
-                <button className="aw-jump" onClick={jumpLatest}>
+                <WorkspaceIconButton className="aw-jump" label="回到最新消息" onClick={jumpLatest}>
                   <ArrowDown size={14} />
-                  回到最新消息
-                </button>
+                </WorkspaceIconButton>
               )}
               {!state.deniedSession && (
                 <div className={`aw-composer-area${!sessionId ? " is-home" : ""}`}>
@@ -799,60 +792,77 @@ function Workspace() {
                       }}
                     />
                     <div className="aw-composer-toolbar">
-                      <button
-                        type="button"
-                        className="aw-context-button"
+                      <WorkspaceIconButton
+                        className="aw-icon aw-context-button"
+                        label="添加上下文"
+                        tooltip={
+                          selected.context
+                            ? `上下文：${state.options?.contexts.find((context) => context.key === selected.context)?.label || "此前知识库不可用"}，点击更换`
+                            : "添加上下文"
+                        }
+                        data-selected={Boolean(selected.context)}
                         onClick={() => setDialog("context")}
                       >
                         <Layers2 size={15} />
-                        <span>
-                          {state.options?.contexts.find(
-                            (context) => context.key === selected.context,
-                          )?.label || "添加上下文"}
-                        </span>
-                      </button>
+                        {selected.context && (
+                          <span className="aw-selection-dot" aria-hidden="true" />
+                        )}
+                      </WorkspaceIconButton>
                       <div className="aw-composer-right">
-                        <select
-                          aria-label="对话模型"
-                          value={selected.model}
-                          onChange={(event) => updateView({ model: event.target.value })}
-                          disabled={!state.options?.models.length}
-                        >
-                          <option value="" disabled>
-                            {state.options ? "未配置可用模型" : "读取模型…"}
-                          </option>
-                          {selected.model && !availableModel && (
-                            <option value={selected.model} disabled>
-                              此前模型不可用
-                            </option>
-                          )}
-                          {state.options?.models.map((model) => (
-                            <option value={model.model_ref} key={model.model_ref}>
-                              {model.display_name}
-                            </option>
-                          ))}
-                        </select>
+                        <span className="aw-model-picker" data-available={Boolean(availableModel)}>
+                          <Cpu className="aw-model-icon" aria-hidden="true" />
+                          <WorkspaceTooltip
+                            label={
+                              state.options?.models.find(
+                                (model) => model.model_ref === selected.model,
+                              )?.display_name
+                                ? `对话模型：${state.options.models.find((model) => model.model_ref === selected.model)!.display_name}`
+                                : state.options
+                                  ? "未配置可用模型，请联系管理员"
+                                  : "正在读取可用模型"
+                            }
+                          >
+                            <select
+                              className="aw-model-select"
+                              aria-label="对话模型"
+                              value={selected.model}
+                              onChange={(event) => updateView({ model: event.target.value })}
+                              disabled={!state.options?.models.length}
+                            >
+                              <option value="" disabled>
+                                {state.options ? "未配置可用模型" : "读取模型…"}
+                              </option>
+                              {selected.model && !availableModel && (
+                                <option value={selected.model} disabled>
+                                  此前模型不可用
+                                </option>
+                              )}
+                              {state.options?.models.map((model) => (
+                                <option value={model.model_ref} key={model.model_ref}>
+                                  {model.display_name}
+                                </option>
+                              ))}
+                            </select>
+                          </WorkspaceTooltip>
+                        </span>
                         {activeRun ? (
-                          <button
-                            type="button"
+                          <WorkspaceIconButton
                             className="aw-send"
-                            aria-label="停止处理"
-                            title="停止处理"
+                            label="停止处理"
                             disabled={operationBusy}
                             onClick={() => void runAction(activeRun, "stop")}
                           >
                             <Square size={14} fill="currentColor" />
-                          </button>
+                          </WorkspaceIconButton>
                         ) : (
-                          <button
+                          <WorkspaceIconButton
                             className="aw-send"
                             type="submit"
-                            aria-label="发送消息"
-                            title="发送消息"
+                            label="发送消息"
                             disabled={busy || !selected.input.trim() || !availableModel}
                           >
                             <ArrowUp size={18} />
-                          </button>
+                          </WorkspaceIconButton>
                         )}
                       </div>
                     </div>
@@ -1032,10 +1042,9 @@ function Workspace() {
                       <strong>模型与连接</strong>
                       <small>使用 KAP 已配置的模型，无需重复设置密钥。</small>
                     </span>
-                    <button className="aw-text-button" onClick={state.reloadOptions}>
+                    <WorkspaceIconButton label="重新读取模型" onClick={state.reloadOptions}>
                       <RotateCcw />
-                      重新读取
-                    </button>
+                    </WorkspaceIconButton>
                   </div>
                   <div className="aw-preference-row">
                     <span>

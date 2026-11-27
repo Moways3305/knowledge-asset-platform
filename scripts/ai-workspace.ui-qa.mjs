@@ -191,7 +191,39 @@ try {
       );
     await page.goto(`${base}/ai-workspace`);
     await page.getByRole("heading", { name: "今天，想推进什么？" }).waitFor();
+    const contextAction = page.getByRole("button", { name: "添加上下文", exact: true });
+    assert.equal(
+      (await contextAction.textContent()).trim(),
+      "",
+      "context action must be icon-only",
+    );
+    assert.equal(await contextAction.locator("svg").count(), 1);
+    assert.equal(await page.getByRole("tooltip").count(), 0);
+    await page.getByLabel("消息", { exact: true }).focus();
+    await contextAction.hover();
+    await page.getByRole("tooltip", { name: "添加上下文", exact: true }).waitFor();
+    const tooltipBounds = await page.getByRole("tooltip").boundingBox();
+    assert.ok(
+      tooltipBounds.x >= 0 &&
+        tooltipBounds.x + tooltipBounds.width <= width &&
+        tooltipBounds.y >= 0 &&
+        tooltipBounds.y + tooltipBounds.height <= height,
+      `tooltip leaves viewport at ${width}x${height}`,
+    );
+    if (width === 1440) {
+      await page.screenshot({ path: path.join(out, "toolbar-tooltip-1440.png") });
+    }
+    await page.keyboard.press("Escape");
+    await page.getByRole("tooltip").waitFor({ state: "detached" });
+    await page.mouse.move(1, 1);
+    await contextAction.focus();
+    await page.getByRole("tooltip", { name: "添加上下文", exact: true }).waitFor();
+    assert.ok(await contextAction.getAttribute("aria-describedby"));
+    await page.keyboard.press("Escape");
+    await page.getByRole("tooltip").waitFor({ state: "detached" });
     await page.getByLabel("对话模型").selectOption("system_default");
+    await page.getByLabel("消息", { exact: true }).focus();
+    await page.clock.fastForward(200);
     assert.equal(await page.locator(".app-layout").count(), 0);
     if (width < 1040) {
       const trigger = page.getByRole("button", { name: "打开导航", exact: true });
@@ -245,6 +277,11 @@ try {
     await page.getByText("已保存到当前会话", { exact: true }).waitFor();
     assert.equal(artifacts[0].revision, 2);
     await page.getByRole("button", { name: "关闭预览" }).click();
+    assert.equal(
+      await page.getByRole("tooltip", { name: "关闭预览", exact: true }).count(),
+      0,
+      "closed preview left its tooltip",
+    );
     await page.getByRole("button", { name: "发送消息" }).click();
     await page.getByRole("button", { name: "停止处理" }).click();
     await page.getByRole("button", { name: "重新执行" }).last().click();

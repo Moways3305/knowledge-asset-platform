@@ -8,6 +8,7 @@ import {
 import { ApiError } from "../../api/http";
 import { MarkdownView } from "../knowledge/OnlyOfficePreview";
 import { workspaceError } from "./useWorkspaceData";
+import { WorkspaceIconButton } from "./WorkspaceTooltip";
 
 export interface ArtifactDraft {
   content: string;
@@ -220,28 +221,21 @@ export default function ArtifactPanel({
           <span>{current.title}</span>
         </span>
         <div className="aw-inline-actions">
-          <button
-            className="aw-icon"
-            title="复制文档"
-            aria-label="复制文档"
-            onClick={() => void copy()}
-          >
+          <WorkspaceIconButton label="复制文档" onClick={() => void copy()}>
             <Copy />
-          </button>
-          <button className="aw-icon" title="下载文档" aria-label="下载文档" onClick={download}>
+          </WorkspaceIconButton>
+          <WorkspaceIconButton label="下载文档" onClick={download}>
             <Download />
-          </button>
-          <button
-            className="aw-icon"
-            title={full ? "还原预览" : "放大预览"}
-            aria-label={full ? "还原预览" : "放大预览"}
+          </WorkspaceIconButton>
+          <WorkspaceIconButton
+            label={full ? "还原预览" : "放大预览"}
             onClick={() => setFull(!full)}
           >
             {full ? <Minimize2 /> : <Maximize2 />}
-          </button>
-          <button className="aw-icon" title="关闭预览" aria-label="关闭预览" onClick={onClose}>
+          </WorkspaceIconButton>
+          <WorkspaceIconButton label="关闭预览" onClick={onClose}>
             <X />
-          </button>
+          </WorkspaceIconButton>
         </div>
       </div>
       <div className="aw-preview-tabs" role="tablist" aria-label="文档视图">
@@ -344,14 +338,14 @@ export default function ArtifactPanel({
       </div>
       <div className="aw-preview-footer">
         <span className="aw-muted">{dirty ? "草稿尚未保存" : "已保存在会话中"}</span>
-        <button
-          className="aw-text-button"
+        <WorkspaceIconButton
+          label={busy ? "保存中…" : "保存修改"}
+          tooltip={busy ? "正在保存修改" : dirty ? "保存修改" : "当前修改已保存"}
           disabled={!dirty || busy || !current.title.trim()}
           onClick={() => void save()}
         >
           {busy ? <Save /> : dirty ? <Save /> : <Check />}
-          {busy ? "保存中…" : "保存修改"}
-        </button>
+        </WorkspaceIconButton>
       </div>
       {(notice || error) && (
         <p
