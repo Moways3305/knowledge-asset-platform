@@ -60,6 +60,7 @@ import ArtifactPanel, { type ArtifactDraft, type PreviewTab } from "./ai-workspa
 import { useWorkspaceData, workspaceError } from "./ai-workspace/useWorkspaceData";
 import { WorkspaceIconButton, WorkspaceTooltip } from "./ai-workspace/WorkspaceTooltip";
 import { ActionConfirmation, ToolReceipts } from "./ai-workspace/RunActions";
+import AgentPicker from "./ai-workspace/AgentPicker";
 import {
   AI_WORKSPACE_PATH,
   MAINTENANCE_AGENT_KEY,
@@ -174,6 +175,8 @@ function Workspace() {
       null)
     : requestedAgent;
   const agent = state.options?.agents?.find((item) => item.key === agentKey);
+  const currentAgent = useRef(agentKey);
+  currentAgent.current = agentKey;
   const unknownAgent = Boolean(!sessionId && agentKey && state.options && !agent);
   const [sessionViews, setSessionViews] = useState<Record<string, SessionView>>({});
   const [artifactDrafts, setArtifactDrafts] = useState<Record<string, ArtifactDraft>>({});
@@ -223,7 +226,8 @@ function Workspace() {
   const actionRequests = useRef<Record<string, string>>({});
   const artifactOwners = useRef<Record<string, string>>({});
   const previewPositions = useRef<Record<string, number>>({});
-  const key = sessionId || `new:${agentKey || "chat"}`;
+  // Selecting an Agent changes who receives the same draft, not the draft itself.
+  const key = sessionId || "new";
   const stored = sessionViews[key];
   const lastRun = state.detail?.runs[state.detail.runs.length - 1];
   const defaultView: SessionView = {
@@ -282,14 +286,17 @@ function Workspace() {
     if (managementView) setLastAgentLocation({ search: location.search, hash: location.hash });
   }, [managementView, location.search, location.hash]);
   useEffect(() => {
-    if (!sessionId && view === "chat" && agentKey === MAINTENANCE_AGENT_KEY && requestedLibrary) {
+    if (!sessionId && view === "chat" && agentKey === MAINTENANCE_AGENT_KEY) {
+      const library =
+        requestedLibrary || state.options?.contexts.find((item) => item.key === "company")?.key;
+      if (!library) return;
       setSessionViews((previous) =>
-        previous[key]
-          ? { ...previous, [key]: { ...previous[key], context: requestedLibrary } }
+        previous[key] && (requestedLibrary || !previous[key].context)
+          ? { ...previous, [key]: { ...previous[key], context: library } }
           : previous,
       );
     }
-  }, [sessionId, view, agentKey, requestedLibrary, key]);
+  }, [sessionId, view, agentKey, requestedLibrary, key, state.options?.contexts]);
   useEffect(() => {
     const element = frame.current;
     if (!element) return;
@@ -390,6 +397,19 @@ function Workspace() {
     positions.current[key] = { top: element.scrollTop, follow };
     setFollowLatest(follow);
   }
+  function selectAgent(next: string | null) {
+    if (sessionId || submitting.has(key) || pendingSubmissions.current.has(key)) return;
+    if (next === agentKey) return;
+    if (next && !state.options?.agents?.some((item) => item.key === next)) return;
+    updateView({
+      context:
+        selected.context ||
+        (next === MAINTENANCE_AGENT_KEY
+          ? state.options?.contexts.find((item) => item.key === "company")?.key || ""
+          : ""),
+    });
+    navigate("chat", "", next);
+  }
   function jumpLatest() {
     if (scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
     positions.current[key] = { top: scroll.current?.scrollTop ?? 0, follow: true };
@@ -443,11 +463,13 @@ function Workspace() {
       if (!mounted.current) return;
       setSessionViews((previous) => {
         const current = previous[submittedKey] ?? selected;
+        const changedRecipient = !submittedId && currentAgent.current !== agentKey;
+        const submittedView = changedRecipient ? selected : current;
         const updated = {
-          ...current,
-          input: current.input.trim() === content ? "" : current.input,
+          ...submittedView,
+          input: submittedView.input.trim() === content ? "" : submittedView.input,
         };
-        return { ...previous, [submittedKey]: updated, [id]: updated };
+        return { ...previous, [submittedKey]: changedRecipient ? current : updated, [id]: updated };
       });
       delete requests.current[submittedKey];
       positions.current[id] = { top: scroll.current?.scrollHeight ?? 0, follow: true };
@@ -457,7 +479,8 @@ function Workspace() {
         setFollowLatest(true);
       }
     } catch (cause) {
-      if (mounted.current && currentId.current === submittedId) setError(workspaceError(cause));
+      if (mounted.current && currentRoute.current === submittedRoute)
+        setError(workspaceError(cause));
     } finally {
       pendingSubmissions.current.delete(submittedKey);
       if (mounted.current) setSubmitting(new Set(pendingSubmissions.current));
@@ -1001,23 +1024,33 @@ function Workspace() {
                       }}
                     />
                     <div className="aw-composer-toolbar">
-                      <WorkspaceIconButton
-                        className="aw-icon aw-context-button"
-                        label="添加上下文"
-                        tooltip={
-                          selected.context
-                            ? `上下文：${state.options?.contexts.find((context) => context.key === selected.context)?.label || "此前知识库不可用"}，点击更换`
-                            : "添加上下文"
-                        }
-                        data-selected={Boolean(selected.context)}
-                        disabled={Boolean(activeRun)}
-                        onClick={() => setDialog("context")}
-                      >
-                        <Layers2 size={15} />
-                        {selected.context && (
-                          <span className="aw-selection-dot" aria-hidden="true" />
+                      <div className="aw-composer-left">
+                        <WorkspaceIconButton
+                          className="aw-icon aw-context-button"
+                          label="添加上下文"
+                          tooltip={
+                            selected.context
+                              ? `上下文：${state.options?.contexts.find((context) => context.key === selected.context)?.label || "此前知识库不可用"}，点击更换`
+                              : "添加上下文"
+                          }
+                          data-selected={Boolean(selected.context)}
+                          disabled={Boolean(activeRun)}
+                          onClick={() => setDialog("context")}
+                        >
+                          <Layers2 size={15} />
+                          {selected.context && (
+                            <span className="aw-selection-dot" aria-hidden="true" />
+                          )}
+                        </WorkspaceIconButton>
+                        {!sessionId && (
+                          <AgentPicker
+                            agents={state.options ? (state.options.agents ?? []) : undefined}
+                            value={agentKey}
+                            disabled={submitting.has(key)}
+                            onChange={selectAgent}
+                          />
                         )}
-                      </WorkspaceIconButton>
+                      </div>
                       <div className="aw-composer-right">
                         <span className="aw-model-picker" data-available={Boolean(availableModel)}>
                           <Cpu className="aw-model-icon" aria-hidden="true" />
@@ -1098,7 +1131,7 @@ function Workspace() {
                   )}
                   {unknownAgent && (
                     <p className="aw-model-warning" role="alert">
-                      当前身份无法使用这个 Agent，请从侧栏选择可用的 Agent。
+                      当前身份无法使用这个智能体，请在输入框旁选择可用的智能体或通用对话。
                     </p>
                   )}
                   {error && (
@@ -1339,7 +1372,8 @@ function Workspace() {
                   <div className="aw-help-row">
                     <strong>在会话里使用 Agent</strong>
                     <p>
-                      左侧 Agent 提供专门的工具和职责。知识维护 Agent
+                      在新会话输入框旁点击“添加智能体”，即可选择专门的工具和职责。侧栏 Agent
+                      可查看介绍。知识维护 Agent
                       可以查看问题、开展巡检和复检、准备维护报告。会话上方的待办、记录与设置用于查看明细和配置；需要确认的操作由你核对后执行。
                     </p>
                   </div>

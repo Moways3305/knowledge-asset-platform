@@ -110,6 +110,8 @@ function mount(path = "/ai-workspace?session=one") {
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
+  vi.mocked(api.createWorkspaceSession).mockReset();
+  vi.mocked(api.sendWorkspaceMessage).mockReset();
   vi.mocked(api.getWorkspaceOptions).mockResolvedValue({
     models: [{ model_ref: "model-one", display_name: "模型一", is_default: true }],
     contexts: [{ key: "company", label: "公司知识库" }],
@@ -128,6 +130,133 @@ afterEach(() => {
 });
 
 describe("AI workspace lifecycle", () => {
+  it("selects an Agent in the composer without losing the input, model or project context", async () => {
+    vi.mocked(api.getWorkspaceOptions).mockResolvedValue({
+      models: [
+        { model_ref: "model-one", display_name: "模型一", is_default: true },
+        { model_ref: "model-two", display_name: "模型二", is_default: false },
+      ],
+      contexts: [{ key: "project:example", label: "示例项目" }],
+      agents: [maintenanceAgent],
+      tools: [],
+    });
+    vi.mocked(api.createWorkspaceSession).mockResolvedValue({
+      ...session("picked-agent"),
+      agent_key: maintenanceAgent.key,
+    });
+    vi.mocked(api.sendWorkspaceMessage).mockResolvedValue({ ...run, status: "queued" });
+    mount("/ai-workspace");
+    await settle();
+    const input = screen.getByLabelText("消息");
+    fireEvent.change(input, { target: { value: "检查这个项目的资料" } });
+    fireEvent.change(screen.getByLabelText("对话模型"), { target: { value: "model-two" } });
+    fireEvent.click(screen.getByRole("button", { name: "添加上下文" }));
+    fireEvent.click(screen.getByRole("radio", { name: "示例项目" }));
+    fireEvent.click(screen.getByRole("button", { name: "完成" }));
+    const picker = screen.getByRole("button", { name: "添加智能体" });
+    expect(picker.textContent).toBe("");
+    fireEvent.click(picker);
+    fireEvent.click(screen.getByRole("menuitemradio", { name: maintenanceAgent.label }));
+    await settle();
+    expect(screen.getByLabelText("消息")).toBe(input);
+    expect(input).toHaveValue("检查这个项目的资料");
+    expect(screen.getByLabelText("对话模型")).toHaveValue("model-two");
+    expect(
+      screen.queryByRole("heading", { name: "让 Agent 接手一类工作" }),
+    ).not.toBeInTheDocument();
+    expect(api.createWorkspaceSession).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "发送消息" }));
+    await settle();
+    expect(api.createWorkspaceSession).toHaveBeenCalledWith(
+      expect.any(String),
+      maintenanceAgent.key,
+    );
+    expect(api.sendWorkspaceMessage).toHaveBeenCalledWith(
+      "picked-agent",
+      expect.objectContaining({
+        content: "检查这个项目的资料",
+        model_ref: "model-two",
+        context_key: "project:example",
+      }),
+    );
+  });
+
+  it("can remove an Agent while retaining the same draft and defaults to an available company library", async () => {
+    mount("/ai-workspace");
+    await settle();
+    fireEvent.change(screen.getByLabelText("消息"), { target: { value: "保留这段输入" } });
+    fireEvent.click(screen.getByRole("button", { name: "添加智能体" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: maintenanceAgent.label }));
+    await settle();
+    expect(screen.getByRole("button", { name: "添加上下文" })).toHaveAttribute(
+      "data-selected",
+      "true",
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^(添加|切换)智能体$/ }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "通用对话" }));
+    await settle();
+    expect(screen.getByLabelText("消息")).toHaveValue("保留这段输入");
+    expect(screen.getByTestId("current-path")).toHaveTextContent(/^\/ai-workspace$/);
+    expect(screen.getByRole("heading", { name: "今天，想推进什么？" })).toBeInTheDocument();
+    expect(api.createWorkspaceSession).not.toHaveBeenCalled();
+  });
+
+  it("keeps Agent selection locked while the first message is being submitted", async () => {
+    let finish: ((value: api.WorkspaceSession) => void) | undefined;
+    vi.mocked(api.createWorkspaceSession).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    vi.mocked(api.sendWorkspaceMessage).mockResolvedValue({ ...run, status: "queued" });
+    mount("/ai-workspace");
+    await settle();
+    fireEvent.change(screen.getByLabelText("消息"), { target: { value: "整理资料" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送消息" }));
+    expect(screen.getByRole("button", { name: "添加智能体" })).toBeDisabled();
+    await act(async () => {
+      finish?.(session("sent"));
+    });
+    expect(api.createWorkspaceSession).toHaveBeenCalledWith(expect.any(String), null);
+    expect(api.createWorkspaceSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("never reuses a failed Agent submission session after switching to general chat", async () => {
+    vi.mocked(api.createWorkspaceSession)
+      .mockResolvedValueOnce({ ...session("agent-failed"), agent_key: maintenanceAgent.key })
+      .mockResolvedValueOnce(session("general-retry"));
+    vi.mocked(api.sendWorkspaceMessage)
+      .mockRejectedValueOnce(new ApiError(503, "稍后重试"))
+      .mockResolvedValueOnce({ ...run, status: "queued" });
+    mount("/ai-workspace?agent=knowledge-maintenance");
+    await settle();
+    fireEvent.change(screen.getByLabelText("消息"), { target: { value: "检查资料" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送消息" }));
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: /^(添加|切换)智能体$/ }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "通用对话" }));
+    await settle();
+    expect(screen.getByLabelText("消息")).toHaveValue("检查资料");
+    fireEvent.click(screen.getByRole("button", { name: "发送消息" }));
+    await settle();
+    const creates = vi.mocked(api.createWorkspaceSession).mock.calls;
+    expect(creates.map((call) => call[1])).toEqual([maintenanceAgent.key, null]);
+    expect(creates[0][0]).not.toBe(creates[1][0]);
+    expect(vi.mocked(api.sendWorkspaceMessage).mock.calls.map((call) => call[0])).toEqual([
+      "agent-failed",
+      "general-retry",
+    ]);
+  });
+
+  it("keeps an existing conversation bound to its server identity", async () => {
+    mount("/ai-workspace?session=one&agent=knowledge-maintenance");
+    await settle();
+    expect(screen.queryByRole("button", { name: /^(添加|切换)智能体$/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "知识维护辅助视图" })).not.toBeInTheDocument();
+    expect(api.createWorkspaceSession).not.toHaveBeenCalled();
+  });
+
   it("creates an Agent session with its identity and selected library instead of a legacy task", async () => {
     vi.mocked(api.createWorkspaceSession).mockResolvedValue({
       ...session("agent-session"),
@@ -481,6 +610,66 @@ describe("AI workspace lifecycle", () => {
     expect(screen.getByRole("heading", { name: "让 Agent 接手一类工作" })).toBeInTheDocument();
   });
 
+  it("does not erase the shared draft if the recipient changes through the Agent directory during a send", async () => {
+    let finish: ((value: api.WorkspaceRun) => void) | undefined;
+    vi.mocked(api.createWorkspaceSession).mockResolvedValue(session("earlier-chat"));
+    vi.mocked(api.sendWorkspaceMessage).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    mount("/ai-workspace");
+    await settle();
+    fireEvent.change(screen.getByLabelText("消息"), { target: { value: "保留这项任务" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送消息" }));
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    fireEvent.click(screen.getByText("知识维护 Agent", { selector: "strong" }));
+    fireEvent.click(screen.getByRole("link", { name: "开始任务" }));
+    await settle();
+    fireEvent.change(screen.getByLabelText("消息"), { target: { value: "另一位智能体的草稿" } });
+    await act(async () => {
+      finish?.({ ...run, status: "queued" });
+    });
+    expect(screen.getByLabelText("消息")).toHaveValue("另一位智能体的草稿");
+    expect(screen.getByTestId("current-path")).toHaveTextContent("agent=knowledge-maintenance");
+    expect(api.createWorkspaceSession).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "会话 earlier-chat" }));
+    await settle();
+    expect(screen.getByLabelText("消息")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "添加上下文" })).toHaveAttribute(
+      "data-selected",
+      "false",
+    );
+  });
+
+  it("does not show an earlier recipient's send error in the new Agent draft", async () => {
+    let fail: ((cause: Error) => void) | undefined;
+    vi.mocked(api.createWorkspaceSession).mockResolvedValue(session("earlier-chat"));
+    vi.mocked(api.sendWorkspaceMessage).mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          fail = reject;
+        }),
+    );
+    mount("/ai-workspace");
+    await settle();
+    fireEvent.change(screen.getByLabelText("消息"), { target: { value: "原来的任务" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送消息" }));
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    fireEvent.click(screen.getByText("知识维护 Agent", { selector: "strong" }));
+    fireEvent.click(screen.getByRole("link", { name: "开始任务" }));
+    await settle();
+    await act(async () => {
+      fail?.(new ApiError(503, "之前的发送失败"));
+    });
+    expect(screen.queryByText("之前的发送失败")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("消息")).toHaveValue("原来的任务");
+    expect(screen.getByTestId("current-path")).toHaveTextContent("agent=knowledge-maintenance");
+  });
+
   it("can create a new conversation after the previous session was deleted", async () => {
     vi.mocked(api.getWorkspaceEvents).mockRejectedValueOnce(new ApiError(404, "会话不存在"));
     mount();
@@ -496,9 +685,17 @@ describe("AI workspace lifecycle", () => {
     mount();
     await settle();
     const opener = screen.getByRole("button", { name: "打开导航" });
+    const closer = screen.getByRole("button", { name: "关闭导航", hidden: true });
+    const matches = closer.matches.bind(closer);
+    // jsdom does not carry keyboard modality through programmatic dialog focus.
+    const keyboardFocus = vi
+      .spyOn(closer, "matches")
+      .mockImplementation((selector) => selector === ":focus-visible" || matches(selector));
     act(() => opener.focus());
-    fireEvent.click(opener);
+    fireEvent.click(opener, { detail: 0 });
+    keyboardFocus.mockRestore();
     const navigation = screen.getByRole("dialog", { name: "工作空间导航" });
+    expect(closer).toHaveFocus();
     expect(screen.getByRole("tooltip")).toHaveTextContent("关闭导航");
     fireEvent.keyDown(navigation, { key: "Escape" });
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();

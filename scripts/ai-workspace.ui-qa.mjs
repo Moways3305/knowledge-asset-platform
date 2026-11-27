@@ -418,6 +418,41 @@ try {
     }
     await noOverflow();
     await page.screenshot({ path: path.join(out, `home-${width}.png`) });
+    const agentPicker = page.getByRole("button", { name: "添加智能体", exact: true });
+    assert.equal(
+      (await agentPicker.textContent()).trim(),
+      "",
+      "unselected Agent action is icon-only",
+    );
+    const draft = page.getByLabel("消息", { exact: true });
+    await draft.fill("先保留输入，再选择负责这件事的智能体");
+    await agentPicker.click();
+    const agentMenu = page.getByRole("menu", { name: "选择智能体", exact: true });
+    await agentMenu.waitFor();
+    const menuBounds = await agentMenu.boundingBox();
+    assert.ok(
+      menuBounds.x >= 0 &&
+        menuBounds.y >= 0 &&
+        menuBounds.x + menuBounds.width <= width &&
+        menuBounds.y + menuBounds.height <= height,
+      `Agent menu leaves viewport at ${width}x${height}`,
+    );
+    await page.screenshot({
+      path: path.join(out, `agent-picker-${width}-${height}.png`),
+      animations: "disabled",
+    });
+    await page.getByRole("menuitemradio", { name: "知识维护 Agent", exact: true }).click();
+    await page.getByRole("heading", { name: "交给我一个知识维护目标" }).waitFor();
+    assert.equal(await draft.inputValue(), "先保留输入，再选择负责这件事的智能体");
+    assert.ok((await agentPicker.textContent()).includes("知识维护 Agent"));
+    assert.equal(context.pages().length, 1);
+    await noOverflow();
+    await page.screenshot({ path: path.join(out, `agent-selected-${width}-${height}.png`) });
+    await agentPicker.click();
+    await page.getByRole("menuitemradio", { name: "通用对话", exact: true }).click();
+    await page.getByRole("heading", { name: "今天，想推进什么？" }).waitFor();
+    assert.equal(await draft.inputValue(), "先保留输入，再选择负责这件事的智能体");
+    await draft.fill("");
     await nav("Agent");
     await page.getByText("知识维护 Agent", { exact: true }).click();
     await page.getByRole("link", { name: "开始任务" }).waitFor();

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AppLayout from "./AppLayout";
 import { logout } from "../api/auth";
@@ -100,6 +100,17 @@ function renderLayout(path = "/") {
   );
 }
 
+function NavigationHistoryProbe() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  return (
+    <>
+      <output aria-label="当前测试路由">{location.pathname + location.search}</output>
+      <button onClick={() => navigate(-1)}>浏览器后退</button>
+    </>
+  );
+}
+
 describe("AppLayout shell contract", () => {
   beforeEach(() => {
     Object.defineProperty(window, "innerWidth", {
@@ -175,10 +186,7 @@ describe("AppLayout shell contract", () => {
       "href",
       "/ai-workspace",
     );
-    expect(within(nav).getByRole("link", { name: "AI 工作空间" })).toHaveAttribute(
-      "target",
-      "_blank",
-    );
+    expect(within(nav).getByRole("link", { name: "AI 工作空间" })).not.toHaveAttribute("target");
     expect(within(nav).getByRole("link", { name: "管理中心" })).toHaveAttribute(
       "aria-current",
       "page",
@@ -188,6 +196,41 @@ describe("AppLayout shell contract", () => {
     expect(screen.getByRole("link", { name: "入库管理" })).toHaveAttribute("href", "/admin/ingest");
     expect(screen.getByRole("link", { name: "人员权限" })).toHaveAttribute("href", "/admin/people");
   });
+
+  it.each(["主导航", "手机快捷导航", "全部功能"])(
+    "opens AI workspace from %s in the same tab and keeps browser Back working",
+    async (navigation) => {
+      render(
+        <MemoryRouter initialEntries={["/knowledge?search=example"]}>
+          <NavigationHistoryProbe />
+          <Routes>
+            <Route element={<AppLayout />}>
+              <Route path="knowledge" element={<div>知识库检索结果</div>} />
+            </Route>
+            <Route path="ai-workspace" element={<h1>AI 会话页面</h1>} />
+          </Routes>
+        </MemoryRouter>,
+      );
+      if (navigation === "全部功能") {
+        fireEvent.click(screen.getByRole("button", { name: "打开我的与全部功能" }));
+      }
+      const entry = within(screen.getByRole("navigation", { name: navigation })).getByRole("link", {
+        name: navigation === "手机快捷导航" ? "底部AI 工作空间" : "AI 工作空间",
+      });
+      expect(entry).toHaveAttribute("href", "/ai-workspace");
+      expect(entry).not.toHaveAttribute("target");
+      fireEvent.click(entry);
+
+      expect(await screen.findByRole("heading", { name: "AI 会话页面" })).toBeInTheDocument();
+      expect(screen.getByLabelText("当前测试路由")).toHaveTextContent("/ai-workspace");
+      expect(screen.queryByRole("navigation", { name: "主导航" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog", { name: "我的" })).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "浏览器后退" }));
+      expect(await screen.findByText("知识库检索结果")).toBeInTheDocument();
+      expect(screen.getByLabelText("当前测试路由")).toHaveTextContent("/knowledge?search=example");
+    },
+  );
 
   it("offers logout through the existing identity menu and refreshes the shared identity", async () => {
     vi.mocked(logout).mockResolvedValue(undefined);
