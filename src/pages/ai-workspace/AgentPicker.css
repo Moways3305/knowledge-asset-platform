@@ -1,0 +1,129 @@
+.ai-workspace .aw-agent-picker-trigger[data-selected="true"] {
+  width: auto;
+  max-width: min(196px, 45vw);
+  min-width: 0;
+  gap: 6px;
+  padding: 0 8px;
+  color: var(--aw-accent);
+  background: color-mix(in srgb, var(--aw-accent) 7%, transparent);
+}
+.ai-workspace .aw-agent-picker-trigger[data-selected="true"]:hover,
+.ai-workspace .aw-agent-picker-trigger[aria-expanded="true"] {
+  background: var(--aw-hover);
+}
+.ai-workspace .aw-agent-picker-trigger .aw-agent-picker-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 500;
+}
+.ai-workspace .aw-agent-picker-trigger > svg:last-child:not(:first-child) {
+  width: 12px;
+  height: 12px;
+}
+.aw-agent-picker-menu {
+  position: fixed;
+  z-index: 100;
+  box-sizing: border-box;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 5px;
+  border: 1px solid var(--aw-line, #e7e9ed);
+  border-radius: 10px;
+  color: var(--aw-ink, #25272b);
+  background: var(--aw-canvas, #fff);
+  box-shadow: 0 6px 24px rgb(24 34 58 / 12%);
+  font: inherit;
+  animation: aw-agent-menu-in 110ms ease-out;
+}
+.ai-workspace .aw-agent-picker-heading,
+.aw-agent-picker-heading {
+  padding: 4px 9px 5px;
+  color: var(--aw-muted, #707681);
+  font-size: 11px;
+  font-weight: 500;
+}
+.ai-workspace .aw-agent-picker-option,
+.aw-agent-picker-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 54px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ai-workspace .aw-agent-picker-option:hover,
+.ai-workspace .aw-agent-picker-option:focus,
+.aw-agent-picker-option:hover,
+.aw-agent-picker-option:focus {
+  background: var(--aw-hover, #eceef2);
+}
+.ai-workspace .aw-agent-picker-option:focus-visible,
+.aw-agent-picker-option:focus-visible {
+  outline: 2px solid var(--aw-accent, #4266e9);
+  outline-offset: -2px;
+}
+.aw-agent-picker-option > svg {
+  flex-shrink: 0;
+  color: var(--aw-muted, #707681);
+}
+.aw-agent-picker-copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+.aw-agent-picker-copy > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
+}
+.aw-agent-picker-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--aw-muted, #707681);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.aw-agent-picker-option > .aw-agent-picker-check {
+  color: var(--aw-accent, #4266e9);
+}
+.ai-workspace .aw-agent-picker-notice,
+.aw-agent-picker-notice {
+  margin: 0;
+  padding: 8px 9px;
+  color: var(--aw-muted, #707681);
+  font-size: 12px;
+  line-height: 1.5;
+}
+@keyframes aw-agent-menu-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aw-agent-picker-menu {
+    animation: none;
+  }
+}
+.ai-workspace[data-motion="off"] .aw-agent-picker-menu {
+  animation: none;
+}

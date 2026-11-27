@@ -164,8 +164,6 @@ function AppShell() {
               <li key={key} className="primary-module-item">
                 <Link
                   to={to}
-                  target={key === "agents" ? "_blank" : undefined}
-                  rel={key === "agents" ? "noopener noreferrer" : undefined}
                   aria-label={label}
                   title={railCollapsed ? label : undefined}
                   aria-current={workspace === key ? "page" : undefined}
@@ -259,8 +257,6 @@ function AppShell() {
               <Link
                 key={key}
                 to={to}
-                target={key === "agents" ? "_blank" : undefined}
-                rel={key === "agents" ? "noopener noreferrer" : undefined}
                 aria-current={workspace === key ? "page" : undefined}
                 className={workspace === key ? "active" : ""}
                 aria-label={`底部${label}`}
@@ -290,7 +286,7 @@ function AppShell() {
         <IdentityMenu />
         <nav className="account-navigation" aria-label="全部功能">
           {can.viewKnowledge(capabilities) && (
-            <Link to="/ai-workspace" target="_blank" rel="noopener noreferrer">
+            <Link to="/ai-workspace">
               <Bot size={17} aria-hidden="true" />
               AI 工作空间
             </Link>

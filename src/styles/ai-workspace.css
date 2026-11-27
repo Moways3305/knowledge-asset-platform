@@ -591,6 +591,14 @@
 .ai-workspace .aw-context-button {
   position: relative;
 }
+.ai-workspace .aw-composer-left {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
 .ai-workspace .aw-context-button[data-selected="true"] {
   color: var(--aw-accent);
 }
