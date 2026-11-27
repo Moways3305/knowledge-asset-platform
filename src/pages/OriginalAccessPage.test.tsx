@@ -1,10 +1,11 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
+import { Link, MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/http";
 import {
   approveOriginalAccess,
   fetchOriginalAccessRequests,
+  fetchOriginalAccessRequest,
   rejectOriginalAccess,
 } from "../api/knowledge";
 import type { OriginalAccessRequestDTO } from "../types/originalAccess";
@@ -13,6 +14,7 @@ import OriginalAccessPage from "./OriginalAccessPage";
 vi.mock("../api/knowledge", () => ({
   approveOriginalAccess: vi.fn(),
   fetchOriginalAccessRequests: vi.fn(),
+  fetchOriginalAccessRequest: vi.fn(),
   rejectOriginalAccess: vi.fn(),
 }));
 
@@ -47,7 +49,79 @@ function renderPage(path = "/original-access?box=inbox") {
 }
 
 describe("OriginalAccessPage governance workspace", () => {
+  it("returns from knowledge detail to the same project and manually opened request", async () => {
+    function KnowledgeReturn() {
+      const location = useLocation();
+      return <Link to={location.state.backTo}>返回申请</Link>;
+    }
+    render(
+      <MemoryRouter initialEntries={["/original-access?box=inbox&project_id=secret-project-80"]}>
+        <Routes>
+          <Route path="/original-access" element={<OriginalAccessPage />} />
+          <Route path="/knowledge/:id" element={<KnowledgeReturn />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: pending.asset_title! }));
+    const drawer = await screen.findByRole("dialog", { name: pending.asset_title! });
+    fireEvent.click(within(drawer).getByRole("link", { name: "查看资料与摘要" }));
+    expect(screen.getByRole("link", { name: "返回申请" })).toHaveAttribute(
+      "href",
+      "/original-access?box=inbox&project_id=secret-project-80&target_id=secret-request-80",
+    );
+    fireEvent.click(screen.getByRole("link", { name: "返回申请" }));
+    expect(await screen.findByRole("dialog", { name: pending.asset_title! })).toBeInTheDocument();
+    expect(screen.getByText("正在查看当前项目的原文申请。")).toBeInTheDocument();
+  });
+
+  it("opens an already-decided approval from its original inbox notification", async () => {
+    vi.mocked(fetchOriginalAccessRequests).mockResolvedValue({ items: [], total: 0 });
+    vi.mocked(fetchOriginalAccessRequest).mockResolvedValue({ ...pending, status: "approved" });
+    renderPage(`/original-access?box=inbox&target_id=${pending.request_id}`);
+    const drawer = await screen.findByRole("dialog", { name: pending.asset_title! });
+    expect(within(drawer).getByText("已通过")).toBeInTheDocument();
+    expect(within(drawer).queryByRole("button", { name: "通过" })).not.toBeInTheDocument();
+    expect(fetchOriginalAccessRequest).toHaveBeenCalledWith(pending.request_id);
+  });
+  it("does not expose an unavailable linked request or substitute another one", async () => {
+    vi.mocked(fetchOriginalAccessRequest).mockRejectedValue(new ApiError(404, "Unavailable"));
+    renderPage("/original-access?box=inbox&target_id=not-visible");
+    expect(await screen.findByText(/该申请已不可用/)).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("preserves the project while changing queue and restores mine on browser Back", async () => {
+    function Navigation() {
+      const navigate = useNavigate();
+      const location = useLocation();
+      return (
+        <>
+          <button onClick={() => navigate(-1)}>浏览器后退</button>
+          <output>{location.search}</output>
+        </>
+      );
+    }
+    render(
+      <MemoryRouter initialEntries={["/original-access?project_id=secret-project-80"]}>
+        <Navigation />
+        <OriginalAccessPage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(fetchOriginalAccessRequests).toHaveBeenLastCalledWith("mine"));
+    fireEvent.click(await screen.findByRole("button", { name: "待我审批" }));
+    await waitFor(() => expect(fetchOriginalAccessRequests).toHaveBeenLastCalledWith("inbox"));
+    expect(screen.getByText("正在查看当前项目的原文申请。")).toBeInTheDocument();
+    expect(screen.getByText("?project_id=secret-project-80&box=inbox")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "浏览器后退" }));
+    await waitFor(() => expect(fetchOriginalAccessRequests).toHaveBeenLastCalledWith("mine"));
+    expect(screen.getByRole("button", { name: "我的申请" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
   beforeEach(() => {
+    vi.mocked(fetchOriginalAccessRequest).mockReset().mockResolvedValue(pending);
     vi.mocked(fetchOriginalAccessRequests)
       .mockReset()
       .mockResolvedValue({ items: [pending], total: 1 });
@@ -98,6 +172,7 @@ describe("OriginalAccessPage governance workspace", () => {
     expect(within(detail).getByText(pending.reason!)).toBeInTheDocument();
     expect(within(detail).getByRole("button", { name: "通过" })).toBeEnabled();
     page.unmount();
+    vi.mocked(fetchOriginalAccessRequest).mockRejectedValue(new ApiError(404, "Unavailable"));
     renderPage("/original-access?box=inbox&target_id=missing");
     await screen.findByText(/该申请已不可用/);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();

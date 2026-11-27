@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from "../auth/AuthContext";
 import LoginGate from "../auth/LoginGate";
 import ErrorBoundary from "../components/ErrorBoundary";
 import LoadingError from "../components/LoadingError";
+import { SafeNavigationProvider } from "../routing/SafeNavigation";
 
 function WorkspaceIdentity() {
   const { authMe } = useAuth();
@@ -21,7 +22,9 @@ export default function AIWorkspaceLayout() {
   return (
     <AuthProvider>
       <LoginGate>
-        <WorkspaceIdentity />
+        <SafeNavigationProvider>
+          <WorkspaceIdentity />
+        </SafeNavigationProvider>
       </LoginGate>
     </AuthProvider>
   );

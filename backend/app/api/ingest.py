@@ -972,6 +972,7 @@ async def list_pending(
 
 @router.get("/ingest/my-uploads", response_model=MyUploadListResponse)
 async def list_my_uploads(
+    task_id: uuid.UUID | None = Query(default=None),
     scope: str | None = Query(default=None),
     final_status: str | None = Query(default=None),
     duplicate_result: str | None = Query(default=None),
@@ -983,6 +984,7 @@ async def list_my_uploads(
     items = await upload_duplicates.list_my_uploads(
         session,
         caller,
+        task_id=task_id,
         scope=scope,
         final_status=final_status,
         duplicate_result=duplicate_result,

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useSearchParams } from "react-router-dom";
 import {
   detectIndexSubmissionInterruptions,
   fetchIndexingHealth,
@@ -37,6 +38,10 @@ import {
 } from "./model";
 
 export function useAdminIngest() {
+  const [params] = useSearchParams();
+  const targetId = params.get("target_id");
+  const locationKey = useLocation().key;
+  const [navigationError, setNavigationError] = useState<string | null>(null);
   const [ingestItems, setIngestItems] = useState<AdminIngestItemDTO[]>([]);
   const [ingestState, setIngestState] = useState<LoadState>("loading");
   const [opsIndex, setOpsIndex] = useState<OpsIndexingDTO | null>(null);
@@ -73,6 +78,27 @@ export function useAdminIngest() {
   const [timeoutRecoveryError, setTimeoutRecoveryError] = useState<string | null>(null);
   const [recoveryListBusy, setRecoveryListBusy] = useState(false);
   const [workspace, setWorkspace] = useState<"recovery" | "jobs" | "runtime">("recovery");
+  useEffect(() => {
+    let current = true;
+    setSelectedJob(null);
+    setNavigationError(null);
+    if (!targetId) return;
+    setWorkspace("jobs");
+    void fetchIndexingJobs(targetId).then(
+      (result) => {
+        if (!current) return;
+        const job = result.items.find((item) => item.job_id === targetId);
+        if (job) setSelectedJob(job);
+        else setNavigationError("该作业已不可用或不在当前身份的可见范围，请查看作业记录。");
+      },
+      () => {
+        if (current) setNavigationError("暂时无法打开该作业，请刷新重试或查看作业记录。");
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [targetId, locationKey]);
   const showAllRecoveryItemsRef = useRef(false);
   const [refreshErrors, setRefreshErrors] = useState<Record<string, boolean>>({});
   const ingestRequestRef = useRef(0);
@@ -731,6 +757,7 @@ export function useAdminIngest() {
     handleTargetRetry,
     targetError,
     selectedJob,
+    navigationError,
   };
 }
 export type AdminIngestController = ReturnType<typeof useAdminIngest>;

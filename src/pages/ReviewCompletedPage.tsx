@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { knowledgeDetailSource } from "../routing/knowledgeDetailSource";
 import { ApiError } from "../api/http";
 import { fetchReviewPage } from "../api/review";
 import DataTable, { type Column } from "../components/DataTable";
@@ -49,9 +51,30 @@ function isForbidden(error: unknown) {
 }
 
 export default function ReviewCompletedPage() {
-  const [reviewType, setReviewType] = useState("");
-  const [status, setStatus] = useState("");
-  const [page, setPage] = useState(1);
+  const location = useLocation();
+  const [params, setParams] = useSearchParams();
+  const reviewType = reviewTypeFilters.some((item) => item.value === params.get("type"))
+    ? (params.get("type") ?? "")
+    : "";
+  const status = statusFilters.some((item) => item.value === params.get("status"))
+    ? (params.get("status") ?? "")
+    : "";
+  const requestedPage = Number(params.get("page") ?? "1");
+  const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+  const setPage = (nextPage: number) =>
+    setParams((previous) => {
+      const next = new URLSearchParams(previous);
+      next.set("page", String(nextPage));
+      return next;
+    });
+  const setFilter = (key: string, value: string) =>
+    setParams((previous) => {
+      const next = new URLSearchParams(previous);
+      if (value) next.set(key, value);
+      else next.delete(key);
+      next.delete("page");
+      return next;
+    });
   const [items, setItems] = useState<ReviewItemDTO[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -146,6 +169,23 @@ export default function ReviewCompletedPage() {
       className: "gw-time",
       render: (item) => formatBeijingTime(item.reviewed_at),
     },
+    {
+      key: "detail",
+      header: "操作",
+      render: (item) => (
+        <Link
+          className="gw-action"
+          to={`/review?queue=completed&target_id=${encodeURIComponent(item.id)}`}
+          state={knowledgeDetailSource(
+            location.pathname + location.search,
+            "返回已完成任务",
+            "review",
+          )}
+        >
+          查看详情
+        </Link>
+      ),
+    },
   ];
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -165,8 +205,7 @@ export default function ReviewCompletedPage() {
               aria-label="审核状态"
               value={status}
               onChange={(event) => {
-                setStatus(event.target.value);
-                setPage(1);
+                setFilter("status", event.target.value);
               }}
             >
               {statusFilters.map((item) => (
@@ -182,8 +221,7 @@ export default function ReviewCompletedPage() {
               aria-label="审核类型"
               value={reviewType}
               onChange={(event) => {
-                setReviewType(event.target.value);
-                setPage(1);
+                setFilter("type", event.target.value);
               }}
             >
               {reviewTypeFilters.map((item) => (

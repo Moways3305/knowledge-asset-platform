@@ -32,10 +32,10 @@
 .ai-workspace [hidden] {
   display: none !important;
 }
-.ai-workspace h1,
-.ai-workspace h2,
-.ai-workspace h3,
-.ai-workspace p {
+.ai-workspace h1:not(:where(.aw-agent-workspace *)),
+.ai-workspace h2:not(:where(.aw-agent-workspace *)),
+.ai-workspace h3:not(:where(.aw-agent-workspace *)),
+.ai-workspace p:not(:where(.aw-agent-workspace *)) {
   margin: 0;
   font-family: inherit;
 }
@@ -46,14 +46,14 @@
   font: inherit;
   color: inherit;
 }
-.ai-workspace button {
+.ai-workspace button:not(:where(.aw-agent-workspace *)) {
   border: 0;
   background: transparent;
   text-align: left;
   cursor: pointer;
   box-shadow: none;
 }
-.ai-workspace a {
+.ai-workspace a:not(:where(.aw-agent-workspace *)) {
   color: inherit;
   text-decoration: none;
 }
@@ -989,6 +989,61 @@
   overflow: auto;
   min-height: 0;
   flex: 1;
+}
+.ai-workspace .aw-agent-workspace {
+  padding: 12px clamp(16px, 3vw, 36px) 32px;
+  border-top: 1px solid var(--aw-line);
+  scrollbar-gutter: stable;
+}
+.ai-workspace .is-workspace-agent {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
+  max-width: 1240px;
+  min-width: 0;
+  margin: 0 auto;
+  padding: 12px 0;
+  border: 0;
+  background: transparent;
+}
+.ai-workspace .is-workspace-agent > .product-page-header {
+  padding: 0;
+  border: 0;
+}
+.ai-workspace .is-workspace-agent .product-page-heading h2 {
+  font-size: 21px;
+  line-height: 1.4;
+  font-weight: 600;
+}
+.ai-workspace .is-workspace-agent .agent-toolbar {
+  margin-top: 0;
+  padding: 0;
+}
+.ai-workspace .is-workspace-agent .agent-panel {
+  padding: clamp(14px, 2vw, 24px);
+}
+.ai-workspace .is-workspace-agent :is(.agent-panel, .agent-readiness, .kt-board) {
+  min-width: 0;
+}
+.ai-workspace .is-workspace-agent .agent-tabs {
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin: 0;
+}
+.ai-workspace .is-workspace-agent .agent-note {
+  font-size: 12px;
+}
+.ai-workspace .is-workspace-agent .agent-reference-hint {
+  font-size: 11px;
+  font-weight: 400;
+  white-space: nowrap;
+  opacity: 0.8;
+}
+@media (max-width: 680px) {
+  .ai-workspace .is-workspace-agent :is(.product-button, .agent-tabs > a, .agent-tabs > button) {
+    min-height: 44px;
+  }
 }
 .ai-workspace .aw-entry {
   max-width: 760px;

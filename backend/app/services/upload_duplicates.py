@@ -943,6 +943,7 @@ async def list_my_uploads(
     session: AsyncSession,
     caller: CallerContext,
     *,
+    task_id: uuid.UUID | None = None,
     scope: str | None = None,
     final_status: str | None = None,
     duplicate_result: str | None = None,
@@ -952,6 +953,8 @@ async def list_my_uploads(
     if not caller.is_business_user:
         raise _denied(403, "admin_business_permission_denied", "仅业务用户可查看自己的上传记录")
     stmt = select(IngestTask).where(IngestTask.created_by == caller.user_id)
+    if task_id is not None:
+        stmt = stmt.where(IngestTask.id == task_id)
     if scope is not None:
         stmt = stmt.where(IngestTask.target_scope == scope)
     if since is not None:

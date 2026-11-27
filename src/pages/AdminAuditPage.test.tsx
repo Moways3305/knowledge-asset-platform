@@ -1,3 +1,4 @@
+import { MemoryRouter } from "react-router-dom";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchAudit, markAuditProcessed } from "../api/admin";
@@ -64,6 +65,37 @@ function makeResponse(
 }
 
 describe("AdminAuditPage", () => {
+  it("does not offer a system-only administrator a business knowledge route", async () => {
+    vi.mocked(fetchAudit).mockResolvedValue(
+      makeResponse([{ ...exceptionItem, target_type: "knowledge_asset" }], {
+        view: "admin_metadata",
+      }),
+    );
+    render(
+      <MemoryRouter>
+        <AdminAuditPage />
+      </MemoryRouter>,
+    );
+    await screen.findByText("异常");
+    await waitFor(() => expect(fetchAudit).toHaveBeenCalled());
+    expect(screen.queryByRole("link", { name: "查看当前状态" })).not.toBeInTheDocument();
+  });
+  it("keeps the indexing job identity in an audit state link", async () => {
+    vi.mocked(fetchAudit).mockResolvedValue(
+      makeResponse([
+        { ...exceptionItem, target_type: "indexing_operation_job", target_id: "job-id" },
+      ]),
+    );
+    render(
+      <MemoryRouter>
+        <AdminAuditPage />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole("link", { name: "查看当前状态" })).toHaveAttribute(
+      "href",
+      "/admin/ingest?target_id=job-id",
+    );
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     // 参数感知的迷你服务端：按 log_type / severity / is_processed 过滤，模拟分页。

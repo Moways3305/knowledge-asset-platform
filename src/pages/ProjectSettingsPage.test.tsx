@@ -156,7 +156,7 @@ function HomeRoute() {
   const navigate = useNavigate();
   return (
     <>
-      <div>今日工作台</div>
+      <div>项目列表</div>
       <button onClick={() => navigate(-1)}>返回上一页</button>
     </>
   );
@@ -174,7 +174,7 @@ function renderPage(withPreviousEntry = false) {
       <Routes>
         <Route path="/project/:id/settings" element={<ProjectSettingsPage />} />
         <Route path="/review" element={<div>审核页</div>} />
-        <Route path="/" element={<HomeRoute />} />
+        <Route path="/projects" element={<HomeRoute />} />
         <Route path="/previous" element={<div>先前页面</div>} />
       </Routes>
     </MemoryRouter>,
@@ -296,8 +296,8 @@ describe("ProjectSettingsPage reference implementation", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "删除项目" }));
     await waitFor(() => expect(projectApi.deleteProject).toHaveBeenCalledWith(PROJECT_ID));
     await waitFor(() => expect(auth.reload).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText("今日工作台")).toBeInTheDocument();
-    expect(screen.getByLabelText("当前路径")).toHaveTextContent("/");
+    expect(await screen.findByText("项目列表")).toBeInTheDocument();
+    expect(screen.getByLabelText("当前路径")).toHaveTextContent("/projects");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.queryByText(settings.name)).not.toBeInTheDocument();
 
@@ -325,7 +325,7 @@ describe("ProjectSettingsPage reference implementation", () => {
     });
     fireEvent.click(within(dialog).getByRole("button", { name: "删除项目" }));
 
-    expect(await screen.findByText("今日工作台")).toBeInTheDocument();
+    expect(await screen.findByText("项目列表")).toBeInTheDocument();
     expect(auth.reload).toHaveBeenCalledTimes(1);
     expect(screen.queryByText(/删除失败/)).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -355,7 +355,7 @@ describe("ProjectSettingsPage reference implementation", () => {
 
     expect(projectApi.deleteProject).toHaveBeenCalledTimes(1);
     pendingDelete.resolve();
-    expect(await screen.findByText("今日工作台")).toBeInTheDocument();
+    expect(await screen.findByText("项目列表")).toBeInTheDocument();
   });
 
   it("keeps asset, permission, unrelated 404 and network failures visible without leaving", async () => {

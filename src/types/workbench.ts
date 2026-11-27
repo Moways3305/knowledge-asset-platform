@@ -31,6 +31,7 @@ export type WorkbenchTaskPriority = "urgent" | "high" | "normal" | "low";
 
 export interface WorkbenchTaskItemDTO {
   task_ref: string;
+  resource_id?: string | null;
   task_type: string;
   object_name: string;
   project_name: string | null;

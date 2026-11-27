@@ -1,5 +1,14 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowDown,
   ArrowLeft,
@@ -48,9 +57,15 @@ import { MarkdownView } from "./knowledge/OnlyOfficePreview";
 import ArtifactPanel, { type ArtifactDraft, type PreviewTab } from "./ai-workspace/ArtifactPanel";
 import { useWorkspaceData, workspaceError } from "./ai-workspace/useWorkspaceData";
 import { WorkspaceIconButton, WorkspaceTooltip } from "./ai-workspace/WorkspaceTooltip";
+import {
+  AI_WORKSPACE_PATH,
+  MAINTENANCE_AGENT_PATH,
+  maintenanceAgentHref,
+} from "../navigation/agentRoutes";
 import "../styles/ai-workspace.css";
 
-type View = "chat" | "agents" | "tools" | "preferences" | "help";
+const MaintenanceAgentPage = lazy(() => import("./MaintenanceAgentPage"));
+type View = "chat" | "agents" | "maintenance" | "tools" | "preferences" | "help";
 interface SessionView {
   input: string;
   model: string;
@@ -125,15 +140,24 @@ export default function AIWorkspacePage() {
 
 function Workspace() {
   const { authMe, reload } = useAuth();
-  const [params, setParams] = useSearchParams();
+  const location = useLocation();
+  const routeNavigate = useNavigate();
+  const [params] = useSearchParams();
+  const isMaintenance = location.pathname.replace(/\/$/, "") === MAINTENANCE_AGENT_PATH;
   const sessionId = params.get("session") ?? "";
   const requestedView = params.get("view");
-  const view: View = ["agents", "tools", "preferences", "help"].includes(requestedView ?? "")
-    ? (requestedView as View)
-    : "chat";
+  const view: View = isMaintenance
+    ? "maintenance"
+    : ["agents", "tools", "preferences", "help"].includes(requestedView ?? "")
+      ? (requestedView as View)
+      : "chat";
   const state = useWorkspaceData(sessionId);
   const [sessionViews, setSessionViews] = useState<Record<string, SessionView>>({});
   const [artifactDrafts, setArtifactDrafts] = useState<Record<string, ArtifactDraft>>({});
+  const [lastAgentLocation, setLastAgentLocation] = useState<{
+    search: string;
+    hash: string;
+  } | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const navigationWasOpen = useRef(false);
   navigationWasOpen.current = sidebarOpen;
@@ -161,8 +185,9 @@ function Workspace() {
   const editor = useRef<HTMLTextAreaElement>(null);
   const currentId = useRef(sessionId);
   currentId.current = sessionId;
-  const currentRoute = useRef(params.toString());
-  currentRoute.current = params.toString();
+  const routeKey = `${location.pathname}${location.search}${location.hash}`;
+  const currentRoute = useRef(routeKey);
+  currentRoute.current = routeKey;
   const mounted = useRef(true);
   const positions = useRef<Record<string, { top: number; follow: boolean }>>({});
   const requests = useRef<
@@ -220,6 +245,9 @@ function Workspace() {
       mounted.current = false;
     };
   }, []);
+  useEffect(() => {
+    if (isMaintenance) setLastAgentLocation({ search: location.search, hash: location.hash });
+  }, [isMaintenance, location.search, location.hash]);
   useEffect(() => {
     const element = frame.current;
     if (!element) return;
@@ -301,7 +329,7 @@ function Workspace() {
     const next = new URLSearchParams();
     if (id) next.set("session", id);
     if (nextView !== "chat") next.set("view", nextView);
-    setParams(next);
+    routeNavigate(`${AI_WORKSPACE_PATH}${next.size ? `?${next}` : ""}`);
     closeSidebar();
     setError("");
     setDialog(null);
@@ -451,9 +479,15 @@ function Workspace() {
   const title =
     view === "chat"
       ? state.detail?.session.title || (sessionId ? "会话" : "新建会话")
-      : ({ agents: "Agent", tools: "工具", preferences: "偏好设置", help: "使用说明" } as const)[
-          view
-        ];
+      : (
+          {
+            agents: "Agent",
+            maintenance: "知识维护 Agent",
+            tools: "工具",
+            preferences: "偏好设置",
+            help: "使用说明",
+          } as const
+        )[view];
 
   return (
     <div
@@ -502,7 +536,7 @@ function Workspace() {
           </button>
           <button
             className="aw-nav-item"
-            data-active={view === "agents"}
+            data-active={view === "agents" || view === "maintenance"}
             onClick={() => navigate("agents")}
           >
             <Bot />
@@ -567,6 +601,11 @@ function Workspace() {
             >
               <Menu />
             </WorkspaceIconButton>
+            {view === "maintenance" && (
+              <WorkspaceIconButton label="返回 Agent 列表" onClick={() => navigate("agents")}>
+                <ArrowLeft />
+              </WorkspaceIconButton>
+            )}
             <span>{title}</span>
           </div>
           <div className="aw-inline-actions">
@@ -961,6 +1000,18 @@ function Workspace() {
               />
             )}
           </div>
+        ) : view === "maintenance" ? (
+          <div className="aw-agent-workspace aw-section-scroll" aria-label="知识维护 Agent 工作区">
+            <Suspense
+              fallback={
+                <p className="aw-loading" role="status">
+                  正在打开知识维护 Agent…
+                </p>
+              }
+            >
+              <MaintenanceAgentPage embedded />
+            </Suspense>
+          </div>
         ) : (
           <div className="aw-section-scroll">
             <section className="aw-entry">
@@ -988,9 +1039,11 @@ function Workspace() {
                       <p>巡检计划、模型与授权仍在知识维护 Agent 中配置。</p>
                       <Link
                         className="aw-text-button"
-                        to="/agents/knowledge-maintenance?tab=issues"
-                        target="_blank"
-                        rel="noopener noreferrer"
+                        to={maintenanceAgentHref(
+                          lastAgentLocation?.search ?? "?tab=issues",
+                          { session: sessionId || null },
+                          lastAgentLocation?.hash,
+                        )}
                       >
                         打开知识维护 Agent
                         <ChevronRight />

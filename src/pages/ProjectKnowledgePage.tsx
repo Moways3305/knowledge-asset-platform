@@ -1,3 +1,9 @@
+import {
+  queryChoice,
+  queryDate,
+  queryPage,
+  useKnowledgeQueryState,
+} from "./controllers/knowledgeQueryState";
 import ProjectModuleFrame from "../components/ProjectModuleFrame";
 import ProjectWorkspaceNav from "../components/ProjectWorkspaceNav";
 import { ActionMenu } from "../components/ActionLayout";
@@ -103,16 +109,40 @@ function ProjectKnowledgeWorkspace({
   projects: Array<{ projectId: string; projectName: string; projectRole: string }>;
   onSwitch: (projectId: string) => void;
 }) {
-  const [keywordInput, setKeywordInput] = useState("");
-  const [keyword, setKeyword] = useState("");
-  const [assetStatus, setAssetStatus] = useState<AssetStatus | "">("");
-  const [confidentialityLevel, setConfidentialityLevel] = useState<ConfidentialityLevel | "">("");
-  const [updatedFrom, setUpdatedFrom] = useState("");
-  const [updatedTo, setUpdatedTo] = useState("");
-  const [sortBy, setSortBy] = useState<KnowledgeSortField>("updated_at");
-  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
-  const [includeArchived, setIncludeArchived] = useState(false);
-  const [page, setPage] = useState(1);
+  const { query, updateQuery, currentPath } = useKnowledgeQueryState();
+  const keyword = query.get("keyword") ?? "";
+  const [keywordInput, setKeywordInput] = useState(keyword);
+  useEffect(() => setKeywordInput(keyword), [keyword]);
+  const assetStatus = queryChoice<AssetStatus | "">(
+    query,
+    "asset_status",
+    ["", "active", "needs_update", "deprecated", "archived"],
+    "",
+  );
+  const confidentialityLevel = queryChoice<ConfidentialityLevel | "">(
+    query,
+    "confidentiality",
+    ["", "L1", "L2", "L3", "L4", "L5"],
+    "",
+  );
+  const updatedFrom = queryDate(query, "updated_from");
+  const updatedTo = queryDate(query, "updated_to");
+  const sortBy = queryChoice<KnowledgeSortField>(
+    query,
+    "sort_by",
+    ["updated_at", "created_at", "title", "confidentiality_level", "asset_status"],
+    "updated_at",
+  );
+  const sortDirection = queryChoice<SortDirection>(
+    query,
+    "sort_direction",
+    ["asc", "desc"],
+    "desc",
+  );
+  const includeArchived = query.get("archived") === "1";
+  const page = queryPage(query);
+  const setPage = (value: number) =>
+    updateQuery({ page: value > 1 ? value : null }, { resetPage: false });
   const [result, setResult] = useState<KnowledgePageVM>(emptyPage);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -235,21 +265,21 @@ function ProjectKnowledgeWorkspace({
 
   const resetFilters = () => {
     setKeywordInput("");
-    setKeyword("");
-    setAssetStatus("");
-    setConfidentialityLevel("");
-    setUpdatedFrom("");
-    setUpdatedTo("");
-    setSortBy("updated_at");
-    setSortDirection("desc");
-    setIncludeArchived(false);
-    setPage(1);
+    updateQuery({
+      keyword: null,
+      asset_status: null,
+      confidentiality: null,
+      updated_from: null,
+      updated_to: null,
+      sort_by: null,
+      sort_direction: null,
+      archived: null,
+    });
   };
 
   const submitKeyword = (event: FormEvent) => {
     event.preventDefault();
-    setKeyword(keywordInput.trim());
-    setPage(1);
+    updateQuery({ keyword: keywordInput.trim() });
   };
 
   const openUpgrade = useCallback(
@@ -510,7 +540,7 @@ function ProjectKnowledgeWorkspace({
           className="pk-title"
           to={`/knowledge/${asset.id}`}
           state={{
-            backTo: `/project/${project.projectId}/knowledge`,
+            backTo: currentPath,
             backLabel: "返回项目知识库",
             source: "project",
           }}
@@ -565,7 +595,7 @@ function ProjectKnowledgeWorkspace({
             <Link
               to={`/knowledge/${encodeURIComponent(asset.id)}`}
               state={{
-                backTo: `/project/${project.projectId}/knowledge`,
+                backTo: currentPath,
                 backLabel: "返回项目知识库",
                 source: "project",
               }}
@@ -626,6 +656,7 @@ function ProjectKnowledgeWorkspace({
               <Link
                 className="product-button is-primary"
                 to={`/upload?source=local&project_id=${encodeURIComponent(project.projectId)}`}
+                state={{ backTo: currentPath, backLabel: "返回项目知识库", source: "project" }}
               >
                 <Upload size={16} aria-hidden="true" />
                 上传资料
@@ -697,8 +728,7 @@ function ProjectKnowledgeWorkspace({
                   aria-label="资产状态"
                   value={assetStatus}
                   onChange={(event) => {
-                    setAssetStatus(event.target.value as AssetStatus | "");
-                    setPage(1);
+                    updateQuery({ asset_status: event.target.value });
                   }}
                 >
                   <option value="">状态：全部</option>
@@ -716,8 +746,7 @@ function ProjectKnowledgeWorkspace({
                   aria-label="保密级别"
                   value={confidentialityLevel}
                   onChange={(event) => {
-                    setConfidentialityLevel(event.target.value as ConfidentialityLevel | "");
-                    setPage(1);
+                    updateQuery({ confidentiality: event.target.value });
                   }}
                 >
                   <option value="">保密：全部</option>
@@ -738,8 +767,7 @@ function ProjectKnowledgeWorkspace({
                       type="date"
                       value={updatedFrom}
                       onChange={(event) => {
-                        setUpdatedFrom(event.target.value);
-                        setPage(1);
+                        updateQuery({ updated_from: event.target.value });
                       }}
                     />
                   </label>
@@ -750,8 +778,7 @@ function ProjectKnowledgeWorkspace({
                       type="date"
                       value={updatedTo}
                       onChange={(event) => {
-                        setUpdatedTo(event.target.value);
-                        setPage(1);
+                        updateQuery({ updated_to: event.target.value });
                       }}
                     />
                   </label>
@@ -762,8 +789,7 @@ function ProjectKnowledgeWorkspace({
                       aria-label="排序字段"
                       value={sortBy}
                       onChange={(event) => {
-                        setSortBy(event.target.value as KnowledgeSortField);
-                        setPage(1);
+                        updateQuery({ sort_by: event.target.value });
                       }}
                     >
                       <option value="updated_at">最后更新</option>
@@ -780,8 +806,7 @@ function ProjectKnowledgeWorkspace({
                       aria-label="排序方向"
                       value={sortDirection}
                       onChange={(event) => {
-                        setSortDirection(event.target.value as SortDirection);
-                        setPage(1);
+                        updateQuery({ sort_direction: event.target.value });
                       }}
                     >
                       <option value="desc">降序</option>
@@ -794,8 +819,7 @@ function ProjectKnowledgeWorkspace({
                       type="checkbox"
                       checked={includeArchived}
                       onChange={(event) => {
-                        setIncludeArchived(event.target.checked);
-                        setPage(1);
+                        updateQuery({ archived: event.target.checked });
                       }}
                     />
                     <span>包含归档</span>

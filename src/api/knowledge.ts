@@ -26,6 +26,7 @@ import type {
   AccessGrantDTO,
   CreateRequestResponseDTO,
   GrantsListResponseDTO,
+  OriginalAccessRequestDTO,
   RequestsListResponseDTO,
 } from "../types/originalAccess";
 import type {
@@ -353,6 +354,14 @@ export async function fetchOriginalAccessRequests(
   box: "mine" | "inbox" = "mine",
 ): Promise<RequestsListResponseDTO> {
   return apiGet<RequestsListResponseDTO>(`/api/v1/original-access/requests?box=${box}`);
+}
+
+export async function fetchOriginalAccessRequest(
+  requestId: string,
+): Promise<OriginalAccessRequestDTO> {
+  return apiGet<OriginalAccessRequestDTO>(
+    `/api/v1/original-access/requests/${encodeURIComponent(requestId)}`,
+  );
 }
 
 export async function approveOriginalAccess(

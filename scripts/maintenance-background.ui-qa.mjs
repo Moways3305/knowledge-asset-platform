@@ -25,6 +25,8 @@ try {
       let body = {items: [], total: 0, unread_count: 0, pending_count: 0};
       if (p.endsWith("/auth/me")) body = {user_id: "reader", name: "验收用户", status: "active", company_roles: ["boss"], active_company_role: "boss", is_business_user: true, can_discover_l5: true, project_memberships: []};
       if (p.endsWith("/auth/csrf")) body = {csrf_token: "test"};
+      if (p.endsWith("/ai-workspace/options")) body = {models: [], contexts: [{key: "company", label: "公司知识库"}], tools: []};
+      if (p.endsWith("/ai-workspace/sessions")) body = [];
       if (p.endsWith("/generation/model-options")) body = {default_missing: false, items: [{model_ref: "a".repeat(64), display_name: "知识质量分析", provider: "custom", model_name: "quality", enabled: true, is_default: true}]};
       if (p.endsWith("/maintenance-agent/policies")) body = [policy];
       if (p.endsWith("/policies/company/runs")) { listCalls++; if (hold) { pending++; await hold; } body = runs; }

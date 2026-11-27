@@ -139,15 +139,27 @@ const kb: KbConfigDTO = {
   },
 };
 
-function renderPage() {
+function renderPage(path = "/admin/weknora-models") {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <AdminWeKnoraModelsPage />
     </MemoryRouter>,
   );
 }
 
 describe("AdminWeKnoraModelsPage modal workspace", () => {
+  it("opens the migration named by a notification", async () => {
+    renderPage(`/admin/weknora-models?target_id=${kb.migration!.job_id}`);
+    expect(
+      await screen.findByRole("dialog", { name: "迁移结果 · 交付方法库" }),
+    ).toBeInTheDocument();
+  });
+  it("does not substitute a different migration for an old or unauthorized target", async () => {
+    renderPage("/admin/weknora-models?target_id=missing");
+    expect(await screen.findByText(/该迁移记录已更新/)).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: /迁移结果/ })).not.toBeInTheDocument();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(fetchRegistry).mockResolvedValue({ connections: [], models: [] });

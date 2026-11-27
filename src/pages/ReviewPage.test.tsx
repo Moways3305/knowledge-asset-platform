@@ -66,17 +66,27 @@ function renderPage(entry = "/review") {
   );
 }
 
-function renderCompletedPage() {
+function renderCompletedPage(path = "/review/completed") {
   return render(
-    <MemoryRouter initialEntries={["/review/completed"]}>
+    <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route path="/review/completed" element={<ReviewCompletedPage />} />
+        <Route path="/review" element={<ReviewPage />} />
       </Routes>
     </MemoryRouter>,
   );
 }
 
 describe("ReviewPage governance workspace", () => {
+  it("provides a completed-queue exit for a notification without list state", async () => {
+    renderPage("/review?queue=completed&target_id=secret-review-80");
+    expect(await screen.findByRole("link", { name: "返回已完成任务" })).toHaveAttribute(
+      "href",
+      "/review/completed",
+    );
+    expect(screen.queryByRole("button", { name: "查看全部待办" })).not.toBeInTheDocument();
+  });
+
   beforeEach(() => {
     vi.mocked(fetchReview)
       .mockReset()
@@ -381,8 +391,15 @@ describe("ReviewPage governance workspace", () => {
     const readonlyRow = within(screen.getByText("只读审核").closest("tr")!);
     expect(readonlyRow.queryByRole("button", { name: "确认" })).toBeNull();
     expect(readonlyRow.queryByRole("button", { name: "拒绝" })).toBeNull();
+    vi.mocked(fetchReview).mockResolvedValue({
+      ...pending,
+      id: "readonly-review",
+      asset_title: "只读审核",
+      can_decide: false,
+      evidences: [],
+    });
     fireEvent.click(readonlyRow.getByRole("button", { name: "只读审核" }));
-    const detail = screen.getByRole("dialog", { name: "只读审核" });
+    const detail = await screen.findByRole("dialog", { name: "只读审核" });
     expect(within(detail).getByRole("heading", { name: "审批进度" })).toBeInTheDocument();
     expect(within(detail).queryByRole("button", { name: "确认" })).toBeNull();
     expect(within(detail).queryByRole("button", { name: "拒绝" })).toBeNull();
@@ -464,6 +481,44 @@ describe("ReviewPage governance workspace", () => {
 });
 
 describe("ReviewCompletedPage read-only queue", () => {
+  it("returns from a completed detail to its exact filtered result page", async () => {
+    vi.mocked(fetchReview).mockResolvedValue({
+      ...pending,
+      id: "completed-review",
+      status: "approved",
+      can_decide: false,
+      evidences: [],
+    });
+    renderCompletedPage("/review/completed?status=approved&type=project_to_company&page=2");
+    fireEvent.click(await screen.findByRole("link", { name: "查看详情" }));
+    expect(await screen.findByRole("link", { name: "返回已完成任务" })).toHaveAttribute(
+      "href",
+      "/review/completed?status=approved&type=project_to_company&page=2",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "关闭详情" }));
+    fireEvent.click(screen.getByRole("link", { name: "返回已完成任务" }));
+    await waitFor(() =>
+      expect(fetchReviewPage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ status: "approved", reviewType: "project_to_company", page: 2 }),
+      ),
+    );
+  });
+
+  it("restores completed-review filters and pagination from a returned URL", async () => {
+    renderCompletedPage("/review/completed?status=rejected&type=project_to_company&page=2");
+    await waitFor(() =>
+      expect(fetchReviewPage).toHaveBeenCalledWith({
+        queue: "completed",
+        reviewType: "project_to_company",
+        status: "rejected",
+        page: 2,
+        pageSize: 20,
+      }),
+    );
+    expect(screen.getByLabelText("审核状态")).toHaveValue("rejected");
+    expect(screen.getByLabelText("审核类型")).toHaveValue("project_to_company");
+  });
+
   const completed = {
     ...pending,
     id: "completed-review",
@@ -496,6 +551,10 @@ describe("ReviewCompletedPage read-only queue", () => {
     });
     expect(screen.getAllByText("已通过")).toHaveLength(2);
     expect(screen.getByRole("columnheader", { name: "完成时间" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "查看详情" })).toHaveAttribute(
+      "href",
+      "/review?queue=completed&target_id=completed-review",
+    );
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /确认|拒绝|撤回|批量/ })).not.toBeInTheDocument();
   });

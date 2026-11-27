@@ -8,6 +8,7 @@ type RouteContract = {
   owners: string[];
   apiModules: string[];
   allowedTimerOwners?: string[];
+  embeddedComponents?: string[];
 };
 
 type BusinessOptionContract = {
@@ -36,8 +37,9 @@ const routes: RouteContract[] = [
     ],
   },
   {
-    route: "/agents/knowledge-maintenance",
-    component: "MaintenanceAgentPage",
+    route: "/ai-workspace/agents/knowledge-maintenance",
+    component: "AIWorkspacePage",
+    embeddedComponents: ["MaintenanceAgentPage"],
     guard: "viewKnowledge",
     owners: ["pages/MaintenanceAgentPage.tsx"],
     apiModules: ["http", "maintenanceAgent"],
@@ -234,7 +236,7 @@ const routes: RouteContract[] = [
   {
     route: "/projects",
     component: "ProjectOverviewPage",
-    guard: "viewProject",
+    guard: "viewProjectHub",
     owners: ["pages/ProjectOverviewPage.tsx", "components/CreateProjectModal.tsx"],
     apiModules: ["admin", "http", "project"],
   },
@@ -411,20 +413,28 @@ function appRouteOwnership() {
   };
   collectLazyPages(app);
 
-  const visitRoutes = (node: ts.Node) => {
-    if (ts.isJsxSelfClosingElement(node) && node.tagName.getText(app) === "Route") {
-      const attributes = node.attributes.properties.filter(ts.isJsxAttribute);
+  const visitRoutes = (
+    node: ts.Node,
+    parentPath = "",
+    parentOwner = { component: "", guard: "public" },
+  ) => {
+    const opening = ts.isJsxElement(node) ? node.openingElement : node;
+    if (
+      (ts.isJsxSelfClosingElement(opening) || ts.isJsxOpeningElement(opening)) &&
+      opening.tagName.getText(app) === "Route"
+    ) {
+      const attributes = opening.attributes.properties.filter(ts.isJsxAttribute);
       const pathAttribute = attributes.find((item) => item.name.getText(app) === "path");
       const isIndex = attributes.some((item) => item.name.getText(app) === "index");
       const pathValue = pathAttribute?.initializer;
       const route = isIndex
-        ? "/"
+        ? parentPath || "/"
         : pathValue && ts.isStringLiteral(pathValue)
-          ? `/${pathValue.text}`
+          ? `${parentPath}/${pathValue.text}`
           : undefined;
+      let component = parentOwner.component;
+      let guard = parentOwner.guard;
       if (route && route !== "/*") {
-        let component = "";
-        let guard = "public";
         const findOwnership = (child: ts.Node) => {
           if (ts.isJsxSelfClosingElement(child)) {
             const name = child.tagName.getText(app);
@@ -435,11 +445,18 @@ function appRouteOwnership() {
           }
           ts.forEachChild(child, findOwnership);
         };
-        findOwnership(node);
+        // Inspect this route's element, not descendant routes with their own guards.
+        attributes.forEach(findOwnership);
         if (component) ownership.set(route, { component, guard });
       }
+      if (ts.isJsxElement(node)) {
+        node.children.forEach((child) =>
+          visitRoutes(child, route ?? parentPath, { component, guard }),
+        );
+      }
+      return;
     }
-    ts.forEachChild(node, visitRoutes);
+    ts.forEachChild(node, (child) => visitRoutes(child, parentPath, parentOwner));
   };
   visitRoutes(app);
   return ownership;
@@ -473,7 +490,7 @@ describe("frontend route takeover gate", () => {
       .sort();
     // LoginPage is owned by LoginGate, before any business route is mounted.
     const registered = [
-      ...new Set(routes.map((item) => item.component)),
+      ...new Set(routes.flatMap((item) => [item.component, ...(item.embeddedComponents ?? [])])),
       "NotFoundPage",
       "LoginPage",
     ].sort();

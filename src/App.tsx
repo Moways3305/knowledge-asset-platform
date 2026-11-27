@@ -1,11 +1,12 @@
 import { lazy } from "react";
-import { BrowserRouter, Navigate, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Navigate, Routes, Route, useLocation } from "react-router-dom";
 import AppLayout from "./layouts/AppLayout";
 import ErrorBoundary from "./components/ErrorBoundary";
 import NotFoundPage from "./pages/NotFoundPage";
 import RouteGuard from "./auth/RouteGuard";
 import { can } from "./auth/permissions";
 import AIWorkspaceLayout from "./layouts/AIWorkspaceLayout";
+import { legacyMaintenanceAgentDestination } from "./navigation/agentRoutes";
 
 // 路由级代码分割：每个页面按需动态 import，Vite 自动为其切分 chunk，首屏不再一次性
 // 加载全部 18 个页面。Suspense fallback 与内层 ErrorBoundary 放在 AppLayout 的 Outlet
@@ -16,7 +17,6 @@ const KnowledgeListPage = lazy(() => import("./pages/KnowledgeListPage"));
 const CompanyGovernancePage = lazy(() => import("./pages/CompanyGovernancePage"));
 const KnowledgeDetailPage = lazy(() => import("./pages/KnowledgeDetailPage"));
 const KnowledgeMaintenancePage = lazy(() => import("./pages/KnowledgeMaintenancePage"));
-const MaintenanceAgentPage = lazy(() => import("./pages/MaintenanceAgentPage"));
 const MyKnowledgePage = lazy(() => import("./pages/MyKnowledgePage"));
 const UploadPage = lazy(() => import("./pages/UploadPage"));
 const AdminIngestPage = lazy(() => import("./pages/AdminIngestPage"));
@@ -42,6 +42,11 @@ const WorkbuddyAccessPage = lazy(() => import("./pages/WorkbuddyAccessPage"));
 const McpAuthorizePage = lazy(() => import("./pages/McpAuthorizePage"));
 const AIWorkspacePage = lazy(() => import("./pages/AIWorkspacePage"));
 
+function LegacyMaintenanceAgentRedirect() {
+  const { search, hash } = useLocation();
+  return <Navigate to={legacyMaintenanceAgentDestination(search, hash)} replace />;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -54,6 +59,25 @@ export default function App() {
               element={
                 <RouteGuard cap={can.viewKnowledge}>
                   <AIWorkspacePage />
+                </RouteGuard>
+              }
+            >
+              <Route index element={null} />
+              <Route path="agents/knowledge-maintenance" element={null} />
+            </Route>
+            <Route
+              path="agents"
+              element={
+                <RouteGuard cap={can.viewKnowledge}>
+                  <Navigate to="/ai-workspace?view=agents" replace />
+                </RouteGuard>
+              }
+            />
+            <Route
+              path="agents/knowledge-maintenance"
+              element={
+                <RouteGuard cap={can.viewKnowledge}>
+                  <LegacyMaintenanceAgentRedirect />
                 </RouteGuard>
               }
             />
@@ -92,22 +116,6 @@ export default function App() {
               element={
                 <RouteGuard cap={can.viewKnowledge}>
                   <KnowledgeMaintenancePage />
-                </RouteGuard>
-              }
-            />
-            <Route
-              path="agents"
-              element={
-                <RouteGuard cap={can.viewKnowledge}>
-                  <Navigate to="/ai-workspace?view=agents" replace />
-                </RouteGuard>
-              }
-            />
-            <Route
-              path="agents/knowledge-maintenance"
-              element={
-                <RouteGuard cap={can.viewKnowledge}>
-                  <MaintenanceAgentPage />
                 </RouteGuard>
               }
             />
@@ -251,7 +259,7 @@ export default function App() {
             <Route
               path="projects"
               element={
-                <RouteGuard cap={can.viewProject}>
+                <RouteGuard cap={can.viewProjectHub}>
                   <ProjectOverviewPage />
                 </RouteGuard>
               }

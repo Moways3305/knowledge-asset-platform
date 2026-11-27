@@ -112,7 +112,7 @@ describe("Notification inbox lifecycle", () => {
       }
       await waitFor(() =>
         expect(JSON.parse(screen.getByTestId("location").textContent!).pathname).toBe(
-          "/agents/knowledge-maintenance",
+          "/ai-workspace/agents/knowledge-maintenance",
         ),
       );
       const route = JSON.parse(screen.getByTestId("location").textContent!);

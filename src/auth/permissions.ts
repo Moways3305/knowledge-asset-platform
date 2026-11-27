@@ -74,6 +74,9 @@ export const can = {
   viewUpload: businessOnly,
   viewReview: businessOnly,
   viewOriginalAccess: businessOnly,
+  // The project directory can show an empty state after the last membership ends.
+  // Individual project pages retain their membership/governance requirement.
+  viewProjectHub: businessOnly,
   // 项目页面属于业务入口；保留的项目成员关系不能让管理员工作身份继续展示业务内容。
   // 业务项目成员可访问；治理角色（总经理/咨询总监）保留监管及创建入口。
   viewProject: (c: Capabilities) => c.isBusinessUser && (c.hasProject || c.isGovernance),

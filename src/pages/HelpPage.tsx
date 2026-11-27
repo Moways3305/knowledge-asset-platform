@@ -50,11 +50,18 @@ export default function HelpPage() {
   const home = !current && !group && !searching;
   const articles = group ? HELP_GUIDES.filter((guide) => guide.group === group) : searchHelp(query);
   const articleHref = (id: string) => `/help?article=${id}`;
+  // Legacy /help#article links still need the article identity when the hash
+  // changes to a section. A bare #help-section would otherwise return home.
+  const sectionHref = (id: string) => `${articleHref(current!.id)}#help-${id}`;
   const categoryHref = (name: string) => `/help?category=${encodeURIComponent(name)}`;
 
   useEffect(() => {
     setDirectoryOpen(false);
-    if (searching || location.hash.startsWith("#help-")) return;
+    if (location.hash.startsWith("#help-")) {
+      document.getElementById(location.hash.slice(1))?.scrollIntoView?.({ block: "start" });
+      return;
+    }
+    if (searching) return;
     heading.current?.focus({ preventScroll: true });
     heading.current?.closest(".app-content")?.scrollTo?.({ top: 0 });
   }, [current, group, searching, location.hash]);
@@ -261,11 +268,11 @@ export default function HelpPage() {
               <nav className="help-inline-toc" aria-label="本文目录">
                 <strong>本文内容</strong>
                 {current.sections.map((section) => (
-                  <a key={section.id} href={`#help-${section.id}`}>
+                  <Link key={section.id} to={sectionHref(section.id)}>
                     {section.title}
-                  </a>
+                  </Link>
                 ))}
-                {current.faq?.length ? <a href="#help-faq">常见问题</a> : null}
+                {current.faq?.length ? <Link to={sectionHref("faq")}>常见问题</Link> : null}
               </nav>
               {current.sections.map((section) => (
                 <section
@@ -333,11 +340,11 @@ export default function HelpPage() {
             <nav className="help-toc" aria-label="页内导航">
               <h3>本文内容</h3>
               {current.sections.map((section) => (
-                <a key={section.id} href={`#help-${section.id}`}>
+                <Link key={section.id} to={sectionHref(section.id)}>
                   {section.title}
-                </a>
+                </Link>
               ))}
-              {current.faq?.length ? <a href="#help-faq">常见问题</a> : null}
+              {current.faq?.length ? <Link to={sectionHref("faq")}>常见问题</Link> : null}
             </nav>
           </div>
         </>

@@ -242,6 +242,76 @@ function CatalogHistoryProbe() {
 }
 
 describe("KnowledgeListPage reference implementation", () => {
+  it("opens semantic source references in a separate tab without discarding the current results", async () => {
+    vi.mocked(searchKnowledge).mockResolvedValue({
+      query: "参考方法",
+      answer: "可复用的安全结论",
+      cards: [
+        {
+          asset_id: restrictedAsset.id,
+          title: "参考资料",
+          one_liner: "安全说明",
+          relevance_score: 0.9,
+        },
+      ],
+      citations: [],
+      scope: "all",
+    } as never);
+    renderPage("/knowledge?search=global");
+    fireEvent.change(await screen.findByLabelText("正文关键词或内容描述"), {
+      target: { value: "参考方法" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "检索内容" }));
+    const reference = await screen.findByRole("link", { name: "参考资料" });
+    expect(reference).toHaveAttribute("target", "_blank");
+    expect(reference).toHaveAttribute("rel", "noopener noreferrer");
+    expect(screen.getByText("可复用的安全结论")).toBeInTheDocument();
+    expect(screen.getByText("资料在新标签页打开，当前检索结果会保留。")).toBeInTheDocument();
+    expect(searchKnowledge).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores applied directory filters and pages on browser back and forward", async () => {
+    const initial =
+      "/knowledge?scope=company&directory_key=company.methodology&keyword=诊断&asset_status=needs_update&page=3";
+    vi.mocked(fetchKnowledgePage).mockResolvedValue(response(undefined, { total: 60, page: 3 }));
+    render(
+      <MemoryRouter initialEntries={[initial]}>
+        <KnowledgeListPage />
+        <CatalogHistoryProbe />
+      </MemoryRouter>,
+    );
+    await screen.findByText(restrictedAsset.title);
+    expect(fetchKnowledgePage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        page: 3,
+        keyword: "诊断",
+        assetStatus: "needs_update",
+        directoryKey: "company.methodology",
+      }),
+    );
+    fireEvent.change(screen.getByLabelText("保密等级"), { target: { value: "L3" } });
+    await waitFor(() =>
+      expect(fetchKnowledgePage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ page: 1, confidentialityLevel: "L3" }),
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "浏览器后退" }));
+    await waitFor(() =>
+      expect(fetchKnowledgePage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ page: 3, keyword: "诊断", assetStatus: "needs_update" }),
+      ),
+    );
+    expect(screen.getByLabelText("关键词")).toHaveValue("诊断");
+    expect(screen.getByLabelText("保密等级")).toHaveValue("");
+    expect(screen.getByLabelText("catalog location")).toHaveTextContent(initial);
+    fireEvent.click(screen.getByRole("button", { name: "浏览器前进" }));
+    await waitFor(() =>
+      expect(fetchKnowledgePage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ page: 1, confidentialityLevel: "L3" }),
+      ),
+    );
+  });
+
   it("makes each parent breadcrumb return to its real catalog scope", async () => {
     renderPage(
       `/knowledge?scope=project&project_id=${PROJECT_A}&directory_key=project.deliverables`,
@@ -884,9 +954,15 @@ describe("KnowledgeListPage reference implementation", () => {
     fireEvent.click(await screen.findByRole("button", { name: /项目库/ }));
     fireEvent.click(await screen.findByRole("button", { name: /供应链优化项目/ }));
     fireEvent.click(await screen.findByRole("button", { name: /03 交付成果/ }));
-    expect(screen.getByLabelText("catalog location")).toHaveTextContent(
-      `scope=project&directory_key=project.deliverables&project_id=${PROJECT_B}`,
+    const selectedDirectory = new URL(
+      screen.getByLabelText("catalog location").textContent!,
+      "https://kap.test",
     );
+    expect(Object.fromEntries(selectedDirectory.searchParams)).toEqual({
+      scope: "project",
+      directory_key: "project.deliverables",
+      project_id: PROJECT_B,
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "浏览器后退" }));
     expect(await screen.findByRole("button", { name: /03 交付成果/ })).toBeInTheDocument();

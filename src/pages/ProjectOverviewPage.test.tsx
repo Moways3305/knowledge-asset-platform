@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { Link, MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { Link, MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ProjectOverviewPage from "./ProjectOverviewPage";
 import { ApiError } from "../api/http";
@@ -146,9 +146,24 @@ function CitationDestination() {
   );
 }
 
+function HubHistoryNavigation() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  return (
+    <>
+      <output aria-label="项目导航">
+        {location.pathname}
+        {location.search}
+      </output>
+      <button onClick={() => navigate(-1)}>浏览器后退</button>
+    </>
+  );
+}
+
 function renderPage(path = `/project/${PROJECT_A}?view=qa`) {
   return render(
     <MemoryRouter initialEntries={[path]}>
+      <HubHistoryNavigation />
       <Routes>
         <Route path="/projects" element={<ProjectOverviewPage />} />
         <Route path="/project/:id" element={<ProjectOverviewPage />} />
@@ -166,6 +181,20 @@ describe("ProjectOverviewPage project assistant workspace", () => {
     api.fetchProjectOverview.mockImplementation(async (projectId: string) => overview(projectId));
     api.fetchProjectQaModelOptions.mockResolvedValue(modelOptions);
     api.projectQa.mockResolvedValue(qaAnswer);
+  });
+
+  it("keeps the project hub search after visiting a project and returning", async () => {
+    renderPage("/projects");
+    const input = await screen.findByRole("textbox", { name: "搜索我的项目" });
+    fireEvent.change(input, { target: { value: projects[0].name } });
+    expect(screen.getByLabelText("项目导航").textContent).toContain("keyword=");
+    fireEvent.click(screen.getByRole("link", { name: projects[0].name }));
+    await screen.findByRole("heading", { name: projects[0].name });
+    fireEvent.click(screen.getByRole("button", { name: "浏览器后退" }));
+    expect(await screen.findByRole("textbox", { name: "搜索我的项目" })).toHaveValue(
+      projects[0].name,
+    );
+    expect(screen.queryByRole("link", { name: projects[1].name })).not.toBeInTheDocument();
   });
 
   it("keeps the project list and search mounted during a refresh and a temporary failure", async () => {
@@ -396,13 +425,13 @@ describe("ProjectOverviewPage project assistant workspace", () => {
     const evidenceSheet = screen.getByRole("dialog", { name: "回答依据" });
     expect(within(evidenceSheet).getByText("内容待审核，请谨慎参考")).toBeInTheDocument();
     expect(evidenceSheet).not.toHaveTextContent(/original text|trace-secret-78/);
-    fireEvent.click(within(evidenceSheet).getByRole("link", { name: "[1] 客户访谈纪要" }));
-    const returnLink = await screen.findByRole("link", { name: "返回项目问答" });
-    expect(returnLink).toHaveAttribute("href", `/project/${PROJECT_A}?view=qa`);
-    expect(screen.getByTestId("citation-destination")).toHaveAttribute("data-source", "project");
-    fireEvent.click(returnLink);
-    expect(await screen.findByRole("textbox", { name: "向项目 AI 助手提问" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "项目问答" })).toHaveAttribute("aria-current", "page");
+    const reference = within(evidenceSheet).getByRole("link", { name: "[1] 客户访谈纪要" });
+    expect(reference).toHaveAttribute("target", "_blank");
+    expect(reference).toHaveAttribute("rel", "noopener noreferrer");
+    expect(reference).toHaveAttribute("title", "在新标签页核对引用，保留当前问答");
+    expect(screen.getByText(qaAnswer.response_text)).toBeInTheDocument();
+    expect(screen.getByLabelText("项目导航")).toHaveTextContent(`/project/${PROJECT_A}?view=qa`);
+    expect(api.projectQa).toHaveBeenCalledTimes(1);
   });
 
   it("shows insufficient evidence without source links", async () => {

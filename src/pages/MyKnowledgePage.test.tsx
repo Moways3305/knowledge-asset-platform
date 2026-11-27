@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchAuthMe } from "../api/auth";
 import { ApiError } from "../api/http";
@@ -151,6 +151,22 @@ function renderPage() {
   );
 }
 
+function PersonalNavigationProbe() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  return (
+    <>
+      <output aria-label="个人导航路径">
+        {location.pathname}
+        {location.search}
+      </output>
+      <output aria-label="个人返回来源">{JSON.stringify(location.state)}</output>
+      <button onClick={() => navigate(-1)}>浏览器后退</button>
+      <button onClick={() => navigate(1)}>浏览器前进</button>
+    </>
+  );
+}
+
 describe("MyKnowledgePage complete personal workflow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -216,6 +232,56 @@ describe("MyKnowledgePage complete personal workflow", () => {
       display_name: "新名称",
       status: "active",
     });
+  });
+
+  it("restores personal filters and pagination through detail and browser history", async () => {
+    const user = userEvent.setup();
+    const initial =
+      "/my/knowledge?keyword=复盘&asset_type=template&page=3&sort_by=title&sort_direction=asc";
+    render(
+      <MemoryRouter initialEntries={[initial]}>
+        <PersonalNavigationProbe />
+        <Routes>
+          <Route path="/my/knowledge" element={<MyKnowledgePage />} />
+          <Route path="/knowledge/:id" element={<div>资料详情页</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await screen.findByText("项目复盘模板");
+    expect(fetchMyKnowledge).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        page: 3,
+        keyword: "复盘",
+        assetType: "template",
+        sortBy: "title",
+        sortDirection: "asc",
+      }),
+    );
+    const input = screen.getByRole("textbox", { name: "搜索个人资料" });
+    await user.type(input, "尚未提交");
+    expect(screen.getByLabelText("个人导航路径")).toHaveTextContent(initial);
+    await user.click(screen.getByRole("button", { name: /已进入项目/ }));
+    expect(screen.getByLabelText("个人导航路径")).toHaveTextContent(
+      "personal_state=active_in_project",
+    );
+    expect(screen.getByLabelText("个人导航路径").textContent).not.toContain("page=3");
+    await user.click(screen.getByRole("button", { name: "浏览器后退" }));
+    await waitFor(() =>
+      expect(fetchMyKnowledge).toHaveBeenLastCalledWith(
+        expect.objectContaining({ page: 3, keyword: "复盘", personalState: undefined }),
+      ),
+    );
+    await user.click(screen.getByRole("link", { name: "项目复盘模板" }));
+    expect(screen.getByLabelText("个人返回来源")).toHaveTextContent(initial);
+    await user.click(screen.getByRole("button", { name: "浏览器后退" }));
+    expect(await screen.findByRole("textbox", { name: "搜索个人资料" })).toHaveValue("复盘");
+    await waitFor(() =>
+      expect(fetchMyKnowledge).toHaveBeenLastCalledWith(
+        expect.objectContaining({ page: 3, assetType: "template" }),
+      ),
+    );
+    await user.click(screen.getByRole("button", { name: "浏览器前进" }));
+    expect(screen.getByText("资料详情页")).toBeInTheDocument();
   });
 
   it("renders actionable state tabs with server counts, type icons and localized states", async () => {

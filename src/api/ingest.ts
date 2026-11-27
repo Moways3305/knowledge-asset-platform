@@ -262,6 +262,7 @@ export async function decideUploadDuplicate(input: {
 
 export async function fetchMyUploads(
   filters: {
+    taskId?: string;
     scope?: string;
     finalStatus?: string;
     duplicateResult?: string;
@@ -270,6 +271,7 @@ export async function fetchMyUploads(
   } = {},
 ): Promise<MyUploadItemDTO[]> {
   const query = new URLSearchParams();
+  if (filters.taskId) query.set("task_id", filters.taskId);
   if (filters.scope) query.set("scope", filters.scope);
   if (filters.finalStatus) query.set("final_status", filters.finalStatus);
   if (filters.duplicateResult) query.set("duplicate_result", filters.duplicateResult);

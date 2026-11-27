@@ -275,7 +275,9 @@ try {
         const modelMatch = url.pathname.match(/^\/api\/v1\/projects\/([^/]+)\/qa\/model-options$/);
         if (modelMatch) {
           modelCalls += 1;
-          if (scenario === "model-failure" && modelCalls === 1) {
+          // Keep the outage active until the explicit retry. Development
+          // StrictMode may legitimately supersede an initial effect request.
+          if (scenario === "model-failure" && !modelFailureSeen) {
             return fulfill({ detail: { message: "provider secret must stay hidden" } }, 503);
           }
           return fulfill(scenario === "no-model" ? { items: [], total: 0 } : models);
@@ -296,7 +298,7 @@ try {
         const overviewMatch = url.pathname.match(/^\/api\/v1\/projects\/([^/]+)\/overview$/);
         if (overviewMatch) {
           overviewCalls += 1;
-          if (scenario === "overview-failure" && overviewCalls === 1) {
+          if (scenario === "overview-failure" && !overviewFailureSeen) {
             return fulfill({ detail: { message: "internal project secret" } }, 503);
           }
           const manager =

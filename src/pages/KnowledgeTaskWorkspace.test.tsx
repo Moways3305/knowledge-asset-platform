@@ -9,13 +9,43 @@ import {
   type KnowledgeTaskDetail,
 } from "../api/knowledgeTasks";
 import { reportCorrection } from "../api/knowledgeTrust";
+import { fetchAgentPolicies } from "../api/maintenanceAgent";
 
 vi.mock("../auth/AuthContext", () => ({
   useAuth: () => ({ authMe: { userId: "consultant", activeCompanyRole: "consultant" } }),
 }));
 vi.mock("../api/maintenanceAgent", () => ({
-  fetchAgentPolicies: async () => [{ library_key: "company", name: "公司知识库" }],
+  fetchAgentPolicies: vi.fn(async () => [{ library_key: "company", name: "公司知识库" }]),
 }));
+
+it("keeps the workspace session and fragment when changing business tabs or libraries", async () => {
+  vi.mocked(fetchAgentPolicies).mockResolvedValue([
+    { library_key: "company", name: "公司知识库" },
+    { library_key: "project:alpha", name: "交付项目库" },
+  ] as Awaited<ReturnType<typeof fetchAgentPolicies>>);
+  vi.mocked(recentTasks).mockResolvedValue([]);
+  render(
+    <MemoryRouter
+      initialEntries={[
+        "/ai-workspace/agents/knowledge-maintenance?library=company&tab=tasks&session=one#reading",
+      ]}
+    >
+      <KnowledgeTaskWorkspace embedded />
+    </MemoryRouter>,
+  );
+  const library = await screen.findByRole("combobox", { name: "知识库" });
+  await screen.findByRole("option", { name: "交付项目库" });
+  fireEvent.change(library, { target: { value: "project:alpha" } });
+  const issues = new URL(
+    screen.getByRole("link", { name: "维护待办" }).getAttribute("href")!,
+    "https://kap.example",
+  );
+  expect(issues.pathname).toBe("/ai-workspace/agents/knowledge-maintenance");
+  expect(issues.searchParams.get("library")).toBe("project:alpha");
+  expect(issues.searchParams.get("session")).toBe("one");
+  expect(issues.searchParams.get("tab")).toBe("issues");
+  expect(issues.hash).toBe("#reading");
+});
 vi.mock("../api/knowledgeTasks", () => ({
   delegate: vi.fn(),
   fetchTask: vi.fn(),

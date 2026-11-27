@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { ArrowRight, Clock3 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { can, type Capabilities } from "../auth/permissions";
+import { taskTarget } from "../workbench/taskTargets";
 import DetailDrawer from "./DetailDrawer";
 import { taskPriorityLabel, taskStatusLabel, taskTypeLabel } from "./taskCenterLabels";
 import type { WorkbenchTaskItemDTO } from "../types/workbench";
@@ -17,17 +18,14 @@ const GROUP_LABEL: Record<TaskCenterGroup, string> = {
   attention_items: "需要关注",
   recent_completed: "最近完成",
 };
-const ROUTES: Record<string, { path: string; allowed: (capabilities: Capabilities) => boolean }> = {
-  maintenance_agent: {
-    path: "/agents/knowledge-maintenance?view=mine&mine=true",
-    allowed: can.viewKnowledge,
-  },
-  reviews: { path: "/review", allowed: can.viewReview },
-  upload: { path: "/upload", allowed: can.viewUpload },
-  original_access: { path: "/original-access", allowed: can.viewOriginalAccess },
-  admin_ingest: { path: "/admin/ingest", allowed: can.viewIngestAdmin },
-  models: { path: "/admin/weknora-models", allowed: can.viewModels },
-  knowledge: { path: "/knowledge", allowed: can.viewKnowledge },
+const ROUTES: Record<string, (capabilities: Capabilities) => boolean> = {
+  maintenance_agent: can.viewKnowledge,
+  reviews: can.viewReview,
+  upload: can.viewUpload,
+  original_access: can.viewOriginalAccess,
+  admin_ingest: can.viewIngestAdmin,
+  models: can.viewModels,
+  knowledge: can.viewKnowledge,
 };
 
 function waitLabel(minutes: number | null): string | null {
@@ -58,12 +56,16 @@ export default function TaskCenterDrawer({
     () => items.find((item) => item.task_ref === selectedRef) ?? items[0] ?? null,
     [items, selectedRef],
   );
-  const routeDefinition = selected?.route_key ? ROUTES[selected.route_key] : undefined;
-  const allowedRoute = routeDefinition?.allowed(capabilities) ? routeDefinition.path : undefined;
   const route =
-    allowedRoute && selected?.route_key === "original_access"
-      ? `${allowedRoute}?box=${selected.next_action_key === "decide_original_access" ? "inbox" : "mine"}`
-      : allowedRoute;
+    selected?.route_key && ROUTES[selected.route_key]?.(capabilities)
+      ? taskTarget({
+          routeKey: selected.route_key,
+          resourceId: selected.resource_id,
+          status: selected.status,
+          originalAccessBox:
+            selected.next_action_key === "decide_original_access" ? "inbox" : "mine",
+        })
+      : null;
 
   useEffect(() => {
     if (!open) return;

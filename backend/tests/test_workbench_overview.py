@@ -278,6 +278,7 @@ async def test_cancelled_review_is_recent_terminal_work_not_an_active_task(clien
     assert not any(item["task_type"] == "review" for item in center["my_tasks"])
     assert not any(item["task_type"] == "review" for item in center["running_jobs"])
     completed = next(item for item in center["recent_completed"] if item["task_type"] == "review")
+    assert completed["resource_id"] == str(review.id)
     assert completed["status"] == "cancelled"
     assert completed["result_summary"] == "审核已撤回或取消"
 
@@ -465,6 +466,7 @@ async def test_response_is_a_strict_safe_projection(client):
         for item in body["task_center"][group]:
             assert set(item) == {
                 "task_ref",
+                "resource_id",
                 "task_type",
                 "object_name",
                 "project_name",
@@ -512,7 +514,9 @@ async def test_response_is_a_strict_safe_projection(client):
         assert token not in lowered
 
 
-async def test_task_center_maps_real_ingest_states_without_exposing_ids(client, db_session):
+async def test_task_center_maps_real_ingest_states_with_authorized_navigation_ids(
+    client, db_session
+):
     user_id = await _create_business_user(db_session)
     task_ids = [uuid.uuid4(), uuid.uuid4(), uuid.uuid4()]
     db_session.add_all(
@@ -557,7 +561,13 @@ async def test_task_center_maps_real_ingest_states_without_exposing_ids(client, 
     assert running["处理中方案.docx"]["status"] == "processing"
     assert center["summary"]["needs_action"] == 2
     assert center["summary"]["running"] == 1
-    assert all(str(task_id) not in response.text for task_id in task_ids)
+    assert {item["resource_id"] for item in [*mine.values(), *running.values()]} == {
+        str(task_id) for task_id in task_ids
+    }
+    assert all(
+        item["task_ref"] != item["resource_id"] for item in [*mine.values(), *running.values()]
+    )
+    assert "server-only/" not in response.text
 
 
 async def test_task_center_does_not_include_review_waiting_for_another_user(client, db_session):
