@@ -329,6 +329,88 @@
         "title": "AccessInsights",
         "type": "object"
       },
+      "ActionDecision": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "enum": [
+              "approve",
+              "reject"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "decision"
+        ],
+        "title": "ActionDecision",
+        "type": "object"
+      },
+      "ActionOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "observation": {
+            "additionalProperties": true,
+            "title": "Observation",
+            "type": "object"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "tool": {
+            "title": "Tool",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "run_id",
+          "tool",
+          "label",
+          "status",
+          "summary",
+          "observation",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ActionOut",
+        "type": "object"
+      },
       "ActiveCompanyRoleRequest": {
         "properties": {
           "company_role": {
@@ -736,6 +818,37 @@
           "display_path"
         ],
         "title": "AgentDirectoryOut",
+        "type": "object"
+      },
+      "AgentOption": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "tools": {
+            "items": {
+              "$ref": "#/components/schemas/ToolOption"
+            },
+            "title": "Tools",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "description",
+          "tools"
+        ],
+        "title": "AgentOption",
         "type": "object"
       },
       "AgentProjectOut": {
@@ -12123,6 +12236,13 @@
       },
       "OptionsOut": {
         "properties": {
+          "agents": {
+            "items": {
+              "$ref": "#/components/schemas/AgentOption"
+            },
+            "title": "Agents",
+            "type": "array"
+          },
           "contexts": {
             "items": {
               "$ref": "#/components/schemas/ContextOption"
@@ -12516,6 +12636,41 @@
           "available"
         ],
         "title": "OriginalOut",
+        "type": "object"
+      },
+      "PendingAction": {
+        "properties": {
+          "arguments": {
+            "additionalProperties": true,
+            "title": "Arguments",
+            "type": "object"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "tool": {
+            "title": "Tool",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tool",
+          "label",
+          "summary",
+          "arguments"
+        ],
+        "title": "PendingAction",
         "type": "object"
       },
       "PendingIngestItem": {
@@ -17041,9 +17196,21 @@
         "title": "RequestsListResponse",
         "type": "object"
       },
-      "RetryCommand": {
+      "ResumeCommand": {
         "additionalProperties": false,
         "properties": {
+          "content": {
+            "anyOf": [
+              {
+                "maxLength": 32000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content"
+          },
           "request_id": {
             "format": "uuid",
             "title": "Request Id",
@@ -17053,7 +17220,7 @@
         "required": [
           "request_id"
         ],
-        "title": "RetryCommand",
+        "title": "ResumeCommand",
         "type": "object"
       },
       "RetryIndexRequest": {
@@ -18958,6 +19125,18 @@
       "SessionCreate": {
         "additionalProperties": false,
         "properties": {
+          "agent_key": {
+            "anyOf": [
+              {
+                "const": "knowledge-maintenance",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Key"
+          },
           "request_id": {
             "format": "uuid",
             "title": "Request Id",
@@ -18979,6 +19158,13 @@
       },
       "SessionDetail": {
         "properties": {
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/ActionOut"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
           "artifacts": {
             "items": {
               "$ref": "#/components/schemas/ArtifactOut"
@@ -19015,6 +19201,18 @@
       },
       "SessionOut": {
         "properties": {
+          "agent_key": {
+            "anyOf": [
+              {
+                "const": "knowledge-maintenance",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Key"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -19184,25 +19382,6 @@
         "title": "SortDirection",
         "type": "string"
       },
-      "SourceLink": {
-        "properties": {
-          "asset_id": {
-            "format": "uuid",
-            "title": "Asset Id",
-            "type": "string"
-          },
-          "title": {
-            "title": "Title",
-            "type": "string"
-          }
-        },
-        "required": [
-          "asset_id",
-          "title"
-        ],
-        "title": "SourceLink",
-        "type": "object"
-      },
       "SubmitToProjectRequest": {
         "description": "个人知识提交到项目资料区。",
         "properties": {
@@ -19282,327 +19461,6 @@
           }
         },
         "title": "SummaryOut",
-        "type": "object"
-      },
-      "TaskCommand": {
-        "additionalProperties": false,
-        "properties": {
-          "instruction": {
-            "maxLength": 600,
-            "minLength": 2,
-            "title": "Instruction",
-            "type": "string"
-          },
-          "request_id": {
-            "format": "uuid",
-            "title": "Request Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "request_id",
-          "instruction"
-        ],
-        "title": "TaskCommand",
-        "type": "object"
-      },
-      "TaskDetail": {
-        "properties": {
-          "availability": {
-            "anyOf": [
-              {
-                "enum": [
-                  "available",
-                  "changed",
-                  "unavailable"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Availability"
-          },
-          "candidates": {
-            "default": 0,
-            "title": "Candidates",
-            "type": "integer"
-          },
-          "created_at": {
-            "format": "date-time",
-            "title": "Created At",
-            "type": "string"
-          },
-          "evidence": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TaskEvidence"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "failure_reason": {
-            "anyOf": [
-              {
-                "enum": [
-                  "access_changed",
-                  "tool_error"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Failure Reason"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "inspected": {
-            "default": 0,
-            "title": "Inspected",
-            "type": "integer"
-          },
-          "instruction": {
-            "title": "Instruction",
-            "type": "string"
-          },
-          "mode": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Mode"
-          },
-          "status": {
-            "enum": [
-              "queued",
-              "searching",
-              "checking",
-              "ready",
-              "empty",
-              "failed"
-            ],
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "instruction",
-          "status",
-          "created_at"
-        ],
-        "title": "TaskDetail",
-        "type": "object"
-      },
-      "TaskEvidence": {
-        "properties": {
-          "asset_id": {
-            "format": "uuid",
-            "title": "Asset Id",
-            "type": "string"
-          },
-          "changed_fields": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Changed Fields",
-            "type": "array"
-          },
-          "compared_version": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Compared Version"
-          },
-          "correction_status": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Correction Status"
-          },
-          "current_summary": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Current Summary"
-          },
-          "history_truncated": {
-            "title": "History Truncated",
-            "type": "boolean"
-          },
-          "matched": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Matched",
-            "type": "array"
-          },
-          "needs_update": {
-            "title": "Needs Update",
-            "type": "boolean"
-          },
-          "old_source_links": {
-            "items": {
-              "$ref": "#/components/schemas/SourceLink"
-            },
-            "title": "Old Source Links",
-            "type": "array"
-          },
-          "original": {
-            "title": "Original",
-            "type": "boolean"
-          },
-          "parsed": {
-            "title": "Parsed",
-            "type": "boolean"
-          },
-          "pending_update": {
-            "title": "Pending Update",
-            "type": "boolean"
-          },
-          "previous_summary": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Previous Summary"
-          },
-          "summary": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Summary"
-          },
-          "summary_matched": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Summary Matched",
-            "type": "array"
-          },
-          "title": {
-            "title": "Title",
-            "type": "string"
-          },
-          "unmatched": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Unmatched",
-            "type": "array"
-          },
-          "updated_at": {
-            "format": "date-time",
-            "title": "Updated At",
-            "type": "string"
-          },
-          "version": {
-            "title": "Version",
-            "type": "string"
-          },
-          "version_id": {
-            "format": "uuid",
-            "title": "Version Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "asset_id",
-          "version_id",
-          "title",
-          "version",
-          "summary",
-          "original",
-          "matched",
-          "summary_matched",
-          "unmatched",
-          "old_source_links",
-          "needs_update",
-          "pending_update",
-          "parsed",
-          "correction_status",
-          "history_truncated",
-          "compared_version",
-          "changed_fields",
-          "previous_summary",
-          "current_summary",
-          "updated_at"
-        ],
-        "title": "TaskEvidence",
-        "type": "object"
-      },
-      "TaskRow": {
-        "properties": {
-          "created_at": {
-            "format": "date-time",
-            "title": "Created At",
-            "type": "string"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "instruction": {
-            "title": "Instruction",
-            "type": "string"
-          },
-          "status": {
-            "enum": [
-              "queued",
-              "searching",
-              "checking",
-              "ready",
-              "empty",
-              "failed"
-            ],
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "instruction",
-          "status",
-          "created_at"
-        ],
-        "title": "TaskRow",
         "type": "object"
       },
       "ToolOption": {
@@ -22355,9 +22213,24 @@
             "title": "Id",
             "type": "string"
           },
+          "max_steps": {
+            "default": 24,
+            "title": "Max Steps",
+            "type": "integer"
+          },
           "model_ref": {
             "title": "Model Ref",
             "type": "string"
+          },
+          "pending_action": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PendingAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "status": {
             "enum": [
@@ -22365,10 +22238,28 @@
               "running",
               "completed",
               "failed",
-              "stopped"
+              "stopped",
+              "waiting",
+              "awaiting_confirmation"
             ],
             "title": "Status",
             "type": "string"
+          },
+          "step_count": {
+            "default": 0,
+            "title": "Step Count",
+            "type": "integer"
+          },
+          "waiting_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waiting Reason"
           }
         },
         "required": [
@@ -33332,9 +33223,130 @@
         ]
       }
     },
-    "/api/v1/ai-workspace/sessions/{session_id}/runs/{run_id}/retry": {
+    "/api/v1/ai-workspace/sessions/{session_id}/runs/{run_id}/actions/{action_id}": {
       "post": {
-        "operationId": "retry_api_v1_ai_workspace_sessions__session_id__runs__run_id__retry_post",
+        "operationId": "decide_action_api_v1_ai_workspace_sessions__session_id__runs__run_id__actions__action_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "action_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Action Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActionDecision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__schemas__ai_workspace__RunOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Decide Action",
+        "tags": [
+          "ai-workspace"
+        ]
+      }
+    },
+    "/api/v1/ai-workspace/sessions/{session_id}/runs/{run_id}/resume": {
+      "post": {
+        "operationId": "resume_api_v1_ai_workspace_sessions__session_id__runs__run_id__resume_post",
         "parameters": [
           {
             "in": "path",
@@ -33409,7 +33421,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RetryCommand"
+                "$ref": "#/components/schemas/ResumeCommand"
               }
             }
           },
@@ -33437,7 +33449,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Retry",
+        "summary": "Resume",
         "tags": [
           "ai-workspace"
         ]
@@ -41248,298 +41260,6 @@
           }
         },
         "summary": "Issue Action",
-        "tags": [
-          "maintenance-agent"
-        ]
-      }
-    },
-    "/api/v1/maintenance-agent/libraries/{library_key}/tasks": {
-      "get": {
-        "operationId": "task_history_api_v1_maintenance_agent_libraries__library_key__tasks_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "library_key",
-            "required": true,
-            "schema": {
-              "title": "Library Key",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Dev-User-Id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Dev-User-Id"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Session"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_active_company_role",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Active Company Role"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/TaskRow"
-                  },
-                  "title": "Response Task History Api V1 Maintenance Agent Libraries  Library Key  Tasks Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Task History",
-        "tags": [
-          "maintenance-agent"
-        ]
-      },
-      "post": {
-        "operationId": "delegate_api_v1_maintenance_agent_libraries__library_key__tasks_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "library_key",
-            "required": true,
-            "schema": {
-              "title": "Library Key",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Dev-User-Id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Dev-User-Id"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Session"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_active_company_role",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Active Company Role"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TaskCommand"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "202": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TaskRow"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Delegate",
-        "tags": [
-          "maintenance-agent"
-        ]
-      }
-    },
-    "/api/v1/maintenance-agent/libraries/{library_key}/tasks/{task_id}": {
-      "get": {
-        "operationId": "task_result_api_v1_maintenance_agent_libraries__library_key__tasks__task_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "library_key",
-            "required": true,
-            "schema": {
-              "title": "Library Key",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "task_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Task Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Dev-User-Id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Dev-User-Id"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Session"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_active_company_role",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Active Company Role"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TaskDetail"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Task Result",
         "tags": [
           "maintenance-agent"
         ]

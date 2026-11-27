@@ -68,7 +68,6 @@ def _make_celery() -> Celery:
         # 测试直接调用 service 层，不依赖 beat。
         beat_schedule={
             "ai-workspace-recovery": {"task": "ai_workspace.recover", "schedule": 60.0},
-            "knowledge-task-recovery": {"task": "knowledge_tasks.recover", "schedule": 60.0},
             "maintenance-agent-tick": {
                 "task": "maintenance_agent.tick",
                 "schedule": 60.0,

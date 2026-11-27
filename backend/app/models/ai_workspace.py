@@ -13,6 +13,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Uuid,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -27,6 +28,7 @@ class WorkspaceSession(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"))
     role: Mapped[str] = mapped_column(String(30))
     title: Mapped[str] = mapped_column(String(120), default="新会话")
+    agent_key: Mapped[str | None] = mapped_column(String(80))
     active_run_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     event_seq: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
@@ -48,6 +50,10 @@ class WorkspaceRun(Base):
     claim: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     source_refs: Mapped[list] = mapped_column(JSON, default=list)
+    runtime_state: Mapped[dict] = mapped_column(JSON, default=dict, server_default=text("'{}'"))
+    step_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    max_steps: Mapped[int] = mapped_column(Integer, default=24, server_default="24")
+    next_wake_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error_code: Mapped[str | None] = mapped_column(String(50))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -64,6 +70,7 @@ class WorkspaceMessage(Base):
     )
     role: Mapped[str] = mapped_column(String(20))
     content: Mapped[str] = mapped_column(Text)
+    source_refs: Mapped[list] = mapped_column(JSON, default=list, server_default=text("'[]'"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
@@ -93,5 +100,31 @@ class WorkspaceArtifact(Base):
     title: Mapped[str] = mapped_column(String(120))
     content: Mapped[str] = mapped_column(Text)
     revision: Mapped[int] = mapped_column(Integer, default=1)
+    source_refs: Mapped[list] = mapped_column(JSON, default=list, server_default=text("'[]'"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class WorkspaceAction(Base):
+    """Durable tool intent and transactionally committed, redacted receipt."""
+
+    __tablename__ = "ai_workspace_actions"
+    __table_args__ = (UniqueConstraint("run_id", "seq", name="uq_workspace_action_seq"),)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("ai_workspace_sessions.id", ondelete="CASCADE"), index=True
+    )
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("ai_workspace_runs.id", ondelete="CASCADE")
+    )
+    seq: Mapped[int] = mapped_column(Integer)
+    tool: Mapped[str] = mapped_column(String(80))
+    label: Mapped[str] = mapped_column(String(160))
+    status: Mapped[str] = mapped_column(String(24), default="planned")
+    summary: Mapped[str] = mapped_column(Text, default="")
+    arguments: Mapped[dict] = mapped_column(JSON, default=dict)
+    observation: Mapped[dict] = mapped_column(JSON, default=dict)
+    waiting: Mapped[dict | None] = mapped_column(JSON)
+    source_refs: Mapped[list] = mapped_column(JSON, default=list, server_default=text("'[]'"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

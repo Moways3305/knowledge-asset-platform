@@ -3,13 +3,12 @@
 import uuid
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from fastapi import APIRouter, Depends, Query, Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_caller_context
 from app.core.trace import get_trace_id
 from app.db.session import get_db
-from app.schemas.knowledge_task import TaskCommand, TaskDetail, TaskRow
 from app.schemas.maintenance_agent import (
     IssueCommand,
     IssueDetail,
@@ -22,48 +21,10 @@ from app.schemas.maintenance_agent import (
     RunOut,
 )
 from app.schemas.permission import CallerContext
-from app.services import knowledge_tasks
 from app.services import maintenance_agent as service
 from app.services import maintenance_run_actions as run_actions
 
 router = APIRouter(prefix="/api/v1/maintenance-agent", tags=["maintenance-agent"])
-
-
-@router.post("/libraries/{library_key}/tasks", response_model=TaskRow, status_code=202)
-async def delegate(
-    library_key: str,
-    body: TaskCommand,
-    background: BackgroundTasks,
-    caller: CallerContext = Depends(get_caller_context),
-    session: AsyncSession = Depends(get_db),
-):
-    task = await knowledge_tasks.create(session, caller, library_key, body)
-    if task.status == "queued":
-        background.add_task(
-            knowledge_tasks.execute,
-            async_sessionmaker(session.bind, expire_on_commit=False),
-            task.id,
-        )
-    return task
-
-
-@router.get("/libraries/{library_key}/tasks", response_model=list[TaskRow])
-async def task_history(
-    library_key: str,
-    caller: CallerContext = Depends(get_caller_context),
-    session: AsyncSession = Depends(get_db),
-):
-    return await knowledge_tasks.recent(session, caller, library_key)
-
-
-@router.get("/libraries/{library_key}/tasks/{task_id}", response_model=TaskDetail)
-async def task_result(
-    library_key: str,
-    task_id: uuid.UUID,
-    caller: CallerContext = Depends(get_caller_context),
-    session: AsyncSession = Depends(get_db),
-):
-    return await knowledge_tasks.detail(session, caller, library_key, task_id)
 
 
 @router.get("/policies", response_model=list[PolicyOut])

@@ -1,5 +1,17 @@
 export const AI_WORKSPACE_PATH = "/ai-workspace";
 export const MAINTENANCE_AGENT_PATH = "/ai-workspace/agents/knowledge-maintenance";
+export const MAINTENANCE_AGENT_KEY = "knowledge-maintenance";
+
+export function agentConversationHref(
+  agentKey: string,
+  sessionId?: string | null,
+  library?: string | null,
+) {
+  const params = new URLSearchParams({ agent: agentKey });
+  if (sessionId) params.set("session", sessionId);
+  else if (library) params.set("library", library);
+  return `${AI_WORKSPACE_PATH}?${params}`;
+}
 
 /** Old notifications/bookmarks retain their library, reminder, filters and fragment. */
 export function legacyMaintenanceAgentDestination(search: string, hash = "") {

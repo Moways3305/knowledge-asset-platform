@@ -29,8 +29,11 @@ import { formatBeijingTime } from "../utils/time";
 import "./MaintenanceAgentPage.css";
 import MaintenanceRunDrawer from "./MaintenanceRunDrawer";
 import MaintenanceRunList from "./MaintenanceRunList";
-import KnowledgeTaskWorkspace from "./KnowledgeTaskWorkspace";
-import { maintenanceAgentHref } from "../navigation/agentRoutes";
+import {
+  maintenanceAgentHref,
+  agentConversationHref,
+  MAINTENANCE_AGENT_KEY,
+} from "../navigation/agentRoutes";
 
 const categories: Record<string, string> = {
   integrity: "信息完整性",
@@ -145,21 +148,27 @@ const summarySources: Record<string, string> = {
   safe_summary: "安全摘要",
 };
 
-export default function MaintenanceAgentPage({ embedded = false }: { embedded?: boolean }) {
-  const { search } = useLocation();
-  const query = new URLSearchParams(search);
-  const delegated = query.get("tab") === "tasks" || !search;
-  if (delegated && !query.has("target_id") && query.get("view") !== "mine") {
-    return <KnowledgeTaskWorkspace embedded={embedded} />;
-  }
-  return <MaintenanceWorkspace embedded={embedded} />;
+export default function MaintenanceAgentPage({
+  embedded = false,
+  agentSessionId,
+}: {
+  embedded?: boolean;
+  agentSessionId?: string;
+}) {
+  return <MaintenanceWorkspace embedded={embedded} agentSessionId={agentSessionId} />;
 }
 
-function MaintenanceWorkspace({ embedded }: { embedded: boolean }) {
+function MaintenanceWorkspace({
+  embedded,
+  agentSessionId,
+}: {
+  embedded: boolean;
+  agentSessionId?: string;
+}) {
   const location = useLocation();
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const digestId = params.get("target_id") || "";
+  const digestId = params.get("target_id") || params.get("digest_id") || "";
   const inbox = Boolean(digestId) || params.get("view") === "mine";
   const key = params.get("library") || (inbox ? "" : "company");
   const tab = inbox ? "issues" : params.get("tab") || "issues";
@@ -350,6 +359,7 @@ function MaintenanceWorkspace({ embedded }: { embedded: boolean }) {
                     library: displayLibrary,
                     tab: "issues",
                     target_id: null,
+                    digest_id: null,
                     view: null,
                     mine: null,
                     page: null,
@@ -463,14 +473,8 @@ function MaintenanceWorkspace({ embedded }: { embedded: boolean }) {
         )}
         {!inbox && (
           <nav className="agent-tabs" aria-label="知识维护视图">
-            <Link
-              to={maintenanceAgentHref(
-                location.search,
-                { tab: "tasks", library: key, page: null },
-                location.hash,
-              )}
-            >
-              交代任务
+            <Link to={agentConversationHref(MAINTENANCE_AGENT_KEY, agentSessionId, key)}>
+              任务会话
             </Link>
             {[
               ["issues", "维护待办"],
@@ -714,6 +718,7 @@ function MaintenanceWorkspace({ embedded }: { embedded: boolean }) {
       {selected && (
         <IssueDrawer
           id={selected}
+          embedded={embedded}
           onClose={() => setSelected(null)}
           onChanged={() => setRefresh((n) => n + 1)}
         />
@@ -721,6 +726,7 @@ function MaintenanceWorkspace({ embedded }: { embedded: boolean }) {
       {selectedRun && (
         <MaintenanceRunDrawer
           key={`${key}:${selectedRun}`}
+          embedded={embedded}
           library={key}
           id={selectedRun}
           onClose={() => setSelectedRun(null)}
@@ -994,10 +1000,12 @@ function PolicyEditor({
 
 function IssueDrawer({
   id,
+  embedded,
   onClose,
   onChanged,
 }: {
   id: string;
+  embedded: boolean;
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -1052,7 +1060,7 @@ function IssueDrawer({
       onClose={onClose}
       busy={busy}
       portal
-      className="agent-detail"
+      className={`agent-detail${embedded ? " is-workspace-detail" : ""}`}
     >
       <div className="agent-detail-content">
         {error && (

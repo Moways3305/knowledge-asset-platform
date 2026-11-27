@@ -158,7 +158,7 @@ async def configure(session, caller, key, command, trace_id):
     return next(p for p in await policies(session, caller) if p.library_key == key)
 
 
-async def run_now(session, caller, key, trace_id):
+async def run_now(session, caller, key, trace_id, *, commit=True):
     policy = await _library(session, caller, key, lock=True)
     if not policy:
         raise access.reject(409, "请先保存巡检配置")
@@ -166,7 +166,8 @@ async def run_now(session, caller, key, trace_id):
         raise access.reject(409, "请先以当前身份重新保存巡检配置")
     run = await start_run(session, policy)
     if not run:
-        await session.commit()
+        if commit:
+            await session.commit()
         raise access.reject(409, "巡检授权已失效，请重新保存配置授权")
     await audit.record_event(
         session,
@@ -177,7 +178,10 @@ async def run_now(session, caller, key, trace_id):
         target_type="maintenance_run",
         target_id=run.id,
     )
-    await session.commit()
+    if commit:
+        await session.commit()
+    else:
+        await session.flush()
     return RunOut.model_validate(run, from_attributes=True)
 
 
@@ -306,7 +310,7 @@ async def list_issues(
     )
 
 
-async def detail(session, caller, issue_id, trace_id=None):
+async def detail(session, caller, issue_id, trace_id=None, *, audit_evidence=True):
     from app.core.personal_information import redact_personal_data, redact_personal_information
 
     issue_id = await _canonical_id(session, issue_id)
@@ -339,7 +343,7 @@ async def detail(session, caller, issue_id, trace_id=None):
             .limit(50)
         )
     ).all()
-    if allowed and issue.evidence.get("quote"):
+    if audit_evidence and allowed and issue.evidence.get("quote"):
         await audit.record_event(
             session,
             caller=caller,
@@ -382,7 +386,7 @@ async def _canonical_id(session, issue_id):
     return alias.issue_id if alias else issue_id
 
 
-async def transition(session, caller, issue_id, command, trace_id):
+async def transition(session, caller, issue_id, command, trace_id, *, commit=True):
     from app.core.personal_information import redact_personal_information
 
     # Same lock order as scan finalization: run/policy commands are serialized by policy.
@@ -474,5 +478,8 @@ async def transition(session, caller, issue_id, command, trace_id):
         target_id=issue.id,
         extra={"status": action},
     )
-    await session.commit()
-    return await detail(session, caller, issue.id, trace_id)
+    if commit:
+        await session.commit()
+    else:
+        await session.flush()
+    return await detail(session, caller, issue.id, trace_id, audit_evidence=commit)

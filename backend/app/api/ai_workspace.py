@@ -10,12 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.api.deps import get_caller_context
 from app.db.session import get_db
 from app.schemas.ai_workspace import (
+    ActionDecision,
     ArtifactOut,
     ArtifactPatch,
     EventPage,
     MessageCreate,
     OptionsOut,
-    RetryCommand,
+    ResumeCommand,
     RunOut,
     SessionCreate,
     SessionDetail,
@@ -136,23 +137,6 @@ async def stop(
     return await service.stop(session, caller, session_id, run_id)
 
 
-@router.post("/sessions/{session_id}/runs/{run_id}/retry", response_model=RunOut, status_code=202)
-async def retry(
-    session_id: uuid.UUID,
-    run_id: uuid.UUID,
-    body: RetryCommand,
-    background: BackgroundTasks,
-    caller: CallerContext = Depends(get_caller_context),
-    session: AsyncSession = Depends(get_db),
-):
-    run = await service.retry(session, caller, session_id, run_id, body)
-    if run.status == "queued":
-        background.add_task(
-            service.execute, async_sessionmaker(session.bind, expire_on_commit=False), run.id
-        )
-    return run
-
-
 @router.patch("/sessions/{session_id}/artifacts/{artifact_id}", response_model=ArtifactOut)
 async def edit_artifact(
     session_id: uuid.UUID,
@@ -162,3 +146,42 @@ async def edit_artifact(
     session: AsyncSession = Depends(get_db),
 ):
     return await service.edit_artifact(session, caller, session_id, artifact_id, body)
+
+
+@router.post("/sessions/{session_id}/runs/{run_id}/resume", response_model=RunOut, status_code=202)
+async def resume(
+    session_id: uuid.UUID,
+    run_id: uuid.UUID,
+    body: ResumeCommand,
+    background: BackgroundTasks,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+):
+    run = await service.resume(session, caller, session_id, run_id, body)
+    if run.status == "queued":
+        background.add_task(
+            service.execute, async_sessionmaker(session.bind, expire_on_commit=False), run.id
+        )
+    return run
+
+
+@router.post(
+    "/sessions/{session_id}/runs/{run_id}/actions/{action_id}",
+    response_model=RunOut,
+    status_code=202,
+)
+async def decide_action(
+    session_id: uuid.UUID,
+    run_id: uuid.UUID,
+    action_id: uuid.UUID,
+    body: ActionDecision,
+    background: BackgroundTasks,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+):
+    run = await service.decide_action(session, caller, session_id, run_id, action_id, body)
+    if run.status == "queued":
+        background.add_task(
+            service.execute, async_sessionmaker(session.bind, expire_on_commit=False), run.id
+        )
+    return run

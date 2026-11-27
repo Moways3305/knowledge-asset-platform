@@ -16,6 +16,7 @@ import {
   BookOpen,
   Bot,
   Check,
+  Circle,
   ChevronRight,
   Cpu,
   FileDiff,
@@ -42,9 +43,10 @@ import { useAuth } from "../auth/AuthContext";
 import {
   createWorkspaceSession,
   deleteWorkspaceSession,
+  decideWorkspaceAction,
   isWorkspaceRunActive,
   renameWorkspaceSession,
-  retryWorkspaceRun,
+  resumeWorkspaceRun,
   sendWorkspaceMessage,
   stopWorkspaceRun,
   type WorkspaceArtifact,
@@ -57,9 +59,12 @@ import { MarkdownView } from "./knowledge/OnlyOfficePreview";
 import ArtifactPanel, { type ArtifactDraft, type PreviewTab } from "./ai-workspace/ArtifactPanel";
 import { useWorkspaceData, workspaceError } from "./ai-workspace/useWorkspaceData";
 import { WorkspaceIconButton, WorkspaceTooltip } from "./ai-workspace/WorkspaceTooltip";
+import { ActionConfirmation, ToolReceipts } from "./ai-workspace/RunActions";
 import {
   AI_WORKSPACE_PATH,
+  MAINTENANCE_AGENT_KEY,
   MAINTENANCE_AGENT_PATH,
+  agentConversationHref,
   maintenanceAgentHref,
 } from "../navigation/agentRoutes";
 import "../styles/ai-workspace.css";
@@ -87,6 +92,8 @@ const EMPTY_VIEW: SessionView = {
 const runLabels: Record<WorkspaceRun["status"], string> = {
   queued: "等待开始",
   running: "正在处理",
+  waiting: "等待继续",
+  awaiting_confirmation: "等待你的确认",
   completed: "已完成",
   failed: "未能完成",
   stopped: "已停止",
@@ -146,12 +153,28 @@ function Workspace() {
   const isMaintenance = location.pathname.replace(/\/$/, "") === MAINTENANCE_AGENT_PATH;
   const sessionId = params.get("session") ?? "";
   const requestedView = params.get("view");
-  const view: View = isMaintenance
+  const managementView =
+    isMaintenance &&
+    (params.has("target_id") ||
+      params.has("digest_id") ||
+      params.has("asset_id") ||
+      requestedView === "mine" ||
+      ["issues", "runs", "settings"].includes(params.get("tab") ?? ""));
+  const view: View = managementView
     ? "maintenance"
     : ["agents", "tools", "preferences", "help"].includes(requestedView ?? "")
       ? (requestedView as View)
       : "chat";
   const state = useWorkspaceData(sessionId);
+  const requestedAgent = isMaintenance ? MAINTENANCE_AGENT_KEY : params.get("agent");
+  const requestedLibrary = params.get("library");
+  const agentKey = sessionId
+    ? (state.detail?.session.agent_key ??
+      state.sessions.find((item) => item.id === sessionId)?.agent_key ??
+      null)
+    : requestedAgent;
+  const agent = state.options?.agents?.find((item) => item.key === agentKey);
+  const unknownAgent = Boolean(!sessionId && agentKey && state.options && !agent);
   const [sessionViews, setSessionViews] = useState<Record<string, SessionView>>({});
   const [artifactDrafts, setArtifactDrafts] = useState<Record<string, ArtifactDraft>>({});
   const [lastAgentLocation, setLastAgentLocation] = useState<{
@@ -196,10 +219,11 @@ function Workspace() {
       { signature: string; id: string; sessionRequest: string; session?: WorkspaceSession }
     >
   >({});
-  const retryRequests = useRef<Record<string, string>>({});
+  const resumeRequests = useRef<Record<string, string>>({});
+  const actionRequests = useRef<Record<string, string>>({});
   const artifactOwners = useRef<Record<string, string>>({});
   const previewPositions = useRef<Record<string, number>>({});
-  const key = sessionId || "new";
+  const key = sessionId || `new:${agentKey || "chat"}`;
   const stored = sessionViews[key];
   const lastRun = state.detail?.runs[state.detail.runs.length - 1];
   const defaultView: SessionView = {
@@ -209,13 +233,22 @@ function Workspace() {
       state.options?.models.find((item) => item.is_default)?.model_ref ??
       state.options?.models[0]?.model_ref ??
       "",
-    context: lastRun?.context_key ?? "",
+    context: lastRun
+      ? (lastRun.context_key ?? "")
+      : agentKey === MAINTENANCE_AGENT_KEY
+        ? (params.get("library") ?? "company")
+        : "",
   };
   const selected: SessionView = stored
     ? { ...stored, model: stored.model || defaultView.model }
     : defaultView;
   const activeRun = state.detail?.runs.find(isWorkspaceRunActive);
-  const busy = submitting.has(key) || Boolean(activeRun);
+  const busy = submitting.has(key) || activeRun?.status === "awaiting_confirmation";
+  const tools = [
+    ...new Map(
+      [...(state.options?.tools ?? []), ...(agent?.tools ?? [])].map((tool) => [tool.key, tool]),
+    ).values(),
+  ];
   const availableModel = state.options?.models.some((model) => model.model_ref === selected.model);
   const artifact = state.detail?.artifacts.find((item) => item.id === selected.artifact);
   const compact = width < 1040;
@@ -246,8 +279,17 @@ function Workspace() {
     };
   }, []);
   useEffect(() => {
-    if (isMaintenance) setLastAgentLocation({ search: location.search, hash: location.hash });
-  }, [isMaintenance, location.search, location.hash]);
+    if (managementView) setLastAgentLocation({ search: location.search, hash: location.hash });
+  }, [managementView, location.search, location.hash]);
+  useEffect(() => {
+    if (!sessionId && view === "chat" && agentKey === MAINTENANCE_AGENT_KEY && requestedLibrary) {
+      setSessionViews((previous) =>
+        previous[key]
+          ? { ...previous, [key]: { ...previous[key], context: requestedLibrary } }
+          : previous,
+      );
+    }
+  }, [sessionId, view, agentKey, requestedLibrary, key]);
   useEffect(() => {
     const element = frame.current;
     if (!element) return;
@@ -325,9 +367,16 @@ function Workspace() {
       element.scrollTop = element.scrollHeight;
   }, [state.detail?.messages.length, state.events.length, key]);
 
-  function navigate(nextView: View, id = sessionId) {
+  function navigate(
+    nextView: View,
+    id = sessionId,
+    selectedAgent = agentKey,
+    library: string | null = null,
+  ) {
     const next = new URLSearchParams();
     if (id) next.set("session", id);
+    if (selectedAgent) next.set("agent", selectedAgent);
+    if (!id && library) next.set("library", library);
     if (nextView !== "chat") next.set("view", nextView);
     routeNavigate(`${AI_WORKSPACE_PATH}${next.size ? `?${next}` : ""}`);
     closeSidebar();
@@ -353,13 +402,20 @@ function Workspace() {
       pendingSubmissions.current.has(key) ||
       !content ||
       !selected.model ||
-      !availableModel
+      !availableModel ||
+      unknownAgent
     )
       return;
     const submittedKey = key;
     const submittedId = sessionId;
     const submittedRoute = currentRoute.current;
-    const signature = JSON.stringify([content, selected.model, selected.context]);
+    const signature = JSON.stringify([
+      content,
+      selected.model,
+      selected.context,
+      agentKey,
+      activeRun?.id,
+    ]);
     let request = requests.current[submittedKey];
     if (!request || request.signature !== signature) {
       request = { signature, id: createClientUuid(), sessionRequest: createClientUuid() };
@@ -371,17 +427,19 @@ function Workspace() {
     try {
       let id = submittedId;
       if (!id) {
-        request.session ??= await createWorkspaceSession(request.sessionRequest);
+        request.session ??= await createWorkspaceSession(request.sessionRequest, agentKey);
         id = request.session.id;
         if (!mounted.current) return;
         state.upsertSession(request.session);
       }
-      await sendWorkspaceMessage(id, {
-        request_id: request.id,
-        content,
-        model_ref: selected.model,
-        context_key: selected.context || null,
-      });
+      if (activeRun) await resumeWorkspaceRun(id, activeRun.id, request.id, content);
+      else
+        await sendWorkspaceMessage(id, {
+          request_id: request.id,
+          content,
+          model_ref: selected.model,
+          context_key: selected.context || null,
+        });
       if (!mounted.current) return;
       setSessionViews((previous) => {
         const current = previous[submittedKey] ?? selected;
@@ -405,7 +463,7 @@ function Workspace() {
       if (mounted.current) setSubmitting(new Set(pendingSubmissions.current));
     }
   }
-  async function runAction(run: WorkspaceRun, action: "stop" | "retry") {
+  async function runAction(run: WorkspaceRun, action: "stop" | "resume") {
     if (operationBusy) return;
     const id = sessionId;
     setOperationBusy(true);
@@ -413,10 +471,33 @@ function Workspace() {
     try {
       if (action === "stop") await stopWorkspaceRun(id, run.id);
       else {
-        retryRequests.current[run.id] ??= createClientUuid();
-        await retryWorkspaceRun(id, run.id, retryRequests.current[run.id]);
-        delete retryRequests.current[run.id];
+        resumeRequests.current[run.id] ??= createClientUuid();
+        await resumeWorkspaceRun(id, run.id, resumeRequests.current[run.id]);
+        delete resumeRequests.current[run.id];
       }
+      if (mounted.current && currentId.current === id) state.refresh();
+    } catch (cause) {
+      if (mounted.current && currentId.current === id) setError(workspaceError(cause));
+    } finally {
+      if (mounted.current) setOperationBusy(false);
+    }
+  }
+  async function decideAction(run: WorkspaceRun, decision: "approve" | "reject") {
+    if (operationBusy || !run.pending_action) return;
+    const id = sessionId;
+    const actionKey = `${run.id}:${run.pending_action.id}:${decision}`;
+    actionRequests.current[actionKey] ??= createClientUuid();
+    setOperationBusy(true);
+    setError("");
+    try {
+      await decideWorkspaceAction(
+        id,
+        run.id,
+        run.pending_action.id,
+        actionRequests.current[actionKey],
+        decision,
+      );
+      delete actionRequests.current[actionKey];
       if (mounted.current && currentId.current === id) state.refresh();
     } catch (cause) {
       if (mounted.current && currentId.current === id) setError(workspaceError(cause));
@@ -478,7 +559,7 @@ function Workspace() {
   }
   const title =
     view === "chat"
-      ? state.detail?.session.title || (sessionId ? "会话" : "新建会话")
+      ? state.detail?.session.title || (agent?.label ?? (sessionId ? "会话" : "新建会话"))
       : (
           {
             agents: "Agent",
@@ -528,15 +609,17 @@ function Workspace() {
         <nav className="aw-navigation">
           <button
             className="aw-nav-item"
-            data-active={view === "chat" && !sessionId}
-            onClick={() => navigate("chat", "")}
+            data-active={view === "chat" && !sessionId && !agentKey}
+            onClick={() => navigate("chat", "", null)}
           >
             <Plus />
             新建会话
           </button>
           <button
             className="aw-nav-item"
-            data-active={view === "agents" || view === "maintenance"}
+            data-active={
+              view === "agents" || view === "maintenance" || Boolean(agentKey && view === "chat")
+            }
             onClick={() => navigate("agents")}
           >
             <Bot />
@@ -562,10 +645,11 @@ function Workspace() {
                 key={item.id}
                 className="aw-session"
                 aria-current={sessionId === item.id && view === "chat" ? "page" : undefined}
-                onClick={() => navigate("chat", item.id)}
+                onClick={() => navigate("chat", item.id, item.agent_key ?? null)}
                 title={item.title}
               >
-                {item.title}
+                {item.agent_key && <Bot size={13} aria-label="Agent 会话" />}
+                <span>{item.title}</span>
               </button>
             ))}
             {!state.sessions.length && <p className="aw-empty-history">会话会自动保存在这里</p>}
@@ -602,13 +686,31 @@ function Workspace() {
               <Menu />
             </WorkspaceIconButton>
             {view === "maintenance" && (
-              <WorkspaceIconButton label="返回 Agent 列表" onClick={() => navigate("agents")}>
+              <WorkspaceIconButton
+                label="返回 Agent 会话"
+                onClick={() =>
+                  navigate(
+                    "chat",
+                    state.detail?.session.agent_key === MAINTENANCE_AGENT_KEY ? sessionId : "",
+                    MAINTENANCE_AGENT_KEY,
+                    requestedLibrary,
+                  )
+                }
+              >
                 <ArrowLeft />
               </WorkspaceIconButton>
             )}
             <span>{title}</span>
           </div>
           <div className="aw-inline-actions">
+            {agentKey && view === "chat" && (
+              <WorkspaceIconButton
+                label="新建 Agent 任务"
+                onClick={() => navigate("chat", "", agentKey)}
+              >
+                <Plus />
+              </WorkspaceIconButton>
+            )}
             {sessionId && view === "chat" && state.detail && (
               <>
                 <WorkspaceIconButton
@@ -663,6 +765,38 @@ function Workspace() {
         {view === "chat" ? (
           <div className="aw-body">
             <section className="aw-chat" aria-label="会话">
+              {agentKey === MAINTENANCE_AGENT_KEY && (
+                <nav className="aw-agent-context" aria-label="知识维护辅助视图">
+                  <span>
+                    <Bot size={15} />
+                    知识维护 Agent
+                  </span>
+                  <div>
+                    {(
+                      [
+                        ["issues", "维护待办"],
+                        ["runs", "巡检记录"],
+                        ["settings", "巡检设置"],
+                      ] as const
+                    ).map(([tab, label]) => (
+                      <Link
+                        key={tab}
+                        to={maintenanceAgentHref(lastAgentLocation?.search ?? "", {
+                          tab,
+                          session: sessionId || null,
+                          library: selected.context || "company",
+                          target_id: null,
+                          digest_id: null,
+                          view: null,
+                          page: null,
+                        })}
+                      >
+                        {label}
+                      </Link>
+                    ))}
+                  </div>
+                </nav>
+              )}
               <div ref={scroll} className="aw-chat-scroll" onScroll={onScroll}>
                 {!sessionId ? (
                   <div className="aw-home">
@@ -674,9 +808,14 @@ function Workspace() {
                       <b />
                     </div>
                     <div className="aw-greeting">
-                      <Sparkles />
-                      <h1>今天，想推进什么？</h1>
-                      <p>带上资料和目标，一起把想法变成可以使用的内容。</p>
+                      {agentKey ? <Bot /> : <Sparkles />}
+                      <h1>{agentKey ? "交给我一个知识维护目标" : "今天，想推进什么？"}</h1>
+                      <p>
+                        {agent?.description ??
+                          (agentKey
+                            ? "选择知识库，说明目标；在这里持续查看进展、核对依据和跟进结果。"
+                            : "带上资料和目标，一起把想法变成可以使用的内容。")}
+                      </p>
                     </div>
                   </div>
                 ) : state.loading && !state.detail ? (
@@ -703,7 +842,7 @@ function Workspace() {
                         <div className="aw-answer">
                           <div className="aw-answer-brand">
                             <Sparkles size={16} />
-                            博维 AI{" "}
+                            {agent?.label ?? "博维 AI"}{" "}
                             <span className={`aw-run-status is-${run.status}`}>
                               {runLabels[run.status]}
                             </span>
@@ -721,7 +860,7 @@ function Workspace() {
                                 .filter((event) => event.run_id === run.id)
                                 .map((event) => (
                                   <li key={event.id}>
-                                    <Check size={13} />
+                                    <Circle size={10} aria-hidden="true" />
                                     <span>{event.label}</span>
                                   </li>
                                 ))}
@@ -729,6 +868,11 @@ function Workspace() {
                                 <li>正在读取执行记录。</li>
                               )}
                             </ol>
+                            <ToolReceipts
+                              actions={(state.detail?.actions ?? []).filter(
+                                (action) => action.run_id === run.id,
+                              )}
+                            />
                           </details>
                           {state
                             .detail!.messages.filter(
@@ -759,23 +903,43 @@ function Workspace() {
                           {run.status === "failed" && (
                             <p className="aw-run-error">
                               {failureLabels[run.error_code ?? ""] ||
-                                "本次处理未完成，可查看执行过程后重试。"}
+                                "本次处理未完成，可以查看执行过程后继续任务。"}
                             </p>
                           )}
-                          {(run.status === "failed" || run.status === "stopped") && (
+                          {(run.status === "failed" ||
+                            run.status === "stopped" ||
+                            (run.status === "waiting" &&
+                              run.waiting_reason !== "external_task")) && (
                             <WorkspaceIconButton
-                              label="重新执行"
-                              disabled={Boolean(activeRun) || operationBusy}
-                              onClick={() => void runAction(run, "retry")}
+                              label="继续任务"
+                              disabled={
+                                Boolean(activeRun && activeRun.id !== run.id) || operationBusy
+                              }
+                              onClick={() => void runAction(run, "resume")}
                             >
                               <RotateCcw />
                             </WorkspaceIconButton>
+                          )}
+                          {run.status === "awaiting_confirmation" && run.pending_action && (
+                            <ActionConfirmation
+                              action={run.pending_action}
+                              busy={operationBusy}
+                              onDecision={(decision) => void decideAction(run, decision)}
+                            />
                           )}
                           {isWorkspaceRunActive(run) && (
                             <p className="aw-running" role="status">
                               {run.status === "queued"
                                 ? "任务已提交，等待执行…"
-                                : "正在处理，进展会显示在这里。"}
+                                : run.status === "awaiting_confirmation"
+                                  ? "任务已暂停，等待你核对并确认上面的操作。"
+                                  : run.status === "waiting"
+                                    ? run.waiting_reason === "external_task"
+                                      ? "后台任务仍在执行，Agent 会自动查看结果。你也可以补充要求。"
+                                      : run.waiting_reason === "step_budget"
+                                        ? "已保存本轮进展。可以继续任务，或补充下一步要求。"
+                                        : "等待你补充信息，可以在下方继续回复。"
+                                    : "正在处理，进展会显示在这里。"}
                             </p>
                           )}
                         </div>
@@ -814,7 +978,13 @@ function Workspace() {
                     <textarea
                       ref={editor}
                       aria-label="消息"
-                      placeholder="描述你想完成的事，也可以直接粘贴资料…"
+                      placeholder={
+                        activeRun
+                          ? "补充要求，继续这项任务…"
+                          : agentKey
+                            ? "希望检查哪些知识？说明目标，我会逐步检查并提供依据…"
+                            : "描述你想完成的事，也可以直接粘贴资料…"
+                      }
                       value={selected.input}
                       maxLength={32000}
                       rows={3}
@@ -840,6 +1010,7 @@ function Workspace() {
                             : "添加上下文"
                         }
                         data-selected={Boolean(selected.context)}
+                        disabled={Boolean(activeRun)}
                         onClick={() => setDialog("context")}
                       >
                         <Layers2 size={15} />
@@ -866,7 +1037,7 @@ function Workspace() {
                               aria-label="对话模型"
                               value={selected.model}
                               onChange={(event) => updateView({ model: event.target.value })}
-                              disabled={!state.options?.models.length}
+                              disabled={!state.options?.models.length || Boolean(activeRun)}
                             >
                               <option value="" disabled>
                                 {state.options ? "未配置可用模型" : "读取模型…"}
@@ -884,7 +1055,7 @@ function Workspace() {
                             </select>
                           </WorkspaceTooltip>
                         </span>
-                        {activeRun ? (
+                        {activeRun && (
                           <WorkspaceIconButton
                             className="aw-send"
                             label="停止处理"
@@ -893,12 +1064,15 @@ function Workspace() {
                           >
                             <Square size={14} fill="currentColor" />
                           </WorkspaceIconButton>
-                        ) : (
+                        )}
+                        {activeRun?.status !== "awaiting_confirmation" && (
                           <WorkspaceIconButton
                             className="aw-send"
                             type="submit"
-                            label="发送消息"
-                            disabled={busy || !selected.input.trim() || !availableModel}
+                            label={activeRun ? "补充并继续" : "发送消息"}
+                            disabled={
+                              busy || !selected.input.trim() || !availableModel || unknownAgent
+                            }
                           >
                             <ArrowUp size={18} />
                           </WorkspaceIconButton>
@@ -922,6 +1096,11 @@ function Workspace() {
                       当前没有可用对话模型，请联系管理员在 KAP 的模型配置中添加或启用。
                     </p>
                   )}
+                  {unknownAgent && (
+                    <p className="aw-model-warning" role="alert">
+                      当前身份无法使用这个 Agent，请从侧栏选择可用的 Agent。
+                    </p>
+                  )}
                   {error && (
                     <p className="aw-inline-error" role="alert">
                       {error}
@@ -930,32 +1109,53 @@ function Workspace() {
                   {!sessionId && (
                     <div className="aw-shortcuts">
                       {(
-                        [
-                          [
-                            BookOpen,
-                            "阅读资料",
-                            "提炼要点，解释复杂内容",
-                            "请阅读以下资料，整理关键结论和需要进一步确认的问题：\n",
-                          ],
-                          [
-                            FileText,
-                            "整理文档",
-                            "把想法整理成可编辑文档",
-                            "请帮我整理一份文档。用途是：\n需要包含的内容：\n",
-                          ],
-                          [
-                            FileDiff,
-                            "比较文件",
-                            "粘贴两份内容，梳理差异",
-                            "请比较下面两份内容，说明关键差异及影响：\n资料一：\n\n资料二：\n",
-                          ],
-                          [
-                            Table2,
-                            "分析表格",
-                            "粘贴表格，归纳发现",
-                            "请分析以下表格内容，总结趋势、异常和建议：\n",
-                          ],
-                        ] as const
+                        (agentKey
+                          ? [
+                              [
+                                ShieldCheck,
+                                "检查敏感信息",
+                                "核对摘要和正文中的泄露风险",
+                                "请检查所选知识库中敏感个人信息的泄露风险，列出可核实的依据和需要维护人处理的事项，不要在回复中复述敏感原值。",
+                              ],
+                              [
+                                FileDiff,
+                                "核对当前版本",
+                                "比较重复资料与版本关系",
+                                "请检查所选知识库中可能重复或存在新版的资料，先核对当前版本，再给出判断依据和处理建议。",
+                              ],
+                              [
+                                History,
+                                "跟进未解决问题",
+                                "查看进展，复检后再关闭",
+                                "请跟进所选知识库中还没有解决的维护问题，核对当前版本和处理进展，对已修正的问题复检，通过后再关闭。",
+                              ],
+                            ]
+                          : [
+                              [
+                                BookOpen,
+                                "阅读资料",
+                                "提炼要点，解释复杂内容",
+                                "请阅读以下资料，整理关键结论和需要进一步确认的问题：\n",
+                              ],
+                              [
+                                FileText,
+                                "整理文档",
+                                "把想法整理成可编辑文档",
+                                "请帮我整理一份文档。用途是：\n需要包含的内容：\n",
+                              ],
+                              [
+                                FileDiff,
+                                "比较文件",
+                                "粘贴两份内容，梳理差异",
+                                "请比较下面两份内容，说明关键差异及影响：\n资料一：\n\n资料二：\n",
+                              ],
+                              [
+                                Table2,
+                                "分析表格",
+                                "粘贴表格，归纳发现",
+                                "请分析以下表格内容，总结趋势、异常和建议：\n",
+                              ],
+                            ]) as [typeof BookOpen, string, string, string][]
                       ).map(([Icon, name, description, prompt]) => (
                         <button
                           className="aw-shortcut"
@@ -1009,7 +1209,12 @@ function Workspace() {
                 </p>
               }
             >
-              <MaintenanceAgentPage embedded />
+              <MaintenanceAgentPage
+                embedded
+                agentSessionId={
+                  state.detail?.session.agent_key === MAINTENANCE_AGENT_KEY ? sessionId : undefined
+                }
+              />
             </Suspense>
           </div>
         ) : (
@@ -1020,36 +1225,36 @@ function Workspace() {
                   <Bot className="aw-entry-symbol" />
                   <h1>让 Agent 接手一类工作</h1>
                   <p className="aw-section-intro">
-                    每个 Agent 有自己的职责、配置和工作记录。选择它，再进入对应的工作场景。
+                    选择擅长这项工作的 Agent，在会话里交代目标、核对执行依据并持续跟进。
                   </p>
-                  <details className="aw-agent-row">
-                    <summary>
-                      <BookOpen />
-                      <span>
-                        <strong>知识维护 Agent</strong>
-                        <small>巡检知识、提醒维护人、持续跟进问题</small>
-                      </span>
-                      <span className="aw-agent-status">
-                        已可用
-                        <ChevronRight />
-                      </span>
-                    </summary>
-                    <div className="aw-agent-description">
-                      <p>按知识库开展巡检，保留问题与依据，复检通过后关闭待办。</p>
-                      <p>巡检计划、模型与授权仍在知识维护 Agent 中配置。</p>
-                      <Link
-                        className="aw-text-button"
-                        to={maintenanceAgentHref(
-                          lastAgentLocation?.search ?? "?tab=issues",
-                          { session: sessionId || null },
-                          lastAgentLocation?.hash,
-                        )}
-                      >
-                        打开知识维护 Agent
-                        <ChevronRight />
-                      </Link>
-                    </div>
-                  </details>
+                  {state.options?.agents?.map((item) => (
+                    <details className="aw-agent-row" key={item.key}>
+                      <summary>
+                        <BookOpen />
+                        <span>
+                          <strong>{item.label}</strong>
+                          <small>{item.description}</small>
+                        </span>
+                        <span className="aw-agent-status">
+                          已可用
+                          <ChevronRight />
+                        </span>
+                      </summary>
+                      <div className="aw-agent-description">
+                        <p>
+                          任务与进展保存在会话里；需要确认的操作会先列出具体内容，产物可在右侧预览。
+                        </p>
+                        <p>{item.tools.map((tool) => tool.label).join(" · ")}</p>
+                        <Link className="aw-text-button" to={agentConversationHref(item.key)}>
+                          开始任务
+                          <ChevronRight />
+                        </Link>
+                      </div>
+                    </details>
+                  ))}
+                  {state.options && !state.options.agents?.length && (
+                    <p className="aw-muted">当前身份没有可用的 Agent。</p>
+                  )}
                 </>
               )}
               {view === "tools" && (
@@ -1059,7 +1264,7 @@ function Workspace() {
                   <p className="aw-section-intro">
                     对话会按任务使用这些能力。知识访问遵循你在 KAP 中的权限。
                   </p>
-                  {state.options?.tools.map((tool) => (
+                  {tools.map((tool) => (
                     <div className="aw-tool-row" key={tool.key}>
                       <Wrench />
                       <span>
@@ -1069,7 +1274,7 @@ function Workspace() {
                       <Check />
                     </div>
                   ))}
-                  {state.options && !state.options.tools.length && (
+                  {state.options && !tools.length && (
                     <p className="aw-muted">当前没有已接入的工具。</p>
                   )}
                 </>
@@ -1126,16 +1331,16 @@ function Workspace() {
                     </p>
                   </div>
                   <div className="aw-help-row">
-                    <strong>停止、重试和清理会话</strong>
+                    <strong>补充要求、停止和继续任务</strong>
                     <p>
-                      处理期间可以停止；失败或停止后可以重试。会话顶部提供重命名和删除，删除会同时清理这段会话的文档。
+                      执行中可以补充要求或停止；失败或停止后可从已保存的进展继续。会话顶部可以重命名和删除，删除会同时清理这段会话的文档。
                     </p>
                   </div>
                   <div className="aw-help-row">
-                    <strong>Agent 有独立的工作流程</strong>
+                    <strong>在会话里使用 Agent</strong>
                     <p>
-                      知识巡检与维护跟进在左侧 Agent
-                      中进入。工作空间本身不自动执行巡检，也不会替你修改知识资产。
+                      左侧 Agent 提供专门的工具和职责。知识维护 Agent
+                      可以查看问题、开展巡检和复检、准备维护报告。会话上方的待办、记录与设置用于查看明细和配置；需要确认的操作由你核对后执行。
                     </p>
                   </div>
                   <div className="aw-help-row">

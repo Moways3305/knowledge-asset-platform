@@ -123,7 +123,7 @@ async def test_private_multiturn_artifact_and_idempotence(client, model):
     assert (await client.get(path, headers=CONSULTANT)).status_code == 404
 
 
-async def test_run_failure_retry_and_private_errors(client, model, monkeypatch):
+async def test_run_failure_resume_and_private_errors(client, model, monkeypatch):
     model.steps = [ValueError("upstream credential " + PHONE)]
     path = await create(client)
     run = await send(client, path)
@@ -132,13 +132,13 @@ async def test_run_failure_retry_and_private_errors(client, model, monkeypatch):
     assert snapshot["runs"][0]["error_code"] == "response_error"
     assert PHONE not in json.dumps(snapshot)
     response = await client.post(
-        path + f"/runs/{run['id']}/retry",
+        path + f"/runs/{run['id']}/resume",
         headers=CONSULTANT,
         json={"request_id": str(uuid.uuid4())},
     )
     assert response.status_code == 202, response.text
     snapshot = (await client.get(path, headers=CONSULTANT)).json()
-    assert [r["status"] for r in snapshot["runs"]] == ["failed", "completed"]
+    assert [r["status"] for r in snapshot["runs"]] == ["completed"]
     assert [m["role"] for m in snapshot["messages"]] == ["user", "assistant"]
     # Invalid requests must not echo the original pasted text, including Pydantic's input field.
     invalid = await client.post(
@@ -186,9 +186,7 @@ async def test_stop_fences_late_model_result(client, model, sessionmaker_fixture
     assert events[-1]["type"] == "stopped"
 
 
-async def test_recovery_interrupts_abandoned_run_and_drains_queue(
-    client, model, sessionmaker_fixture
-):
+async def test_recovery_resumes_abandoned_run_and_drains_queue(client, model, sessionmaker_fixture):
     path = await create(client)
     session_id = uuid.UUID(path.rsplit("/", 1)[1])
     async with sessionmaker_fixture() as session:
@@ -208,7 +206,8 @@ async def test_recovery_interrupts_abandoned_run_and_drains_queue(
         await session.commit()
     await service.recover(sessionmaker_fixture)
     snapshot = (await client.get(path, headers=CONSULTANT)).json()
-    assert snapshot["runs"][0]["error_code"] == "interrupted"
+    assert snapshot["runs"][0]["status"] == "completed"
+    assert snapshot["runs"][0]["error_code"] is None
     async with sessionmaker_fixture() as session:
         await service.start(
             session,
@@ -331,17 +330,7 @@ async def test_heartbeat_fences_stale_recovery_and_busy_request(
         row = await session.get(WorkspaceRun, run.id)
         row.status, row.claim, row.lease_until = "running", claim, utc_now() + timedelta(minutes=3)
         await session.commit()
-    with pytest.raises(service.Stopped):
-        await service.checkpoint(
-            sessionmaker_fixture,
-            run.id,
-            claim,
-            "failed",
-            "执行中断",
-            terminal="failed",
-            error="interrupted",
-            expired_before=utc_now(),
-        )
+    await service.recover(sessionmaker_fixture)
     busy = await client.post(
         path + "/messages",
         headers=CONSULTANT,
