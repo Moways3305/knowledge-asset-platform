@@ -598,6 +598,26 @@ async def list_requests(
     return RequestsListResponse(items=items, total=len(items))
 
 
+async def get_request(
+    session: AsyncSession, caller: CallerContext, request_id: uuid.UUID
+) -> OriginalAccessRequestOut:
+    """Read a notification target without treating a historical approval as pending."""
+    if not caller.is_business_user:
+        raise _denied(403, "admin_business_permission_denied", "仅业务用户可查看原文访问申请")
+    request = await session.get(OriginalAccessRequest, request_id)
+    asset = await session.get(KnowledgeAsset, request.asset_id) if request is not None else None
+    if request is None or asset is None or not caller.is_active:
+        raise _denied(404, "original_access_request_not_found", "申请不存在或当前身份不可访问")
+    policy = await load_access_policy(session)
+    requester_visible = (
+        request.requester_user_id == caller.user_id
+        and decide(caller, asset, AccessLayer.discovery, policy=policy).allowed
+    )
+    if not requester_visible and not _can_approve(caller, asset):
+        raise _denied(404, "original_access_request_not_found", "申请不存在或当前身份不可访问")
+    return await _request_out(session, request, asset=asset)
+
+
 # ---------------------------------------------------------------------------
 # 审批 / 拒绝
 # ---------------------------------------------------------------------------

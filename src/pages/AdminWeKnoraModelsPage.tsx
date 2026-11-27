@@ -29,6 +29,7 @@ import { useAdminWeKnoraModels } from "./controllers/AdminWeKnoraModels/useAdmin
 export default function AdminWeKnoraModelsPage() {
   const {
     error,
+    navigationError,
     connectionIssues,
     notConfigured,
     loading,
@@ -93,6 +94,7 @@ export default function AdminWeKnoraModelsPage() {
 
   return (
     <ProductPage className="ws-page mf-page mf-overview-page admin-control-page model-registry-page">
+      {navigationError && <p role="status">{navigationError}</p>}
       <PageHeader
         title="模型管理"
         description="管理可用模型，为内容生成、项目问答和知识检索选择合适的模型。"

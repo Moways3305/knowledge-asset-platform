@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
+import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import UploadConfirmPanel, { confirmationSubjectLabel } from "./UploadConfirmPanel";
 import type { UploadFlow } from "./useUploadFlow";
@@ -76,6 +77,30 @@ function fakeFlow(overrides: Partial<UploadFlow> = {}): UploadFlow {
     ...overrides,
   } as UploadFlow;
 }
+
+describe("UploadConfirmPanel result navigation", () => {
+  it("takes the uploader to their exact history record to inspect approval status", () => {
+    render(
+      <MemoryRouter>
+        <UploadConfirmPanel
+          flow={fakeFlow({
+            taskId: "task-review",
+            confirmSubmitted: true,
+            awaitingProjectReview: true,
+            targetProjectId: "project-one",
+          })}
+          onExit={vi.fn()}
+          onReject={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("link", { name: "查看审批状态" })).toHaveAttribute(
+      "href",
+      "/upload?view=history&task_id=task-review&project_id=project-one",
+    );
+    expect(screen.queryByRole("link", { name: "查看资产" })).not.toBeInTheDocument();
+  });
+});
 
 describe("UploadConfirmPanel AI regeneration", () => {
   it("offers regenerate for transient generation failures and wires the click", () => {

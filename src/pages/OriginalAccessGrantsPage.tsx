@@ -9,6 +9,7 @@ import GovernanceWorkspace from "../components/GovernanceWorkspace";
 import TaskModal from "../components/TaskModal";
 import type { AccessGrantHistoryDTO } from "../types/originalAccess";
 import { formatBeijingTime } from "../utils/time";
+import { queryChoice, queryPage, useKnowledgeQueryState } from "./controllers/knowledgeQueryState";
 
 type Status = "" | "active" | "expired" | "revoked";
 const statusLabels: Record<string, string> = {
@@ -23,8 +24,9 @@ const scopes: Record<string, string> = {
 };
 
 export default function OriginalAccessGrantsPage() {
-  const [status, setStatus] = useState<Status>("");
-  const [offset, setOffset] = useState(0);
+  const { query, updateQuery, currentPath } = useKnowledgeQueryState();
+  const status = queryChoice<Status>(query, "status", ["", "active", "expired", "revoked"], "");
+  const offset = (queryPage(query) - 1) * 20;
   const [rows, setRows] = useState<AccessGrantHistoryDTO[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -120,7 +122,7 @@ export default function OriginalAccessGrantsPage() {
         <Link
           to={`/knowledge/${encodeURIComponent(item.asset_id)}`}
           state={{
-            backTo: "/original-access/grants",
+            backTo: currentPath,
             backLabel: "返回授权记录",
             source: "original-access",
           }}
@@ -201,8 +203,7 @@ export default function OriginalAccessGrantsPage() {
             value={status}
             disabled={busy}
             onChange={(event) => {
-              setStatus(event.target.value as Status);
-              setOffset(0);
+              updateQuery({ status: event.target.value });
             }}
           >
             <option value="">全部状态</option>
@@ -241,7 +242,7 @@ export default function OriginalAccessGrantsPage() {
         page={Math.floor(offset / 20) + 1}
         totalPages={Math.ceil(total / 20)}
         disabled={loading || busy}
-        onPageChange={(page) => setOffset((page - 1) * 20)}
+        onPageChange={(page) => updateQuery({ page }, { resetPage: false })}
         summary={`共 ${total} 条`}
       />
       <ConfirmDialog

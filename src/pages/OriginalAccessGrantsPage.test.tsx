@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { Link, MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/http";
 import { fetchOriginalAccessGrants, revokeOriginalAccessGrant } from "../api/knowledge";
@@ -43,6 +43,29 @@ function mount() {
 }
 
 describe("original authorization management", () => {
+  it("returns from a material to the same authorization status and result page", async () => {
+    function ReturnToGrants() {
+      const location = useLocation();
+      return <Link to={location.state.backTo}>返回授权记录</Link>;
+    }
+    vi.mocked(fetchOriginalAccessGrants).mockResolvedValue(result([grant], 40));
+    render(
+      <MemoryRouter initialEntries={["/original-access/grants?status=active&page=2"]}>
+        <Routes>
+          <Route path="/original-access/grants" element={<OriginalAccessGrantsPage />} />
+          <Route path="/knowledge/:id" element={<ReturnToGrants />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole("link", { name: "验收资料" }));
+    expect(screen.getByRole("link", { name: "返回授权记录" })).toHaveAttribute(
+      "href",
+      "/original-access/grants?status=active&page=2",
+    );
+    fireEvent.click(screen.getByRole("link", { name: "返回授权记录" }));
+    await waitFor(() => expect(fetchOriginalAccessGrants).toHaveBeenLastCalledWith("active", 20));
+    expect(screen.getByRole("combobox", { name: "授权状态" })).toHaveValue("active");
+  });
   beforeEach(() => {
     vi.mocked(fetchOriginalAccessGrants).mockReset().mockResolvedValue(result());
     vi.mocked(revokeOriginalAccessGrant)

@@ -872,12 +872,13 @@ async def ops_canonical_markdown_backfill(
 
 @router.get("/admin/ops/indexing/jobs", response_model=IndexingJobListResponse)
 async def ops_indexing_jobs(
+    job_id: uuid.UUID | None = Query(default=None),
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> IndexingJobListResponse:
     """最近索引运维作业列表：仅安全统计 + 安全筛选条件 + 安全错误文案；
     绝不返回所处理资产的标题 / 原文 / 文件名 / WeKnora id / 存储引用。"""
-    return await indexing_ops_service.list_jobs(session, caller)
+    return await indexing_ops_service.list_jobs(session, caller, job_id=job_id)
 
 
 # ---------------------------------------------------------------------------

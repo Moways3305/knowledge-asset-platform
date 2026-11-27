@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useSearchParams } from "react-router-dom";
 import {
   fetchWeknoraDefaultModels,
   fetchWeknoraKbConfigs,
@@ -18,6 +19,11 @@ import type { KbConfigDTO, ModelDTO, WeknoraDefaultModelsDTO } from "../../../ty
 import { DrawerKind, emptyDefaults, kbUpdateErrorMessage } from "./model";
 
 export function useAdminWeKnoraModels() {
+  const [params] = useSearchParams();
+  const targetId = params.get("target_id");
+  const locationKey = useLocation().key;
+  const openedTarget = useRef<string | null>(null);
+  const [navigationError, setNavigationError] = useState<string | null>(null);
   const { capabilities } = useAuth();
   const isGlobalOperator = capabilities.isAdmin || capabilities.isGovernance;
   const [models, setModels] = useState<ModelDTO[]>([]);
@@ -36,6 +42,20 @@ export function useAdminWeKnoraModels() {
   const [selectedKb, setSelectedKb] = useState<KbConfigDTO | null>(null);
   const [migrationKb, setMigrationKb] = useState<KbConfigDTO | null>(null);
   const [migrationResult, setMigrationResult] = useState<KbConfigDTO | null>(null);
+  useEffect(() => {
+    openedTarget.current = null;
+    setMigrationResult(null);
+    setNavigationError(null);
+  }, [targetId, locationKey]);
+  useEffect(() => {
+    if (!targetId || loading || error || openedTarget.current === locationKey) return;
+    openedTarget.current = locationKey;
+    const config = kbConfigs.find((item) => item.migration?.job_id === targetId);
+    if (config) {
+      setMigrationResult(config);
+      setDrawer("migration");
+    } else setNavigationError("该迁移记录已更新或不在当前身份的可见范围，请查看当前知识库配置。");
+  }, [targetId, locationKey, loading, error, kbConfigs]);
   const [busy, setBusy] = useState(false);
   const [refreshSignal, setRefreshSignal] = useState(0);
   const [kbQuery, setKbQuery] = useState("");
@@ -291,6 +311,7 @@ export function useAdminWeKnoraModels() {
   };
   return {
     error,
+    navigationError,
     connectionIssues,
     notConfigured,
     loading,

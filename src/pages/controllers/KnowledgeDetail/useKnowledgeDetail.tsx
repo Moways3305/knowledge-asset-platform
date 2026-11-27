@@ -216,7 +216,7 @@ export function useKnowledgeDetail() {
     setDeleteErr(null);
     try {
       await deleteKnowledgeAsset(id, deleteReason.trim());
-      navigate(backPath);
+      navigate(backPath, { replace: true });
     } catch (error) {
       setDeleteErr(safeActionError(error, "删除失败，请重试。"));
       setDeleteBusy(false);

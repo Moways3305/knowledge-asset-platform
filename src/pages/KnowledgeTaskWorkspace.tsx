@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowRight, BookOpen, Check, FileText, History, Send } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { createClientUuid } from "../api/http";
@@ -16,6 +16,7 @@ import { reportCorrection } from "../api/knowledgeTrust";
 import Button from "../components/Button";
 import { PageHeader, ProductPage } from "../components/ProductLayout";
 import { formatBeijingTime } from "../utils/time";
+import { maintenanceAgentHref } from "../navigation/agentRoutes";
 import "./KnowledgeTaskWorkspace.css";
 
 const states = {
@@ -30,13 +31,20 @@ const active = (s: KnowledgeTask["status"]) => ["queued", "searching", "checking
 const example = "帮我找一份适合制造业客户的访谈提纲，看看有没有新版，给我一份明天能用的。";
 const message = (e: unknown) => (e instanceof Error ? e.message : "请求失败，请重试。");
 
-export default function KnowledgeTaskWorkspace() {
+export default function KnowledgeTaskWorkspace({ embedded = false }: { embedded?: boolean }) {
   const { authMe } = useAuth();
-  return <LibraryWorkspace key={JSON.stringify([authMe?.userId, authMe?.activeCompanyRole])} />;
+  return (
+    <LibraryWorkspace
+      key={JSON.stringify([authMe?.userId, authMe?.activeCompanyRole])}
+      embedded={embedded}
+    />
+  );
 }
 
-function LibraryWorkspace() {
-  const [params, setParams] = useSearchParams();
+function LibraryWorkspace({ embedded }: { embedded: boolean }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
   const key = params.get("library") || "company";
   const [libraries, setLibraries] = useState<AgentPolicy[]>([]);
   const [error, setError] = useState("");
@@ -59,16 +67,22 @@ function LibraryWorkspace() {
   }, [reload]);
   const policy = libraries.find((p) => p.library_key === key);
   return (
-    <ProductPage className="kt-workspace">
+    <ProductPage className={`kt-workspace ${embedded ? "is-workspace-agent" : ""}`}>
       <PageHeader
-        title="知识维护 Agent"
+        title={embedded ? "查找与交代任务" : "知识维护 Agent"}
         description="按用途找资料，核对当前版本，跟进需要维护的地方。"
         actions={
           <label className="kt-scope">
             知识库
             <select
               value={key}
-              onChange={(e) => setParams({ tab: "tasks", library: e.target.value })}
+              onChange={(e) => {
+                const next = new URLSearchParams(params);
+                next.set("tab", "tasks");
+                next.set("library", e.target.value);
+                ["target_id", "view", "page", "asset_id"].forEach((name) => next.delete(name));
+                navigate(maintenanceAgentHref(next.toString(), {}, location.hash));
+              }}
             >
               {libraries.map((p) => (
                 <option key={p.library_key} value={p.library_key}>
@@ -86,7 +100,14 @@ function LibraryWorkspace() {
           ["runs", "巡检记录"],
           ["settings", "巡检设置"],
         ].map(([tab, label]) => (
-          <Link key={tab} to={`?library=${encodeURIComponent(key)}&tab=${tab}`}>
+          <Link
+            key={tab}
+            to={maintenanceAgentHref(
+              location.search,
+              { library: key, tab, page: null },
+              location.hash,
+            )}
+          >
             {label}
           </Link>
         ))}
@@ -386,7 +407,18 @@ function Evidence({ doc, refresh }: { doc: KnowledgeEvidence; refresh: () => voi
           <ul>
             {doc.old_source_links.map((item) => (
               <li key={item.asset_id}>
-                <Link to={`/knowledge/${item.asset_id}`}>{item.title}</Link>
+                <Link
+                  to={`/knowledge/${item.asset_id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="在 KAP 新标签页查看知识资料"
+                >
+                  {item.title}
+                  <span className="agent-reference-hint" aria-hidden="true">
+                    {" "}
+                    · KAP ↗
+                  </span>
+                </Link>
               </li>
             ))}
           </ul>
@@ -426,9 +458,17 @@ function Evidence({ doc, refresh }: { doc: KnowledgeEvidence; refresh: () => voi
         <p className="kt-muted">可见版本记录中未找到可直接比较的上一版。</p>
       )}
       <div className="kt-actions">
-        <Link to={`/knowledge/${doc.asset_id}`}>
+        <Link
+          to={`/knowledge/${doc.asset_id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="在 KAP 新标签页查看知识资料"
+        >
           <BookOpen size={15} />
           {doc.original ? "打开推荐资料" : "查看资料详情"}
+          <span className="agent-reference-hint" aria-hidden="true">
+            KAP ↗
+          </span>
         </Link>
         {!(sent || ["open", "resolved"].includes(doc.correction_status || "")) &&
           draft === null && (

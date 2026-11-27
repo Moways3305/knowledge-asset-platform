@@ -201,6 +201,9 @@ for (const scenario of scenarios) {
         projectDeleted = true;
         return route.fulfill({ status: 204, body: "" });
       }
+      if (requestUrl.pathname === "/api/v1/projects" && method === "GET") {
+        return fulfill({ items: [] });
+      }
       if (requestUrl.pathname === `/api/v1/projects/${projectId}/settings`) {
         return fulfill(settings(scenario.canWrite, scenario.projectStatus));
       }
@@ -463,7 +466,8 @@ for (const scenario of scenarios) {
         button.click();
         button.click();
       });
-      await page.waitForURL((url) => url.pathname === "/");
+      await page.waitForURL((url) => url.pathname === "/projects");
+      await page.getByRole("heading", { name: "项目空间", exact: true }).waitFor();
       await page.waitForTimeout(100);
       deletionEvidence = {
         ...deletionEvidence,
@@ -568,7 +572,7 @@ for (const result of results) {
         !result.memberRemovalCopyVisible ||
         !result.confirmInitiallyDisabled ||
         result.deleteRequestCount !== 1 ||
-        result.postDeletePath !== "/" ||
+        result.postDeletePath !== "/projects" ||
         result.postDeleteDialogVisible ||
         result.postDeleteProjectNameVisible ||
         result.postDeleteOverflowX > 2 ||

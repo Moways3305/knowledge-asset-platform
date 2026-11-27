@@ -321,6 +321,11 @@ function ProjectWorkspace({
                 <Link
                   className="product-button is-primary"
                   to={`/upload?source=local&project_id=${encodeURIComponent(projectId)}`}
+                  state={{
+                    backTo: `/project/${encodeURIComponent(projectId)}`,
+                    backLabel: "返回项目概览",
+                    source: "project",
+                  }}
                 >
                   <Upload size={16} />
                   上传资料
@@ -343,7 +348,14 @@ function ProjectWorkspace({
                     <dt>待确认</dt>
                     <dd>{overview.counts.pending_confirmation_count}</dd>
                     {overview.capabilities.can_upload_material && (
-                      <Link to={`/upload?source=local&project_id=${encodeURIComponent(projectId)}`}>
+                      <Link
+                        to={`/upload?source=local&project_id=${encodeURIComponent(projectId)}`}
+                        state={{
+                          backTo: `/project/${encodeURIComponent(projectId)}`,
+                          backLabel: "返回项目概览",
+                          source: "project",
+                        }}
+                      >
                         <FileCheck size={15} />
                         继续确认上传
                       </Link>
@@ -657,6 +669,7 @@ function ProjectWorkspace({
                 )}
                 {conversation.status === "answer" && conversation.result.citations.length > 0 && (
                   <div className="project78-citations" aria-label="回答引用">
+                    <p>引用资料在新标签页打开，当前问答会保留。</p>
                     {conversation.result.citations.map((citation) => (
                       <div
                         className="project78-citation"
@@ -664,6 +677,9 @@ function ProjectWorkspace({
                       >
                         <Link
                           to={`/knowledge/${encodeURIComponent(citation.asset_id)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="在新标签页核对引用，保留当前问答"
                           state={{
                             backTo: `/project/${encodeURIComponent(projectId)}?view=qa`,
                             backLabel: "返回项目问答",
@@ -698,7 +714,14 @@ export default function ProjectOverviewPage() {
   // 新建项目模态框状态（仅治理角色可用）。
   const canCreate = capabilities.isGovernance;
   const [createOpen, setCreateOpen] = useState(false);
-  const [projectSearch, setProjectSearch] = useState("");
+  const [hubQuery, setHubQuery] = useSearchParams();
+  const projectSearch = hubQuery.get("keyword") ?? "";
+  const setProjectSearch = (value: string) => {
+    const next = new URLSearchParams(hubQuery);
+    if (value) next.set("keyword", value);
+    else next.delete("keyword");
+    setHubQuery(next, { replace: true });
+  };
 
   const loadProjects = useCallback(async () => {
     const request = ++listRequest.current;

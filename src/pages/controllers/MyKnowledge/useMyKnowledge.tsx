@@ -14,6 +14,7 @@ import {
   createPublicationNamingValue,
   type PublicationNamingValue,
 } from "../../../components/PublicationNamingFields";
+import { queryChoice, queryPage, useKnowledgeQueryState } from "../knowledgeQueryState";
 import { useModelSelection } from "../../../hooks/useModelSelection";
 import type { PersonalKnowledgeItemVM, PersonalKnowledgeState } from "../../../types/myKnowledge";
 import type { NamingPreviewDTO } from "../../../types/naming";
@@ -32,14 +33,36 @@ export function useMyKnowledge() {
   const [items, setItems] = useState<PersonalKnowledgeItemVM[]>([]);
   const [summary, setSummary] = useState(emptySummary);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
+  const { query, updateQuery, currentPath } = useKnowledgeQueryState();
+  const page = queryPage(query);
+  const setPage = (value: number) =>
+    updateQuery({ page: value > 1 ? value : null }, { resetPage: false });
   const [hasNext, setHasNext] = useState(false);
-  const [searchInput, setSearchInput] = useState("");
-  const [keyword, setKeyword] = useState("");
-  const [assetType, setAssetType] = useState("");
-  const [personalState, setPersonalState] = useState<PersonalKnowledgeState | "">("");
-  const [sortBy, setSortBy] = useState<"updated_at" | "created_at" | "title">("updated_at");
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
+  const keyword = query.get("keyword") ?? "";
+  const [searchInput, setSearchInput] = useState(keyword);
+  useEffect(() => setSearchInput(keyword), [keyword]);
+  const assetType = query.get("asset_type") ?? "";
+  const personalState = queryChoice<PersonalKnowledgeState | "">(
+    query,
+    "personal_state",
+    [
+      "",
+      "awaiting_confirmation",
+      "ready_to_submit",
+      "pending_project_review",
+      "active_in_project",
+      "project_rejected",
+    ],
+    "",
+  );
+  const sortBy = queryChoice(query, "sort_by", ["updated_at", "created_at", "title"], "updated_at");
+  const sortDirection = queryChoice(query, "sort_direction", ["asc", "desc"], "desc");
+  const setKeyword = (value: string) => updateQuery({ keyword: value });
+  const setAssetType = (value: string) => updateQuery({ asset_type: value });
+  const setPersonalState = (value: PersonalKnowledgeState | "") =>
+    updateQuery({ personal_state: value });
+  const setSort = (field: typeof sortBy, direction: typeof sortDirection) =>
+    updateQuery({ sort_by: field, sort_direction: direction });
   const [filterOpen, setFilterOpen] = useState(false);
   const [menuId, setMenuId] = useState<string | null>(null);
   const [projects, setProjects] = useState<AuthMeVM["projects"]>([]);
@@ -275,16 +298,20 @@ export function useMyKnowledge() {
 
   const submitSearch = (event: FormEvent) => {
     event.preventDefault();
-    setPage(1);
     setKeyword(searchInput.trim());
   };
 
-  const clearFilters = () => {
-    setAssetType("");
-    setPersonalState("");
-    setSortBy("updated_at");
-    setSortDirection("desc");
-    setPage(1);
+  const clearFilters = () =>
+    updateQuery({ asset_type: null, personal_state: null, sort_by: null, sort_direction: null });
+  const clearAllFilters = () => {
+    setSearchInput("");
+    updateQuery({
+      keyword: null,
+      asset_type: null,
+      personal_state: null,
+      sort_by: null,
+      sort_direction: null,
+    });
   };
 
   const canBulkDelete = (item: PersonalKnowledgeItemVM) =>
@@ -412,8 +439,9 @@ export function useMyKnowledge() {
     setAssetType,
     sortBy,
     sortDirection,
-    setSortBy,
-    setSortDirection,
+    setSort,
+    currentPath,
+    clearAllFilters,
     submitSearch,
     searchInput,
     setSearchInput,

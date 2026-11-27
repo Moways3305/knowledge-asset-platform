@@ -46,6 +46,7 @@ class WorkbenchTaskItem(BaseModel):
     """Safe, permission-filtered task projection shared by home and the global drawer."""
 
     task_ref: str
+    resource_id: uuid.UUID | None = None
     task_type: str
     object_name: str
     project_name: str | None = None

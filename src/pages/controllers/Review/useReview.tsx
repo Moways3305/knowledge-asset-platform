@@ -34,11 +34,24 @@ export function useReview() {
   const [params, setParams] = useSearchParams();
   const noticeTargetId = params.get("target_id");
   const focusReviewId = params.get("review_id") ?? noticeTargetId;
-  const completedTarget = Boolean(noticeTargetId && params.get("queue") === "completed");
+  const completedTarget = params.get("queue") === "completed";
   const focusProjectId = params.get("project_id");
-  const [detailId, setDetailId] = useState<string | null>(null);
-  const locationKey = useLocation().key;
-  useEffect(() => setDetailId(noticeTargetId), [noticeTargetId, locationKey]);
+  const [detailId, setDetailState] = useState<string | null>(null);
+  const location = useLocation();
+  const locationKey = location.key;
+  useEffect(() => setDetailState(noticeTargetId), [noticeTargetId, locationKey]);
+  const setDetailId = (id: string | null) => {
+    setDetailState(id);
+    setParams(
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        if (id) next.set("target_id", id);
+        else next.delete("target_id");
+        return next;
+      },
+      { replace: id === null, state: location.state },
+    );
+  };
   const [availableItems, setItems] = useState<ReviewItemDTO[]>([]);
   const items = availableItems.filter(
     (item) =>
@@ -93,7 +106,11 @@ export function useReview() {
     if (!background) {
       loadedScope.current = null;
       setSelectedIds([]);
-      setItems([]);
+      // Opening a row persists its ID in the URL. Keep that already-authorized
+      // projection visible while its detail refreshes instead of blanking it.
+      setItems((current) =>
+        focusReviewId ? current.filter((item) => item.id === focusReviewId) : [],
+      );
     }
     try {
       const next = focusReviewId
@@ -121,7 +138,7 @@ export function useReview() {
       if (isForbidden(error) || (error instanceof ApiError && error.status === 401)) {
         loadedScope.current = null;
         setItems([]);
-        setDetailId(null);
+        setDetailState(null);
         setSelectedIds([]);
       }
       setForbidden(isForbidden(error));

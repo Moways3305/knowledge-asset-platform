@@ -65,6 +65,7 @@ export default function AdminIngestPage() {
       {controller.refreshFailed && (
         <p role="alert">部分状态更新失败，已保留上次可用结果，可稍后刷新核对。</p>
       )}
+      {controller.navigationError && <p role="status">{controller.navigationError}</p>}
       <div className="ao84-console">
         <div className="irc-workspace-tabs" role="group" aria-label="索引恢复工作区">
           {(

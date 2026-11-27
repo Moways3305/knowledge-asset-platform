@@ -68,8 +68,9 @@ export default function MyKnowledgePage() {
     setAssetType,
     sortBy,
     sortDirection,
-    setSortBy,
-    setSortDirection,
+    setSort,
+    currentPath,
+    clearAllFilters,
     submitSearch,
     searchInput,
     setSearchInput,
@@ -139,7 +140,11 @@ export default function MyKnowledgePage() {
           description="管理个人资料，并将成熟内容提交到项目。"
           actions={
             <>
-              <Link className="btn-small-primary mk83-header-action" to="/upload">
+              <Link
+                className="btn-small-primary mk83-header-action"
+                to="/upload?source=local"
+                state={{ backTo: currentPath, backLabel: "返回个人知识", source: "personal" }}
+              >
                 <Upload size={16} aria-hidden="true" />
                 上传资料
               </Link>
@@ -232,7 +237,6 @@ export default function MyKnowledgePage() {
                       aria-pressed={personalState === value}
                       onClick={() => {
                         setPersonalState(value);
-                        setPage(1);
                       }}
                     >
                       {label}
@@ -270,7 +274,6 @@ export default function MyKnowledgePage() {
                             value={assetType}
                             onChange={(event) => {
                               setAssetType(event.target.value);
-                              setPage(1);
                             }}
                           >
                             <option value="">全部类型</option>
@@ -288,7 +291,6 @@ export default function MyKnowledgePage() {
                             value={personalState}
                             onChange={(event) => {
                               setPersonalState(event.target.value as PersonalKnowledgeState | "");
-                              setPage(1);
                             }}
                           >
                             <option value="">全部状态</option>
@@ -308,9 +310,7 @@ export default function MyKnowledgePage() {
                             value={`${sortBy}:${sortDirection}`}
                             onChange={(event) => {
                               const [field, direction] = event.target.value.split(":");
-                              setSortBy(field as typeof sortBy);
-                              setSortDirection(direction as typeof sortDirection);
-                              setPage(1);
+                              setSort(field as typeof sortBy, direction as typeof sortDirection);
                             }}
                           >
                             <option value="updated_at:desc">最近更新</option>
@@ -339,7 +339,6 @@ export default function MyKnowledgePage() {
                       onClick={() => {
                         setSearchInput("");
                         setKeyword("");
-                        setPage(1);
                       }}
                     >
                       清除搜索
@@ -416,15 +415,17 @@ export default function MyKnowledgePage() {
                       type="button"
                       className="btn-small"
                       onClick={() => {
-                        setSearchInput("");
-                        setKeyword("");
-                        clearFilters();
+                        clearAllFilters();
                       }}
                     >
                       清除条件
                     </button>
                   ) : (
-                    <Link className="btn-small-primary" to="/upload">
+                    <Link
+                      className="btn-small-primary"
+                      to="/upload?source=local"
+                      state={{ backTo: currentPath, backLabel: "返回个人知识", source: "personal" }}
+                    >
                       上传第一份资料
                     </Link>
                   )}
@@ -517,7 +518,7 @@ export default function MyKnowledgePage() {
                                   <Link
                                     to={`/knowledge/${encodeURIComponent(item.id)}`}
                                     state={{
-                                      backTo: "/my/knowledge",
+                                      backTo: currentPath,
                                       backLabel: "返回个人知识",
                                       source: "personal",
                                     }}
@@ -568,7 +569,7 @@ export default function MyKnowledgePage() {
                                   className="btn-small"
                                   to={`/knowledge/${encodeURIComponent(item.id)}`}
                                   state={{
-                                    backTo: "/my/knowledge",
+                                    backTo: currentPath,
                                     backLabel: "返回个人知识",
                                     source: "personal",
                                   }}
@@ -602,7 +603,7 @@ export default function MyKnowledgePage() {
                                         role="menuitem"
                                         to={`/knowledge/${encodeURIComponent(item.id)}`}
                                         state={{
-                                          backTo: "/my/knowledge",
+                                          backTo: currentPath,
                                           backLabel: "返回个人知识",
                                           source: "personal",
                                         }}

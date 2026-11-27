@@ -90,6 +90,10 @@ export default function UploadConfirmPanel({
     handleReset,
     models,
   } = flow;
+  const historyQuery = new URLSearchParams({ view: "history" });
+  if (flow.taskId) historyQuery.set("task_id", flow.taskId);
+  if (targetProjectId) historyQuery.set("project_id", targetProjectId);
+  const historyPath = `/upload?${historyQuery}`;
   const summaryStatus = llmStatus?.summaryStatus ?? null;
   const generationRetryable =
     summaryStatus === "failed" &&
@@ -129,11 +133,11 @@ export default function UploadConfirmPanel({
             </p>
           )}
           <div className="upload77-result-actions">
-            {awaitingProjectReview && <Link to="/review">查看审批状态</Link>}
+            {awaitingProjectReview && <Link to={historyPath}>查看审批状态</Link>}
             {!awaitingProjectReview && resultAssetId && (
               <Link
                 to={`/knowledge/${resultAssetId}`}
-                state={{ backTo: "/upload", backLabel: "返回上传入库", source: "upload" }}
+                state={{ backTo: historyPath, backLabel: "返回上传记录", source: "upload" }}
               >
                 {submitIndexStatus &&
                 ["index_failed", "skipped", "not_indexed"].includes(submitIndexStatus)

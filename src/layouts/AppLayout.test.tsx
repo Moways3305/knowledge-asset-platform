@@ -148,7 +148,7 @@ describe("AppLayout shell contract", () => {
     );
     fireEvent.click(screen.getByRole("link", { name: "返回上一页" }));
     await waitFor(() =>
-      expect(document.querySelector(".deck-title")).toHaveTextContent("原文访问审批"),
+      expect(document.querySelector(".deck-title")).toHaveTextContent("原文访问申请"),
     );
   });
 

@@ -1,4 +1,5 @@
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
+import { readKnowledgeDetailSource } from "../routing/knowledgeDetailSource";
 import { bulkRegisterReviewEvidence } from "../api/review";
 import { BulkSelectionRail } from "../components/BulkSelection";
 import ConfirmDialog from "../components/ConfirmDialog";
@@ -19,6 +20,12 @@ import {
 import { useReview } from "./controllers/Review/useReview";
 
 export default function ReviewPage() {
+  const location = useLocation();
+  const source = readKnowledgeDetailSource(location.state);
+  const completedBackTo =
+    new URL(source.backTo, window.location.origin).pathname === "/review/completed"
+      ? source.backTo
+      : "/review/completed";
   const {
     completedTarget,
     loading,
@@ -77,24 +84,30 @@ export default function ReviewPage() {
       loading={loading}
       onRefresh={() => void load()}
     >
-      {(focusReviewId || focusProjectId) && (
+      {(focusReviewId || focusProjectId || completedTarget) && (
         <div className="gw-feedback is-info" role="status">
           {!loading && !forbidden && !loadFailed && items.length === 0
             ? "当前可见审核记录中未找到该事项，可能已处理或不在当前身份的可见范围。"
             : "正在查看指定的审核事项。"}
-          <button
-            className="btn-small"
-            onClick={() => {
-              const next = new URLSearchParams(params);
-              next.delete("review_id");
-              next.delete("target_id");
-              next.delete("queue");
-              next.delete("project_id");
-              setParams(next);
-            }}
-          >
-            查看全部待办
-          </button>
+          {completedTarget ? (
+            <Link className="btn-small" to={completedBackTo}>
+              返回已完成任务
+            </Link>
+          ) : (
+            <button
+              className="btn-small"
+              onClick={() => {
+                const next = new URLSearchParams(params);
+                next.delete("review_id");
+                next.delete("target_id");
+                next.delete("queue");
+                next.delete("project_id");
+                setParams(next);
+              }}
+            >
+              查看全部待办
+            </button>
+          )}
         </div>
       )}
       <div className="gw-toolbar" role="search" aria-label="审核筛选">

@@ -213,7 +213,18 @@ export default function MaintenanceRunDrawer({
                 {data.items.map((item) => (
                   <article key={item.asset_id}>
                     <header>
-                      <Link to={`/knowledge/${item.asset_id}`}>{item.title}</Link>
+                      <Link
+                        to={`/knowledge/${item.asset_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="在 KAP 新标签页查看知识资料"
+                      >
+                        {item.title}
+                        <span className="agent-reference-hint" aria-hidden="true">
+                          {" "}
+                          · KAP ↗
+                        </span>
+                      </Link>
                       <span className={`agent-status agent-status-${item.status}`}>
                         {itemStates[item.status]}
                       </span>

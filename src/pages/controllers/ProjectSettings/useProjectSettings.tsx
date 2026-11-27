@@ -321,7 +321,7 @@ export function useProjectSettings() {
       } catch {
         // 删除已经成为终态；身份刷新失败不能把成功删除误报为失败。
       }
-      navigate("/", { replace: true });
+      navigate("/projects", { replace: true });
     };
 
     try {
