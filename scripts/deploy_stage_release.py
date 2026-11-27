@@ -391,7 +391,7 @@ def open_release(runtime, old, configs):
     for name in reversed(START):
         identity = runtime.state["new"][name]
         if runtime.owned(identity)["State"]["Running"]:
-            runtime.r.docker("stop", "-t", "120", identity, timeout=150)
+            runtime.stop(name, identity, grace=120)
     for name in START:
         config = copy.deepcopy(configs[name])
         prior = old["kap-worker-1"] if name in ADDED else old[name]
@@ -488,7 +488,9 @@ def execute(r, inventory, out, report, holder):
         == "0",
         "database_writer_remains",
     )
+    print("应用服务已停止，正在校验原有数据库内容。", flush=True)
     columns, before = table_snapshot(r, originals[INFRA[0]])
+    print("数据库内容校验完成，准备停止数据库并制作副本。", flush=True)
     write(out / "database-before-private.json", {"columns": columns, "snapshot": before})
     runtime.freeze(INFRA)
     active = [r.inspect(i) for i in r.docker("ps", "-q").splitlines()]

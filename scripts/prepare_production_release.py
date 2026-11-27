@@ -2,6 +2,7 @@
 
 import argparse
 import base64
+from contextlib import ExitStack
 import hashlib
 import json
 import os
@@ -10,6 +11,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import traceback
 import uuid
@@ -29,6 +31,7 @@ KAP_NAMES = {"kap-" + s + "-1" for s in KAP_SERVICES}
 WK_NAMES = {"WeKnora-" + s for s in ("app", "frontend", "docreader", "postgres", "redis")}
 REHEARSAL_LABEL = "kap.weknora.rehearsal"
 BASELINE = "ae8be0a2b425dbc8be645e6444bcfba54b0f691b"
+CAPTURE_PROGRESS_INTERVAL = 30
 
 
 def require(condition, message):
@@ -112,13 +115,57 @@ class Runner:
         self.log = log
 
     def capture(self, *args, cwd=None, data=None, timeout=60):
-        result = subprocess.run(
-            args, cwd=cwd, input=data, stdout=subprocess.PIPE, stderr=self.log, timeout=timeout
-        )
-        require(
-            result.returncode == 0, "操作失败，详细信息已保存在 private.log；不要粘贴原始日志。"
-        )
-        return result.stdout.decode().strip()
+        started = time.monotonic()
+        deadline = started + timeout
+        with ExitStack() as resources:
+            input_stream = None
+            if data is not None:
+                # Feed stdin exactly once. Retrying communicate() after a partial
+                # pipe write can strand the remaining input on some Python versions.
+                # TemporaryFile is private and removed automatically on close.
+                input_stream = resources.enter_context(tempfile.TemporaryFile())
+                input_stream.write(data)
+                input_stream.seek(0)
+            process = resources.enter_context(
+                subprocess.Popen(
+                    args,
+                    cwd=cwd,
+                    stdin=input_stream,
+                    stdout=subprocess.PIPE,
+                    stderr=self.log,
+                )
+            )
+            try:
+                while True:
+                    remaining = max(0, deadline - time.monotonic())
+                    try:
+                        output, _ = process.communicate(
+                            timeout=min(CAPTURE_PROGRESS_INTERVAL, remaining),
+                        )
+                        break
+                    except subprocess.TimeoutExpired:
+                        # communicate retains collected output across timeouts.
+                        now = time.monotonic()
+                        if now >= deadline:
+                            raise
+                        # Commands, environment and subprocess output may contain
+                        # secrets; only elapsed time belongs in the public log.
+                        print(f"当前步骤仍在运行，已用时 {int(now - started)} 秒。", flush=True)
+            except subprocess.TimeoutExpired as exc:
+                process.kill()
+                output, _ = process.communicate()
+                exc.timeout = timeout
+                exc.output = output
+                raise
+            except BaseException:
+                process.kill()
+                process.wait()
+                raise
+            require(
+                process.returncode == 0,
+                "操作失败，详细信息已保存在 private.log；不要粘贴原始日志。",
+            )
+            return output.decode().strip()
 
     def docker(self, *args, **kw):
         return self.capture("docker", *args, **kw)

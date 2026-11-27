@@ -4,6 +4,7 @@ import deploy_maintenance_update as delivery
 import deploy_stage_release as stage
 import execute_production_cutover as cutover
 from prepare_production_release import require
+from production_frontend_shutdown import FRONTEND, stop_frontend, validate_frontend
 
 REVISION = "f9d4cdbf220e65255b88513bb16fffd9f8d36c1f"
 VERSION = "v1.6.1"
@@ -31,6 +32,25 @@ ENTRIES = [
 ]
 
 
+class NavigationRuntime(stage.StageRuntime):
+    def stop(self, name, identity, *, grace=120):
+        if name != FRONTEND:
+            return super().stop(name, identity, grace=grace)
+        original = self.state["originals"][name]
+        if identity == original["Id"]:
+            reference, token = original, None
+        else:
+            require(self.state["new"].get(name) == identity, "unexpected_frontend_identity")
+            reference, token = self.owned(identity), self.token
+        stop_frontend(self.r, reference, token=token)
+
+
+def validate_inventory(runner, directory):
+    old = delivery.capture_inventory(runner, directory)
+    validate_frontend(old[FRONTEND])
+    return old
+
+
 def select_profile(record):
     revision = record.get("revision")
     require(revision != REVISION, "release_already_deployed")
@@ -50,6 +70,8 @@ def configure():
     delivery.configure()
     stage.SCHEMA = SCHEMA
     stage.RELEASE_TITLE = "全站导航与 Agent 工作空间修复"
+    stage.validate_inventory = validate_inventory
+    stage.StageRuntime = NavigationRuntime
     # Include all existing workspace sessions, artifacts and model settings in
     # the unchanged-row verification, alongside every other business table.
     stage.table_snapshot = cutover.table_snapshot

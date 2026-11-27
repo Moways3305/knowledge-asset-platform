@@ -257,20 +257,25 @@ class Runtime:
             if item["State"]["Running"]:
                 self.r.docker("stop", "-t", "30", identity)
 
+    def stop(self, name, identity, *, grace=120):
+        self.r.docker("stop", "-t", str(grace), identity, timeout=grace + 60)
+
     def freeze(self, order):
         self.state["touched"] = True
         self.save()
         for name in order:
+            print("正在停止服务：" + name, flush=True)
             item = self.state["originals"][name]
             current = self.r.inspect(item["Id"])
             require(current["Image"] == item["Image"], "original image changed")
             self.r.docker("update", "--restart=no", item["Id"])
-            self.r.docker("stop", "-t", "600", item["Id"], timeout=660)
+            self.stop(name, item["Id"], grace=600)
             stopped = self.r.inspect(item["Id"])
             require(
                 not stopped["State"]["Running"] and stopped["State"].get("ExitCode") != 137,
                 "service did not stop cleanly",
             )
+            print("服务已停止：" + name, flush=True)
 
     def backup(self, stores):
         require(

@@ -22,6 +22,11 @@ class NavigationDelivery(unittest.TestCase):
         release.configure()
         self.stage = release.stage
         f = self.fixture
+        f.old["kap-frontend-1"]["Config"].update(
+            Cmd=["nginx", "-g", "daemon off;"],
+            Entrypoint=["/docker-entrypoint.sh"],
+            StopSignal="SIGQUIT",
+        )
         f.baseline = release.BASELINE
         self.record = {
             "revision": release.BASELINE,

@@ -232,7 +232,7 @@ class RecoveryGuards(unittest.TestCase):
             ("saved", runtime.state["traffic_opening"])
         )
         runtime.owned.return_value = {"State": {"Running": True}}
-        runtime.r.docker.side_effect = RuntimeError("stop failed")
+        runtime.stop.side_effect = RuntimeError("stop failed")
         with self.assertRaisesRegex(RuntimeError, "stop failed"):
             deploy.open_release(runtime, {}, {})
         self.assertEqual(events, [("saved", True)])

@@ -96,7 +96,7 @@ def table_snapshot(r, old, columns=None, *, project_columns=None):
         # Freeze the pre-migration projection. SELECT * would include columns
         # added by 0083 and falsely report changed business data after upgrade.
         columns = {}
-        for name in tables:
+        for index, name in enumerate(tables, 1):
             names = json.loads(
                 sql(
                     r,
@@ -109,8 +109,10 @@ def table_snapshot(r, old, columns=None, *, project_columns=None):
             )
             require(bool(names), "KAP original table has no readable columns")
             columns[name] = ",".join(pg.ident(column) for column in names)
+            if index % 25 == 0 or index == len(tables):
+                print(f"数据库校验：已读取 {index}/{len(tables)} 张表结构。", flush=True)
     result = {}
-    for name, projection in columns.items():
+    for index, (name, projection) in enumerate(columns.items(), 1):
         if project_columns is not None:
             projection = project_columns(name, projection, before_upgrade)
         result[name] = sql(
@@ -122,6 +124,8 @@ def table_snapshot(r, old, columns=None, *, project_columns=None):
             + pg.ident(name)
             + ") t) s;",
         )
+        if index % 10 == 0 or index == len(columns):
+            print(f"数据库校验：已检查 {index}/{len(columns)} 张表内容。", flush=True)
     return columns, result
 
 
