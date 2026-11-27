@@ -57,7 +57,7 @@ import "../styles/admin-management.css";
 const mobileLabels: Record<string, string> = {
   work: "工作",
   knowledge: "知识",
-  agents: "智能体",
+  agents: "AI 空间",
   project: "项目",
   approval: "审批",
 };
@@ -105,8 +105,8 @@ function AppShell() {
     },
     {
       key: "agents",
-      to: "/agents",
-      label: "智能体中心",
+      to: "/ai-workspace",
+      label: "AI 工作空间",
       icon: Bot,
       allowed: can.viewKnowledge(capabilities),
     },
@@ -164,6 +164,8 @@ function AppShell() {
               <li key={key} className="primary-module-item">
                 <Link
                   to={to}
+                  target={key === "agents" ? "_blank" : undefined}
+                  rel={key === "agents" ? "noopener noreferrer" : undefined}
                   aria-label={label}
                   title={railCollapsed ? label : undefined}
                   aria-current={workspace === key ? "page" : undefined}
@@ -257,6 +259,8 @@ function AppShell() {
               <Link
                 key={key}
                 to={to}
+                target={key === "agents" ? "_blank" : undefined}
+                rel={key === "agents" ? "noopener noreferrer" : undefined}
                 aria-current={workspace === key ? "page" : undefined}
                 className={workspace === key ? "active" : ""}
                 aria-label={`底部${label}`}
@@ -286,9 +290,9 @@ function AppShell() {
         <IdentityMenu />
         <nav className="account-navigation" aria-label="全部功能">
           {can.viewKnowledge(capabilities) && (
-            <Link to="/agents">
+            <Link to="/ai-workspace" target="_blank" rel="noopener noreferrer">
               <Bot size={17} aria-hidden="true" />
-              智能体中心
+              AI 工作空间
             </Link>
           )}
           {can.viewProject(capabilities) && (

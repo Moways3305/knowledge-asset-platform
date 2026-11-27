@@ -17,6 +17,7 @@ from app.api import (
     agent_gateway,
     agent_operations,
     agent_registry_api,
+    ai_workspace,
     alert,
     audit,
     auth,
@@ -85,6 +86,7 @@ def create_app() -> FastAPI:
 
     # 路由注册：健康检查 + 身份上下文 + 知识读 API。
     app.include_router(health.router)
+    app.include_router(ai_workspace.router)
     app.include_router(ops.router)
     app.include_router(auth.router)
     app.include_router(mcp_oauth.router)
