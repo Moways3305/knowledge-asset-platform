@@ -228,6 +228,7 @@ async def build_task_center(
                 my_tasks.append(
                     WorkbenchTaskItem(
                         task_ref=_task_ref("review", review_item.id),
+                        resource_id=review_item.id,
                         task_type="review",
                         object_name=(review_item.asset_title or "待审核知识资产").strip(),
                         project_name=review_item.project_name,
@@ -275,6 +276,7 @@ async def build_task_center(
                     recent_completed.append(
                         WorkbenchTaskItem(
                             task_ref=_task_ref("review", review_item.id),
+                            resource_id=review_item.id,
                             task_type="review",
                             object_name=(review_item.asset_title or "知识资产审核").strip(),
                             project_name=review_item.project_name,
@@ -321,6 +323,7 @@ async def build_task_center(
             next_action = ingest_item.next_action
             task = WorkbenchTaskItem(
                 task_ref=_task_ref("ingest", ingest_item.id),
+                resource_id=ingest_item.id,
                 task_type="ingest",
                 object_name=(
                     ingest_item.suggested_title or ingest_item.source_file_name or "待入库资料"
@@ -366,7 +369,7 @@ async def build_task_center(
                     if actionable
                     else "等待处理完成"
                 ),
-                route_key="reviews" if waiting_review else "upload",
+                route_key="upload",
                 result_summary=(
                     f"审核已拒绝：{ingest_item.review_comment or '请根据审核要求修改后重新上传。'}"
                     if rejected
@@ -387,6 +390,7 @@ async def build_task_center(
             my_tasks.append(
                 WorkbenchTaskItem(
                     task_ref=_task_ref("original_access", access_item.request_id),
+                    resource_id=access_item.request_id,
                     task_type="original_access",
                     object_name=(access_item.asset_title or "原文访问申请").strip(),
                     status="needs_action",
@@ -408,6 +412,7 @@ async def build_task_center(
                 my_tasks.append(
                     WorkbenchTaskItem(
                         task_ref=_task_ref("original_access", access_item.request_id),
+                        resource_id=access_item.request_id,
                         task_type="original_access",
                         object_name=(access_item.asset_title or "原文访问申请").strip(),
                         status="submitted",
@@ -430,6 +435,7 @@ async def build_task_center(
                     recent_completed.append(
                         WorkbenchTaskItem(
                             task_ref=_task_ref("original_access", access_item.request_id),
+                            resource_id=access_item.request_id,
                             task_type="original_access",
                             object_name=(access_item.asset_title or "原文访问申请").strip(),
                             status="completed" if access_item.status == "approved" else "failed",
@@ -470,6 +476,7 @@ async def build_task_center(
                 recent_completed.append(
                     WorkbenchTaskItem(
                         task_ref=_task_ref("ingest", completed_ingest_item.id),
+                        resource_id=completed_ingest_item.id,
                         task_type="ingest",
                         object_name=completed_ingest_item.source_file_name.strip()
                         or "知识资产入库",
@@ -513,6 +520,7 @@ async def build_task_center(
             )
             task = WorkbenchTaskItem(
                 task_ref=_task_ref("operation", job.job_id),
+                resource_id=job.job_id,
                 task_type=_OPS_TASK_TYPES.get(job.operation_type, "operation"),
                 object_name=_OPS_OBJECT_NAMES.get(job.operation_type, "后台作业"),
                 status=mapped_status,

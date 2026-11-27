@@ -563,7 +563,7 @@ def _build_recommendations(
                 key="review_overdue_requests",
                 severity="warning",
                 message=f"有 {access.overdue_original_requests} 条原文访问申请已超时待处理，建议尽快审批。",
-                target="/original-access",
+                target="/original-access?box=inbox",
             )
         )
     if ops_viewer and lifecycle.reuse_upgrade_candidates > 0:

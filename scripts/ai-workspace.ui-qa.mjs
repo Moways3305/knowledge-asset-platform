@@ -68,6 +68,15 @@ try {
           project_memberships: [],
         };
       else if (p.endsWith("/auth/csrf")) body = { csrf_token: "synthetic-test" };
+      else if (p.endsWith("/maintenance-agent/policies")) body = [{
+        id: "policy", library_key: "company", name: "公司知识库", enabled: false,
+        content_authorized: false, revision: 1, can_configure: false,
+        settings: { model_ref: "system_default" }, last_error: null,
+      }];
+      else if (p.endsWith("/maintenance-agent/issues"))
+        body = { items: [], total: 0, page: 1, page_size: 25 };
+      else if (p.endsWith("/generation/model-options"))
+        body = { default_missing: false, items: [{ model_ref: "system_default", display_name: "验收模型", is_default: true, enabled: true }] };
       else if (p.endsWith("/ai-workspace/options"))
         body = {
           models: [{ model_ref: "system_default", display_name: "验收模型", is_default: true }],
@@ -241,6 +250,14 @@ try {
     await page.getByRole("link", { name: "打开知识维护 Agent" }).waitFor();
     await noOverflow();
     await page.screenshot({ path: path.join(out, `agents-${width}.png`) });
+    await page.getByRole("link", { name: "打开知识维护 Agent" }).click();
+    await page.waitForURL("**/ai-workspace/agents/knowledge-maintenance?*");
+    await page.getByRole("button", { name: "维护待办", exact: true }).waitFor();
+    assert.equal(context.pages().length, 1, "Agent entry unexpectedly opened another tab");
+    assert.equal(await page.locator(".app-layout").count(), 0, "Agent returned to KAP shell");
+    await noOverflow();
+    await page.screenshot({ path: path.join(out, `agent-detail-${width}.png`) });
+    await page.getByRole("button", { name: "返回 Agent 列表", exact: true }).click();
     await nav("新建会话");
     await page.getByLabel("消息", { exact: true }).fill("请整理访谈计划");
     await page.getByRole("button", { name: "发送消息" }).click();
@@ -273,6 +290,21 @@ try {
     assert.equal(await page.locator(".aw-chat-scroll").evaluate((el) => el.scrollTop), scrollTop);
     if (width < 900) await page.getByRole("button", { name: "打开文档预览" }).click();
     assert.match(await page.getByLabel("文档正文", { exact: true }).inputValue(), /我的未保存修改/);
+    // Enter the business Agent and use browser history back through its catalogue.
+    // The chat draft, chosen session and unsaved preview must survive the entire route.
+    if (width < 900) await page.getByRole("button", { name: "关闭预览" }).click();
+    await nav("Agent");
+    await page.getByText("知识维护 Agent", { exact: true }).click();
+    await page.getByRole("link", { name: "打开知识维护 Agent" }).click();
+    await page.getByRole("button", { name: "维护待办", exact: true }).waitFor();
+    assert.equal(new URL(page.url()).searchParams.get("session"), session.id);
+    await page.goBack();
+    await page.getByRole("heading", { name: "让 Agent 接手一类工作" }).waitFor();
+    await page.goBack();
+    await page.getByLabel("消息", { exact: true }).waitFor();
+    assert.equal(await page.getByLabel("消息", { exact: true }).inputValue(), "这条消息暂时不发送");
+    if (width < 900) await page.getByRole("button", { name: "打开文档预览" }).click();
+    assert.match(await page.getByLabel("文档正文", { exact: true }).inputValue(), /我的未保存修改/);
     await page.getByRole("button", { name: "保存修改", exact: true }).click();
     await page.getByText("已保存到当前会话", { exact: true }).waitFor();
     assert.equal(artifacts[0].revision, 2);
@@ -303,6 +335,8 @@ try {
       height,
       standalone: true,
       state_preserved: true,
+      agent_navigation_same_tab: true,
+      agent_round_trip_drafts_preserved: true,
       edit_save: true,
       stop_retry_delete: true,
       revoke_without_event: true,

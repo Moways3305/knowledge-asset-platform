@@ -709,7 +709,13 @@ try {
               "used_access_layer",
               "WeKnora",
             ].some((value) => bodyText.includes(value)),
-            pathCorrect: window.location.pathname + window.location.search === expectedPath,
+            pathCorrect: (() => {
+              const expected = new URL(expectedPath, window.location.origin);
+              const actualQuery = new URLSearchParams(window.location.search);
+              return window.location.pathname === expected.pathname &&
+                actualQuery.size === expected.searchParams.size &&
+                [...expected.searchParams].every(([key, value]) => actualQuery.get(key) === value);
+            })(),
           };
         },
         {
@@ -719,7 +725,19 @@ try {
               ? `/project/${projectB}/knowledge`
               : ["no-model", "qa-success", "qa-failure"].includes(scenario)
                 ? `/project/${initialProject}?view=qa`
-                : `/project/${initialProject}/knowledge`,
+                : scenario === "filters-pagination"
+                  ? `/project/${initialProject}/knowledge?${new URLSearchParams({
+                      keyword: "交付",
+                      asset_status: "needs_update",
+                      confidentiality: "L2",
+                      updated_from: "2026-01-01",
+                      updated_to: "2026-07-16",
+                      sort_by: "title",
+                      sort_direction: "asc",
+                    })}`
+                  : scenario === "filtered-empty"
+                    ? `/project/${initialProject}/knowledge?${new URLSearchParams({ keyword: "不存在" })}`
+                    : `/project/${initialProject}/knowledge`,
           secrets: [
             assetA,
             assetB,

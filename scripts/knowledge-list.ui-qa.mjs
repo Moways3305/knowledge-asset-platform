@@ -396,6 +396,7 @@ for (const scenario of scenarios) {
       await drawer.getByRole("button", { name: "关闭详情" }).click();
       if (page.url() !== originalUrl) throw new Error("Drawer changed list location");
       await page.getByRole("button", { name: "正文与摘要", exact: true }).click();
+      await page.getByRole("table", { name: "知识资产列表" }).waitFor({ state: "detached" });
       assert.equal(await page.getByRole("table", { name: "知识资产列表" }).count(), 0);
       await page.getByLabel("正文关键词或内容描述", { exact: true }).fill("BODY-MARKER-20261030");
       await page.getByRole("button", { name: "检索内容", exact: true }).click();
@@ -417,6 +418,7 @@ for (const scenario of scenarios) {
     let collapsedMetrics = {};
     if (scenario === "company" && viewport.width > 700) {
       await page.getByRole("button", { name: "折叠主导航" }).click();
+      await page.getByRole("button", { name: "展开主导航" }).waitFor();
       await page.waitForTimeout(160);
       collapsedMetrics = await page.evaluate(() => ({
         collapsedOverflowX:

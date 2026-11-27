@@ -33,10 +33,15 @@ function safeRole(event: AuditEventDTO) {
 }
 
 // 事件 → 当前状态入口：审计是历史快照，资产现状请跳到对应工作区查看。
-function stateHref(event: AuditEventDTO): string | null {
+function stateHref(event: AuditEventDTO, view: string): string | null {
   if (!event.target_id) return null;
-  if (event.target_type === "knowledge_asset") return `/knowledge/${event.target_id}`;
-  if (event.target_type === "ingest_task" || event.target_type === "indexing_operation_job") {
+  if (event.target_type === "knowledge_asset") {
+    return view === "governance" ? `/knowledge/${encodeURIComponent(event.target_id)}` : null;
+  }
+  if (event.target_type === "indexing_operation_job") {
+    return `/admin/ingest?target_id=${encodeURIComponent(event.target_id)}`;
+  }
+  if (event.target_type === "ingest_task") {
     return "/admin/ingest";
   }
   return null;
@@ -300,9 +305,11 @@ export default function AdminAuditPage() {
                           {activeTab === "exception" && (
                             <td data-label="操作">
                               <div className="secops-row-actions">
-                                {stateHref(item) && (
-                                  <Link className="secops-state-link" to={stateHref(item)!}>
-                                    查看当前状态
+                                {stateHref(item, view) && (
+                                  <Link className="secops-state-link" to={stateHref(item, view)!}>
+                                    {item.target_type === "ingest_task"
+                                      ? "查看入库管理"
+                                      : "查看当前状态"}
                                   </Link>
                                 )}
                                 <button

@@ -14,6 +14,19 @@ const open = (url = "/help") =>
     </MemoryRouter>,
   );
 describe("HelpPage discovery and task articles", () => {
+  it("keeps a legacy article open when navigating its section links", () => {
+    open("/help#maintenance-agent");
+    const toc = screen.getByRole("navigation", { name: "本文目录" });
+    fireEvent.click(within(toc).getAllByRole("link")[0]);
+    expect(
+      screen.getByRole("heading", { name: "使用知识维护智能体", level: 2 }),
+    ).toBeInTheDocument();
+    expect(within(toc).getAllByRole("link")[0]).toHaveAttribute(
+      "href",
+      "/help?article=maintenance-agent#help-setup",
+    );
+  });
+
   beforeEach(() =>
     Object.assign(capabilities, deriveCapabilities(null), {
       isBusinessUser: true,

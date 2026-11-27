@@ -140,9 +140,9 @@ const completedJob: IndexingJobSummaryDTO = {
   trace_id: "trace-secret-84",
 };
 
-function renderPage() {
+function renderPage(path = "/admin/ingest") {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <AdminIngestPage />
     </MemoryRouter>,
   );
@@ -153,6 +153,26 @@ async function openRuntimeDetails(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("AdminIngestPage operations reference", () => {
+  it("opens the exact linked job even when it is absent from the recent list", async () => {
+    vi.mocked(fetchIndexingJobs).mockImplementation(async (id) => ({
+      items: id === completedJob.job_id ? [completedJob] : [],
+      total: id ? 1 : 0,
+    }));
+    renderPage(`/admin/ingest?target_id=${completedJob.job_id}`);
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(fetchIndexingJobs).toHaveBeenCalledWith(completedJob.job_id);
+    expect(screen.getByRole("button", { name: "作业记录" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+  it("explains an inaccessible linked job without opening unrelated recent work", async () => {
+    vi.mocked(fetchIndexingJobs).mockResolvedValue({ items: [completedJob], total: 1 });
+    renderPage("/admin/ingest?target_id=missing");
+    expect(await screen.findByText(/该作业已不可用/)).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(detectIndexSubmissionInterruptions).mockResolvedValue({

@@ -1,7 +1,8 @@
 import ModuleFrame from "../components/ModuleFrame";
 import { useEffect, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { PageHeader, ProductPage } from "../components/ProductLayout";
+import { readKnowledgeDetailSource } from "../routing/knowledgeDetailSource";
 import StatusBadge from "../components/StatusBadge";
 import MyUploadsPanel from "../components/MyUploadsPanel";
 import UploadConfirmPanel from "./upload/UploadConfirmPanel";
@@ -18,15 +19,25 @@ export default function UploadPage() {
     void loadHistoricalImports(false);
   }, [loadHistoricalImports]);
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  const currentPath = `${location.pathname}${location.search}`;
+  const source = readKnowledgeDetailSource(location.state);
   const [rejectError, setRejectError] = useState<string | null>(null);
   const historyOpen = searchParams.get("view") === "history";
   const setHistoryOpen = (open: boolean) =>
-    setSearchParams((previous) => {
-      const next = new URLSearchParams(previous);
-      if (open) next.set("view", "history");
-      else next.delete("view");
-      return next;
-    });
+    setSearchParams(
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        if (open) next.set("view", "history");
+        else {
+          next.delete("view");
+          next.delete("task_id");
+          next.delete("target_id");
+        }
+        return next;
+      },
+      { state: location.state },
+    );
   const {
     activePath,
     switchPath,
@@ -35,7 +46,12 @@ export default function UploadPage() {
     handleDeletePending,
     taskId,
     handleReset,
+    pendingTasks,
+    pendingLoading,
+    pendingError,
     localPendingTasks,
+    localPendingLoading,
+    localPendingError,
     handleSelectPendingTask,
     targetLocked,
     targetLibrary,
@@ -45,23 +61,73 @@ export default function UploadPage() {
   const confirmationOpen = confirmReady || confirmSubmitted;
   const resumedTask = useRef<string | null>(null);
   useEffect(() => {
+    if (historyOpen) return;
     const requested = searchParams.get("task_id");
-    const task = (localPendingTasks ?? []).find((item) => item.id === requested);
-    if (activePath === "b" && task && resumedTask.current !== requested) {
+    if (!requested) {
+      resumedTask.current = null;
+      return;
+    }
+    const localTask = (localPendingTasks ?? []).find((item) => item.id === requested);
+    const importedTask = (pendingTasks ?? []).find((item) => item.id === requested);
+    const task = localTask ?? importedTask;
+    const taskPath = localTask ? "b" : "a";
+    if (task && activePath !== taskPath) {
+      // The task's authorized source wins over stale notification hints.
+      // Wait for the new source render before selecting so switchPath's reset
+      // cannot cancel a task that was just resumed.
+      switchPath(taskPath);
+      return;
+    }
+    if (task && resumedTask.current !== requested) {
       resumedTask.current = requested;
       void handleSelectPendingTask(task);
       setSearchParams(
         (previous) => {
           const next = new URLSearchParams(previous);
+          next.set("source", taskPath === "a" ? "wecom" : "local");
           next.delete("task_id");
+          next.delete("target_id");
           return next;
         },
-        { replace: true },
+        { replace: true, state: location.state },
+      );
+    } else if (
+      !task &&
+      localPendingLoading === false &&
+      pendingLoading === false &&
+      !localPendingError &&
+      !pendingError
+    ) {
+      // Old reminders may now refer to finished, removed or unavailable tasks.
+      // Resolve them in owner-scoped history instead of opening an empty form.
+      setSearchParams(
+        (previous) => {
+          const next = new URLSearchParams(previous);
+          next.set("view", "history");
+          return next;
+        },
+        { replace: true, state: location.state },
       );
     }
-  }, [activePath, searchParams, localPendingTasks, handleSelectPendingTask, setSearchParams]);
+  }, [
+    activePath,
+    switchPath,
+    searchParams,
+    pendingTasks,
+    pendingLoading,
+    pendingError,
+    localPendingTasks,
+    localPendingLoading,
+    localPendingError,
+    handleSelectPendingTask,
+    setSearchParams,
+    historyOpen,
+    location.state,
+  ]);
 
   useEffect(() => {
+    // While locating a target, resolve its actual source before changing tabs.
+    if (searchParams.get("task_id")) return;
     const requested = searchParams.get("source");
     if (requested === "wecom" && activePath !== "a") switchPath("a");
     if (requested === "local" && activePath !== "b") switchPath("b");
@@ -71,6 +137,21 @@ export default function UploadPage() {
   const sourceProject = (flow.projects ?? []).find(
     (project) => project.projectId === searchParams.get("project_id"),
   );
+  const returnPath =
+    location.state && source.backTo !== "/upload"
+      ? source.backTo
+      : sourceProject
+        ? `/project/${encodeURIComponent(sourceProject.projectId)}/knowledge`
+        : "/knowledge";
+  const returnLabel =
+    location.state && source.backTo !== "/upload"
+      ? source.backLabel
+      : sourceProject
+        ? "返回项目知识库"
+        : "返回知识库";
+  const resumeQuery = new URLSearchParams(searchParams);
+  if (taskId) resumeQuery.set("task_id", taskId);
+  const resumePath = `/upload${resumeQuery.size ? `?${resumeQuery}` : ""}`;
   useEffect(() => {
     if (
       !sourceProject ||
@@ -104,7 +185,7 @@ export default function UploadPage() {
         next.set("source", path === "a" ? "wecom" : "local");
         return next;
       },
-      { replace: true },
+      { replace: true, state: location.state },
     );
     switchPath(path);
   };
@@ -182,8 +263,8 @@ export default function UploadPage() {
               : "选择资料来源，上传后核对内容建议并确认入库。"
           }
           actions={
-            <Link className="product-button is-secondary is-small" to="/knowledge">
-              返回知识库
+            <Link className="product-button is-secondary is-small" to={returnPath}>
+              {returnLabel}
             </Link>
           }
           status={
@@ -248,7 +329,11 @@ export default function UploadPage() {
                     」的关联新版，旧版仍保持有效。完成入库后，
                     <Link
                       to={`/knowledge/${flow.updateContext.source_asset_id}`}
-                      state={{ backTo: "/upload", backLabel: "返回上传资料", source: "upload" }}
+                      state={{
+                        backTo: confirmationOpen ? resumePath : currentPath,
+                        backLabel: "返回上传资料",
+                        source: "upload",
+                      }}
                     >
                       回原资料核查并确认替代
                     </Link>

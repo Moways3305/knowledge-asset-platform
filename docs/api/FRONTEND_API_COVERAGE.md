@@ -2,7 +2,7 @@
 
 由 `npm run api:frontend:generate` 生成，契约来源 `docs/api/openapi.json`，人工复核来源 `frontend-api-review.json`。
 
-共 278 个 HTTP 操作；静态调用已接入 225，已有替代流程 14，系统集成 33，传输基础设施 1，动态资源 2，兼容接口 3。
+共 279 个 HTTP 操作；静态调用已接入 226，已有替代流程 14，系统集成 33，传输基础设施 1，动态资源 2，兼容接口 3。
 
 静态调用仅表示找到了封装及直接导入/转导出，不代表每个接口都有独立按钮，也不证明真实环境全流程通过。动态资源单列；请求/响应 DTO 仍由领域适配器和测试校验。
 
@@ -252,6 +252,7 @@
 | `POST /api/v1/original-access/grants/{grant_id}/revoke` | 静态调用已接入 | `src/api/knowledge.ts#revokeOriginalAccessGrant` → `src/pages/OriginalAccessGrantsPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `GET /api/v1/original-access/requests` | 静态调用已接入 | `src/api/knowledge.ts#fetchOriginalAccessRequests` → `src/pages/OriginalAccessPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `POST /api/v1/original-access/requests/bulk-action` | 静态调用已接入 | `src/api/knowledge.ts#bulkOriginalAccessAction` → `src/pages/OriginalAccessPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
+| `GET /api/v1/original-access/requests/{request_id}` | 静态调用已接入 | `src/api/knowledge.ts#fetchOriginalAccessRequest` → `src/pages/OriginalAccessPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `POST /api/v1/original-access/requests/{request_id}/approve` | 静态调用已接入 | `src/api/knowledge.ts#approveOriginalAccess` → `src/pages/OriginalAccessPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `POST /api/v1/original-access/requests/{request_id}/reject` | 静态调用已接入 | `src/api/knowledge.ts#rejectOriginalAccess` → `src/pages/OriginalAccessPage.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |
 | `GET /api/v1/preview/{credential_id}` | 静态调用已接入 | `src/api/knowledge.ts#fetchPreviewEntry` → `src/pages/controllers/KnowledgeDetail/useKnowledgeDetail.tsx` | 已找到请求封装及直接引用；实际按钮、权限和响应行为由页面测试验证。 |

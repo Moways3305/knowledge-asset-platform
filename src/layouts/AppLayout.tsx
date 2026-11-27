@@ -115,7 +115,7 @@ function AppShell() {
       to: projectPath,
       label: "项目空间",
       icon: FolderKanban,
-      allowed: can.viewProject(capabilities),
+      allowed: can.viewProjectHub(capabilities),
     },
     {
       key: "approval",
@@ -295,7 +295,7 @@ function AppShell() {
               AI 工作空间
             </Link>
           )}
-          {can.viewProject(capabilities) && (
+          {can.viewProjectHub(capabilities) && (
             <Link to={projectPath} onClick={() => setMobileNavOpen(false)}>
               <FolderKanban size={17} aria-hidden="true" />
               我的项目

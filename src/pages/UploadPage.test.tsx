@@ -14,6 +14,12 @@ const flow = vi.hoisted(() => ({
     awaitingProjectReview: false,
     taskId: "test-task-id",
     pendingTasks: [] as Array<{ id: string }>,
+    pendingLoading: false,
+    pendingError: null as string | null,
+    localPendingTasks: [] as Array<{ id: string }>,
+    localPendingLoading: false,
+    localPendingError: null as string | null,
+    handleSelectPendingTask: vi.fn(),
     loadPending: vi.fn(),
     projects: [] as Array<{ projectId: string; projectName: string }>,
     targetLibrary: "",
@@ -61,6 +67,12 @@ describe("UploadPage reference workflow", () => {
   beforeEach(() => {
     flow.current.activePath = "b";
     flow.current.pendingTasks = [];
+    flow.current.pendingLoading = false;
+    flow.current.pendingError = null;
+    flow.current.localPendingTasks = [];
+    flow.current.localPendingLoading = false;
+    flow.current.localPendingError = null;
+    flow.current.handleSelectPendingTask.mockReset();
     flow.current.confirmReady = false;
     flow.current.confirmSubmitted = false;
     flow.current.awaitingProjectReview = false;
@@ -74,6 +86,92 @@ describe("UploadPage reference workflow", () => {
     flow.current.handleDeletePending.mockReset();
     flow.current.handleDeletePending.mockResolvedValue(undefined);
     window.history.replaceState({ idx: 0 }, "");
+  });
+
+  it("resumes a local upload by exact task rather than the notification source hint", () => {
+    const localTask = { id: "local-target" };
+    flow.current.localPendingTasks = [localTask];
+    renderPage("/upload?task_id=local-target&source=wecom");
+    expect(flow.current.handleSelectPendingTask).toHaveBeenCalledExactlyOnceWith(localTask);
+    expect(flow.current.switchPath).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("上传路径")).toHaveTextContent("source=local");
+  });
+
+  it("switches to an imported task's actual source before resuming it", () => {
+    const importedTask = { id: "imported-target" };
+    flow.current.pendingTasks = [importedTask];
+    const entry = "/upload?task_id=imported-target&source=local";
+    const view = renderPage(entry);
+    expect(flow.current.switchPath).toHaveBeenCalledWith("a");
+    expect(flow.current.handleSelectPendingTask).not.toHaveBeenCalled();
+    flow.current.activePath = "a";
+    view.rerender(
+      <MemoryRouter initialEntries={[entry]}>
+        <UploadPage />
+        <NavigationProbe />
+      </MemoryRouter>,
+    );
+    expect(flow.current.handleSelectPendingTask).toHaveBeenCalledExactlyOnceWith(importedTask);
+    expect(screen.getByLabelText("上传路径")).toHaveTextContent("source=wecom");
+  });
+
+  it("waits for both authorized source lists before treating a reminder as historical", () => {
+    flow.current.pendingLoading = true;
+    renderPage("/upload?task_id=import-still-loading");
+    expect(screen.getByRole("heading", { name: "上传资料" })).toBeInTheDocument();
+    expect(screen.getByLabelText("上传路径")).not.toHaveTextContent("view=history");
+  });
+
+  it("resolves a stale processing reminder in exact history instead of a blank upload", () => {
+    renderPage("/upload?source=local&task_id=finished-task");
+    expect(screen.getByRole("heading", { name: "上传记录" })).toBeInTheDocument();
+    expect(screen.getByLabelText("上传路径")).toHaveTextContent("task_id=finished-task");
+    expect(screen.getByLabelText("上传路径")).toHaveTextContent("view=history");
+    expect(flow.current.handleSelectPendingTask).not.toHaveBeenCalled();
+  });
+
+  it("does not resume a pending confirmation behind an explicitly opened historical record", () => {
+    flow.current.localPendingTasks = [{ id: "target-task" }];
+    renderPage("/upload?view=history&task_id=target-task");
+    expect(screen.getByRole("heading", { name: "上传记录" })).toBeInTheDocument();
+    expect(flow.current.handleSelectPendingTask).not.toHaveBeenCalled();
+  });
+
+  it("returns a project upload deep link to its project and keeps a personal entry after changing tabs", () => {
+    flow.current.projects = [{ projectId: "p1", projectName: "项目一" }];
+    const view = renderPage("/upload?source=local&project_id=p1");
+    expect(screen.getByRole("link", { name: "返回项目知识库" })).toHaveAttribute(
+      "href",
+      "/project/p1/knowledge",
+    );
+    view.unmount();
+    render(
+      <MemoryRouter
+        initialEntries={[
+          {
+            pathname: "/upload",
+            search: "?source=local",
+            state: {
+              backTo: "/my/knowledge?keyword=复盘&page=3",
+              backLabel: "返回个人知识",
+              source: "personal",
+            },
+          },
+        ]}
+      >
+        <UploadPage />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "上传记录" }));
+    expect(screen.getByRole("link", { name: "返回个人知识" })).toHaveAttribute(
+      "href",
+      "/my/knowledge?keyword=复盘&page=3",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "上传" }));
+    expect(screen.getByRole("link", { name: "返回个人知识" })).toHaveAttribute(
+      "href",
+      "/my/knowledge?keyword=复盘&page=3",
+    );
   });
 
   it("starts with the local upload workspace and switches source through the flow", () => {

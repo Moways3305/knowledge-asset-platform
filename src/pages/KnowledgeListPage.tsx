@@ -575,6 +575,11 @@ export default function KnowledgeListPage() {
                     {semanticResult &&
                       (semanticResult.cards.length || semanticResult.answer ? (
                         <div className="kbl-semantic-results">
+                          {semanticResult.cards.length > 0 && (
+                            <p className="kbl-summary-muted">
+                              资料在新标签页打开，当前检索结果会保留。
+                            </p>
+                          )}
                           {semanticResult.answer && (
                             <article className="kbl-semantic-answer">
                               <span>安全回答</span>
@@ -587,6 +592,9 @@ export default function KnowledgeListPage() {
                                 <Link
                                   to={`/knowledge/${encodeURIComponent(card.asset_id)}`}
                                   state={detailState}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title="在新标签页查看资料，保留当前检索结果"
                                 >
                                   {card.title}
                                 </Link>
@@ -672,7 +680,6 @@ export default function KnowledgeListPage() {
                             value={assetStatus}
                             onChange={(event) => {
                               setAssetStatus(event.target.value as AssetStatus | "");
-                              setPage(1);
                             }}
                           >
                             <option value="">状态：全部</option>
@@ -693,7 +700,6 @@ export default function KnowledgeListPage() {
                               setConfidentialityLevel(
                                 event.target.value as ConfidentialityLevel | "",
                               );
-                              setPage(1);
                             }}
                           >
                             <option value="">保密：全部</option>
@@ -711,7 +717,6 @@ export default function KnowledgeListPage() {
                             checked={includeArchived}
                             onChange={(event) => {
                               setIncludeArchived(event.target.checked);
-                              setPage(1);
                             }}
                           />
                           <span>包含归档</span>

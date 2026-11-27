@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
   BrowserRouter,
   MemoryRouter,
@@ -8,7 +8,7 @@ import {
   useNavigate,
 } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { SafeNavigationProvider, useSafeNavigation } from "./SafeNavigation";
+import { HistoryBackButton, SafeNavigationProvider, useSafeNavigation } from "./SafeNavigation";
 
 const api = vi.hoisted(() => ({
   fetchKnowledgeDetail: vi.fn(),
@@ -18,6 +18,7 @@ vi.mock("../api/knowledge", () => ({ fetchKnowledgeDetail: api.fetchKnowledgeDet
 vi.mock("../api/project", () => ({ fetchProjectOverview: api.fetchProjectOverview }));
 
 const auth = vi.hoisted(() => ({
+  authMe: { userId: "nav-user", activeCompanyRole: "consultant" },
   capabilities: {
     isAdmin: true,
     isBoss: true,
@@ -32,6 +33,7 @@ vi.mock("../auth/AuthContext", () => ({
   useAuth: () => ({
     status: "authenticated",
     capabilities: auth.capabilities,
+    authMe: auth.authMe,
   }),
 }));
 
@@ -42,17 +44,22 @@ function Harness() {
   return (
     <>
       <button onClick={() => navigate("/knowledge/asset", { replace: true })}>关闭维护弹窗</button>
+      <button onClick={() => navigate("/projects")}>去项目</button>
       <button onClick={() => void goBack()} type="button">
         返回
       </button>
-      <output>{`${location.pathname}${location.search}`}</output>
+      <HistoryBackButton fallback="/knowledge">返回知识库</HistoryBackButton>
+      <output>{`${location.pathname}${location.search}${location.hash}`}</output>
+      <output data-testid="navigation-source">{JSON.stringify(location.state)}</output>
     </>
   );
 }
 
-function renderHistory(entries: Array<{ pathname: string; search?: string }>) {
+function renderHistory(
+  entries: Array<{ pathname: string; search?: string; hash?: string; state?: unknown }>,
+) {
   sessionStorage.setItem(
-    "kap.safe-navigation.v1",
+    "kap.safe-navigation.v2:nav-user:consultant",
     JSON.stringify(entries.map((entry) => ({ search: "", ...entry }))),
   );
   render(
@@ -69,6 +76,7 @@ function renderHistory(entries: Array<{ pathname: string; search?: string }>) {
 describe("SafeNavigationProvider", () => {
   beforeEach(() => {
     sessionStorage.clear();
+    auth.authMe = { userId: "nav-user", activeCompanyRole: "consultant" };
     api.fetchKnowledgeDetail.mockReset().mockResolvedValue({});
     api.fetchProjectOverview.mockReset().mockResolvedValue({});
     auth.capabilities = {
@@ -90,7 +98,7 @@ describe("SafeNavigationProvider", () => {
 
   it("replaces a closed drawer entry instead of reopening it on Back", async () => {
     sessionStorage.setItem(
-      "kap.safe-navigation.v1",
+      "kap.safe-navigation.v2:nav-user:consultant",
       JSON.stringify([
         { pathname: "/help", search: "" },
         { pathname: "/knowledge-maintenance", search: "?type=review" },
@@ -123,6 +131,8 @@ describe("SafeNavigationProvider", () => {
     "/original-access/grants",
     "/admin/naming-rules",
     "/my/workbuddy",
+    "/ai-workspace",
+    "/ai-workspace/agents/knowledge-maintenance",
   ])("returns to the originating workspace %s with its filters", async (pathname) => {
     renderHistory([{ pathname: "/help" }, { pathname, search: "?page=2" }]);
     fireEvent.click(screen.getByRole("button", { name: "返回" }));
@@ -177,12 +187,109 @@ describe("SafeNavigationProvider", () => {
     await waitFor(() => expect(screen.getByText("/")).toBeInTheDocument());
   });
 
+  it("returns to an article section without dropping its fragment", async () => {
+    renderHistory([
+      { pathname: "/help", search: "?article=maintenance-agent", hash: "#follow-up" },
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "返回" }));
+    await screen.findByText("/help?article=maintenance-agent#follow-up");
+  });
+
+  it("restores an upload's original list source without persisting unrelated page data", async () => {
+    const state = {
+      backTo: "/my/knowledge?keyword=guide&page=3",
+      backLabel: "返回我的知识",
+      source: "personal",
+    };
+    renderHistory([
+      {
+        pathname: "/upload",
+        search: "?source=local",
+        state: { ...state, privateDraft: "must-not-persist" },
+      },
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "返回" }));
+    await screen.findByText("/upload?source=local");
+    expect(JSON.parse(screen.getByTestId("navigation-source").textContent!)).toEqual(state);
+    expect(sessionStorage.getItem("kap.safe-navigation.v2:nav-user:consultant")).not.toContain(
+      "privateDraft",
+    );
+  });
+
+  it("keeps a standalone Back control within the router", async () => {
+    render(
+      <MemoryRouter initialEntries={["/knowledge/item"]}>
+        <Harness />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("link", { name: "返回知识库" }));
+    await screen.findByText("/knowledge");
+  });
+
+  it.each(["ctrlKey", "metaKey", "shiftKey", "altKey"])(
+    "does not hijack the browser's %s link action",
+    async (modifier) => {
+      renderHistory([{ pathname: "/help" }]);
+      const link = screen.getByRole("link", { name: "返回知识库" });
+      const click = new MouseEvent("click", { bubbles: true, cancelable: true, [modifier]: true });
+      // Capture the router's decision while cancelling jsdom's later native navigation.
+      let preventedByRouter = false;
+      const preventNative = (event: MouseEvent) => {
+        preventedByRouter = event.defaultPrevented;
+        event.preventDefault();
+      };
+      document.addEventListener("click", preventNative, { once: true });
+      fireEvent(link, click);
+      expect(preventedByRouter).toBe(false);
+      expect(screen.getByText("/missing")).toBeInTheDocument();
+    },
+  );
+
+  it("can navigate even if browser storage becomes unavailable", async () => {
+    renderHistory([{ pathname: "/help" }]);
+    const storage = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("storage unavailable");
+    });
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "返回" }));
+      await screen.findByText("/help");
+    } finally {
+      storage.mockRestore();
+    }
+  });
+
+  it("does not reuse another account's workspace session history", async () => {
+    auth.authMe = { userId: "another-user", activeCompanyRole: "consultant" };
+    renderHistory([{ pathname: "/ai-workspace", search: "?session=old-account" }]);
+    fireEvent.click(screen.getByRole("button", { name: "返回" }));
+    await screen.findByText("/");
+    expect(screen.queryByText(/old-account/)).not.toBeInTheDocument();
+  });
+
+  it("does not overwrite a newer navigation when a Back permission check finishes late", async () => {
+    let finish!: (value: object) => void;
+    api.fetchKnowledgeDetail.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    renderHistory([{ pathname: "/knowledge/asset" }]);
+    fireEvent.click(screen.getByRole("button", { name: "返回" }));
+    await waitFor(() => expect(api.fetchKnowledgeDetail).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "去项目" }));
+    await screen.findByText("/projects");
+    await act(async () => {
+      finish({});
+    });
+    expect(screen.getByText("/projects")).toBeInTheDocument();
+  });
+
   it("does not follow a mismatched native history entry in BrowserRouter", async () => {
     window.history.replaceState({ idx: 0, key: "safe" }, "", "/help");
     window.history.pushState({ idx: 1, key: "stale" }, "", "/admin/audit");
     window.history.pushState({ idx: 2, key: "current" }, "", "/knowledge");
     sessionStorage.setItem(
-      "kap.safe-navigation.v1",
+      "kap.safe-navigation.v2:nav-user:consultant",
       JSON.stringify([{ pathname: "/help", search: "", historyIndex: 0 }]),
     );
 

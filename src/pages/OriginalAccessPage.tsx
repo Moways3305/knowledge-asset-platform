@@ -7,6 +7,7 @@ import {
   approveOriginalAccess,
   bulkOriginalAccessAction,
   fetchOriginalAccessRequests,
+  fetchOriginalAccessRequest,
   rejectOriginalAccess,
 } from "../api/knowledge";
 import DataTable, { type Column } from "../components/DataTable";
@@ -55,12 +56,59 @@ function safeTitle(item: OriginalAccessRequestDTO) {
 }
 
 export default function OriginalAccessPage() {
-  const [detailId, setDetailId] = useState<string | null>(null);
+  const [detailId, setDetailState] = useState<string | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const noticeTargetId = searchParams.get("target_id");
   const locationKey = useLocation().key;
-  useEffect(() => setDetailId(noticeTargetId), [noticeTargetId, locationKey]);
-  const [box, setBox] = useState<Box>(searchParams.get("box") === "inbox" ? "inbox" : "mine");
+  useEffect(() => setDetailState(noticeTargetId), [noticeTargetId, locationKey]);
+  const setDetailId = (id: string | null) => {
+    setDetailState(id);
+    setSearchParams(
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        if (id) next.set("target_id", id);
+        else next.delete("target_id");
+        return next;
+      },
+      { replace: id === null },
+    );
+  };
+  const detailReturnPath = (id: string) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("target_id", id);
+    return `/original-access?${next}`;
+  };
+  const [targetDetail, setTargetDetail] = useState<OriginalAccessRequestDTO | null>(null);
+  const [targetError, setTargetError] = useState<string | null>(null);
+  const [targetLoading, setTargetLoading] = useState(false);
+  useEffect(() => {
+    let current = true;
+    setTargetDetail(null);
+    setTargetError(null);
+    setTargetLoading(Boolean(noticeTargetId));
+    if (!noticeTargetId) return;
+    void fetchOriginalAccessRequest(noticeTargetId)
+      .then(
+        (request) => {
+          if (current) setTargetDetail(request);
+        },
+        (error) => {
+          if (!current) return;
+          setTargetError(
+            error instanceof ApiError && [403, 404].includes(error.status)
+              ? "该申请已不可用或不在当前身份的可见范围，请查看当前申请列表。"
+              : "暂时无法打开该申请，请重新打开通知或刷新后重试。",
+          );
+        },
+      )
+      .finally(() => {
+        if (current) setTargetLoading(false);
+      });
+    return () => {
+      current = false;
+    };
+  }, [noticeTargetId, locationKey]);
+  const box: Box = searchParams.get("box") === "inbox" ? "inbox" : "mine";
   const [availableItems, setItems] = useState<OriginalAccessRequestDTO[]>([]);
   const projectId = searchParams.get("project_id");
   const items = availableItems.filter((item) => !projectId || item.project_id === projectId);
@@ -76,10 +124,16 @@ export default function OriginalAccessPage() {
   const loadedScope = useRef<string | null>(null);
   const bulkRunRef = useRef(false);
 
-  useEffect(() => {
-    const requested = searchParams.get("box");
-    if (requested === "mine" || requested === "inbox") setBox(requested);
-  }, [searchParams]);
+  const changeBox = (nextBox: Box) => {
+    setDetailState(null);
+    setSelectedIds([]);
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous);
+      next.set("box", nextBox);
+      next.delete("target_id");
+      return next;
+    });
+  };
 
   const load = useCallback(async () => {
     const requestId = ++requestRef.current;
@@ -108,7 +162,7 @@ export default function OriginalAccessPage() {
       if (isForbidden(error) || (error instanceof ApiError && error.status === 401)) {
         loadedScope.current = null;
         setItems([]);
-        setDetailId(null);
+        setDetailState(null);
         setSelectedIds([]);
       }
       setForbidden(isForbidden(error));
@@ -131,11 +185,15 @@ export default function OriginalAccessPage() {
     setBusyId(item.request_id);
     setFeedback(null);
     try {
-      if (kind === "approve") {
-        await approveOriginalAccess(item.request_id);
-      } else {
-        await rejectOriginalAccess(item.request_id);
-      }
+      const result =
+        kind === "approve"
+          ? await approveOriginalAccess(item.request_id)
+          : await rejectOriginalAccess(item.request_id);
+      const updatedRequest = result.request;
+      if (updatedRequest)
+        setTargetDetail((current) =>
+          current?.request_id === updatedRequest.request_id ? updatedRequest : current,
+        );
       const refreshed = await load();
       if (refreshed === undefined) return;
       setFeedback({
@@ -345,7 +403,7 @@ export default function OriginalAccessPage() {
                   className="gw-reapply-note"
                   to={`/knowledge/${encodeURIComponent(item.asset_id)}`}
                   state={{
-                    backTo: "/original-access?box=mine",
+                    backTo: detailReturnPath(item.request_id),
                     backLabel: "返回我的原文申请",
                     source: "original-access",
                   }}
@@ -358,7 +416,9 @@ export default function OriginalAccessPage() {
         },
   ];
 
-  const detail = items.find((item) => item.request_id === detailId);
+  const detail =
+    items.find((item) => item.request_id === detailId) ??
+    (targetDetail?.request_id === detailId ? targetDetail : null);
 
   const state = forbidden
     ? { title: "无原文访问权限", description: "当前账号无法查看原文访问申请。" }
@@ -391,9 +451,11 @@ export default function OriginalAccessPage() {
         !loading &&
         !forbidden &&
         !loadFailed &&
+        !targetLoading &&
+        targetError &&
         !items.some((item) => item.request_id === noticeTargetId) && (
           <div className="gw-feedback is-info" role="status">
-            该申请已不可用或不在当前身份的可见范围，请查看当前申请列表。
+            {targetError}
           </div>
         )}
       <div className="gw-toolbar" aria-label="原文访问队列">
@@ -404,8 +466,7 @@ export default function OriginalAccessPage() {
             disabled={loading || Boolean(busyId)}
             aria-pressed={box === "inbox"}
             onClick={() => {
-              setBox("inbox");
-              setSearchParams({ box: "inbox" }, { replace: true });
+              changeBox("inbox");
             }}
           >
             待我审批
@@ -416,8 +477,7 @@ export default function OriginalAccessPage() {
             disabled={loading || Boolean(busyId)}
             aria-pressed={box === "mine"}
             onClick={() => {
-              setBox("mine");
-              setSearchParams({ box: "mine" }, { replace: true });
+              changeBox("mine");
             }}
           >
             我的申请
@@ -549,7 +609,7 @@ export default function OriginalAccessPage() {
                 className="product-button is-secondary"
                 to={`/knowledge/${encodeURIComponent(detail.asset_id)}`}
                 state={{
-                  backTo: `/original-access?box=${box}`,
+                  backTo: detailReturnPath(detail.request_id),
                   backLabel: "返回原文访问申请",
                   source: "original-access",
                 }}

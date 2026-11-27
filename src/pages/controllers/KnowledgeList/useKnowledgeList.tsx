@@ -1,6 +1,6 @@
 import { FileText } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ApiError } from "../../../api/http";
 import {
   fetchKnowledgeDetail,
@@ -29,24 +29,41 @@ import type {
 import type { SearchResponseDTO } from "../../../types/search";
 import { assetStatusLabel, scopeLabels } from "../../../utils/knowledgeLabels";
 import { confidentialityLabels, emptyPage, PAGE_SIZE, statusTones } from "./model";
+import { queryChoice, queryPage, useKnowledgeQueryState } from "../knowledgeQueryState";
 
 export function useKnowledgeList() {
   const { capabilities, status, authMe } = useAuth();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const initialScope = (searchParams.get("scope") as KnowledgeScope | null) ?? "";
-  const requestedProjectId = searchParams.get("project_id") ?? "";
-  const [keywordInput, setKeywordInput] = useState(searchParams.get("keyword") ?? "");
-  const [keyword, setKeyword] = useState(searchParams.get("keyword") ?? "");
-  const [scope, setScope] = useState<KnowledgeScope | "">(initialScope);
-  const [projectId, setProjectId] = useState(searchParams.get("project_id") ?? "");
-  const [assetStatus, setAssetStatus] = useState<AssetStatus | "">(
-    (searchParams.get("asset_status") as AssetStatus | null) ?? "",
+  const { query: searchParams, updateQuery } = useKnowledgeQueryState();
+  const scope = queryChoice<KnowledgeScope | "">(
+    searchParams,
+    "scope",
+    ["", "company", "project", "personal"],
+    "",
   );
-  const [confidentialityLevel, setConfidentialityLevel] = useState<ConfidentialityLevel | "">(
-    (searchParams.get("confidentiality") as ConfidentialityLevel | null) ?? "",
+  const initialScope = scope;
+  const projectId = searchParams.get("project_id") ?? "";
+  const requestedProjectId = projectId;
+  const keyword = searchParams.get("keyword") ?? "";
+  const [keywordInput, setKeywordInput] = useState(keyword);
+  useEffect(() => setKeywordInput(keyword), [keyword]);
+  const assetStatus = queryChoice<AssetStatus | "">(
+    searchParams,
+    "asset_status",
+    ["", "active", "needs_update", "deprecated", "archived"],
+    "",
   );
-  const [includeArchived, setIncludeArchived] = useState(searchParams.get("archived") === "1");
+  const confidentialityLevel = queryChoice<ConfidentialityLevel | "">(
+    searchParams,
+    "confidentiality",
+    ["", "L1", "L2", "L3", "L4", "L5"],
+    "",
+  );
+  const includeArchived = searchParams.get("archived") === "1";
+  const setAssetStatus = (value: AssetStatus | "") => updateQuery({ asset_status: value });
+  const setConfidentialityLevel = (value: ConfidentialityLevel | "") =>
+    updateQuery({ confidentiality: value });
+  const setIncludeArchived = (value: boolean) => updateQuery({ archived: value });
   const [directory, setDirectory] = useState<KnowledgeDirectoryDTO | null>(null);
   const [directoryItems, setDirectoryItems] = useState<KnowledgeDirectoryDTO[]>([]);
   const [projectCatalog, setProjectCatalog] = useState<KnowledgeLibraryProjectDTO[]>([]);
@@ -58,7 +75,9 @@ export function useKnowledgeList() {
   const [directoryRetryKey, setDirectoryRetryKey] = useState(0);
   const [mobileDirectoryOpen, setMobileDirectoryOpen] = useState(false);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
-  const [page, setPage] = useState(Math.max(1, Number(searchParams.get("page")) || 1));
+  const page = queryPage(searchParams);
+  const setPage = (value: number) =>
+    updateQuery({ page: value > 1 ? value : null }, { resetPage: false });
   const [result, setResult] = useState<KnowledgePageVM>(emptyPage);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -104,8 +123,10 @@ export function useKnowledgeList() {
   const [semanticResult, setSemanticResult] = useState<SearchResponseDTO | null>(null);
   const [semanticBusy, setSemanticBusy] = useState(false);
   const [semanticError, setSemanticError] = useState<string | null>(null);
-  const [globalSearchMode, setGlobalSearchMode] = useState(searchParams.get("search") === "global");
-  const [contentSearch, setContentSearch] = useState(searchParams.get("query_mode") === "content");
+  const globalSearchMode = searchParams.get("search") === "global";
+  const contentSearch = searchParams.get("query_mode") === "content";
+  const setContentSearch = (value: boolean) =>
+    updateQuery({ query_mode: value ? "content" : null });
   const semanticRequestRef = useRef(0);
   const semanticAbortRef = useRef<AbortController | null>(null);
   const directoryKeyFromUrl = searchParams.get("directory_key");
@@ -141,30 +162,27 @@ export function useKnowledgeList() {
 
   const selectScope = (nextScope: KnowledgeScope | "") => {
     setMobileDirectoryOpen(false);
-    setScope(nextScope);
-    setProjectId("");
     setDirectory(null);
-    setGlobalSearchMode(!nextScope);
-    setPage(1);
-    navigate(nextScope ? `/knowledge?scope=${nextScope}` : "/knowledge?search=global");
+    updateQuery({
+      scope: nextScope,
+      project_id: null,
+      directory_key: null,
+      search: nextScope ? null : "global",
+    });
   };
   const selectProject = (nextProjectId: string) => {
-    setProjectId(nextProjectId);
     setDirectory(null);
-    setPage(1);
-    navigate(
-      nextProjectId
-        ? `/knowledge?scope=project&project_id=${encodeURIComponent(nextProjectId)}`
-        : "/knowledge?scope=project",
-    );
+    updateQuery({ scope: "project", project_id: nextProjectId, directory_key: null, search: null });
   };
   const selectDirectory = (item: KnowledgeDirectoryDTO) => {
     setMobileDirectoryOpen(false);
     setDirectory(item);
-    setPage(1);
-    const next = new URLSearchParams({ scope: item.scope, directory_key: item.directory_key });
-    if (item.project_id) next.set("project_id", item.project_id);
-    navigate(`/knowledge?${next}`);
+    updateQuery({
+      scope: item.scope,
+      directory_key: item.directory_key,
+      project_id: item.project_id ?? null,
+      search: null,
+    });
   };
 
   const returnQuery = new URLSearchParams();
@@ -403,10 +421,6 @@ export function useKnowledgeList() {
     const nextScope = (searchParams.get("scope") as KnowledgeScope | null) ?? "";
     const nextProjectId = searchParams.get("project_id") ?? "";
     const nextDirectoryKey = searchParams.get("directory_key");
-    setScope(nextScope);
-    setProjectId(nextProjectId);
-    setGlobalSearchMode(searchParams.get("search") === "global");
-    setContentSearch(searchParams.get("query_mode") === "content");
     setDirectory((currentDirectory) => {
       const matchesUrl =
         Boolean(nextDirectoryKey) &&
@@ -455,11 +469,8 @@ export function useKnowledgeList() {
     ) {
       return;
     }
-    setProjectId("");
     setDirectory(null);
-    setPage(1);
     if (directoryKeyFromUrl) {
-      setScope("");
       navigate("/knowledge", { replace: true });
     } else {
       navigate("/knowledge?scope=project", { replace: true });
@@ -486,8 +497,6 @@ export function useKnowledgeList() {
       setDirectoryItems([]);
       setDirectory(null);
       setDirectoryLoading(false);
-      setScope("");
-      setProjectId("");
       restoredDirectoryRef.current = true;
       navigate("/knowledge", { replace: true });
       return;
@@ -511,8 +520,6 @@ export function useKnowledgeList() {
             setDirectoryItems([]);
             setDirectory(null);
             setDirectoryLoading(false);
-            setScope("");
-            setProjectId("");
             restoredDirectoryRef.current = true;
             navigate("/knowledge", { replace: true });
             return;
@@ -532,8 +539,6 @@ export function useKnowledgeList() {
           cause instanceof ApiError &&
           [401, 403, 404].includes(cause.status)
         ) {
-          setScope("");
-          setProjectId("");
           restoredDirectoryRef.current = true;
           navigate("/knowledge", { replace: true });
         }
@@ -559,23 +564,17 @@ export function useKnowledgeList() {
 
   const resetFilters = () => {
     setKeywordInput("");
-    setKeyword("");
-    setAssetStatus("");
-    setConfidentialityLevel("");
-    setIncludeArchived(false);
-    setPage(1);
+    updateQuery({ keyword: null, asset_status: null, confidentiality: null, archived: null });
   };
 
   const submitKeyword = (event: FormEvent) => {
     event.preventDefault();
-    setKeyword(keywordInput.trim());
-    setPage(1);
+    updateQuery({ keyword: keywordInput.trim() });
   };
 
   const clearKeyword = () => {
     setKeywordInput("");
-    setKeyword("");
-    setPage(1);
+    updateQuery({ keyword: null });
   };
 
   const hasActiveFilters = Boolean(

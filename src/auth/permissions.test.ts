@@ -172,6 +172,13 @@ describe("can (nav / route capability predicates)", () => {
     expect(can.viewProject(consultant)).toBe(false);
   });
 
+  it("keeps the project directory accessible to a business user without project memberships", () => {
+    expect(can.viewProjectHub(consultant)).toBe(true);
+    expect(can.viewProject(consultant)).toBe(false);
+    expect(can.viewProjectHub(admin)).toBe(false);
+    expect(can.viewProjectHub(anon)).toBe(false);
+  });
+
   it("does not let an administrator work identity inherit an assigned project-manager entry", () => {
     const assignedRoles = {
       companyRoles: ["admin", "consultant"],

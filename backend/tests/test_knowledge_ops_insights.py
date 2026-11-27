@@ -310,6 +310,10 @@ async def test_overdue_requires_timeout_rule(client, db_session):
     # overdue 应触发一条审批建议。
     keys = {rec["key"] for rec in body["recommendations"]}
     assert "review_overdue_requests" in keys
+    recommendation = next(
+        rec for rec in body["recommendations"] if rec["key"] == "review_overdue_requests"
+    )
+    assert recommendation["target"] == "/original-access?box=inbox"
 
 
 # ---------------------------------------------------------------------------

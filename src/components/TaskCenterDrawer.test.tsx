@@ -42,6 +42,28 @@ const task: WorkbenchTaskItemDTO = {
 };
 
 describe("TaskCenterDrawer", () => {
+  it("opens a completed review by its authorized resource without using its opaque ref", () => {
+    render(
+      <MemoryRouter>
+        <TaskCenterDrawer
+          open
+          groups={{
+            my_tasks: [],
+            running_jobs: [],
+            attention_items: [],
+            recent_completed: [{ ...task, resource_id: "review-id", status: "completed" }],
+          }}
+          initialGroup="recent_completed"
+          onClose={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("link", { name: /进入审核/ })).toHaveAttribute(
+      "href",
+      "/review?target_id=review-id&queue=completed",
+    );
+  });
+
   it.each([
     ["decide_original_access", "inbox"],
     [null, "mine"],

@@ -3,6 +3,11 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { fetchMyUploads } from "../api/ingest";
 import { ApiError } from "../api/http";
+import {
+  queryChoice,
+  queryDate,
+  useKnowledgeQueryState,
+} from "../pages/controllers/knowledgeQueryState";
 import type { MyUploadItemDTO } from "../types/ingest";
 
 const statusLabels: Record<MyUploadItemDTO["final_status"], string> = {
@@ -38,23 +43,43 @@ export default function MyUploadsPanel({
   const [items, setItems] = useState<MyUploadItemDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [scope, setScope] = useState("");
-  const [status, setStatus] = useState("");
-  const [duplicate, setDuplicate] = useState("");
-  const [since, setSince] = useState("");
-  const [until, setUntil] = useState("");
+  const { query, updateQuery } = useKnowledgeQueryState();
+  const requestedTask = query.get("task_id") ?? "";
+  const scope = queryChoice(query, "upload_scope", ["", "personal", "project", "company"], "");
+  const status = queryChoice(query, "upload_status", ["", ...Object.keys(statusLabels)], "");
+  const duplicate = queryChoice(
+    query,
+    "upload_duplicate",
+    ["", "skipped", "independent", "none"],
+    "",
+  );
+  const since = queryDate(query, "upload_since");
+  const until = queryDate(query, "upload_until");
+  const setFilter = (key: string, value: string) =>
+    updateQuery({ [key]: value, task_id: null, target_id: null });
+  const historyQuery = new URLSearchParams(query);
+  historyQuery.set("view", "history");
+  const historyPath = `/upload?${historyQuery}`;
+  const uploadQuery = new URLSearchParams({ source: "local" });
+  const projectId = query.get("project_id");
+  if (projectId) uploadQuery.set("project_id", projectId);
+  const reuploadPath = `/upload?${uploadQuery}`;
 
   useEffect(() => {
     let live = true;
     setLoading(true);
     setError(null);
-    void fetchMyUploads({
-      scope: scope || undefined,
-      finalStatus: status || undefined,
-      duplicateResult: duplicate || undefined,
-      since: since ? new Date(`${since}T00:00:00`).toISOString() : undefined,
-      until: until ? new Date(`${until}T23:59:59`).toISOString() : undefined,
-    })
+    void fetchMyUploads(
+      requestedTask
+        ? { taskId: requestedTask }
+        : {
+            scope: scope || undefined,
+            finalStatus: status || undefined,
+            duplicateResult: duplicate || undefined,
+            since: since ? new Date(`${since}T00:00:00`).toISOString() : undefined,
+            until: until ? new Date(`${until}T23:59:59`).toISOString() : undefined,
+          },
+    )
       .then((value) => {
         if (live) setItems(value);
       })
@@ -67,7 +92,7 @@ export default function MyUploadsPanel({
     return () => {
       live = false;
     };
-  }, [duplicate, scope, since, status, until]);
+  }, [duplicate, scope, since, status, until, requestedTask]);
 
   const filtered = Boolean(scope || status || duplicate || since || until);
   return (
@@ -81,10 +106,22 @@ export default function MyUploadsPanel({
           返回上传
         </button>
       </header>
+      {requestedTask && (
+        <p role="status">
+          正在查看这条上传记录。
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => updateQuery({ task_id: null, target_id: null })}
+          >
+            查看全部上传记录
+          </button>
+        </p>
+      )}
       <div className="my-uploads-filters" aria-label="上传记录筛选">
         <label>
           <span>目标范围</span>
-          <select value={scope} onChange={(e) => setScope(e.target.value)}>
+          <select value={scope} onChange={(e) => setFilter("upload_scope", e.target.value)}>
             <option value="">全部</option>
             <option value="personal">个人库</option>
             <option value="project">项目库</option>
@@ -93,7 +130,7 @@ export default function MyUploadsPanel({
         </label>
         <label>
           <span>最终状态</span>
-          <select value={status} onChange={(e) => setStatus(e.target.value)}>
+          <select value={status} onChange={(e) => setFilter("upload_status", e.target.value)}>
             <option value="">全部</option>
             <option value="processing">处理中</option>
             <option value="awaiting_confirmation">待确认</option>
@@ -107,7 +144,7 @@ export default function MyUploadsPanel({
         </label>
         <label>
           <span>重复结果</span>
-          <select value={duplicate} onChange={(e) => setDuplicate(e.target.value)}>
+          <select value={duplicate} onChange={(e) => setFilter("upload_duplicate", e.target.value)}>
             <option value="">全部</option>
             <option value="skipped">本次不入库</option>
             <option value="independent">独立入库</option>
@@ -116,11 +153,19 @@ export default function MyUploadsPanel({
         </label>
         <label>
           <span>开始日期</span>
-          <input type="date" value={since} onChange={(e) => setSince(e.target.value)} />
+          <input
+            type="date"
+            value={since}
+            onChange={(e) => setFilter("upload_since", e.target.value)}
+          />
         </label>
         <label>
           <span>结束日期</span>
-          <input type="date" value={until} onChange={(e) => setUntil(e.target.value)} />
+          <input
+            type="date"
+            value={until}
+            onChange={(e) => setFilter("upload_until", e.target.value)}
+          />
         </label>
       </div>
       {loading ? (
@@ -128,7 +173,13 @@ export default function MyUploadsPanel({
       ) : error ? (
         <p role="alert">{error}</p>
       ) : items.length === 0 ? (
-        <p className="my-uploads-empty">{filtered ? "当前筛选无结果" : "尚未上传资料"}</p>
+        <p className="my-uploads-empty">
+          {requestedTask
+            ? "该上传记录不存在或当前账号无权查看。"
+            : filtered
+              ? "当前筛选无结果"
+              : "尚未上传资料"}
+        </p>
       ) : (
         <div className="my-uploads-list">
           {items.map((item) => (
@@ -138,7 +189,7 @@ export default function MyUploadsPanel({
                 <span>{new Date(item.uploaded_at).toLocaleString()}</span>
               </div>
               <p className="my-upload-final-status">{statusLabels[item.final_status]}</p>
-              <details>
+              <details open={requestedTask === item.task_id}>
                 <summary>处理详情</summary>
                 <dl>
                   <div>
@@ -176,10 +227,16 @@ export default function MyUploadsPanel({
                 <>
                   <p>审核意见：{item.review_comment || "请根据审核要求修改资料后重新上传。"}</p>
                   <Link
-                    to="/upload"
-                    onClick={() => {
-                      onReupload?.();
-                      onClose();
+                    to={reuploadPath}
+                    onClick={(event) => {
+                      if (
+                        event.button === 0 &&
+                        !event.ctrlKey &&
+                        !event.metaKey &&
+                        !event.shiftKey &&
+                        !event.altKey
+                      )
+                        onReupload?.();
                     }}
                   >
                     修改后重新上传
@@ -190,7 +247,7 @@ export default function MyUploadsPanel({
                 <Link
                   to={`/knowledge/${item.result_asset_id}`}
                   state={{
-                    backTo: "/upload?view=history",
+                    backTo: historyPath,
                     backLabel: "返回上传记录",
                     source: "upload",
                   }}

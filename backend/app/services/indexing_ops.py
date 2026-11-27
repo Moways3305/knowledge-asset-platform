@@ -593,15 +593,20 @@ async def create_kb_migrate_job(
     )
 
 
-async def list_jobs(session: AsyncSession, caller: CallerContext) -> IndexingJobListResponse:
+async def list_jobs(
+    session: AsyncSession, caller: CallerContext, *, job_id: uuid.UUID | None = None
+) -> IndexingJobListResponse:
     """最近 N 个索引运维作业（安全摘要；无标题 / 原文 / WeKnora id / 存储 ref）。"""
     _require_ops_viewer(caller)
+    statement = select(IndexingOperationJob)
+    if job_id is not None:
+        statement = statement.where(IndexingOperationJob.id == job_id)
     jobs = list(
         (
             await session.execute(
-                select(IndexingOperationJob)
-                .order_by(IndexingOperationJob.requested_at.desc())
-                .limit(_RECENT_JOBS_LIMIT)
+                statement.order_by(IndexingOperationJob.requested_at.desc()).limit(
+                    _RECENT_JOBS_LIMIT
+                )
             )
         )
         .scalars()

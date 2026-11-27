@@ -93,8 +93,12 @@ export async function triggerIndexingReparse(
 }
 
 // 最近索引运维作业列表。仅安全统计与安全错误文案。
-export async function fetchIndexingJobs(): Promise<IndexingJobListResponseDTO> {
-  return apiGet<IndexingJobListResponseDTO>(`/admin/ops/indexing/jobs`);
+export async function fetchIndexingJobs(jobId?: string): Promise<IndexingJobListResponseDTO> {
+  return apiGet<IndexingJobListResponseDTO>(
+    jobId
+      ? `/admin/ops/indexing/jobs?job_id=${encodeURIComponent(jobId)}`
+      : "/admin/ops/indexing/jobs",
+  );
 }
 
 export async function fetchIndexingHealth(windowHours = 24): Promise<IndexingHealthDTO> {

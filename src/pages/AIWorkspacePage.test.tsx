@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AIWorkspacePage from "./AIWorkspacePage";
 import * as api from "../api/aiWorkspace";
@@ -10,6 +10,11 @@ vi.mock("../auth/AuthContext", () => ({
     authMe: { userId: "user", name: "验收用户", activeCompanyRole: "consultant" },
     reload: vi.fn(),
   }),
+}));
+vi.mock("./MaintenanceAgentPage", () => ({
+  default: ({ embedded }: { embedded?: boolean }) => (
+    <p>{embedded ? "内嵌业务页" : "独立业务页"}</p>
+  ),
 }));
 vi.mock("../api/aiWorkspace", () => ({
   getWorkspaceOptions: vi.fn(),
@@ -71,10 +76,26 @@ async function settle(milliseconds = 1) {
     await vi.advanceTimersByTimeAsync(milliseconds);
   });
 }
+function CurrentPath() {
+  const location = useLocation();
+  return (
+    <output data-testid="current-path">
+      {location.pathname}
+      {location.search}
+      {location.hash}
+    </output>
+  );
+}
 function mount(path = "/ai-workspace?session=one") {
   render(
     <MemoryRouter initialEntries={[path]}>
-      <AIWorkspacePage />
+      <Routes>
+        <Route path="ai-workspace" element={<AIWorkspacePage />}>
+          <Route index element={null} />
+          <Route path="agents/knowledge-maintenance" element={null} />
+        </Route>
+      </Routes>
+      <CurrentPath />
     </MemoryRouter>,
   );
 }
@@ -99,6 +120,38 @@ afterEach(() => {
 });
 
 describe("AI workspace lifecycle", () => {
+  it("keeps the same workspace and unsent drafts while entering and leaving an Agent", async () => {
+    mount();
+    await settle();
+    fireEvent.change(screen.getByLabelText("消息"), { target: { value: "保留未发送的追问" } });
+    fireEvent.click(screen.getByRole("button", { name: /工作文档.*点击预览和编辑/ }));
+    fireEvent.click(screen.getByRole("tab", { name: "编辑" }));
+    fireEvent.change(screen.getByLabelText("文档正文"), { target: { value: "保留未保存的文档" } });
+    const workspace = window.document.querySelector(".ai-workspace");
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    fireEvent.click(screen.getByText("知识维护 Agent", { selector: "strong" }));
+    const entry = screen.getByRole("link", { name: "打开知识维护 Agent" });
+    expect(entry).not.toHaveAttribute("target");
+    expect(entry).toHaveAttribute(
+      "href",
+      "/ai-workspace/agents/knowledge-maintenance?tab=issues&session=one",
+    );
+    fireEvent.click(entry);
+    await settle();
+    expect(screen.getByText("内嵌业务页")).toBeInTheDocument();
+    expect(window.document.querySelector(".ai-workspace")).toBe(workspace);
+    expect(screen.getByTestId("current-path")).toHaveTextContent(
+      "/ai-workspace/agents/knowledge-maintenance?tab=issues&session=one",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "返回 Agent 列表" }));
+    expect(screen.getByRole("heading", { name: "让 Agent 接手一类工作" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "会话 one" }));
+    await settle();
+    expect(screen.getByLabelText("消息")).toHaveValue("保留未发送的追问");
+    expect(screen.getByLabelText("文档正文")).toHaveValue("保留未保存的文档");
+    expect(screen.getByRole("complementary", { name: "文档预览" })).toBeVisible();
+  });
+
   it("updates completed runs in place without disturbing editor, input, preview or reading position", async () => {
     mount();
     await settle();

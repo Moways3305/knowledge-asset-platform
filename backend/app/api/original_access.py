@@ -30,6 +30,7 @@ from app.schemas.original_access import (
     CreateRequestBody,
     CreateRequestResponse,
     GrantsListResponse,
+    OriginalAccessRequestOut,
     RequestsListResponse,
     ReviewBody,
     RevokeBody,
@@ -116,6 +117,15 @@ async def list_requests(
     session: AsyncSession = Depends(get_db),
 ) -> RequestsListResponse:
     return await oa_service.list_requests(session, caller, box=box, status=status)
+
+
+@router.get("/original-access/requests/{request_id}", response_model=OriginalAccessRequestOut)
+async def get_request(
+    request_id: uuid.UUID,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> OriginalAccessRequestOut:
+    return await oa_service.get_request(session, caller, request_id)
 
 
 @router.post("/original-access/requests/{request_id}/approve", response_model=CreateRequestResponse)

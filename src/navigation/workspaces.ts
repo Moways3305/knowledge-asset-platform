@@ -26,7 +26,7 @@ export const knowledgeEntries: WorkspaceEntry[] = [
 export const approvalEntries: WorkspaceEntry[] = [
   { to: "/review", label: "升级审核", cap: can.viewReview },
   { to: "/review/completed", label: "已处理审核", cap: can.viewReview },
-  { to: "/original-access", label: "原文访问审批", cap: can.viewOriginalAccess },
+  { to: "/original-access?box=inbox", label: "原文访问审批", cap: can.viewOriginalAccess },
   { to: "/original-access?box=mine", label: "我的原文申请", cap: can.viewOriginalAccess },
   { to: "/original-access/grants", label: "原文授权记录", cap: can.viewOriginalAccess },
 ];
@@ -64,7 +64,7 @@ export function permittedEntries(entries: WorkspaceEntry[], capabilities: Capabi
 }
 
 export function workspaceForPath(pathname: string): WorkspaceKey {
-  if (pathname === "/ai-workspace") return "agents";
+  if (pathname === "/ai-workspace" || pathname.startsWith("/ai-workspace/")) return "agents";
   if (pathname === "/agents" || pathname.startsWith("/agents/")) return "agents";
   if (pathname.startsWith("/admin") || pathname === "/company-governance") return "admin";
   if (pathname === "/projects" || pathname.startsWith("/project/")) return "project";
@@ -87,12 +87,14 @@ export const workspaceLabels: Record<WorkspaceKey, string> = {
 const utilityTitles: Record<string, string> = {
   "/agents": "Agent",
   "/ai-workspace": "AI 工作空间",
+  "/ai-workspace/agents/knowledge-maintenance": "知识维护 Agent",
   "/agents/knowledge-maintenance": "知识维护 Agent",
   "/": "我的工作",
   "/help": "帮助中心",
   "/release-notes": "更新日志",
   "/my/workbuddy": "个人工具接入",
   "/mcp-authorize": "工具授权",
+  "/original-access": "原文访问申请",
 };
 
 export function pageTitle(pathname: string) {

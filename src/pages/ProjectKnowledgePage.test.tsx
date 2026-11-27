@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { bulkDeleteKnowledgeAssets, fetchKnowledgePage } from "../api/knowledge";
 import { fetchNamingOptions } from "../api/naming";
@@ -93,11 +93,16 @@ function page(items: KnowledgeCardVM[] = [], overrides: Partial<KnowledgePageVM>
 
 function LocationProbe() {
   const location = useLocation();
+  const navigate = useNavigate();
   return (
-    <output aria-label="当前路径">
-      {location.pathname}
-      {location.search}
-    </output>
+    <>
+      <output aria-label="当前路径">
+        {location.pathname}
+        {location.search}
+      </output>
+      <button onClick={() => navigate(-1)}>浏览器后退</button>
+      <button onClick={() => navigate(1)}>浏览器前进</button>
+    </>
   );
 }
 
@@ -251,6 +256,50 @@ describe("ProjectKnowledgePage reference workspace", () => {
       failed: 0,
       items: [],
     });
+  });
+
+  it("keeps project filters, page and return scope across detail and browser navigation", async () => {
+    const initial = `/project/${PROJECT_A}/knowledge?keyword=访谈&page=3&asset_status=needs_update&confidentiality=L3&updated_from=2026-01-01&sort_by=title&sort_direction=asc&archived=1`;
+    vi.mocked(fetchKnowledgePage).mockResolvedValue(page([card()], { total: 60, page: 3 }));
+    renderPage(initial);
+    await screen.findByRole("table", { name: "项目知识列表" });
+    expect(fetchKnowledgePage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        page: 3,
+        projectId: PROJECT_A,
+        keyword: "访谈",
+        assetStatus: "needs_update",
+        confidentialityLevel: "L3",
+        sortBy: "title",
+        sortDirection: "asc",
+        includeArchived: true,
+      }),
+    );
+    fireEvent.change(screen.getByRole("combobox", { name: "资产状态" }), {
+      target: { value: "active" },
+    });
+    await waitFor(() =>
+      expect(fetchKnowledgePage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ page: 1, assetStatus: "active" }),
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "浏览器后退" }));
+    await waitFor(() =>
+      expect(fetchKnowledgePage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ page: 3, assetStatus: "needs_update" }),
+      ),
+    );
+    expect(screen.getByRole("combobox", { name: "资产状态" })).toHaveValue("needs_update");
+    fireEvent.click(screen.getByRole("link", { name: "客户访谈纪要" }));
+    expect(screen.getByLabelText("详情返回来源")).toHaveTextContent(initial);
+    fireEvent.click(screen.getByRole("button", { name: "浏览器后退" }));
+    await screen.findByRole("table", { name: "项目知识列表" });
+    expect(screen.getByPlaceholderText("按标题或标签搜索")).toHaveValue("访谈");
+    expect(fetchKnowledgePage).toHaveBeenLastCalledWith(
+      expect.objectContaining({ page: 3, projectId: PROJECT_A }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "浏览器前进" }));
+    expect(screen.getByText("知识详情")).toBeInTheDocument();
   });
 
   it("uses the exact project-scoped server page and a compact reference table", async () => {

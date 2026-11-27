@@ -104,6 +104,7 @@ export interface ApiRoutes {
     | `/api/v1/notifications/unread-count`
     | `/api/v1/original-access/grants`
     | `/api/v1/original-access/requests`
+    | `/api/v1/original-access/requests/${string}`
     | `/api/v1/preview/${string}`
     | `/api/v1/preview/${string}/file`
     | `/api/v1/projects`

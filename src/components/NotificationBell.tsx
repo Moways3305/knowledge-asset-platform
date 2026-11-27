@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Bell, BellOff, CheckCheck, RefreshCw, Settings2, Trash2 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { taskTarget } from "../workbench/taskTargets";
 import { readKnowledgeDetailSource } from "../routing/knowledgeDetailSource";
 import {
   actOnInbox,
@@ -23,15 +24,6 @@ import {
 } from "./NotificationInboxPanels";
 import "./NotificationBell.css";
 
-const ROUTES: Record<string, string> = {
-  maintenance_agent: "/agents/knowledge-maintenance",
-  reviews: "/review",
-  original_access: "/original-access",
-  upload: "/upload",
-  admin_ingest: "/admin/ingest",
-  models: "/admin/weknora-models",
-  knowledge_detail: "/knowledge/:id",
-};
 const VIEWS: [InboxView, string][] = [
   ["inbox", "收件箱"],
   ["unread", "未读"],
@@ -215,7 +207,13 @@ export default function NotificationBell() {
     else void mutate(body);
   };
   const openItem = async (item: BusinessNotificationDTO, group: NotificationGroup) => {
-    if (!ROUTES[item.target.route_key]) {
+    const target = taskTarget({
+      routeKey: item.target.route_key,
+      resourceId: item.target.resource_id,
+      status: item.task_status,
+      originalAccessBox: item.event_type === "original_access.pending" ? "inbox" : "mine",
+    });
+    if (!target) {
       setError("目标页暂不可用，消息仍保留。");
       return;
     }
@@ -229,27 +227,6 @@ export default function NotificationBell() {
       }))
     )
       return;
-    const routeTemplate = ROUTES[item.target.route_key];
-    if (!routeTemplate) {
-      setError("目标页暂不可用，通知仍保持未读。");
-      return;
-    }
-    const route = routeTemplate.replace(":id", encodeURIComponent(item.target.resource_id));
-    const query = new URLSearchParams({ target_id: item.target.resource_id });
-    if (item.target.route_key === "maintenance_agent") {
-      query.set("mine", "true");
-      if (item.task_status === "completed") query.set("status", "all");
-    }
-    if (item.target.route_key === "original_access") {
-      query.set("box", item.event_type === "original_access.pending" ? "inbox" : "mine");
-    }
-    if (
-      item.target.route_key === "reviews" &&
-      ["completed", "cancelled", "rejected"].includes(item.task_status)
-    )
-      query.set("queue", "completed");
-    if (item.target.route_key === "upload") query.set("task_id", item.target.resource_id);
-    const target = `${route}?${query.toString()}`;
     if (item.target.route_key === "knowledge_detail") {
       const origin = location.pathname.startsWith("/knowledge/")
         ? readKnowledgeDetailSource(location.state).backTo
