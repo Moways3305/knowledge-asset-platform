@@ -10,7 +10,7 @@ fs.mkdirSync(out, {recursive: true});
 const browser = await chromium.launch();
 const cases = [];
 try {
-  for (const width of [1440, 1024, 390]) {
+  for (const width of [1440, 1024, 390, 320]) {
     const context = await browser.newContext({viewport: {width, height: 960}});
     const page = await context.newPage();
     await page.clock.install();
@@ -25,7 +25,11 @@ try {
       let body = {items: [], total: 0, unread_count: 0, pending_count: 0};
       if (p.endsWith("/auth/me")) body = {user_id: "reader", name: "验收用户", status: "active", company_roles: ["boss"], active_company_role: "boss", is_business_user: true, can_discover_l5: true, project_memberships: []};
       if (p.endsWith("/auth/csrf")) body = {csrf_token: "test"};
-      if (p.endsWith("/ai-workspace/options")) body = {models: [], contexts: [{key: "company", label: "公司知识库"}], tools: []};
+      if (p.endsWith("/ai-workspace/options")) body = {
+        models: [{model_ref: "system_default", display_name: "验收模型", is_default: true}],
+        contexts: [{key: "company", label: "公司知识库"}], tools: [],
+        agents: [{key: "knowledge-maintenance", label: "知识维护 Agent", description: "核对资料并持续跟进", tools: []}],
+      };
       if (p.endsWith("/ai-workspace/sessions")) body = [];
       if (p.endsWith("/generation/model-options")) body = {default_missing: false, items: [{model_ref: "a".repeat(64), display_name: "知识质量分析", provider: "custom", model_name: "quality", enabled: true, is_default: true}]};
       if (p.endsWith("/maintenance-agent/policies")) body = [policy];
@@ -42,10 +46,32 @@ try {
       if (p.endsWith("/runs/delete")) { const ids = route.request().postDataJSON().run_ids; runs = runs.filter(r => !ids.includes(r.id)); deleted += ids.length; body = {deleted_count: ids.length}; }
       await route.fulfill({contentType: "application/json", body: JSON.stringify(body)});
     });
-    await page.goto(`${base}/agents/knowledge-maintenance?tab=runs`);
+    await page.goto(`${base}/agents/knowledge-maintenance?tab=runs&library=company`);
+    await page.getByRole("complementary", {name: "巡检记录", exact: true}).waitFor();
+    assert.equal(await page.locator(".aw-agent-context, .aw-agent-workspace").count(), 0);
+    assert.equal(await page.getByRole("heading", {name: "巡检与跟进", exact: true}).count(), 0);
+    const composer = await page.locator('textarea[aria-label="消息"]').elementHandle();
+    assert.ok(composer, "legacy run link must retain the conversation DOM");
+    await page.getByRole("button", {name: "关闭维护面板", exact: true}).click();
+    const draft = "后台巡检更新时，保留这条未发送的维护要求";
+    await page.getByLabel("消息", {exact: true}).fill(draft);
+    const openRuns = async () => {
+      await page.getByRole("button", {name: "智能体选项", exact: true}).click();
+      await page.getByRole("dialog", {name: "智能体选项", exact: true})
+        .getByRole("button", {name: "查看巡检记录", exact: true}).click();
+      await page.getByRole("complementary", {name: "巡检记录", exact: true}).waitFor();
+      const url = new URL(page.url());
+      assert.equal(url.pathname, "/ai-workspace");
+      assert.equal(url.searchParams.get("panel"), "runs");
+      assert.equal(url.searchParams.get("library"), "company");
+      assert.equal(await composer.evaluate(el => el.isConnected), true);
+      assert.equal(await composer.inputValue(), draft);
+    };
+    await openRuns();
     await page.locator(".agent-history-table tbody tr").first().waitFor();
-    if (width >= 1024) assert.ok(await page.locator(".agent-history-table tbody tr").first().evaluate(el => el.getBoundingClientRect().height) <= 120);
-    await page.screenshot({path: path.join(out, `compact-${width}.png`), fullPage: true});
+    await page.screenshot({path: path.join(out, `compact-${width}.png`), fullPage: true, animations: "disabled"});
+    const rowHeight = await page.locator(".agent-history-table tbody tr").first().evaluate(el => el.getBoundingClientRect().height);
+    if (width >= 1024) assert.ok(rowHeight <= 120, `history row height is ${rowHeight}px at viewport ${width}px`);
     await page.getByRole("button", {name: "查看巡检详情"}).first().click();
     await page.getByRole("heading", {name: "逐项检查结果"}).waitFor();
     await page.getByText("核对当前知识库范围", {exact: true}).click();
@@ -63,13 +89,15 @@ try {
     // Check while network responses are still pending, not just after React settles.
     assert.ok(pending >= 1);
     assert.equal(await page.evaluate(() => { const q = window.__backgroundQA; return q.summary.isConnected && q.summary.closest("details").open && Math.abs(q.active.getBoundingClientRect().top - q.activeTop) <= 2 && document.activeElement === q.active; }), true);
+    assert.equal(await composer.evaluate(el => el.isConnected), true);
+    assert.equal(await composer.inputValue(), draft);
     runs[0] = {...runs[0], status: "completed", completed_count: 3050, finished_at: "2026-11-16T09:00:00Z"};
     hold = null; release();
     await page.getByRole("button", {name: "刷新详情"}).waitFor();
     await page.waitForFunction(() => !document.querySelector(".agent-report-toolbar button")?.disabled);
     assert.ok(detailCalls > beforeDetail && listCalls > beforeList);
     assert.equal(await page.evaluate(() => { const q = window.__backgroundQA; return q.summary.isConnected && q.summary.closest("details").open && Math.abs(q.active.getBoundingClientRect().top - q.activeTop) <= 2 && document.activeElement === q.active; }), true);
-    await page.screenshot({path: path.join(out, `preserved-detail-${width}.png`), fullPage: true});
+    await page.screenshot({path: path.join(out, `preserved-detail-${width}.png`), fullPage: true, animations: "disabled"});
     await page.getByRole("button", {name: "关闭详情"}).click();
     await page.locator(".agent-history-table tbody tr").first().getByRole("button", {name: "删除", exact: true}).click();
     await page.getByRole("button", {name: "确认删除记录"}).click();
@@ -80,7 +108,21 @@ try {
     await page.getByRole("button", {name: "确认删除记录"}).click();
     await page.getByText("尚无可查看的巡检记录").waitFor();
     assert.equal(deleted, 20);
-    cases.push({width, preserved: true, compact: true, single_and_bulk_delete: true});
+    await page.getByRole("button", {name: "关闭维护面板", exact: true}).click();
+    assert.equal(await page.getByLabel("消息", {exact: true}).inputValue(), draft);
+    assert.equal(await composer.evaluate(el => el.isConnected), true);
+    // A closed panel must stop its own polling while leaving the conversation alive.
+    runs = [{id: "run-20", policy_id: "policy", kind: "full", status: "running", can_retry: false, target_count: 3050, completed_count: 1, incomplete_count: 0, skipped_count: 0, reasons: {}, started_at: scope.assessed_at, finished_at: null}];
+    await openRuns();
+    await page.getByText("巡检中", {exact: true}).waitFor();
+    await page.getByRole("button", {name: "关闭维护面板", exact: true}).click();
+    const callsAtClose = listCalls;
+    await page.clock.fastForward(31_000);
+    assert.equal(listCalls, callsAtClose, "closing the maintenance panel left its polling active");
+    assert.equal(await composer.evaluate(el => el.isConnected), true);
+    assert.equal(await page.getByLabel("消息", {exact: true}).inputValue(), draft);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 2), false);
+    cases.push({width, preserved: true, compact: true, single_and_bulk_delete: true, chat_draft_preserved: true, closed_panel_stops_polling: true, legacy_deep_link: true});
     await context.close();
   }
 } finally {

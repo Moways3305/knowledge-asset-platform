@@ -18,17 +18,21 @@ export function legacyMaintenanceAgentDestination(search: string, hash = "") {
   return `${MAINTENANCE_AGENT_PATH}${search}${hash}`;
 }
 
-/** Business tabs change their own query fields without losing the workspace session. */
-export function maintenanceAgentHref(
+/** Focused panels stay alongside the conversation, preserving reminder scope. */
+export function maintenancePanelHref(
   search: string,
   changes: Record<string, string | null> = {},
   hash = "",
 ) {
   const params = new URLSearchParams(search);
+  params.set("agent", MAINTENANCE_AGENT_KEY);
+  if (params.has("tab") && !params.has("panel")) params.set("panel", params.get("tab")!);
+  params.delete("tab");
   for (const [name, value] of Object.entries(changes)) {
-    if (value === null) params.delete(name);
-    else params.set(name, value);
+    const field = name === "tab" ? "panel" : name;
+    if (value === null) params.delete(field);
+    else params.set(field, value);
   }
   const query = params.toString();
-  return `${MAINTENANCE_AGENT_PATH}${query ? `?${query}` : ""}${hash}`;
+  return `${AI_WORKSPACE_PATH}${query ? `?${query}` : ""}${hash}`;
 }

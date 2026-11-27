@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
-import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowRight, CalendarClock, ClipboardCheck, Cpu, RefreshCw, Settings2 } from "lucide-react";
-import { ApiError } from "../api/http";
+import { useEffect, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { ArrowRight, CalendarClock, ClipboardCheck, Cpu, RefreshCw } from "lucide-react";
+import { ApiError } from "../../api/http";
 import {
   actOnAgentIssue,
   fetchAgentIssue,
@@ -17,23 +17,18 @@ import {
   type IssueDetail,
   type IssuePage,
   type ScanRun,
-} from "../api/maintenanceAgent";
-import { PageHeader, ProductPage } from "../components/ProductLayout";
-import Button from "../components/Button";
-import { useAuth } from "../auth/AuthContext";
-import { can } from "../auth/permissions";
-import DetailDrawer from "../components/DetailDrawer";
-import FormField from "../components/FormField";
-import PagePagination from "../components/PagePagination";
-import { formatBeijingTime } from "../utils/time";
-import "./MaintenanceAgentPage.css";
-import MaintenanceRunDrawer from "./MaintenanceRunDrawer";
-import MaintenanceRunList from "./MaintenanceRunList";
-import {
-  maintenanceAgentHref,
-  agentConversationHref,
-  MAINTENANCE_AGENT_KEY,
-} from "../navigation/agentRoutes";
+} from "../../api/maintenanceAgent";
+import Button from "../../components/Button";
+import { useAuth } from "../../auth/AuthContext";
+import { can } from "../../auth/permissions";
+import DetailDrawer from "../../components/DetailDrawer";
+import FormField from "../../components/FormField";
+import PagePagination from "../../components/PagePagination";
+import { formatBeijingTime } from "../../utils/time";
+import "./MaintenancePanelContent.css";
+import { WorkspaceIconButton } from "./WorkspaceTooltip";
+import MaintenanceRunDrawer from "../MaintenanceRunDrawer";
+import MaintenanceRunList from "../MaintenanceRunList";
 
 const categories: Record<string, string> = {
   integrity: "信息完整性",
@@ -148,30 +143,36 @@ const summarySources: Record<string, string> = {
   safe_summary: "安全摘要",
 };
 
-export default function MaintenanceAgentPage({
-  embedded = false,
-  agentSessionId,
-}: {
-  embedded?: boolean;
-  agentSessionId?: string;
-}) {
-  return <MaintenanceWorkspace embedded={embedded} agentSessionId={agentSessionId} />;
+export interface MaintenancePolicyDraft {
+  enabled: boolean;
+  authorized: boolean;
+  settings: AgentPolicy["settings"];
+  tags: string;
+  sections: string;
+  expectedRevision: number;
+  savedDraft: string;
 }
 
-function MaintenanceWorkspace({
-  embedded,
-  agentSessionId,
+export default function MaintenancePanelContent({
+  onNavigate,
+  onDirtyChange,
+  draftCache,
 }: {
-  embedded: boolean;
-  agentSessionId?: string;
+  onNavigate: (changes: Record<string, string | null>) => void;
+  onDirtyChange?: (dirty: boolean) => void;
+  draftCache?: Map<string, MaintenancePolicyDraft>;
 }) {
-  const location = useLocation();
-  const navigate = useNavigate();
   const [params] = useSearchParams();
   const digestId = params.get("target_id") || params.get("digest_id") || "";
   const inbox = Boolean(digestId) || params.get("view") === "mine";
   const key = params.get("library") || (inbox ? "" : "company");
-  const tab = inbox ? "issues" : params.get("tab") || "issues";
+  const requestedPanel = params.get("panel") || params.get("tab");
+  const tab =
+    inbox || Boolean(params.get("asset_id"))
+      ? "issues"
+      : ["issues", "runs", "settings"].includes(requestedPanel || "")
+        ? requestedPanel!
+        : "issues";
   const page = Math.max(1, Number(params.get("page")) || 1);
   const status = params.get("status") || "active";
   const category = params.get("category") || "";
@@ -213,16 +214,8 @@ function MaintenanceWorkspace({
   const [selected, setSelected] = useState<string | null>(null);
   const [selectedRun, setSelectedRun] = useState<string | null>(null);
   const policy = policies.find((p) => p.library_key === key);
-  const selectedModel = models?.items.find((m) =>
-    !policy?.settings.model_ref || policy.settings.model_ref === "system_default"
-      ? m.is_default
-      : m.model_ref === policy.settings.model_ref,
-  );
   const update = (name: string, value: string) => {
-    const next = new URLSearchParams(params);
-    next.set(name, value);
-    if (name !== "page") next.delete("page");
-    navigate(maintenanceAgentHref(next.toString(), {}, location.hash));
+    onNavigate({ [name]: value || null, ...(name !== "page" ? { page: null } : {}) });
   };
   useEffect(() => {
     setSelectedRun(null);
@@ -310,7 +303,7 @@ function MaintenanceWorkspace({
           : "巡检已加入后台队列，可在巡检记录中查看进度。",
       );
       setSelectedRun(result.id);
-      update("tab", "runs");
+      update("panel", "runs");
       setRefresh((n) => n + 1);
     } catch (e) {
       setError(message(e));
@@ -319,406 +312,280 @@ function MaintenanceWorkspace({
     }
   };
   return (
-    <ProductPage className={`maintenance-agent-page ${embedded ? "is-workspace-agent" : ""}`}>
-      <PageHeader
-        title={embedded ? "巡检与跟进" : "知识维护 Agent"}
-        eyebrow={embedded ? undefined : "平台预置智能体"}
-        description="定期检查知识资产，记录问题并提醒相应维护人。"
-        actions={
-          <Button
-            size="small"
-            icon={<RefreshCw size={15} />}
-            onClick={() => {
-              setRefresh((n) => n + 1);
-              setModelRefresh((n) => n + 1);
-            }}
-            disabled={busy || loading}
+    <div className="aw-maintenance-content maintenance-panel-content" data-maintenance-panel={tab}>
+      <div className="maintenance-panel-library">
+        <FormField label={digestId ? "本次提醒的知识库" : inbox ? "待办所属知识库" : "知识库"}>
+          <select
+            value={displayLibrary}
+            onChange={(event) => update("library", event.target.value)}
           >
-            {loading ? "刷新中…" : "刷新"}
+            {inbox && libraries.length !== 1 && <option value="">全部相关知识库</option>}
+            {libraries.map((item) => (
+              <option key={item.library_key} value={item.library_key}>
+                {item.name}
+              </option>
+            ))}
+            {!inbox && !libraries.length && <option value="company">公司知识库</option>}
+          </select>
+        </FormField>
+        <WorkspaceIconButton
+          label="刷新"
+          tooltip="刷新当前面板"
+          disabled={busy || loading}
+          onClick={() => {
+            setRefresh((value) => value + 1);
+            setModelRefresh((value) => value + 1);
+          }}
+        >
+          <RefreshCw size={15} />
+        </WorkspaceIconButton>
+      </div>
+      {inbox && displayLibrary && (
+        <Button
+          variant="ghost"
+          size="small"
+          onClick={() =>
+            onNavigate({
+              library: displayLibrary,
+              panel: "issues",
+              tab: null,
+              target_id: null,
+              digest_id: null,
+              view: null,
+              mine: null,
+              page: null,
+            })
+          }
+        >
+          查看该知识库全部待办
+        </Button>
+      )}
+      {error && (
+        <p role="alert" className="agent-error">
+          {error}{" "}
+          <Button size="small" onClick={() => setRefresh((n) => n + 1)}>
+            重试
           </Button>
-        }
-      />
-      <>
-        {inbox ? (
-          <div className="agent-toolbar">
-            <FormField label={digestId ? "本次提醒的知识库" : "待办所属知识库"}>
-              <select value={displayLibrary} onChange={(e) => update("library", e.target.value)}>
-                {libraries.length !== 1 && <option value="">全部相关知识库</option>}
-                {libraries.map((p) => (
-                  <option key={p.library_key} value={p.library_key}>
-                    {p.name}
+        </p>
+      )}
+      {notice && <p role="status">{notice}</p>}
+      {policy?.last_error && (
+        <p role="alert" className="agent-error">
+          {reasons[policy.last_error] || "巡检配置需要检查"}
+        </p>
+      )}
+      {!data && !error && <p role="status">正在加载巡检信息…</p>}
+      {tab === "issues" && data && (
+        <section aria-label="巡检问题" className="agent-panel">
+          {!digestId && (
+            <div className="agent-priority" role="group" aria-label="维护优先级">
+              {(
+                [
+                  ["actionable", "需要处理"],
+                  ["suggestion", "完善建议"],
+                ] as const
+              ).map(([value, label]) => (
+                <Button
+                  key={value}
+                  variant={priority === value ? "primary" : "secondary"}
+                  aria-pressed={priority === value}
+                  onClick={() => update("priority", value)}
+                >
+                  {label} {data.counts?.[value] ?? ""}
+                </Button>
+              ))}
+            </div>
+          )}
+          <p className="agent-note">
+            {digestId
+              ? "本次巡检提醒中由你负责的问题"
+              : priority === "suggestion"
+                ? "摘要、分类、标签等完善建议按需处理，不重复发送待办提醒。"
+                : "显示影响使用、内容可靠性或已经到期的维护事项。"}
+          </p>
+          {assetId && (
+            <p>
+              仅显示当前资料的巡检问题。
+              <Button variant="ghost" onClick={() => update("asset_id", "")}>
+                查看全部资料
+              </Button>
+            </p>
+          )}
+          <div className="agent-filters">
+            <FormField label="检查类别">
+              <select value={category} onChange={(e) => update("category", e.target.value)}>
+                <option value="">全部类别</option>
+                {Object.entries(categories).map(([v, l]) => (
+                  <option key={v} value={v}>
+                    {l}
                   </option>
                 ))}
               </select>
             </FormField>
-            {displayLibrary && (
-              <Link
-                to={maintenanceAgentHref(
-                  location.search,
-                  {
-                    library: displayLibrary,
-                    tab: "issues",
-                    target_id: null,
-                    digest_id: null,
-                    view: null,
-                    mine: null,
-                    page: null,
-                  },
-                  location.hash,
-                )}
-              >
-                查看该知识库全部待办
-              </Link>
-            )}
-          </div>
-        ) : (
-          <>
-            <div className="agent-toolbar">
-              <FormField label="巡检知识库">
-                <select value={key} onChange={(e) => update("library", e.target.value)}>
-                  {policies.length ? (
-                    policies.map((p) => (
-                      <option key={p.library_key} value={p.library_key}>
-                        {p.name}
-                      </option>
-                    ))
-                  ) : (
-                    <option value="company">公司知识库</option>
-                  )}
-                </select>
-              </FormField>
-              <div className="agent-scope">
-                <CalendarClock size={18} />
-                <span>
-                  全部有效资料 · 每日增量 / 每周全量
-                  <br />
-                  <small>仅巡检所选知识库，个人知识库不参与</small>
-                </span>
-              </div>
-              <div className="agent-run-action">
-                <Button
-                  variant="primary"
-                  icon={policy?.id ? <ClipboardCheck size={16} /> : <Settings2 size={16} />}
-                  disabled={busy || loading || !policy?.can_configure}
-                  aria-describedby="agent-run-guidance"
-                  onClick={() =>
-                    hasRunning
-                      ? update("tab", "runs")
-                      : !policy?.id
-                        ? update("tab", "settings")
-                        : void runNow()
-                  }
-                >
-                  {busy
-                    ? "正在提交…"
-                    : hasRunning
-                      ? "查看巡检进度"
-                      : !policy?.id
-                        ? "配置并开始"
-                        : "立即全面巡检"}
-                </Button>
-                <small id="agent-run-guidance">
-                  {loading
-                    ? "正在读取巡检配置"
-                    : !policy
-                      ? "配置读取失败，请刷新重试"
-                      : !policy.can_configure
-                        ? "需由公司知识治理人员或该项目经理操作"
-                        : !policy.id
-                          ? "首次使用，先配置模型与巡检授权"
-                          : hasRunning
-                            ? "已有巡检任务，点击查看进度"
-                            : "检查本知识库全部有效资料的当前版本"}
-                </small>
-              </div>
-            </div>
-            <div className="agent-readiness" aria-label="智能体当前配置">
-              <Cpu size={17} aria-hidden="true" />
-              <span>
-                分析模型：
-                <strong>
-                  {modelError
-                    ? "暂时无法读取"
-                    : !models
-                      ? "正在读取…"
-                      : selectedModel?.display_name || "尚无可用模型"}
-                </strong>
-              </span>
-              <span>{policy?.enabled ? "自动巡检已开启" : "自动巡检未开启"}</span>
-              <span>{policy?.content_authorized ? "正文分析已授权" : "正文分析未授权"}</span>
-              <Button
-                variant="ghost"
-                size="small"
-                onClick={() => update("tab", "settings")}
-                icon={<Settings2 size={14} />}
-              >
-                模型与巡检配置
-              </Button>
-            </div>
-          </>
-        )}
-        {error && (
-          <p role="alert" className="agent-error">
-            {error}{" "}
-            <Button size="small" onClick={() => setRefresh((n) => n + 1)}>
-              重试
-            </Button>
-          </p>
-        )}
-        {notice && <p role="status">{notice}</p>}
-        {policy?.last_error && (
-          <p role="alert" className="agent-error">
-            {reasons[policy.last_error] || "巡检配置需要检查"}
-          </p>
-        )}
-        {!inbox && (
-          <nav className="agent-tabs" aria-label="知识维护视图">
-            <Link to={agentConversationHref(MAINTENANCE_AGENT_KEY, agentSessionId, key)}>
-              任务会话
-            </Link>
-            {[
-              ["issues", "维护待办"],
-              ["runs", "巡检记录"],
-              ["settings", "巡检设置"],
-            ].map(([value, label]) => (
-              <button
-                type="button"
-                key={value}
-                aria-current={tab === value ? "page" : undefined}
-                onClick={() => update("tab", value)}
-              >
-                {label}
-              </button>
-            ))}
-          </nav>
-        )}
-        {!data && !error && <p role="status">正在加载巡检信息…</p>}
-        {tab === "issues" && data && (
-          <section aria-label="巡检问题" className="agent-panel">
-            {!digestId && (
-              <div className="agent-priority" role="group" aria-label="维护优先级">
-                {(
-                  [
-                    ["actionable", "需要处理"],
-                    ["suggestion", "完善建议"],
-                  ] as const
-                ).map(([value, label]) => (
-                  <Button
-                    key={value}
-                    variant={priority === value ? "primary" : "secondary"}
-                    aria-pressed={priority === value}
-                    onClick={() => update("priority", value)}
-                  >
-                    {label} {data.counts?.[value] ?? ""}
-                  </Button>
-                ))}
-              </div>
-            )}
-            <p className="agent-note">
-              {digestId
-                ? "本次巡检提醒中由你负责的问题"
-                : priority === "suggestion"
-                  ? "摘要、分类、标签等完善建议按需处理，不重复发送待办提醒。"
-                  : "显示影响使用、内容可靠性或已经到期的维护事项。"}
-            </p>
-            {assetId && (
-              <p>
-                仅显示当前资料的巡检问题。
-                <Button variant="ghost" onClick={() => update("asset_id", "")}>
-                  查看全部资料
-                </Button>
-              </p>
-            )}
-            <div className="agent-filters">
-              <FormField label="检查类别">
-                <select value={category} onChange={(e) => update("category", e.target.value)}>
-                  <option value="">全部类别</option>
-                  {Object.entries(categories).map(([v, l]) => (
+            <FormField label="处理状态">
+              <select value={status} onChange={(e) => update("status", e.target.value)}>
+                {Object.entries(states)
+                  .filter(
+                    ([v]) =>
+                      !["queued", "running", "completed", "partial", "cancelled", "open"].includes(
+                        v,
+                      ),
+                  )
+                  .map(([v, l]) => (
                     <option key={v} value={v}>
                       {l}
                     </option>
                   ))}
-                </select>
-              </FormField>
-              <FormField label="处理状态">
-                <select value={status} onChange={(e) => update("status", e.target.value)}>
-                  {Object.entries(states)
-                    .filter(
-                      ([v]) =>
-                        ![
-                          "queued",
-                          "running",
-                          "completed",
-                          "partial",
-                          "cancelled",
-                          "open",
-                        ].includes(v),
-                    )
-                    .map(([v, l]) => (
-                      <option key={v} value={v}>
-                        {l}
-                      </option>
-                    ))}
-                </select>
-              </FormField>
-              <label className="agent-checkbox">
-                <input
-                  type="checkbox"
-                  checked={mine}
-                  disabled={inbox}
-                  onChange={(e) => update("mine", String(e.target.checked))}
-                />{" "}
-                只看我负责的
-              </label>
-              <span>{data.total} 个问题</span>
+              </select>
+            </FormField>
+            <label className="agent-checkbox">
+              <input
+                type="checkbox"
+                checked={mine}
+                disabled={inbox}
+                onChange={(e) => update("mine", String(e.target.checked))}
+              />{" "}
+              只看我负责的
+            </label>
+            <span>{data.total} 个问题</span>
+          </div>
+          {data.items.length ? (
+            <ul className="agent-issues">
+              {data.items.map((issue) => (
+                <li key={issue.id}>
+                  <div className="agent-issue-meta">
+                    {inbox && !displayLibrary && (
+                      <span>
+                        {libraries.find((p) => p.library_key === issue.library_key)?.name}
+                      </span>
+                    )}
+                    <span>{categories[issue.category]}</span>
+                    <span className={`agent-status agent-status-${issue.status}`}>
+                      {states[issue.status]}
+                    </span>
+                  </div>
+                  <button
+                    className="agent-issue-title"
+                    type="button"
+                    onClick={() => setSelected(issue.id)}
+                  >
+                    {rules[issue.rule] || "知识资产待核查"}
+                    <ArrowRight size={16} />
+                  </button>
+                  <div className="agent-asset-title">{issue.title}</div>
+                  <div className="agent-issue-foot">
+                    <span>
+                      {issue.suspected
+                        ? "疑似问题 · 需要人工判断"
+                        : issue.priority === "suggestion"
+                          ? "完善建议 · 修改后自动同步"
+                          : "客观检查项 · 修正后自动同步"}
+                    </span>
+                    <span>
+                      维护人：
+                      {issue.responsible.map((r) => r.name).join("、") || "等待知识库管理人认领"}
+                    </span>
+                    <time>{formatBeijingTime(issue.last_seen_at)}</time>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="agent-empty">
+              <ClipboardCheck size={28} />
+              <h3>{inbox || policy?.id ? "当前筛选下没有维护待办" : "从首次巡检开始"}</h3>
+              <p>
+                {inbox
+                  ? "可切换处理状态查看已办结的问题。"
+                  : policy?.id
+                    ? "可切换条件，或在巡检记录中确认检查是否完整。"
+                    : policy?.can_configure
+                      ? "在配置面板选择分析模型并确认授权，再向 Agent 交代巡检目标。"
+                      : "请由知识库管理人先保存巡检设置，再开始检查。"}
+              </p>
             </div>
-            {data.items.length ? (
-              <ul className="agent-issues">
-                {data.items.map((issue) => (
-                  <li key={issue.id}>
-                    <div className="agent-issue-meta">
-                      {inbox && !displayLibrary && (
-                        <span>
-                          {libraries.find((p) => p.library_key === issue.library_key)?.name}
-                        </span>
-                      )}
-                      <span>{categories[issue.category]}</span>
-                      <span className={`agent-status agent-status-${issue.status}`}>
-                        {states[issue.status]}
-                      </span>
-                    </div>
-                    <button
-                      className="agent-issue-title"
-                      type="button"
-                      onClick={() => setSelected(issue.id)}
-                    >
-                      {rules[issue.rule] || "知识资产待核查"}
-                      <ArrowRight size={16} />
-                    </button>
-                    <div className="agent-asset-title">{issue.title}</div>
-                    <div className="agent-issue-foot">
-                      <span>
-                        {issue.suspected
-                          ? "疑似问题 · 需要人工判断"
-                          : issue.priority === "suggestion"
-                            ? "完善建议 · 修改后自动同步"
-                            : "客观检查项 · 修正后自动同步"}
-                      </span>
-                      <span>
-                        维护人：
-                        {issue.responsible.map((r) => r.name).join("、") || "等待知识库管理人认领"}
-                      </span>
-                      <time>{formatBeijingTime(issue.last_seen_at)}</time>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <div className="agent-empty">
-                <ClipboardCheck size={28} />
-                <h3>{inbox || policy?.id ? "当前筛选下没有维护待办" : "从首次巡检开始"}</h3>
-                <p>
-                  {inbox
-                    ? "可切换处理状态查看已办结的问题。"
-                    : policy?.id
-                      ? "可切换条件，或在巡检记录中确认检查是否完整。"
-                      : policy?.can_configure
-                        ? "点击“配置并开始”，选择分析模型并确认授权后，发起首次巡检。"
-                        : "请由知识库管理人先保存巡检设置，再开始检查。"}
-                </p>
-              </div>
-            )}
-            <PagePagination
-              ariaLabel="维护问题分页"
-              page={page}
-              totalPages={Math.max(1, Math.ceil(data.total / 25))}
-              onPageChange={(p) => update("page", String(p))}
-              summary={`共 ${data.total} 项`}
-            />
-          </section>
-        )}
-        {tab === "runs" && data && (
-          <section className="agent-panel" aria-label="巡检记录">
-            <p className="agent-note">
-              完成检查不代表没有问题。未完成项会保留原因，已有问题不会因此自动关闭。
-            </p>
-            {!policy?.can_configure ? (
-              <p>巡检记录由知识库管理人查看。</p>
-            ) : runs.length ? (
-              <>
-                <MaintenanceRunList
-                  key={`${key}:${page}`}
-                  library={key}
-                  runs={runs}
-                  onSelect={setSelectedRun}
-                  onChanged={(deleted) => {
-                    if (selectedRun && deleted.includes(selectedRun)) setSelectedRun(null);
-                    if (deleted.length >= runs.length && page > 1) update("page", String(page - 1));
-                    setRefresh((n) => n + 1);
-                  }}
-                />
-                <div className="agent-run-pages">
-                  <Button
-                    size="small"
-                    disabled={page <= 1}
-                    onClick={() => update("page", String(page - 1))}
-                  >
-                    上一页
-                  </Button>
-                  <span>第 {page} 页</span>
-                  <Button
-                    size="small"
-                    disabled={runs.length < 25}
-                    onClick={() => update("page", String(page + 1))}
-                  >
-                    下一页
-                  </Button>
-                </div>
-              </>
-            ) : (
-              <div className="agent-empty">
-                <CalendarClock size={28} />
-                <h3>尚无可查看的巡检记录</h3>
-                <p>保存设置后可立即执行一次全面巡检。</p>
-              </div>
-            )}
-          </section>
-        )}
-        {tab === "settings" && policy && (
-          <PolicyEditor
-            key={`${policy.library_key}:${editorRevision}`}
-            policy={policy}
-            models={models}
-            modelError={modelError}
-            hasRunning={hasRunning}
-            onReloadModels={() => setModelRefresh((n) => n + 1)}
-            onSaved={async (saved, start) => {
-              setPolicies((items) =>
-                items.map((item) => (item.library_key === saved.library_key ? saved : item)),
-              );
-              setEditorRevision((n) => n + 1);
-              setNotice("巡检设置已保存。");
-              setRefresh((n) => n + 1);
-              if (start) await runNow();
-            }}
+          )}
+          <PagePagination
+            ariaLabel="维护问题分页"
+            page={page}
+            totalPages={Math.max(1, Math.ceil(data.total / 25))}
+            onPageChange={(p) => update("page", String(p))}
+            summary={`共 ${data.total} 项`}
           />
-        )}
-        <p className="agent-note">
-          提醒方式：站内待办和通知，配合企业微信摘要。通知已读不会关闭问题。
-          <Link
-            to="/help?article=maintenance-agent"
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="在 KAP 新标签页查看知识维护使用说明"
-          >
-            查看使用说明（KAP）
-          </Link>
-        </p>
-      </>
+        </section>
+      )}
+      {tab === "runs" && data && (
+        <section className="agent-panel" aria-label="巡检记录">
+          <p className="agent-note">
+            完成检查不代表没有问题。未完成项会保留原因，已有问题不会因此自动关闭。
+          </p>
+          {!policy?.can_configure ? (
+            <p>巡检记录由知识库管理人查看。</p>
+          ) : runs.length ? (
+            <>
+              <MaintenanceRunList
+                key={`${key}:${page}`}
+                library={key}
+                runs={runs}
+                onSelect={setSelectedRun}
+                onChanged={(deleted) => {
+                  if (selectedRun && deleted.includes(selectedRun)) setSelectedRun(null);
+                  if (deleted.length >= runs.length && page > 1) update("page", String(page - 1));
+                  setRefresh((n) => n + 1);
+                }}
+              />
+              <div className="agent-run-pages">
+                <Button
+                  size="small"
+                  disabled={page <= 1}
+                  onClick={() => update("page", String(page - 1))}
+                >
+                  上一页
+                </Button>
+                <span>第 {page} 页</span>
+                <Button
+                  size="small"
+                  disabled={runs.length < 25}
+                  onClick={() => update("page", String(page + 1))}
+                >
+                  下一页
+                </Button>
+              </div>
+            </>
+          ) : (
+            <div className="agent-empty">
+              <CalendarClock size={28} />
+              <h3>尚无可查看的巡检记录</h3>
+              <p>向 Agent 交代巡检目标后，可在这里查看执行记录。</p>
+            </div>
+          )}
+        </section>
+      )}
+      {tab === "settings" && policy && (
+        <PolicyEditor
+          key={`${policy.library_key}:${editorRevision}`}
+          policy={policy}
+          models={models}
+          modelError={modelError}
+          hasRunning={hasRunning}
+          onReloadModels={() => setModelRefresh((n) => n + 1)}
+          onDirtyChange={onDirtyChange}
+          draftCache={draftCache}
+          onSaved={async (saved, start) => {
+            setPolicies((items) =>
+              items.map((item) => (item.library_key === saved.library_key ? saved : item)),
+            );
+            setEditorRevision((n) => n + 1);
+            setNotice("巡检设置已保存。");
+            setRefresh((n) => n + 1);
+            if (start) await runNow();
+          }}
+        />
+      )}
       {selected && (
         <IssueDrawer
           id={selected}
-          embedded={embedded}
+          embedded
           onClose={() => setSelected(null)}
           onChanged={() => setRefresh((n) => n + 1)}
         />
@@ -726,7 +593,7 @@ function MaintenanceWorkspace({
       {selectedRun && (
         <MaintenanceRunDrawer
           key={`${key}:${selectedRun}`}
-          embedded={embedded}
+          embedded
           library={key}
           id={selectedRun}
           onClose={() => setSelectedRun(null)}
@@ -735,7 +602,7 @@ function MaintenanceWorkspace({
           rules={rules}
         />
       )}
-    </ProductPage>
+    </div>
   );
 }
 
@@ -746,6 +613,8 @@ function PolicyEditor({
   hasRunning,
   onReloadModels,
   onSaved,
+  onDirtyChange,
+  draftCache,
 }: {
   policy: AgentPolicy;
   models: AgentModelOptions | null;
@@ -753,15 +622,61 @@ function PolicyEditor({
   hasRunning: boolean;
   onReloadModels: () => void;
   onSaved: (saved: AgentPolicy, start: boolean) => Promise<void>;
+  onDirtyChange?: (dirty: boolean) => void;
+  draftCache?: Map<string, MaintenancePolicyDraft>;
 }) {
   const { capabilities } = useAuth();
-  const [enabled, setEnabled] = useState(policy.enabled);
-  const [authorized, setAuthorized] = useState(policy.content_authorized);
-  const [settings, setSettings] = useState(policy.settings);
-  const [tags, setTags] = useState(settings.required_tags.join("，"));
-  const [sections, setSections] = useState(settings.required_sections.join("，"));
+  const [restored] = useState(() =>
+    policy.can_configure ? draftCache?.get(policy.library_key) : undefined,
+  );
+  const [enabled, setEnabled] = useState(restored?.enabled ?? policy.enabled);
+  const [authorized, setAuthorized] = useState(restored?.authorized ?? policy.content_authorized);
+  const [settings, setSettings] = useState(restored?.settings ?? policy.settings);
+  const [tags, setTags] = useState(restored?.tags ?? settings.required_tags.join("，"));
+  const [sections, setSections] = useState(
+    restored?.sections ?? settings.required_sections.join("，"),
+  );
+  const [expectedRevision] = useState(restored?.expectedRevision ?? policy.revision);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const mounted = useRef(true);
+  const draft = JSON.stringify({ enabled, authorized, settings, tags, sections });
+  const [savedDraft, setSavedDraft] = useState(restored?.savedDraft ?? draft);
+  const dirty = draft !== savedDraft;
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (dirty) {
+      draftCache?.set(policy.library_key, {
+        enabled,
+        authorized,
+        settings,
+        tags,
+        sections,
+        expectedRevision,
+        savedDraft,
+      });
+    } else draftCache?.delete(policy.library_key);
+  }, [
+    dirty,
+    draftCache,
+    policy.library_key,
+    enabled,
+    authorized,
+    settings,
+    tags,
+    sections,
+    expectedRevision,
+    savedDraft,
+  ]);
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
   const modelRef = settings.model_ref || "system_default";
   const model = models?.items.find((m) =>
     modelRef === "system_default" ? m.is_default : m.model_ref === modelRef,
@@ -776,10 +691,11 @@ function PolicyEditor({
         .map((x) => x.trim())
         .filter(Boolean);
     try {
+      const submittedDraft = draftCache?.get(policy.library_key);
       const submitter = (event.nativeEvent as SubmitEvent).submitter;
       const start = submitter instanceof HTMLButtonElement && submitter.value === "run";
       const saved = await saveAgentPolicy(policy.library_key, {
-        expected_revision: policy.revision,
+        expected_revision: expectedRevision,
         enabled,
         content_authorized: authorized,
         settings: {
@@ -789,11 +705,16 @@ function PolicyEditor({
           required_sections: split(sections),
         },
       });
+      if (draftCache?.get(policy.library_key) === submittedDraft)
+        draftCache?.delete(policy.library_key);
+      if (!mounted.current) return;
+      setSavedDraft(draft);
+      onDirtyChange?.(false);
       await onSaved(saved, start);
     } catch (e) {
-      setError(message(e));
+      if (mounted.current) setError(message(e));
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   };
   return (
